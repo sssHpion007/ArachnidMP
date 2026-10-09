@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Material You 3 Baseline Tokens (will be dynamically overwritten) */
+  --md-sys-color-primary: #a879ff;
+  --md-sys-color-on-primary: #1e004d;
+  --md-sys-color-primary-container: #470f92;
+  --md-sys-color-on-primary-container: #ecdcff;
+  --md-sys-color-secondary: #cdc2db;
+  --md-sys-color-on-secondary: #342d40;
+  --md-sys-color-secondary-container: #4a4358;
+  --md-sys-color-on-secondary-container: #e9def8;
+  --md-sys-color-tertiary: #f0b7c5;
+  --md-sys-color-on-tertiary: #4a2532;
+  --md-sys-color-tertiary-container: #643b48;
+  --md-sys-color-on-tertiary-container: #ffd9e2;
+  --md-sys-color-background: #141218;
+  --md-sys-color-on-background: #e6e1e5;
+  --md-sys-color-surface: #141218;
+  --md-sys-color-on-surface: #e6e1e5;
+  --md-sys-color-surface-variant: #49454f;
+  --md-sys-color-on-surface-variant: #cac4d0;
+  --md-sys-color-surface-container-lowest: #0f0d13;
+  --md-sys-color-surface-container-low: #1d1b20;
+  --md-sys-color-surface-container: #211f26;
+  --md-sys-color-surface-container-high: #2b2930;
+  --md-sys-color-surface-container-highest: #36343b;
+  --md-sys-color-outline: #938f99;
+  --md-sys-color-outline-variant: #49454f;
+}
+
+/* Custom scrollbars */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--md-sys-color-outline-variant);
+  border-radius: 9999px;
+  opacity: 0.4;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--md-sys-color-outline);
+}
+
+/* Range input styling for volume and EQ */
+input[type=range] {
+  -webkit-appearance: none;
+  background: transparent;
+}
+
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 14px;
+  width: 14px;
+  border-radius: 50%;
+  background: var(--md-sys-color-primary);
+  cursor: pointer;
+  margin-top: -4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  transition: transform 0.1s ease;
+}
+
+input[type=range]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+input[type=range]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 6px;
+  cursor: pointer;
+  background: var(--md-sys-color-surface-container-highest);
+  border-radius: 9999px;
+}

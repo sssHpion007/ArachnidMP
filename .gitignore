@@ -1,0 +1,27 @@
+# Node & Vite
+node_modules
+dist
+dist-ssr
+*.local
+.npm
+.cache
+.cargo
+.rustup
+.profile
+scripts
+.config
+.ssh
+.sudo_as_admin_successful
+
+# Rust & Tauri
+src-tauri/target
+src-tauri/gen
+
+# OS Files
+.DS_Store
+Thumbs.db
+*.log
+
+# Sensitive credentials
+.env
+.env.local
