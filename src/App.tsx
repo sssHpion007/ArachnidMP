@@ -84,6 +84,11 @@ export const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef<number>(0);
   const isLoadedRef = useRef<boolean>(false);
+  const selectedPlaylistIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    selectedPlaylistIdRef.current = selectedPlaylistId;
+  }, [selectedPlaylistId]);
 
   // Load Portable Data on Startup (strictly from arachnid_data.json next to exe in Tauri)
   useEffect(() => {
@@ -455,12 +460,39 @@ export const App: React.FC = () => {
         isFavorite: false,
       }));
 
+      // Collect IDs to add to active playlist if open
+      const trackIdsForPl: string[] = [];
+
       // Deduplicate: avoid adding identical paths or titles
       setTracks(prev => {
-        const existingKeys = new Set(prev.map(t => t.path || `${t.title}-${t.artist}`));
-        const unique = newTracks.filter(t => !existingKeys.has(t.path || `${t.title}-${t.artist}`));
+        const existingMap = new Map<string, Track>();
+        prev.forEach(t => existingMap.set(t.path || `${t.title}-${t.artist}`, t));
+        const unique: Track[] = [];
+
+        for (const nt of newTracks) {
+          const key = nt.path || `${nt.title}-${nt.artist}`;
+          if (existingMap.has(key)) {
+            trackIdsForPl.push(existingMap.get(key)!.id);
+          } else {
+            unique.push(nt);
+            trackIdsForPl.push(nt.id);
+          }
+        }
         return [...prev, ...unique];
       });
+
+      // If dropped while viewing a specific playlist, automatically add to that playlist!
+      const activePlId = selectedPlaylistIdRef.current;
+      if (activePlId && trackIdsForPl.length > 0) {
+        setPlaylists(prev => prev.map(p => {
+          if (p.id === activePlId) {
+            const set = new Set(p.trackIds);
+            const toAdd = trackIdsForPl.filter(id => !set.has(id));
+            return { ...p, trackIds: [...p.trackIds, ...toAdd] };
+          }
+          return p;
+        }));
+      }
 
       setQueue(prev => {
         const existingKeys = new Set(prev.map(t => t.path || `${t.title}-${t.artist}`));
@@ -495,11 +527,38 @@ export const App: React.FC = () => {
     }
 
     if (newTracks.length > 0) {
+      const trackIdsForPl: string[] = [];
+
       setTracks((prev) => {
-        const existingKeys = new Set(prev.map(t => `${t.title}-${t.artist}-${t.fileSize}`));
-        const unique = newTracks.filter(t => !existingKeys.has(`${t.title}-${t.artist}-${t.fileSize}`));
+        const existingMap = new Map<string, Track>();
+        prev.forEach(t => existingMap.set(t.path || `${t.title}-${t.artist}-${t.fileSize}`, t));
+        const unique: Track[] = [];
+
+        for (const nt of newTracks) {
+          const key = nt.path || `${nt.title}-${nt.artist}-${nt.fileSize}`;
+          if (existingMap.has(key)) {
+            trackIdsForPl.push(existingMap.get(key)!.id);
+          } else {
+            unique.push(nt);
+            trackIdsForPl.push(nt.id);
+          }
+        }
         return [...prev, ...unique];
       });
+
+      // If dropped while viewing a specific playlist, automatically add to that playlist!
+      const activePlId = selectedPlaylistIdRef.current;
+      if (activePlId && trackIdsForPl.length > 0) {
+        setPlaylists(prev => prev.map(p => {
+          if (p.id === activePlId) {
+            const set = new Set(p.trackIds);
+            const toAdd = trackIdsForPl.filter(id => !set.has(id));
+            return { ...p, trackIds: [...p.trackIds, ...toAdd] };
+          }
+          return p;
+        }));
+      }
+
       setQueue((prev) => {
         const existingKeys = new Set(prev.map(t => `${t.title}-${t.artist}-${t.fileSize}`));
         const unique = newTracks.filter(t => !existingKeys.has(`${t.title}-${t.artist}-${t.fileSize}`));
@@ -535,11 +594,37 @@ export const App: React.FC = () => {
             isFavorite: false,
           }));
 
+          const trackIdsForPl: string[] = [];
+
           setTracks(prev => {
-            const existingKeys = new Set(prev.map(tr => tr.path || `${tr.title}-${tr.artist}`));
-            const unique = newTracks.filter(tr => !existingKeys.has(tr.path || `${tr.title}-${tr.artist}`));
+            const existingMap = new Map<string, Track>();
+            prev.forEach(tr => existingMap.set(tr.path || `${tr.title}-${tr.artist}`, tr));
+            const unique: Track[] = [];
+
+            for (const nt of newTracks) {
+              const key = nt.path || `${nt.title}-${nt.artist}`;
+              if (existingMap.has(key)) {
+                trackIdsForPl.push(existingMap.get(key)!.id);
+              } else {
+                unique.push(nt);
+                trackIdsForPl.push(nt.id);
+              }
+            }
             return [...prev, ...unique];
           });
+
+          const activePlId = selectedPlaylistIdRef.current;
+          if (activePlId && trackIdsForPl.length > 0) {
+            setPlaylists(prev => prev.map(p => {
+              if (p.id === activePlId) {
+                const set = new Set(p.trackIds);
+                const toAdd = trackIdsForPl.filter(id => !set.has(id));
+                return { ...p, trackIds: [...p.trackIds, ...toAdd] };
+              }
+              return p;
+            }));
+          }
+
           setQueue(prev => {
             const existingKeys = new Set(prev.map(tr => tr.path || `${tr.title}-${tr.artist}`));
             const unique = newTracks.filter(tr => !existingKeys.has(tr.path || `${tr.title}-${tr.artist}`));
@@ -998,6 +1083,7 @@ export const App: React.FC = () => {
               sortOrder={sortOrder}
               onSortChange={handleSortChange}
               onDropFiles={importFiles}
+              onDropInternalTracks={selectedPlaylistId ? (tIds) => handleDropTracksToPlaylist(selectedPlaylistId, tIds) : undefined}
             />
           </div>
         ) : currentView === 'playlists' ? (

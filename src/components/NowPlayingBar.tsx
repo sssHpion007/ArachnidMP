@@ -119,7 +119,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <footer className="h-22 w-full shrink-0 bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-6 flex items-center justify-between select-none relative z-30 transition-colors duration-300">
+    <footer className="h-20 max-h-20 w-full shrink-0 overflow-hidden bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-6 flex items-center justify-between select-none relative z-30 transition-colors duration-300">
       {/* Top Embedded Timeline Scrubber */}
       <div 
         ref={progressBarRef}
@@ -150,13 +150,16 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
 
       {/* Left: Cover Art & Track Metadata */}
       <div className="flex items-center gap-3.5 w-1/4 min-w-[240px]">
-        {/* Cover Art with subtle glow */}
-        <div className="w-13 h-13 rounded-2xl overflow-hidden shrink-0 bg-md3-surface-container shadow-md border border-md3-outline-variant/15 relative group">
+        {/* Cover Art with subtle glow - strictly constrained to 56x56 */}
+        <div 
+          style={{ width: '56px', height: '56px', minWidth: '56px', minHeight: '56px', maxWidth: '56px', maxHeight: '56px' }}
+          className="w-14 h-14 min-w-[56px] min-h-[56px] max-w-[56px] max-h-[56px] rounded-2xl overflow-hidden shrink-0 bg-md3-surface-container shadow-md border border-md3-outline-variant/15 relative group"
+        >
           {currentTrack?.coverArt ? (
             <img 
               src={currentTrack.coverArt} 
               alt={currentTrack.title} 
-              className={`w-full h-full object-cover transition-transform duration-300 ${isPlaying ? 'scale-105' : ''}`} 
+              className={`w-full h-full max-w-full max-h-full object-cover transition-transform duration-300 ${isPlaying ? 'scale-105' : ''}`} 
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-md3-primary/10 text-md3-primary">

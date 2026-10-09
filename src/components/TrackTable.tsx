@@ -34,6 +34,7 @@ interface TrackTableProps {
   sortOrder: 'asc' | 'desc';
   onSortChange: (column: string) => void;
   onDropFiles: (files: File[]) => void;
+  onDropInternalTracks?: (trackIds: string[]) => void;
 }
 
 export const TrackTable: React.FC<TrackTableProps> = ({
@@ -53,6 +54,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   sortOrder,
   onSortChange,
   onDropFiles,
+  onDropInternalTracks,
 }) => {
   const [hoveredTrackId, setHoveredTrackId] = useState<string | null>(null);
 
@@ -78,7 +80,17 @@ export const TrackTable: React.FC<TrackTableProps> = ({
     e.preventDefault();
     if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       onDropFiles(Array.from(e.dataTransfer.files));
+      return;
     }
+    try {
+      const data = e.dataTransfer?.getData('application/json');
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (parsed.trackIds && Array.isArray(parsed.trackIds) && onDropInternalTracks) {
+          onDropInternalTracks(parsed.trackIds);
+        }
+      }
+    } catch (_) {}
   };
 
   const selectedCount = selectedTrackIds.size;
