@@ -14,18 +14,12 @@ export const EQ_PRESETS = [
 ];
 
 /**
- * High-Performance Gapless Audio Engine (MusicBee-grade)
+ * Unified Gapless Audio Engine (MusicBee-grade Architecture)
  *
- * 1. For normal playback: Instant streaming via single HTMLAudioElement with smooth volume curves.
- * 2. For seamless single-track looping (repeatMode: 'one'):
- *    Decodes audio into memory-resident 32-bit float PCM AudioBuffer via Web Audio API.
- *    Reads files directly through Rust backend (std::fs::read) to eliminate CORS and network latency.
- *    Uses hardware AudioBufferSourceNode.loop = true, which loops directly in the audio thread
- *    at sample boundaries.
- *    This completely eliminates:
- *      - Buffer starvation / Media Foundation EOS stall (заикание)
- *      - DC offset discontinuities / waveform clipping (треск / щелчок)
- *      - Timeline expansion / drift bugs
+ * - Unified state management: preserves exact playback position across pause/resume/seek.
+ * - Non-blocking asynchronous fade system: zero hanging promises, zero silence on track change.
+ * - Hardware PCM looping via Web Audio API when repeatMode: 'one': zero crackle, zero stutter.
+ * - Instant streaming playback via HTMLAudioElement for queue navigation.
  */
 class AudioEngine {
   private audio: HTMLAudioElement;
@@ -33,27 +27,34 @@ class AudioEngine {
   private gainNode: GainNode | null = null;
   private bufferSource: AudioBufferSourceNode | null = null;
   private currentBuffer: AudioBuffer | null = null;
-  private isBufferLoopActive: boolean = false;
-  private bufferLoopStartTime: number = 0;
-  private bufferLoopOffset: number = 0;
 
+  // Unified Playback State
+  private isPlaying: boolean = false;
+  private isUsingWebAudio: boolean = false;
+  private playbackPosition: number = 0; // The single source of truth for current playback seconds
+  private playbackStartTime: number = 0;
+  private currentTrackSrc: string = '';
+  private currentTrackPath: string = '';
+  private currentTrackDuration: number = 0;
+
+  // Callbacks
   private onTimeUpdateCallback?: (time: number) => void;
   private onDurationCallback?: (duration: number) => void;
   private onEndCallback?: () => void;
   private onPlayCallback?: () => void;
   private onPauseCallback?: () => void;
 
+  // Configuration
   private targetVolume: number = 0.85;
   private isMuted: boolean = false;
   private fadeMode: FadeMode = 'track_change_and_pause';
-  private fadeDuration: number = 2.0; // seconds
+  private fadeDuration: number = 2.0; // in seconds
   private repeatMode: 'off' | 'all' | 'one' = 'all';
 
+  // Precision loop & Animation
   private rafId: number | null = null;
   private fadeAnimFrame: number | null = null;
-  private isFadingOutAtEnd: boolean = false;
-  private currentTrackSrc: string = '';
-  private currentTrackDuration: number = 0;
+  private fadeResolve: (() => void) | null = null;
   private lastTimeUpdateTimestamp: number = 0;
 
   constructor() {
@@ -69,19 +70,19 @@ class AudioEngine {
     });
 
     this.audio.addEventListener('play', () => {
+      this.isPlaying = true;
       this.onPlayCallback?.();
     });
 
     this.audio.addEventListener('pause', () => {
-      if (!this.isBufferLoopActive) {
+      if (!this.isUsingWebAudio && !this.isPlaying) {
         this.onPauseCallback?.();
       }
     });
 
     this.audio.addEventListener('ended', () => {
-      if (!this.isBufferLoopActive) {
-        this.isFadingOutAtEnd = false;
-        this.onEndCallback?.();
+      if (!this.isUsingWebAudio) {
+        this.handleTrackEnded();
       }
     });
 
@@ -107,12 +108,6 @@ class AudioEngine {
     return this.audioCtx;
   }
 
-  private setGainVolume(vol: number) {
-    if (this.gainNode && this.audioCtx) {
-      this.gainNode.gain.setValueAtTime(vol, this.audioCtx.currentTime);
-    }
-  }
-
   public setCallbacks(callbacks: {
     onTimeUpdate?: (time: number) => void;
     onDuration?: (duration: number) => void;
@@ -135,17 +130,20 @@ class AudioEngine {
   public setRepeatMode(mode: 'off' | 'all' | 'one') {
     this.repeatMode = mode;
     if (mode === 'one') {
-      if (this.fadeMode !== 'always' && this.currentBuffer && !this.audio.paused && !this.isBufferLoopActive) {
-        const curTime = this.getCurrentTime();
-        this.startWebAudioLoop(curTime);
+      // If single track repeat turned on, switch to gapless Web Audio loop if buffer ready
+      if (this.fadeMode !== 'always' && this.currentBuffer && this.isPlaying && !this.isUsingWebAudio) {
+        const cur = this.getCurrentTime();
+        this.audio.pause();
+        this.startBufferPlayback(cur);
       }
     } else {
-      if (this.isBufferLoopActive) {
-        const curTime = this.getCurrentTime();
-        this.stopWebAudioSource();
-        this.audio.currentTime = curTime;
+      if (this.isUsingWebAudio) {
+        const cur = this.getCurrentTime();
+        this.stopBufferSource();
+        this.audio.currentTime = cur;
         this.audio.volume = this.getEffectiveVolume();
         this.audio.play().catch(() => {});
+        this.isPlaying = true;
       }
     }
   }
@@ -154,88 +152,104 @@ class AudioEngine {
     return this.isMuted ? 0 : this.targetVolume;
   }
 
+  private setVolumeInstantly(vol: number) {
+    const clamped = Math.max(0, Math.min(1, vol));
+    try {
+      this.audio.volume = clamped;
+    } catch (_) {}
+    if (this.gainNode && this.audioCtx) {
+      try {
+        this.gainNode.gain.setValueAtTime(clamped, this.audioCtx.currentTime);
+      } catch (_) {}
+    }
+  }
+
+  private getCurrentOutputVolume(): number {
+    if (this.isUsingWebAudio && this.gainNode) {
+      return this.gainNode.gain.value;
+    }
+    return this.audio.volume;
+  }
+
   public setVolume(vol: number): void {
     const clamped = Math.max(0, Math.min(1, vol));
     this.targetVolume = clamped;
-    const eff = this.getEffectiveVolume();
-    if (this.fadeAnimFrame === null && !this.isFadingOutAtEnd) {
-      this.audio.volume = eff;
-      this.setGainVolume(eff);
+    if (this.fadeAnimFrame === null) {
+      this.setVolumeInstantly(this.getEffectiveVolume());
     }
   }
 
   public setMuted(muted: boolean): void {
     this.isMuted = muted;
-    const eff = this.getEffectiveVolume();
-    if (this.fadeAnimFrame === null && !this.isFadingOutAtEnd) {
-      this.audio.volume = eff;
-      this.setGainVolume(eff);
+    if (this.fadeAnimFrame === null) {
+      this.setVolumeInstantly(this.getEffectiveVolume());
     }
   }
 
+  /**
+   * Safely cancels any ongoing fade and immediately resolves pending promises
+   * to guarantee the playback pipeline NEVER hangs or goes silent!
+   */
   private cancelFade() {
     if (this.fadeAnimFrame !== null) {
       cancelAnimationFrame(this.fadeAnimFrame);
       this.fadeAnimFrame = null;
     }
+    if (this.fadeResolve) {
+      const res = this.fadeResolve;
+      this.fadeResolve = null;
+      res(); // Resolve instantly so awaiting caller never deadlocks!
+    }
   }
 
-  private startFade(targetVol: number, durationSec: number, onComplete?: () => void) {
+  private performFade(targetVol: number, durationSec: number): Promise<void> {
     this.cancelFade();
 
-    const startVol = this.isBufferLoopActive 
-      ? (this.gainNode?.gain.value ?? this.targetVolume)
-      : this.audio.volume;
-    const startTime = performance.now();
-    const durationMs = Math.max(40, durationSec * 1000);
+    return new Promise<void>((resolve) => {
+      this.fadeResolve = resolve;
 
-    const step = () => {
-      const elapsed = performance.now() - startTime;
-      const progress = Math.min(1, elapsed / durationMs);
+      const startVol = this.getCurrentOutputVolume();
+      const startTime = performance.now();
+      const durationMs = Math.max(30, durationSec * 1000);
 
-      // Smooth ease-in-out curve
-      const eased = progress < 0.5 
-        ? 2 * progress * progress 
-        : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+      const step = () => {
+        const elapsed = performance.now() - startTime;
+        const progress = Math.min(1, elapsed / durationMs);
 
-      const currentVol = startVol + (targetVol - startVol) * eased;
-      const clampedVol = Math.max(0, Math.min(1, currentVol));
+        // Smooth ease-in-out curve
+        const eased = progress < 0.5 
+          ? 2 * progress * progress 
+          : 1 - Math.pow(-2 * progress + 2, 2) / 2;
 
-      if (this.isBufferLoopActive) {
-        this.setGainVolume(clampedVol);
-      } else {
-        this.audio.volume = clampedVol;
-      }
+        const currentVol = startVol + (targetVol - startVol) * eased;
+        this.setVolumeInstantly(currentVol);
 
-      if (progress < 1) {
-        this.fadeAnimFrame = requestAnimationFrame(step);
-      } else {
-        const finalVol = Math.max(0, Math.min(1, targetVol));
-        if (this.isBufferLoopActive) {
-          this.setGainVolume(finalVol);
+        if (progress < 1) {
+          this.fadeAnimFrame = requestAnimationFrame(step);
         } else {
-          this.audio.volume = finalVol;
+          this.setVolumeInstantly(targetVol);
+          this.fadeAnimFrame = null;
+          if (this.fadeResolve === resolve) {
+            this.fadeResolve = null;
+          }
+          resolve();
         }
-        this.fadeAnimFrame = null;
-        onComplete?.();
-      }
-    };
+      };
 
-    this.fadeAnimFrame = requestAnimationFrame(step);
+      this.fadeAnimFrame = requestAnimationFrame(step);
+    });
   }
 
   /**
-   * Pre-loads the audio file into memory and decodes PCM for gapless Web Audio looping
-   * Uses Rust binary read in Tauri to eliminate CORS and network latency.
+   * Reads raw audio bytes directly via Rust backend (std::fs::read) to bypass CORS and network lag
    */
-  private async preloadBufferForSeamlessLoop(src: string, path?: string) {
+  private async preloadBuffer(src: string, path?: string): Promise<void> {
     if (!src && !path) return;
     try {
       const ctx = this.getOrCreateAudioContext();
       let arrayBuffer: ArrayBuffer;
 
       if (isTauri() && path) {
-        // Direct zero-latency disk read via Rust without CORS
         const bytes = await invoke<number[]>('read_audio_binary', { path });
         const uint8 = new Uint8Array(bytes);
         arrayBuffer = uint8.buffer;
@@ -251,10 +265,11 @@ class AudioEngine {
         this.currentTrackDuration = decodedBuffer.duration;
         this.onDurationCallback?.(decodedBuffer.duration);
 
-        // If repeating single track and currently playing, switch to seamless PCM loop
-        if (this.repeatMode === 'one' && this.fadeMode !== 'always' && !this.audio.paused && !this.isBufferLoopActive) {
-          const curTime = this.getCurrentTime();
-          this.startWebAudioLoop(curTime);
+        // If in single-track loop mode and currently playing, switch to seamless Web Audio loop
+        if (this.repeatMode === 'one' && this.fadeMode !== 'always' && this.isPlaying && !this.isUsingWebAudio) {
+          const cur = this.getCurrentTime();
+          this.audio.pause();
+          this.startBufferPlayback(cur);
         }
       }
     } catch (e) {
@@ -264,18 +279,18 @@ class AudioEngine {
   }
 
   /**
-   * Starts sample-accurate hardware looping with Web Audio API (zero stutter, zero crackle)
+   * Starts hardware sample-accurate gapless loop with Web Audio API
    */
-  private startWebAudioLoop(startOffset: number) {
+  private startBufferPlayback(startOffset: number) {
     if (!this.currentBuffer) return;
     const ctx = this.getOrCreateAudioContext();
 
-    this.audio.pause();
-    this.stopWebAudioSource();
+    this.stopBufferSource();
 
     const source = ctx.createBufferSource();
     source.buffer = this.currentBuffer;
-    source.loop = true; // Hardware sample-accurate gapless loop!
+    const shouldLoop = (this.repeatMode === 'one' && this.fadeMode !== 'always');
+    source.loop = shouldLoop;
     source.connect(this.gainNode!);
 
     const dur = this.currentBuffer.duration;
@@ -283,14 +298,13 @@ class AudioEngine {
 
     source.start(0, offset);
     this.bufferSource = source;
-    this.isBufferLoopActive = true;
-    this.bufferLoopStartTime = ctx.currentTime;
-    this.bufferLoopOffset = offset;
-
-    this.onPlayCallback?.();
+    this.isUsingWebAudio = true;
+    this.isPlaying = true;
+    this.playbackStartTime = ctx.currentTime;
+    this.playbackPosition = offset;
   }
 
-  private stopWebAudioSource() {
+  private stopBufferSource() {
     if (this.bufferSource) {
       try {
         this.bufferSource.stop();
@@ -298,47 +312,41 @@ class AudioEngine {
       } catch (_) {}
       this.bufferSource = null;
     }
-    this.isBufferLoopActive = false;
+    this.isUsingWebAudio = false;
   }
 
   /**
-   * Precision monitor loop (throttled to smooth ~100ms for React UI, with instant seek updates)
+   * Precision monitor loop: updates time progress smoothly, throttled to 100ms for UI performance
    */
   private startPrecisionLoop() {
     const loop = () => {
       const now = performance.now();
-      const shouldDispatchTime = (now - this.lastTimeUpdateTimestamp >= 100);
+      const shouldDispatch = (now - this.lastTimeUpdateTimestamp >= 100);
 
-      if (this.isBufferLoopActive && this.currentBuffer && this.audioCtx) {
-        const dur = this.currentBuffer.duration;
-        const elapsed = this.audioCtx.currentTime - this.bufferLoopStartTime;
-        const curTime = (this.bufferLoopOffset + elapsed) % dur;
-        const safeTime = Math.max(0, Math.min(dur, curTime));
+      if (this.isPlaying) {
+        let curTime = 0;
+        const dur = this.getDuration();
 
-        if (shouldDispatchTime) {
-          this.lastTimeUpdateTimestamp = now;
-          this.onTimeUpdateCallback?.(safeTime);
-        }
-      } else if (!this.audio.paused) {
-        const dur = this.currentTrackDuration || this.audio.duration;
-        if (dur && !isNaN(dur) && isFinite(dur) && dur > 0) {
-          const curTime = Math.max(0, Math.min(dur, this.audio.currentTime));
-
-          if (shouldDispatchTime) {
-            this.lastTimeUpdateTimestamp = now;
-            this.onTimeUpdateCallback?.(curTime);
-          }
-
-          const remaining = dur - curTime;
-
-          if (this.repeatMode === 'one' && this.fadeMode !== 'always' && this.currentBuffer) {
-            this.startWebAudioLoop(curTime);
-          } else if (this.fadeMode === 'always' || (this.fadeMode === 'track_change_and_pause' && this.repeatMode !== 'one')) {
-            if (this.fadeDuration > 0 && remaining <= this.fadeDuration && remaining > 0 && !this.isFadingOutAtEnd) {
-              this.isFadingOutAtEnd = true;
-              this.startFade(0, remaining);
+        if (this.isUsingWebAudio && this.currentBuffer && this.audioCtx) {
+          const elapsed = this.audioCtx.currentTime - this.playbackStartTime;
+          if (this.bufferSource?.loop && dur > 0) {
+            curTime = (this.playbackPosition + elapsed) % dur;
+          } else {
+            curTime = Math.min(dur > 0 ? dur : Infinity, this.playbackPosition + elapsed);
+            if (dur > 0 && curTime >= dur && !this.bufferSource?.loop) {
+              this.handleTrackEnded();
             }
           }
+        } else if (!this.audio.paused) {
+          curTime = Math.min(dur > 0 ? dur : Infinity, this.audio.currentTime);
+          this.playbackPosition = curTime;
+        }
+
+        const safeTime = Math.max(0, Math.min(dur > 0 ? dur : Infinity, curTime));
+
+        if (shouldDispatch) {
+          this.lastTimeUpdateTimestamp = now;
+          this.onTimeUpdateCallback?.(safeTime);
         }
       }
 
@@ -346,6 +354,20 @@ class AudioEngine {
     };
 
     this.rafId = requestAnimationFrame(loop);
+  }
+
+  private handleTrackEnded() {
+    this.isPlaying = false;
+    this.playbackPosition = 0;
+    this.stopBufferSource();
+
+    if (this.repeatMode === 'one') {
+      // Repeat same track
+      this.seek(0);
+      this.resume();
+    } else {
+      this.onEndCallback?.();
+    }
   }
 
   public async playTrack(
@@ -357,118 +379,130 @@ class AudioEngine {
   ): Promise<void> {
     const isDifferent = this.currentTrackSrc !== src;
 
-    // Fade out previous track if switching between different tracks and fade is active
-    if (isDifferent && (!this.audio.paused || this.isBufferLoopActive) && this.fadeMode !== 'off') {
-      const fadeOutTime = Math.min(this.fadeDuration, 0.5);
-      await new Promise<void>((resolve) => {
-        this.startFade(0, fadeOutTime, () => resolve());
-      });
+    // Quick smooth fade out of previous track without blocking pipeline
+    if (isDifferent && this.isPlaying && this.fadeMode !== 'off') {
+      await this.performFade(0, Math.min(this.fadeDuration, 0.4));
     } else {
       this.cancelFade();
     }
 
-    this.stopWebAudioSource();
-    this.isFadingOutAtEnd = false;
+    this.stopBufferSource();
+    this.audio.pause();
+    this.isPlaying = false;
+    this.playbackPosition = 0;
     this.currentTrackSrc = src;
+    this.currentTrackPath = nativePath || '';
+    this.currentBuffer = null;
+
     if (durationHint && durationHint > 0) {
       this.currentTrackDuration = durationHint;
       this.onDurationCallback?.(durationHint);
     }
 
-    if (isDifferent) {
-      this.audio.src = src;
-      this.audio.load();
-      // Preload PCM in background for gapless looping via Rust
-      this.preloadBufferForSeamlessLoop(src, nativePath);
-    }
+    // Load HTMLAudioElement for instant streaming playback
+    this.audio.src = src;
+    this.audio.currentTime = 0;
+    this.audio.load();
+
+    // Start background PCM decode in parallel via Rust
+    const loadPromise = this.preloadBuffer(src, nativePath);
 
     if (autoPlay) {
-      if (this.fadeMode !== 'off' && (isDifferent || isTrackChange)) {
-        this.audio.volume = 0;
-        try {
-          await this.audio.play();
-          this.startFade(this.getEffectiveVolume(), this.fadeDuration);
-        } catch (e) {
-          console.warn('Playback play() was blocked or interrupted:', e);
+      const initialVol = this.fadeMode !== 'off' && (isDifferent || isTrackChange) ? 0 : this.getEffectiveVolume();
+      this.setVolumeInstantly(initialVol);
+
+      try {
+        await this.audio.play();
+        this.isPlaying = true;
+        this.onPlayCallback?.();
+
+        if (this.fadeMode !== 'off' && (isDifferent || isTrackChange)) {
+          this.performFade(this.getEffectiveVolume(), this.fadeDuration);
         }
-      } else {
-        this.audio.volume = this.getEffectiveVolume();
-        try {
-          await this.audio.play();
-        } catch (e) {
-          console.warn('Playback play() was blocked or interrupted:', e);
-        }
+      } catch (e) {
+        console.warn('Playback play() was blocked or interrupted:', e);
       }
     }
-  }
 
-  public async resume(): Promise<void> {
-    this.isFadingOutAtEnd = false;
-
-    if (this.repeatMode === 'one' && this.fadeMode !== 'always' && this.currentBuffer) {
-      const curTime = this.getCurrentTime();
-      this.startWebAudioLoop(curTime);
-      if (this.fadeMode !== 'off') {
-        this.setGainVolume(0);
-        this.startFade(this.getEffectiveVolume(), this.fadeDuration);
-      } else {
-        this.setGainVolume(this.getEffectiveVolume());
+    loadPromise.then(() => {
+      // If repeating single track and still playing this track, seamlessly switch to Web Audio loop
+      if (this.currentTrackSrc === src && this.repeatMode === 'one' && this.fadeMode !== 'always' && this.isPlaying) {
+        const cur = this.getCurrentTime();
+        this.audio.pause();
+        this.startBufferPlayback(cur);
       }
-    } else {
-      if (this.fadeMode !== 'off') {
-        this.audio.volume = 0;
-        try {
-          await this.audio.play();
-          this.startFade(this.getEffectiveVolume(), this.fadeDuration);
-        } catch (e) {
-          console.warn('Resume play() interrupted:', e);
-        }
-      } else {
-        this.audio.volume = this.getEffectiveVolume();
-        try {
-          await this.audio.play();
-        } catch (e) {
-          console.warn('Resume play() interrupted:', e);
-        }
-      }
-    }
+    });
   }
 
   public async pause(): Promise<void> {
-    if (this.isBufferLoopActive && this.audioCtx) {
-      if (this.fadeMode !== 'off') {
-        const fadeOutTime = Math.min(this.fadeDuration, 0.6);
-        await new Promise<void>((resolve) => {
-          this.startFade(0, fadeOutTime, () => resolve());
-        });
-      }
-      this.stopWebAudioSource();
-      this.onPauseCallback?.();
-    } else if (!this.audio.paused) {
-      if (this.fadeMode !== 'off') {
-        const fadeOutTime = Math.min(this.fadeDuration, 0.6);
-        await new Promise<void>((resolve) => {
-          this.startFade(0, fadeOutTime, () => resolve());
-        });
-      }
-      this.audio.pause();
-      this.audio.volume = this.getEffectiveVolume();
-      this.onPauseCallback?.();
+    if (!this.isPlaying) return;
+
+    if (this.fadeMode !== 'off') {
+      await this.performFade(0, Math.min(this.fadeDuration, 0.4));
     }
+
+    // Save exact position before stopping
+    this.playbackPosition = this.getCurrentTime();
+    this.isPlaying = false;
+
+    if (this.isUsingWebAudio) {
+      this.stopBufferSource();
+    } else {
+      this.audio.pause();
+    }
+
+    this.onPauseCallback?.();
+    this.onTimeUpdateCallback?.(this.playbackPosition);
+  }
+
+  public async resume(): Promise<void> {
+    if (this.isPlaying) return;
+
+    const startPos = this.playbackPosition; // Resume from EXACT point where it was paused!
+
+    if (this.currentBuffer && this.audioCtx && this.repeatMode === 'one' && this.fadeMode !== 'always') {
+      this.startBufferPlayback(startPos);
+    } else {
+      this.audio.currentTime = startPos;
+      try {
+        await this.audio.play();
+        this.isPlaying = true;
+      } catch (e) {
+        console.warn('Resume play() interrupted:', e);
+      }
+    }
+
+    this.isPlaying = true;
+
+    if (this.fadeMode !== 'off') {
+      this.setVolumeInstantly(0);
+      this.performFade(this.getEffectiveVolume(), this.fadeDuration);
+    } else {
+      this.setVolumeInstantly(this.getEffectiveVolume());
+    }
+
+    this.onPlayCallback?.();
+    this.onTimeUpdateCallback?.(startPos);
   }
 
   public seek(seconds: number): void {
-    const dur = this.currentTrackDuration || this.audio.duration || seconds;
-    const safeSec = Math.max(0, Math.min(dur, seconds));
+    const dur = this.getDuration();
+    const safeSec = Math.max(0, Math.min(dur > 0 ? dur : seconds, seconds));
 
     this.cancelFade();
-    this.isFadingOutAtEnd = false;
+    this.playbackPosition = safeSec;
 
-    if (this.isBufferLoopActive && this.currentBuffer) {
-      this.startWebAudioLoop(safeSec);
+    if (this.isPlaying) {
+      if (this.isUsingWebAudio && this.currentBuffer && this.audioCtx) {
+        this.stopBufferSource();
+        this.startBufferPlayback(safeSec);
+      } else {
+        this.audio.currentTime = safeSec;
+      }
     } else {
-      this.audio.currentTime = safeSec;
-      this.audio.volume = this.getEffectiveVolume();
+      if (!this.isUsingWebAudio) {
+        this.audio.currentTime = safeSec;
+      }
     }
 
     this.lastTimeUpdateTimestamp = performance.now();
@@ -480,8 +514,7 @@ class AudioEngine {
 
   public getVisualizerData(): Uint8Array {
     const bars = new Uint8Array(16);
-    const isPlaying = this.isBufferLoopActive || (!this.audio.paused && !this.audio.ended);
-    if (isPlaying) {
+    if (this.isPlaying) {
       const now = Date.now() / 150;
       for (let i = 0; i < 16; i++) {
         const val = Math.sin(now + i * 0.8) * 0.5 + 0.5;
@@ -492,13 +525,16 @@ class AudioEngine {
   }
 
   public getCurrentTime(): number {
-    if (this.isBufferLoopActive && this.currentBuffer && this.audioCtx) {
+    if (this.isUsingWebAudio && this.currentBuffer && this.audioCtx) {
       const dur = this.currentBuffer.duration;
-      const elapsed = this.audioCtx.currentTime - this.bufferLoopStartTime;
-      return Math.max(0, Math.min(dur, (this.bufferLoopOffset + elapsed) % dur));
+      const elapsed = this.audioCtx.currentTime - this.playbackStartTime;
+      if (this.bufferSource?.loop && dur > 0) {
+        return Math.max(0, Math.min(dur, (this.playbackPosition + elapsed) % dur));
+      }
+      return Math.max(0, Math.min(dur > 0 ? dur : Infinity, this.playbackPosition + elapsed));
     }
     const dur = this.currentTrackDuration || this.audio.duration;
-    return Math.max(0, Math.min(dur || Infinity, this.audio.currentTime || 0));
+    return Math.max(0, Math.min(dur || Infinity, this.isPlaying ? this.audio.currentTime : this.playbackPosition));
   }
 
   public getDuration(): number {
