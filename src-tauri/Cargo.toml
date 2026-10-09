@@ -2,7 +2,7 @@
 name = "arachnid"
 version = "0.1.0"
 description = "Arachnid Music Player - Modern Material You 3 Player with MusicBee Power"
-authors = ["Arachnid Team"]
+authors = ["sssHpion007"]
 edition = "2021"
 
 [lib]
@@ -10,13 +10,11 @@ name = "arachnid_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.0", features = [] }
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2.0", features = [] }
-tauri-plugin-opener = "2.0"
+tauri = { version = "2", features = [] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-discord-presence = { version = "0.5", optional = true }
 lofty = "0.21"
 walkdir = "2.4"
