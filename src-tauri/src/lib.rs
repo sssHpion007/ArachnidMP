@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use tauri::State;
 use base64::prelude::*;
-use lofty::file::AudioFile;
+use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::probe::Probe;
 use lofty::tag::Accessor;
 
