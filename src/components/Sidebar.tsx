@@ -10,7 +10,6 @@ import {
   SlidersHorizontal, 
   Settings, 
   Radio,
-  Layers,
   Sparkles
 } from 'lucide-react';
 import { Playlist, Track } from '../types/music';
@@ -23,6 +22,7 @@ interface SidebarProps {
   onSelectPlaylist: (id: string) => void;
   onCreatePlaylist: () => void;
   onDropTracksToPlaylist: (playlistId: string, trackIds: string[]) => void;
+  onOpenPlaylistContextMenu: (e: React.MouseEvent, playlist: Playlist) => void;
   onOpenEQ: () => void;
   onOpenSettings: () => void;
   currentTrack: Track | null;
@@ -38,6 +38,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectPlaylist,
   onCreatePlaylist,
   onDropTracksToPlaylist,
+  onOpenPlaylistContextMenu,
   onOpenEQ,
   onOpenSettings,
   currentTrack,
@@ -80,7 +81,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   return (
-    <aside className="w-64 h-full shrink-0 flex flex-col bg-md3-surface-container-low border-r border-md3-outline-variant/30 select-none transition-colors duration-300">
+    <aside 
+      onContextMenu={(e) => e.preventDefault()}
+      className="w-64 h-full shrink-0 flex flex-col bg-md3-surface-container-low border-r border-md3-outline-variant/30 select-none transition-colors duration-300"
+    >
       {/* Brand Header */}
       <div className="p-4 pb-2 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -124,7 +128,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
       </div>
 
-      {/* Playlists Section with Drag-and-drop support */}
+      {/* Playlists Section with Drag-and-drop & Context Menu */}
       <div className="flex-1 flex flex-col min-h-0 px-3 py-2 border-t border-md3-outline-variant/20">
         <div className="flex items-center justify-between px-3 py-1">
           <span className="text-[11px] font-bold uppercase tracking-wider text-md3-on-surface-variant/70">
@@ -150,6 +154,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onDragLeave={handleDragLeave}
                 onDrop={(e) => handleDrop(e, pl.id)}
                 onClick={() => onSelectPlaylist(pl.id)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onOpenPlaylistContextMenu(e, pl);
+                }}
                 className={`group flex items-center justify-between px-3.5 py-2 rounded-2xl text-sm cursor-pointer transition-all ${
                   isDragTarget
                     ? 'bg-md3-primary/20 border border-dashed border-md3-primary scale-[1.02]'

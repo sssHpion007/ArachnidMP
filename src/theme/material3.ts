@@ -10,30 +10,31 @@ export const DEFAULT_SEED_COLOR = '#8b5cf6';
 
 export function generateM3Palette(seedHex: string, mode: ThemeMode = 'dark'): M3ThemeColors {
   const seed = colord(seedHex).isValid() ? colord(seedHex) : colord(DEFAULT_SEED_COLOR);
+  const { h, s } = seed.toHsl();
   const isLight = mode === 'light';
   const isAmoled = mode === 'amoled';
 
-  // Primary
-  const primary = isLight ? seed.darken(0.15).toHex() : seed.lighten(0.15).toHex();
-  const onPrimary = isLight ? '#ffffff' : '#000000';
-  const primaryContainer = isLight ? seed.lighten(0.35).toHex() : seed.darken(0.35).toHex();
-  const onPrimaryContainer = isLight ? seed.darken(0.3).toHex() : seed.lighten(0.35).toHex();
+  // Hue-anchored tone generator
+  // Ensures consistent, beautiful Material Design 3 tokens
+  const primarySat = Math.max(50, Math.min(85, s));
+  const secondaryHue = (h + 15) % 360;
+  const tertiaryHue = (h + 60) % 360;
 
-  // Secondary (slightly desaturated analogue)
-  const secondaryBase = seed.rotate(20).desaturate(0.2);
-  const secondary = isLight ? secondaryBase.darken(0.15).toHex() : secondaryBase.lighten(0.1).toHex();
-  const onSecondary = isLight ? '#ffffff' : '#000000';
-  const secondaryContainer = isLight ? secondaryBase.lighten(0.35).toHex() : secondaryBase.darken(0.38).toHex();
-  const onSecondaryContainer = isLight ? secondaryBase.darken(0.3).toHex() : secondaryBase.lighten(0.3).toHex();
+  let primary: string;
+  let onPrimary: string;
+  let primaryContainer: string;
+  let onPrimaryContainer: string;
 
-  // Tertiary (complementary accent)
-  const tertiaryBase = seed.rotate(60).saturate(0.1);
-  const tertiary = isLight ? tertiaryBase.darken(0.15).toHex() : tertiaryBase.lighten(0.15).toHex();
-  const onTertiary = isLight ? '#ffffff' : '#000000';
-  const tertiaryContainer = isLight ? tertiaryBase.lighten(0.35).toHex() : tertiaryBase.darken(0.35).toHex();
-  const onTertiaryContainer = isLight ? tertiaryBase.darken(0.3).toHex() : tertiaryBase.lighten(0.35).toHex();
+  let secondary: string;
+  let onSecondary: string;
+  let secondaryContainer: string;
+  let onSecondaryContainer: string;
 
-  // Surfaces & Backgrounds
+  let tertiary: string;
+  let onTertiary: string;
+  let tertiaryContainer: string;
+  let onTertiaryContainer: string;
+
   let background: string;
   let surface: string;
   let surfaceContainerLowest: string;
@@ -48,50 +49,96 @@ export function generateM3Palette(seedHex: string, mode: ThemeMode = 'dark'): M3
   let outline: string;
   let outlineVariant: string;
 
-  if (isAmoled) {
-    background = '#000000';
-    surface = '#000000';
-    surfaceContainerLowest = '#000000';
-    surfaceContainerLow = '#0a0a0c';
-    surfaceContainer = '#111215';
-    surfaceContainerHigh = '#18191d';
-    surfaceContainerHighest = '#222328';
-    onBackground = '#e3e2e6';
-    onSurface = '#e3e2e6';
-    surfaceVariant = '#44474f';
-    onSurfaceVariant = '#c4c6d0';
-    outline = '#8e9099';
-    outlineVariant = '#44474f';
-  } else if (isLight) {
-    background = '#fdf8fd';
-    surface = '#fdf8fd';
+  if (isLight) {
+    primary = colord({ h, s: primarySat, l: 40 }).toHex();
+    onPrimary = '#ffffff';
+    primaryContainer = colord({ h, s: Math.min(50, primarySat), l: 90 }).toHex();
+    onPrimaryContainer = colord({ h, s: primarySat, l: 15 }).toHex();
+
+    secondary = colord({ h: secondaryHue, s: 35, l: 45 }).toHex();
+    onSecondary = '#ffffff';
+    secondaryContainer = colord({ h: secondaryHue, s: 35, l: 90 }).toHex();
+    onSecondaryContainer = colord({ h: secondaryHue, s: 45, l: 15 }).toHex();
+
+    tertiary = colord({ h: tertiaryHue, s: 40, l: 45 }).toHex();
+    onTertiary = '#ffffff';
+    tertiaryContainer = colord({ h: tertiaryHue, s: 40, l: 92 }).toHex();
+    onTertiaryContainer = colord({ h: tertiaryHue, s: 50, l: 15 }).toHex();
+
+    background = colord({ h, s: 12, l: 98 }).toHex();
+    surface = colord({ h, s: 12, l: 98 }).toHex();
     surfaceContainerLowest = '#ffffff';
-    surfaceContainerLow = '#f7f2fa';
-    surfaceContainer = '#f3edf7';
-    surfaceContainerHigh = '#ece6f0';
-    surfaceContainerHighest = '#e6e0ea';
+    surfaceContainerLow = colord({ h, s: 12, l: 95 }).toHex();
+    surfaceContainer = colord({ h, s: 12, l: 92 }).toHex();
+    surfaceContainerHigh = colord({ h, s: 12, l: 88 }).toHex();
+    surfaceContainerHighest = colord({ h, s: 12, l: 85 }).toHex();
     onBackground = '#1d1b20';
     onSurface = '#1d1b20';
-    surfaceVariant = '#e7e0ec';
+    surfaceVariant = colord({ h, s: 15, l: 90 }).toHex();
     onSurfaceVariant = '#49454f';
     outline = '#79747e';
     outlineVariant = '#cac4d0';
-  } else {
-    // Standard M3 Dark Mode
-    const neutral = seed.desaturate(0.85);
-    background = neutral.darken(0.55).toHex();
-    surface = neutral.darken(0.55).toHex();
-    surfaceContainerLowest = neutral.darken(0.58).toHex();
-    surfaceContainerLow = neutral.darken(0.52).toHex();
-    surfaceContainer = neutral.darken(0.48).toHex();
-    surfaceContainerHigh = neutral.darken(0.44).toHex();
-    surfaceContainerHighest = neutral.darken(0.40).toHex();
+  } else if (isAmoled) {
+    // Pure OLED black background
+    primary = colord({ h, s: primarySat, l: 75 }).toHex();
+    onPrimary = colord({ h, s: 40, l: 15 }).toHex();
+    primaryContainer = colord({ h, s: 50, l: 25 }).toHex();
+    onPrimaryContainer = colord({ h, s: 30, l: 90 }).toHex();
+
+    secondary = colord({ h: secondaryHue, s: 35, l: 75 }).toHex();
+    onSecondary = colord({ h: secondaryHue, s: 40, l: 15 }).toHex();
+    secondaryContainer = colord({ h: secondaryHue, s: 35, l: 25 }).toHex();
+    onSecondaryContainer = colord({ h: secondaryHue, s: 30, l: 90 }).toHex();
+
+    tertiary = colord({ h: tertiaryHue, s: 45, l: 75 }).toHex();
+    onTertiary = colord({ h: tertiaryHue, s: 45, l: 15 }).toHex();
+    tertiaryContainer = colord({ h: tertiaryHue, s: 45, l: 25 }).toHex();
+    onTertiaryContainer = colord({ h: tertiaryHue, s: 30, l: 90 }).toHex();
+
+    background = '#000000';
+    surface = '#000000';
+    surfaceContainerLowest = '#000000';
+    surfaceContainerLow = '#09090b';
+    surfaceContainer = '#121215';
+    surfaceContainerHigh = '#1a1a1f';
+    surfaceContainerHighest = '#24242a';
     onBackground = '#e6e1e5';
     onSurface = '#e6e1e5';
-    surfaceVariant = neutral.darken(0.32).toHex();
+    surfaceVariant = '#35353d';
+    onSurfaceVariant = '#c4c6d0';
+    outline = '#8e9099';
+    outlineVariant = '#44474f';
+  } else {
+    // Standard Material 3 Dark Mode (Soft tinted dark tones, NOT pitch black)
+    primary = colord({ h, s: primarySat, l: 76 }).toHex();
+    onPrimary = colord({ h, s: 50, l: 18 }).toHex();
+    primaryContainer = colord({ h, s: 48, l: 30 }).toHex();
+    onPrimaryContainer = colord({ h, s: 35, l: 90 }).toHex();
+
+    secondary = colord({ h: secondaryHue, s: 35, l: 75 }).toHex();
+    onSecondary = colord({ h: secondaryHue, s: 35, l: 18 }).toHex();
+    secondaryContainer = colord({ h: secondaryHue, s: 30, l: 30 }).toHex();
+    onSecondaryContainer = colord({ h: secondaryHue, s: 25, l: 88 }).toHex();
+
+    tertiary = colord({ h: tertiaryHue, s: 45, l: 75 }).toHex();
+    onTertiary = colord({ h: tertiaryHue, s: 45, l: 18 }).toHex();
+    tertiaryContainer = colord({ h: tertiaryHue, s: 40, l: 30 }).toHex();
+    onTertiaryContainer = colord({ h: tertiaryHue, s: 30, l: 90 }).toHex();
+
+    // Tinted neutral dark surfaces
+    background = colord({ h, s: 10, l: 9 }).toHex();             // ~ #161519
+    surface = colord({ h, s: 10, l: 10 }).toHex();                // ~ #18171b
+    surfaceContainerLowest = colord({ h, s: 10, l: 7 }).toHex();  // ~ #121115
+    surfaceContainerLow = colord({ h, s: 10, l: 12 }).toHex();    // ~ #1e1d22
+    surfaceContainer = colord({ h, s: 10, l: 15 }).toHex();       // ~ #25242a
+    surfaceContainerHigh = colord({ h, s: 10, l: 19 }).toHex();   // ~ #2f2e35
+    surfaceContainerHighest = colord({ h, s: 10, l: 24 }).toHex();// ~ #3b3a42
+    onBackground = '#e6e1e5';
+    onSurface = '#e6e1e5';
+    surfaceVariant = colord({ h, s: 12, l: 28 }).toHex();
     onSurfaceVariant = '#cac4d0';
     outline = '#938f99';
-    outlineVariant = '#49454f';
+    outlineVariant = colord({ h, s: 10, l: 24 }).toHex();
   }
 
   return {
@@ -126,7 +173,6 @@ export function generateM3Palette(seedHex: string, mode: ThemeMode = 'dark'): M3
 export function applyM3ThemeToDOM(colors: M3ThemeColors, mode: ThemeMode) {
   const root = document.documentElement;
 
-  // Set dark/light class
   if (mode === 'light') {
     root.classList.remove('dark');
   } else {
@@ -160,9 +206,6 @@ export function applyM3ThemeToDOM(colors: M3ThemeColors, mode: ThemeMode) {
   root.style.setProperty('--md-sys-color-outline-variant', colors.outlineVariant);
 }
 
-/**
- * Extracts vibrant dominant color from an image URL or Blob using Canvas
- */
 export async function extractDominantColor(imageSrc: string): Promise<string> {
   return new Promise((resolve) => {
     if (!imageSrc) {
@@ -199,9 +242,8 @@ export async function extractDominantColor(imageSrc: string): Promise<string> {
           const cb = data[i + 2];
           const ca = data[i + 3];
 
-          if (ca < 128) continue; // skip transparent
+          if (ca < 128) continue;
 
-          // Exclude extreme whites/blacks from primary dominance
           const luminance = (cr * 0.299 + cg * 0.587 + cb * 0.114) / 255;
           if (luminance > 0.92 || luminance < 0.08) continue;
 

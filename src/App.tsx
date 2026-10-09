@@ -10,6 +10,7 @@ import { EqualizerModal } from './components/EqualizerModal';
 import { SettingsModal } from './components/SettingsModal';
 import { DragDropOverlay } from './components/DragDropOverlay';
 import { ContextMenu } from './components/ContextMenu';
+import { PlaylistContextMenu } from './components/PlaylistContextMenu';
 import { audioEngine } from './services/audioEngine';
 import { discordRpc } from './services/discordRpc';
 import { parseAudioFile } from './services/tagEditor';
@@ -19,6 +20,8 @@ import {
   applyM3ThemeToDOM, 
   extractDominantColor 
 } from './theme/material3';
+import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 
 // Sample built-in tracks
 const INITIAL_TRACKS: Track[] = [
@@ -137,11 +140,24 @@ export const App: React.FC = () => {
   const [isBatchTagEditorOpen, setIsBatchTagEditorOpen] = useState<boolean>(false);
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; track: Track } | null>(null);
+  const [playlistContextMenu, setPlaylistContextMenu] = useState<{ x: number; y: number; playlist: Playlist } | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
   const [discordEnabled, setDiscordEnabled] = useState<boolean>(true);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef<number>(0);
+
+  // Prevent default browser right-click menu across entire app
+  useEffect(() => {
+    const handleGlobalContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('contextmenu', handleGlobalContextMenu);
+    return () => window.removeEventListener('contextmenu', handleGlobalContextMenu);
+  }, []);
 
   // Set up Audio Engine callbacks
   useEffect(() => {
@@ -184,7 +200,39 @@ export const App: React.FC = () => {
     }
   }, [currentTrack, isPlaying, currentTime, duration, discordEnabled]);
 
-  // Drag and Drop files over window (MusicBee style drag and drop)
+  // Native Tauri Desktop Drag-and-Drop
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    if (isTauri()) {
+      try {
+        const appWindow = getCurrentWebviewWindow();
+        appWindow.onDragDropEvent((event) => {
+          if (event.payload.type === 'over' || event.payload.type === 'enter') {
+            setIsDraggingFile(true);
+          } else if (event.payload.type === 'drop') {
+            setIsDraggingFile(false);
+            const paths = event.payload.paths;
+            if (paths && paths.length > 0) {
+              importTauriPaths(paths);
+            }
+          } else if (event.payload.type === 'leave') {
+            setIsDraggingFile(false);
+          }
+        }).then((fn) => {
+          unlisten = fn;
+        });
+      } catch (err) {
+        console.warn('Tauri onDragDropEvent registration error:', err);
+      }
+    }
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [tracks]);
+
+  // Web Browser Drag and Drop fallback
   useEffect(() => {
     const handleDragEnter = (e: DragEvent) => {
       e.preventDefault();
@@ -234,6 +282,46 @@ export const App: React.FC = () => {
     };
   }, [tracks, queue]);
 
+  // Filtered and Sorted Tracks
+  const filteredTracks = useMemo(() => {
+    let result = [...tracks];
+
+    if (selectedPlaylistId) {
+      const pl = playlists.find(p => p.id === selectedPlaylistId);
+      if (pl) {
+        const idSet = new Set(pl.trackIds);
+        result = result.filter(t => idSet.has(t.id));
+      }
+    } else if (currentView === 'favorites') {
+      result = result.filter(t => t.isFavorite);
+    }
+
+    if (activeGenre) {
+      result = result.filter(t => t.genre?.toLowerCase().includes(activeGenre.toLowerCase()));
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(t =>
+        t.title.toLowerCase().includes(q) ||
+        t.artist.toLowerCase().includes(q) ||
+        t.album.toLowerCase().includes(q)
+      );
+    }
+
+    result.sort((a, b) => {
+      let valA: any = a[sortBy as keyof Track] || '';
+      let valB: any = b[sortBy as keyof Track] || '';
+      if (typeof valA === 'string') {
+        const cmp = valA.localeCompare(valB);
+        return sortOrder === 'asc' ? cmp : -cmp;
+      }
+      return sortOrder === 'asc' ? (valA > valB ? 1 : -1) : (valA < valB ? 1 : -1);
+    });
+
+    return result;
+  }, [tracks, selectedPlaylistId, currentView, activeGenre, searchQuery, sortBy, sortOrder, playlists]);
+
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -251,19 +339,53 @@ export const App: React.FC = () => {
         handlePrev();
       } else if (e.code === 'KeyA' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        // Select all filtered tracks
         setSelectedTrackIds(new Set(filteredTracks.map(t => t.id)));
       } else if (e.code === 'Escape') {
         setSelectedTrackIds(new Set());
         setContextMenu(null);
+        setPlaylistContextMenu(null);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, currentTrack, queue, queueIndex]);
+  }, [isPlaying, currentTrack, queue, queueIndex, filteredTracks]);
 
-  // Process imported audio files
+  // Import native file paths in Tauri desktop
+  const importTauriPaths = async (paths: string[]) => {
+    try {
+      const rawTracks = await invoke<any[]>('read_audio_files', { paths });
+      if (!rawTracks || rawTracks.length === 0) return;
+
+      const newTracks: Track[] = rawTracks.map(t => ({
+        id: t.id,
+        title: t.title,
+        artist: t.artist,
+        album: t.album,
+        duration: t.duration_seconds || 0,
+        src: convertFileSrc(t.path),
+        coverArt: t.cover_art || undefined,
+        genre: t.genre || undefined,
+        year: t.year || undefined,
+        trackNumber: t.track_number || undefined,
+        format: t.format,
+        fileSize: t.file_size,
+        dateAdded: Date.now(),
+        playCount: 0,
+        isFavorite: false,
+      }));
+
+      setTracks(prev => [...prev, ...newTracks]);
+      setQueue(prev => [...prev, ...newTracks]);
+      if (!currentTrack || tracks.length === 0) {
+        playTrack(newTracks[0]);
+      }
+    } catch (err) {
+      console.warn('Error reading Tauri dropped files:', err);
+    }
+  };
+
+  // Process imported audio files from HTML5 input / drop
   const importFiles = async (files: File[]) => {
     const audioFiles = files.filter(f => 
       /\.(mp3|flac|wav|ogg|m4a|aac|opus)$/i.test(f.name) || f.type.startsWith('audio/')
@@ -284,58 +406,12 @@ export const App: React.FC = () => {
     if (newTracks.length > 0) {
       setTracks((prev) => [...prev, ...newTracks]);
       setQueue((prev) => [...prev, ...newTracks]);
-      // If nothing was playing, play the first added file
       if (!currentTrack || tracks.length === 0) {
         playTrack(newTracks[0]);
       }
     }
   };
 
-  // Filtered and Sorted Tracks
-  const filteredTracks = useMemo(() => {
-    let result = [...tracks];
-
-    // Filter by Selected Playlist or View
-    if (selectedPlaylistId) {
-      const pl = playlists.find(p => p.id === selectedPlaylistId);
-      if (pl) {
-        const idSet = new Set(pl.trackIds);
-        result = result.filter(t => idSet.has(t.id));
-      }
-    } else if (currentView === 'favorites') {
-      result = result.filter(t => t.isFavorite);
-    }
-
-    // Filter by Genre Chip
-    if (activeGenre) {
-      result = result.filter(t => t.genre?.toLowerCase().includes(activeGenre.toLowerCase()));
-    }
-
-    // Filter by Search Query
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(t =>
-        t.title.toLowerCase().includes(q) ||
-        t.artist.toLowerCase().includes(q) ||
-        t.album.toLowerCase().includes(q)
-      );
-    }
-
-    // Sort
-    result.sort((a, b) => {
-      let valA: any = a[sortBy as keyof Track] || '';
-      let valB: any = b[sortBy as keyof Track] || '';
-      if (typeof valA === 'string') {
-        const cmp = valA.localeCompare(valB);
-        return sortOrder === 'asc' ? cmp : -cmp;
-      }
-      return sortOrder === 'asc' ? (valA > valB ? 1 : -1) : (valA < valB ? 1 : -1);
-    });
-
-    return result;
-  }, [tracks, selectedPlaylistId, currentView, activeGenre, searchQuery, sortBy, sortOrder, playlists]);
-
-  // Unique genres for chips
   const genres = useMemo(() => {
     const set = new Set<string>();
     tracks.forEach(t => {
@@ -344,16 +420,13 @@ export const App: React.FC = () => {
     return Array.from(set);
   }, [tracks]);
 
-  // Multi-Selection handler (Shift + Click, Ctrl + Click, Single Click)
   const handleSelectTrack = (trackId: string, e: React.MouseEvent, index: number) => {
     if (e.shiftKey && lastSelectedIndex !== null) {
-      // Range selection
       const start = Math.min(lastSelectedIndex, index);
       const end = Math.max(lastSelectedIndex, index);
       const rangeIds = filteredTracks.slice(start, end + 1).map(t => t.id);
       setSelectedTrackIds(new Set(rangeIds));
     } else if (e.ctrlKey || e.metaKey) {
-      // Toggle single track in selection
       const updated = new Set(selectedTrackIds);
       if (updated.has(trackId)) {
         updated.delete(trackId);
@@ -363,17 +436,14 @@ export const App: React.FC = () => {
       setSelectedTrackIds(updated);
       setLastSelectedIndex(index);
     } else {
-      // Standard click: select only this track
       setSelectedTrackIds(new Set([trackId]));
       setLastSelectedIndex(index);
     }
   };
 
-  // Playback Operations
   const playTrack = async (track: Track) => {
     setCurrentTrack(track);
     setDuration(track.duration || 32);
-    // Find or append to queue
     const qIdx = queue.findIndex(t => t.id === track.id);
     if (qIdx !== -1) {
       setQueueIndex(qIdx);
@@ -477,10 +547,8 @@ export const App: React.FC = () => {
     setTracks(prev => prev.map(t => {
       if (t.id === trackId) {
         const updated = { ...t, isFavorite: !t.isFavorite };
-        // Update favorites playlist
         setPlaylists(pls => pls.map(p => {
           if (p.id === 'pl_favorites') {
-            const has = p.trackIds.includes(trackId);
             return {
               ...p,
               trackIds: updated.isFavorite ? [...p.trackIds, trackId] : p.trackIds.filter(id => id !== trackId),
@@ -494,7 +562,6 @@ export const App: React.FC = () => {
     }));
   };
 
-  // Batch actions on selected tracks
   const handlePlaySelected = () => {
     const selected = tracks.filter(t => selectedTrackIds.has(t.id));
     if (selected.length > 0) {
@@ -534,6 +601,43 @@ export const App: React.FC = () => {
     }
   };
 
+  // Playlist context menu actions
+  const handlePlayPlaylist = (playlist: Playlist) => {
+    const plTracks = tracks.filter(t => playlist.trackIds.includes(t.id));
+    if (plTracks.length > 0) {
+      setQueue(plTracks);
+      setQueueIndex(0);
+      playTrack(plTracks[0]);
+    }
+  };
+
+  const handleAddPlaylistToQueue = (playlist: Playlist) => {
+    const plTracks = tracks.filter(t => playlist.trackIds.includes(t.id));
+    setQueue(prev => [...prev, ...plTracks]);
+  };
+
+  const handleRenamePlaylist = (playlist: Playlist) => {
+    const newName = prompt('Новое название плейлиста:', playlist.name);
+    if (newName && newName.trim()) {
+      setPlaylists(prev => prev.map(p => p.id === playlist.id ? { ...p, name: newName.trim() } : p));
+    }
+  };
+
+  const handleClearPlaylist = (playlist: Playlist) => {
+    if (confirm(`Очистить все треки из плейлиста "${playlist.name}"?`)) {
+      setPlaylists(prev => prev.map(p => p.id === playlist.id ? { ...p, trackIds: [] } : p));
+    }
+  };
+
+  const handleDeletePlaylist = (playlist: Playlist) => {
+    if (confirm(`Удалить плейлист "${playlist.name}"?`)) {
+      setPlaylists(prev => prev.filter(p => p.id !== playlist.id));
+      if (selectedPlaylistId === playlist.id) {
+        setSelectedPlaylistId(null);
+      }
+    }
+  };
+
   const handleSaveBatchTags = (updates: {
     artist?: string;
     album?: string;
@@ -552,7 +656,6 @@ export const App: React.FC = () => {
       }
       return t;
     }));
-    // Also update currentTrack if affected
     if (currentTrack && selectedTrackIds.has(currentTrack.id)) {
       setCurrentTrack(prev => prev ? {
         ...prev,
@@ -576,7 +679,6 @@ export const App: React.FC = () => {
   const handleRemoveTracks = (trackIds: string[]) => {
     const idSet = new Set(trackIds);
     if (selectedPlaylistId) {
-      // Remove from playlist
       setPlaylists(prev => prev.map(p => {
         if (p.id === selectedPlaylistId) {
           return { ...p, trackIds: p.trackIds.filter(id => !idSet.has(id)) };
@@ -584,7 +686,6 @@ export const App: React.FC = () => {
         return p;
       }));
     } else {
-      // Remove from library
       setTracks(prev => prev.filter(t => !idSet.has(t.id)));
       setQueue(prev => prev.filter(t => !idSet.has(t.id)));
     }
@@ -628,6 +729,10 @@ export const App: React.FC = () => {
           onSelectPlaylist={(id) => setSelectedPlaylistId(id)}
           onCreatePlaylist={handleCreatePlaylist}
           onDropTracksToPlaylist={handleDropTracksToPlaylist}
+          onOpenPlaylistContextMenu={(e, pl) => {
+            e.preventDefault();
+            setPlaylistContextMenu({ x: e.clientX, y: e.clientY, playlist: pl });
+          }}
           onOpenEQ={() => setIsEQOpen(true)}
           onOpenSettings={() => setIsSettingsOpen(true)}
           currentTrack={currentTrack}
@@ -765,7 +870,7 @@ export const App: React.FC = () => {
         currentTime={currentTime}
       />
 
-      {/* Right-click Context Menu */}
+      {/* Track Context Menu */}
       {contextMenu && (
         <ContextMenu
           x={contextMenu.x}
@@ -792,6 +897,21 @@ export const App: React.FC = () => {
           onToggleFavorite={handleToggleFavorite}
           onAddToPlaylist={handleDropTracksToPlaylist}
           onRemoveTracks={handleRemoveTracks}
+        />
+      )}
+
+      {/* Playlist Context Menu */}
+      {playlistContextMenu && (
+        <PlaylistContextMenu
+          x={playlistContextMenu.x}
+          y={playlistContextMenu.y}
+          playlist={playlistContextMenu.playlist}
+          onClose={() => setPlaylistContextMenu(null)}
+          onPlay={handlePlayPlaylist}
+          onAddToQueue={handleAddPlaylistToQueue}
+          onRename={handleRenamePlaylist}
+          onClear={handleClearPlaylist}
+          onDelete={handleDeletePlaylist}
         />
       )}
     </div>
