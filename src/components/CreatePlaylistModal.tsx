@@ -5,12 +5,14 @@ interface CreatePlaylistModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreate: (name: string, description?: string) => void;
+  folderName?: string;
 }
 
 export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
   isOpen,
   onClose,
   onCreate,
+  folderName,
 }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -60,8 +62,8 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
               <h2 className="text-base font-bold text-md3-on-surface leading-tight">
                 Новый плейлист
               </h2>
-              <p className="text-xs text-md3-on-surface-variant mt-0.5">
-                Создайте подборку для любимых треков
+              <p className="text-xs text-md3-on-surface-variant mt-0.5 truncate max-w-[240px]">
+                {folderName ? `Внутри папки «${folderName}»` : 'Создайте подборку для любимых треков'}
               </p>
             </div>
           </div>

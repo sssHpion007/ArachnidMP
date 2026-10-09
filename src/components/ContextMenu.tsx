@@ -76,6 +76,8 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
     ? Array.from(selectedTrackIds)
     : [track.id];
 
+  const userPlaylists = playlists.filter(p => !p.isSystem && p.id !== 'pl_favorites');
+
   return (
     <div
       ref={menuRef}
@@ -122,25 +124,27 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
         <span>Добавить в очередь</span>
       </button>
 
-      {/* Add to Playlist Submenu */}
-      {playlists.length > 0 && (
+      {/* Add to Playlist Submenu (excluding system favorites) */}
+      {userPlaylists.length > 0 && (
         <div className="border-t border-md3-outline-variant/20 my-1 py-1">
           <div className="px-3 py-1 text-[10px] uppercase font-bold text-md3-on-surface-variant/60">
             Добавить в плейлист:
           </div>
-          {playlists.map((pl) => (
-            <button
-              key={pl.id}
-              onClick={() => {
-                onAddToPlaylist(pl.id, targetIds);
-                onClose();
-              }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-md3-on-surface hover:bg-md3-surface-container text-left truncate"
-            >
-              <FolderPlus className="w-3.5 h-3.5 opacity-60" />
-              <span className="truncate">{pl.name}</span>
-            </button>
-          ))}
+          <div className="max-h-36 overflow-y-auto custom-scrollbar">
+            {userPlaylists.map((pl) => (
+              <button
+                key={pl.id}
+                onClick={() => {
+                  onAddToPlaylist(pl.id, targetIds);
+                  onClose();
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-md3-on-surface hover:bg-md3-surface-container text-left truncate"
+              >
+                <FolderPlus className="w-3.5 h-3.5 opacity-60 flex-shrink-0" />
+                <span className="truncate">{pl.name}</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

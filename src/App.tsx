@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Track, Playlist, ThemeMode } from './types/music';
+import { Track, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode } from './types/music';
 import { TopBar, MainViewType } from './components/TopBar';
 import { TrackTable } from './components/TrackTable';
 import { NowPlayingBar } from './components/NowPlayingBar';
@@ -14,8 +14,12 @@ import { SettingsModal } from './components/SettingsModal';
 import { DragDropOverlay } from './components/DragDropOverlay';
 import { ContextMenu } from './components/ContextMenu';
 import { PlaylistContextMenu } from './components/PlaylistContextMenu';
+import { FolderContextMenu } from './components/FolderContextMenu';
 import { CreatePlaylistModal } from './components/CreatePlaylistModal';
+import { CreateFolderModal } from './components/CreateFolderModal';
+import { CreateGroupModal } from './components/CreateGroupModal';
 import { RenamePlaylistModal } from './components/RenamePlaylistModal';
+import { RenameItemModal } from './components/RenameItemModal';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import { TrackDetailsModal } from './components/TrackDetailsModal';
 import { LyricsModal } from './components/LyricsModal';
@@ -46,6 +50,8 @@ export const App: React.FC = () => {
   // Library & Content State (No dummy stubs)
   const [tracks, setTracks] = useState<Track[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>(INITIAL_PLAYLISTS);
+  const [playlistFolders, setPlaylistFolders] = useState<PlaylistFolder[]>([]);
+  const [playlistGroups, setPlaylistGroups] = useState<PlaylistGroup[]>([]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [selectedAlbum, setSelectedAlbum] = useState<string | null>(null);
   const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
@@ -81,6 +87,16 @@ export const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isBatchTagEditorOpen, setIsBatchTagEditorOpen] = useState<boolean>(false);
   const [isCreatePlaylistOpen, setIsCreatePlaylistOpen] = useState<boolean>(false);
+  const [isCreateFolderOpen, setIsCreateFolderOpen] = useState<boolean>(false);
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState<boolean>(false);
+  const [playlistCreationTarget, setPlaylistCreationTarget] = useState<{ folderId?: string | null; groupId?: string | null } | null>(null);
+  const [folderCreationTarget, setFolderCreationTarget] = useState<{ parentId?: string | null; groupId?: string | null } | null>(null);
+  const [deleteFolderTarget, setDeleteFolderTarget] = useState<PlaylistFolder | null>(null);
+  const [renameItemTarget, setRenameItemTarget] = useState<{
+    isOpen: boolean;
+    type: 'playlist' | 'folder' | 'group';
+    item: any;
+  } | null>(null);
   const [renamePlaylistTarget, setRenamePlaylistTarget] = useState<Playlist | null>(null);
   const [clearPlaylistTarget, setClearPlaylistTarget] = useState<Playlist | null>(null);
   const [deletePlaylistTarget, setDeletePlaylistTarget] = useState<Playlist | null>(null);
@@ -89,6 +105,7 @@ export const App: React.FC = () => {
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; track: Track } | null>(null);
   const [playlistContextMenu, setPlaylistContextMenu] = useState<{ x: number; y: number; playlist: Playlist } | null>(null);
+  const [folderContextMenu, setFolderContextMenu] = useState<{ x: number; y: number; folder: PlaylistFolder } | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
   const [discordEnabled, setDiscordEnabled] = useState<boolean>(true);
 
@@ -133,6 +150,12 @@ export const App: React.FC = () => {
           if (parsed.playlists && Array.isArray(parsed.playlists) && parsed.playlists.length > 0) {
             setPlaylists(parsed.playlists);
           }
+          if (parsed.playlistFolders && Array.isArray(parsed.playlistFolders)) {
+            setPlaylistFolders(parsed.playlistFolders);
+          }
+          if (parsed.playlistGroups && Array.isArray(parsed.playlistGroups)) {
+            setPlaylistGroups(parsed.playlistGroups);
+          }
           if (parsed.themeMode) setThemeMode(parsed.themeMode);
           if (parsed.seedColor) setSeedColor(parsed.seedColor);
           if (typeof parsed.discordEnabled === 'boolean') setDiscordEnabled(parsed.discordEnabled);
@@ -155,6 +178,8 @@ export const App: React.FC = () => {
     const dataToSave = {
       tracks,
       playlists,
+      playlistFolders,
+      playlistGroups,
       themeMode,
       seedColor,
       discordEnabled,
@@ -170,7 +195,7 @@ export const App: React.FC = () => {
     } else {
       localStorage.setItem('arachnid_portable_data', jsonString);
     }
-  }, [tracks, playlists, themeMode, seedColor, discordEnabled, isDynamicColor]);
+  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, discordEnabled, isDynamicColor]);
 
   // Prevent default browser right-click menu
   useEffect(() => {
@@ -770,7 +795,8 @@ export const App: React.FC = () => {
     }));
   };
 
-  const handleCreatePlaylist = () => {
+  const handleCreatePlaylist = (folderId?: string | null, groupId?: string | null) => {
+    setPlaylistCreationTarget({ folderId, groupId });
     setIsCreatePlaylistOpen(true);
   };
 
@@ -781,9 +807,137 @@ export const App: React.FC = () => {
       description: description?.trim() || undefined,
       trackIds: Array.from(selectedTrackIds),
       isSystem: false,
+      folderId: playlistCreationTarget?.folderId || null,
+      groupId: playlistCreationTarget?.groupId || null,
+      order: playlists.length,
     };
     setPlaylists(prev => [...prev, newPl]);
     setSelectedPlaylistId(newPl.id);
+    setPlaylistCreationTarget(null);
+  };
+
+  const handleOpenCreateFolder = (parentId?: string | null, groupId?: string | null) => {
+    setFolderCreationTarget({ parentId, groupId });
+    setIsCreateFolderOpen(true);
+  };
+
+  const handleCreateFolderSubmit = (name: string, color?: string) => {
+    const newFolder: PlaylistFolder = {
+      id: `fld_${Date.now()}`,
+      name: name.trim(),
+      parentId: folderCreationTarget?.parentId || null,
+      groupId: folderCreationTarget?.groupId || null,
+      color: color || undefined,
+      createdAt: Date.now(),
+      order: playlistFolders.length,
+    };
+    setPlaylistFolders(prev => [...prev, newFolder]);
+    setFolderCreationTarget(null);
+  };
+
+  const handleCreateGroupSubmit = (name: string) => {
+    const newGroup: PlaylistGroup = {
+      id: `grp_${Date.now()}`,
+      name: name.trim(),
+      order: playlistGroups.length,
+      isCollapsed: false,
+    };
+    setPlaylistGroups(prev => [...prev, newGroup]);
+  };
+
+  const handleToggleGroupCollapse = (groupId: string) => {
+    setPlaylistGroups(prev => prev.map(g => g.id === groupId ? { ...g, isCollapsed: !g.isCollapsed } : g));
+  };
+
+  const handleDeleteGroup = (groupId: string) => {
+    setPlaylists(prev => prev.map(p => p.groupId === groupId ? { ...p, groupId: null } : p));
+    setPlaylistFolders(prev => prev.map(f => f.groupId === groupId ? { ...f, groupId: null } : f));
+    setPlaylistGroups(prev => prev.filter(g => g.id !== groupId));
+  };
+
+  const handleConfirmDeleteFolder = () => {
+    if (!deleteFolderTarget) return;
+    const fid = deleteFolderTarget.id;
+    const parentId = deleteFolderTarget.parentId || null;
+    setPlaylists(prev => prev.map(p => p.folderId === fid ? { ...p, folderId: parentId } : p));
+    setPlaylistFolders(prev => prev
+      .filter(f => f.id !== fid)
+      .map(f => f.parentId === fid ? { ...f, parentId } : f)
+    );
+    setDeleteFolderTarget(null);
+  };
+
+  const handleMovePlaylistToFolder = (playlistId: string, folderId: string | null) => {
+    setPlaylists(prev => prev.map(p => p.id === playlistId ? { ...p, folderId, groupId: null } : p));
+  };
+
+  const handleMovePlaylistToGroup = (playlistId: string, groupId: string | null) => {
+    setPlaylists(prev => prev.map(p => p.id === playlistId ? { ...p, groupId, folderId: null } : p));
+  };
+
+  const handleMoveFolderToFolder = (folderId: string, targetParentId: string | null) => {
+    const isDescendant = (parent: string, child: string): boolean => {
+      if (parent === child) return true;
+      const direct = playlistFolders.filter(f => f.parentId === child);
+      return direct.some(d => isDescendant(parent, d.id));
+    };
+    if (targetParentId && isDescendant(targetParentId, folderId)) {
+      return;
+    }
+    setPlaylistFolders(prev => prev.map(f => f.id === folderId ? { ...f, parentId: targetParentId, groupId: null } : f));
+  };
+
+  const handleMoveFolderToGroup = (folderId: string, groupId: string | null) => {
+    setPlaylistFolders(prev => prev.map(f => f.id === folderId ? { ...f, groupId, parentId: null } : f));
+  };
+
+  const getFolderAllTracks = (folder: PlaylistFolder): Track[] => {
+    const getSubfolderIds = (fid: string): string[] => {
+      const directChildren = playlistFolders.filter(f => f.parentId === fid).map(f => f.id);
+      let all = [fid];
+      for (const childId of directChildren) {
+        all = [...all, ...getSubfolderIds(childId)];
+      }
+      return all;
+    };
+    const targetFolderIds = new Set(getSubfolderIds(folder.id));
+    const folderPlaylists = playlists.filter(p => p.folderId && targetFolderIds.has(p.folderId));
+    const trackIdsSet = new Set<string>();
+    for (const pl of folderPlaylists) {
+      for (const tid of pl.trackIds) {
+        trackIdsSet.add(tid);
+      }
+    }
+    return tracks.filter(t => trackIdsSet.has(t.id));
+  };
+
+  const handlePlayFolder = (folder: PlaylistFolder) => {
+    const folderTracks = getFolderAllTracks(folder);
+    if (folderTracks.length > 0) {
+      setQueue(folderTracks);
+      setQueueIndex(0);
+      playTrack(folderTracks[0]);
+    }
+  };
+
+  const handleAddFolderToQueue = (folder: PlaylistFolder) => {
+    const folderTracks = getFolderAllTracks(folder);
+    if (folderTracks.length > 0) {
+      setQueue(prev => [...prev, ...folderTracks]);
+    }
+  };
+
+  const handleRenameItem = (newName: string) => {
+    if (!renameItemTarget) return;
+    const { type, item } = renameItemTarget;
+    if (type === 'playlist') {
+      setPlaylists(prev => prev.map(p => p.id === item.id ? { ...p, name: newName } : p));
+    } else if (type === 'folder') {
+      setPlaylistFolders(prev => prev.map(f => f.id === item.id ? { ...f, name: newName } : f));
+    } else if (type === 'group') {
+      setPlaylistGroups(prev => prev.map(g => g.id === item.id ? { ...g, name: newName } : g));
+    }
+    setRenameItemTarget(null);
   };
 
   const handlePlayPlaylist = (playlist: Playlist) => {
@@ -1078,14 +1232,31 @@ export const App: React.FC = () => {
         ) : currentView === 'playlists' ? (
           <PlaylistsGridView
             playlists={playlists}
+            folders={playlistFolders}
+            groups={playlistGroups}
             tracks={tracks}
             onSelectPlaylist={(id) => setSelectedPlaylistId(id)}
             onCreatePlaylist={handleCreatePlaylist}
+            onCreateFolder={handleOpenCreateFolder}
+            onCreateGroup={() => setIsCreateGroupOpen(true)}
             onPlayPlaylist={handlePlayPlaylist}
-            onOpenContextMenu={(e, pl) => {
+            onPlayFolder={handlePlayFolder}
+            onOpenPlaylistContextMenu={(e, pl) => {
               e.preventDefault();
               setPlaylistContextMenu({ x: e.clientX, y: e.clientY, playlist: pl });
             }}
+            onOpenFolderContextMenu={(e, folder) => {
+              e.preventDefault();
+              setFolderContextMenu({ x: e.clientX, y: e.clientY, folder });
+            }}
+            onToggleGroupCollapse={handleToggleGroupCollapse}
+            onRenameGroup={(grp) => setRenameItemTarget({ isOpen: true, type: 'group', item: grp })}
+            onDeleteGroup={handleDeleteGroup}
+            onMovePlaylistToFolder={handleMovePlaylistToFolder}
+            onMovePlaylistToGroup={handleMovePlaylistToGroup}
+            onMoveFolderToFolder={handleMoveFolderToFolder}
+            onMoveFolderToGroup={handleMoveFolderToGroup}
+            onReorderPlaylists={setPlaylists}
           />
         ) : currentView === 'albums' ? (
           <AlbumsGridView
@@ -1254,28 +1425,84 @@ export const App: React.FC = () => {
           x={playlistContextMenu.x}
           y={playlistContextMenu.y}
           playlist={playlistContextMenu.playlist}
+          folders={playlistFolders}
+          groups={playlistGroups}
           onClose={() => setPlaylistContextMenu(null)}
           onPlay={handlePlayPlaylist}
           onAddToQueue={handleAddPlaylistToQueue}
-          onRename={handleRenamePlaylist}
+          onRename={(pl) => setRenameItemTarget({ isOpen: true, type: 'playlist', item: pl })}
           onClear={handleClearPlaylist}
           onDelete={handleDeletePlaylist}
+          onMoveToFolder={handleMovePlaylistToFolder}
+          onMoveToGroup={handleMovePlaylistToGroup}
+        />
+      )}
+
+      {/* Folder Context Menu */}
+      {folderContextMenu && (
+        <FolderContextMenu
+          x={folderContextMenu.x}
+          y={folderContextMenu.y}
+          folder={folderContextMenu.folder}
+          groups={playlistGroups}
+          onClose={() => setFolderContextMenu(null)}
+          onOpen={() => {}}
+          onPlayAll={handlePlayFolder}
+          onAddToQueue={handleAddFolderToQueue}
+          onRename={(f) => setRenameItemTarget({ isOpen: true, type: 'folder', item: f })}
+          onDelete={(f) => setDeleteFolderTarget(f)}
+          onMoveToGroup={handleMoveFolderToGroup}
         />
       )}
 
       {/* Material 3 Create Playlist Modal */}
       <CreatePlaylistModal
         isOpen={isCreatePlaylistOpen}
-        onClose={() => setIsCreatePlaylistOpen(false)}
+        onClose={() => {
+          setIsCreatePlaylistOpen(false);
+          setPlaylistCreationTarget(null);
+        }}
         onCreate={handleCreatePlaylistSubmit}
+        folderName={playlistCreationTarget?.folderId ? playlistFolders.find(f => f.id === playlistCreationTarget.folderId)?.name : undefined}
       />
 
-      {/* Material 3 Rename Playlist Modal */}
-      <RenamePlaylistModal
-        isOpen={!!renamePlaylistTarget}
-        playlist={renamePlaylistTarget}
-        onClose={() => setRenamePlaylistTarget(null)}
-        onRename={handleConfirmRenamePlaylist}
+      {/* Material 3 Create Folder Modal */}
+      <CreateFolderModal
+        isOpen={isCreateFolderOpen}
+        onClose={() => {
+          setIsCreateFolderOpen(false);
+          setFolderCreationTarget(null);
+        }}
+        onCreate={handleCreateFolderSubmit}
+        parentFolderName={folderCreationTarget?.parentId ? playlistFolders.find(f => f.id === folderCreationTarget.parentId)?.name : undefined}
+      />
+
+      {/* Material 3 Create Group Modal */}
+      <CreateGroupModal
+        isOpen={isCreateGroupOpen}
+        onClose={() => setIsCreateGroupOpen(false)}
+        onCreate={handleCreateGroupSubmit}
+      />
+
+      {/* Universal Rename Item Modal (Playlist, Folder, Group) */}
+      <RenameItemModal
+        isOpen={!!renameItemTarget?.isOpen}
+        type={renameItemTarget?.type || 'playlist'}
+        initialName={renameItemTarget?.item?.name || ''}
+        onClose={() => setRenameItemTarget(null)}
+        onRename={handleRenameItem}
+      />
+
+      {/* Delete Folder Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!deleteFolderTarget}
+        title="Удалить папку"
+        message={`Вы уверены, что хотите удалить папку «${deleteFolderTarget?.name}»? Все плейлисты и треки внутри сохранятся и будут перемещены наружу.`}
+        confirmLabel="Удалить"
+        cancelLabel="Отмена"
+        isDestructive={true}
+        onConfirm={handleConfirmDeleteFolder}
+        onClose={() => setDeleteFolderTarget(null)}
       />
 
       {/* Material 3 Clear Playlist Confirmation Modal */}

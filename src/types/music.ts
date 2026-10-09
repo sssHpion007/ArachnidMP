@@ -21,6 +21,23 @@ export interface Track {
   localFile?: File;
 }
 
+export interface PlaylistFolder {
+  id: string;
+  name: string;
+  parentId?: string | null; // For nested folders ("в папке папки")
+  groupId?: string | null;  // For top-level group placement
+  order?: number;
+  color?: string;
+  createdAt: number;
+}
+
+export interface PlaylistGroup {
+  id: string;
+  name: string;
+  isCollapsed?: boolean; // "группа сворачивается разворачивается"
+  order: number;
+}
+
 export interface Playlist {
   id: string;
   name: string;
@@ -29,6 +46,9 @@ export interface Playlist {
   trackIds: string[];
   isSystem?: boolean;
   icon?: string;
+  folderId?: string | null; // Placed inside a folder ("в папке ... плейлисты")
+  groupId?: string | null;  // Placed in a group ("из группы в группу")
+  order?: number;
 }
 
 export interface PlayerState {
