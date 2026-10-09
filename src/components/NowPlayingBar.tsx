@@ -105,25 +105,25 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
     };
   }, [isPlaying]);
 
-  const handleProgressBarMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!progressBarRef.current || duration <= 0) return;
-    const rect = progressBarRef.current.getBoundingClientRect();
-    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    setHoverSeekPos(e.clientX - rect.left);
-    setHoverSeekTime(pos * duration);
-  };
-
-  const handleProgressBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!progressBarRef.current || duration <= 0) return;
-    const rect = progressBarRef.current.getBoundingClientRect();
-    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    onSeek(pos * duration);
-  };
-
   const safeDuration = (duration > 0 && isFinite(duration) && !isNaN(duration)) ? duration : (currentTrack?.duration || 0);
   const safeCurrentTime = Math.max(0, Math.min(safeDuration > 0 ? safeDuration : Infinity, currentTime || 0));
   const progressPercent = safeDuration > 0 ? Math.min(100, Math.max(0, (safeCurrentTime / safeDuration) * 100)) : 0;
   const remainingTime = Math.max(0, safeDuration - safeCurrentTime);
+
+  const handleProgressBarMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!progressBarRef.current || safeDuration <= 0) return;
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    setHoverSeekPos(e.clientX - rect.left);
+    setHoverSeekTime(pos * safeDuration);
+  };
+
+  const handleProgressBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!progressBarRef.current || safeDuration <= 0) return;
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    onSeek(pos * safeDuration);
+  };
 
   return (
     <footer className="h-24 max-h-24 w-full shrink-0 bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-6 flex items-center justify-between select-none relative z-30 transition-colors duration-300">
@@ -256,11 +256,11 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             onMouseMove={handleProgressBarMouseMove}
             onMouseLeave={() => setHoverSeekTime(null)}
             onClick={handleProgressBarClick}
-            className="flex-1 h-1.5 hover:h-2.5 rounded-full bg-md3-surface-container-highest cursor-pointer transition-all duration-150 relative group overflow-hidden"
+            className="flex-1 h-1.5 hover:h-2.5 rounded-full bg-md3-surface-container-highest cursor-pointer transition-all duration-150 relative group"
           >
             {/* Progress Fill */}
             <div 
-              className="h-full bg-md3-primary rounded-full relative transition-all duration-75"
+              className="h-full bg-md3-primary rounded-full relative"
               style={{ width: `${progressPercent}%`, maxWidth: '100%' }}
             >
               {/* Scrubber Thumb */}

@@ -1,4 +1,5 @@
 import { FadeMode } from '../types/music';
+import { isTauri, invoke } from '@tauri-apps/api/core';
 
 export const EQ_FREQUENCIES = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 
@@ -17,7 +18,8 @@ export const EQ_PRESETS = [
  *
  * 1. For normal playback: Instant streaming via single HTMLAudioElement with smooth volume curves.
  * 2. For seamless single-track looping (repeatMode: 'one'):
- *    Decodes audio into a memory-resident 32-bit float PCM AudioBuffer via Web Audio API.
+ *    Decodes audio into memory-resident 32-bit float PCM AudioBuffer via Web Audio API.
+ *    Reads files directly through Rust backend (std::fs::read) to eliminate CORS and network latency.
  *    Uses hardware AudioBufferSourceNode.loop = true, which loops directly in the audio thread
  *    at sample boundaries.
  *    This completely eliminates:
@@ -52,6 +54,7 @@ class AudioEngine {
   private isFadingOutAtEnd: boolean = false;
   private currentTrackSrc: string = '';
   private currentTrackDuration: number = 0;
+  private lastTimeUpdateTimestamp: number = 0;
 
   constructor() {
     this.audio = new Audio();
@@ -223,13 +226,24 @@ class AudioEngine {
 
   /**
    * Pre-loads the audio file into memory and decodes PCM for gapless Web Audio looping
+   * Uses Rust binary read in Tauri to eliminate CORS and network latency.
    */
-  private async preloadBufferForSeamlessLoop(src: string) {
-    if (!src) return;
+  private async preloadBufferForSeamlessLoop(src: string, path?: string) {
+    if (!src && !path) return;
     try {
       const ctx = this.getOrCreateAudioContext();
-      const response = await fetch(src);
-      const arrayBuffer = await response.arrayBuffer();
+      let arrayBuffer: ArrayBuffer;
+
+      if (isTauri() && path) {
+        // Direct zero-latency disk read via Rust without CORS
+        const bytes = await invoke<number[]>('read_audio_binary', { path });
+        const uint8 = new Uint8Array(bytes);
+        arrayBuffer = uint8.buffer;
+      } else {
+        const response = await fetch(src);
+        arrayBuffer = await response.arrayBuffer();
+      }
+
       const decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
 
       if (this.currentTrackSrc === src) {
@@ -239,7 +253,7 @@ class AudioEngine {
 
         // If repeating single track and currently playing, switch to seamless PCM loop
         if (this.repeatMode === 'one' && this.fadeMode !== 'always' && !this.audio.paused && !this.isBufferLoopActive) {
-          const curTime = this.audio.currentTime;
+          const curTime = this.getCurrentTime();
           this.startWebAudioLoop(curTime);
         }
       }
@@ -288,22 +302,32 @@ class AudioEngine {
   }
 
   /**
-   * 60fps monitor loop
-   * Ensures smooth scrubber movement and mathematically clamped timeline values
+   * Precision monitor loop (throttled to smooth ~100ms for React UI, with instant seek updates)
    */
   private startPrecisionLoop() {
     const loop = () => {
+      const now = performance.now();
+      const shouldDispatchTime = (now - this.lastTimeUpdateTimestamp >= 100);
+
       if (this.isBufferLoopActive && this.currentBuffer && this.audioCtx) {
         const dur = this.currentBuffer.duration;
         const elapsed = this.audioCtx.currentTime - this.bufferLoopStartTime;
         const curTime = (this.bufferLoopOffset + elapsed) % dur;
         const safeTime = Math.max(0, Math.min(dur, curTime));
-        this.onTimeUpdateCallback?.(safeTime);
+
+        if (shouldDispatchTime) {
+          this.lastTimeUpdateTimestamp = now;
+          this.onTimeUpdateCallback?.(safeTime);
+        }
       } else if (!this.audio.paused) {
         const dur = this.currentTrackDuration || this.audio.duration;
         if (dur && !isNaN(dur) && isFinite(dur) && dur > 0) {
           const curTime = Math.max(0, Math.min(dur, this.audio.currentTime));
-          this.onTimeUpdateCallback?.(curTime);
+
+          if (shouldDispatchTime) {
+            this.lastTimeUpdateTimestamp = now;
+            this.onTimeUpdateCallback?.(curTime);
+          }
 
           const remaining = dur - curTime;
 
@@ -328,12 +352,13 @@ class AudioEngine {
     src: string, 
     autoPlay: boolean = true, 
     isTrackChange: boolean = true,
-    durationHint?: number
+    durationHint?: number,
+    nativePath?: string
   ): Promise<void> {
     const isDifferent = this.currentTrackSrc !== src;
 
     // Fade out previous track if switching between different tracks and fade is active
-    if (isDifferent && !this.audio.paused && this.fadeMode !== 'off') {
+    if (isDifferent && (!this.audio.paused || this.isBufferLoopActive) && this.fadeMode !== 'off') {
       const fadeOutTime = Math.min(this.fadeDuration, 0.5);
       await new Promise<void>((resolve) => {
         this.startFade(0, fadeOutTime, () => resolve());
@@ -353,8 +378,8 @@ class AudioEngine {
     if (isDifferent) {
       this.audio.src = src;
       this.audio.load();
-      // Preload PCM in background for gapless looping
-      this.preloadBufferForSeamlessLoop(src);
+      // Preload PCM in background for gapless looping via Rust
+      this.preloadBufferForSeamlessLoop(src, nativePath);
     }
 
     if (autoPlay) {
@@ -446,6 +471,7 @@ class AudioEngine {
       this.audio.volume = this.getEffectiveVolume();
     }
 
+    this.lastTimeUpdateTimestamp = performance.now();
     this.onTimeUpdateCallback?.(safeSec);
   }
 

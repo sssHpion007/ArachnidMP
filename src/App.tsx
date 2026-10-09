@@ -764,7 +764,7 @@ export const App: React.FC = () => {
       setQueue(prev => [...prev, track]);
       setQueueIndex(queue.length);
     }
-    await audioEngine.playTrack(track.src, true, true, track.duration);
+    await audioEngine.playTrack(track.src, true, true, track.duration, track.path);
     setIsPlaying(true);
   };
 

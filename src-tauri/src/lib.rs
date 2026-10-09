@@ -306,6 +306,11 @@ fn save_track_lyrics(path: String, lyrics: String) -> Result<bool, String> {
     Ok(true)
 }
 
+#[tauri::command]
+fn read_audio_binary(path: String) -> Result<Vec<u8>, String> {
+    std::fs::read(&path).map_err(|e| format!("Failed to read audio file: {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -316,6 +321,7 @@ pub fn run() {
             get_app_version,
             update_discord_presence,
             read_audio_files,
+            read_audio_binary,
             open_file_dialog,
             show_in_folder,
             save_track_lyrics,
