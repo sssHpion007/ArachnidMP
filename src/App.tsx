@@ -562,9 +562,21 @@ export const App: React.FC = () => {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 
-      if (e.code === 'Space') {
+      if (e.code === 'Space' || e.code === 'MediaPlayPause' || e.key === 'MediaPlayPause') {
         e.preventDefault();
         handlePlayPause();
+      } else if (e.code === 'MediaStop' || e.key === 'MediaStop') {
+        e.preventDefault();
+        if (isPlaying) {
+          setIsPlaying(false);
+          audioEngine.pause();
+        }
+      } else if (e.code === 'MediaTrackNext' || e.key === 'MediaTrackNext') {
+        e.preventDefault();
+        handleNext();
+      } else if (e.code === 'MediaTrackPrevious' || e.key === 'MediaTrackPrevious') {
+        e.preventDefault();
+        handlePrev();
       } else if ((e.code === 'KeyR' || e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'к') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         handleToggleRepeat();
@@ -1037,6 +1049,83 @@ export const App: React.FC = () => {
   const handleToggleShuffle = () => {
     setIsShuffled(!isShuffled);
   };
+
+  // System Media Transport Controls (SMTC) & Bluetooth Headphone Media Buttons
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+
+    if (currentTrack) {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: currentTrack.title,
+          artist: currentTrack.artist,
+          album: currentTrack.album || '',
+          artwork: currentTrack.coverArt
+            ? [{ src: currentTrack.coverArt, sizes: '512x512', type: 'image/jpeg' }]
+            : [],
+        });
+      } catch (_) {}
+    } else {
+      navigator.mediaSession.metadata = null;
+    }
+
+    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+
+    const handleMediaPlay = () => {
+      if (!isPlaying) {
+        setIsPlaying(true);
+        audioEngine.resume();
+      }
+    };
+
+    const handleMediaPause = () => {
+      if (isPlaying) {
+        setIsPlaying(false);
+        audioEngine.pause();
+      }
+    };
+
+    const handleMediaStop = () => {
+      setIsPlaying(false);
+      audioEngine.pause();
+    };
+
+    const handleMediaNext = () => {
+      handleNext();
+    };
+
+    const handleMediaPrev = () => {
+      handlePrev();
+    };
+
+    const handleMediaSeek = (details: MediaSessionActionDetails) => {
+      if (details.seekTime !== undefined && !isNaN(details.seekTime)) {
+        handleSeek(details.seekTime);
+      }
+    };
+
+    try {
+      navigator.mediaSession.setActionHandler('play', handleMediaPlay);
+      navigator.mediaSession.setActionHandler('pause', handleMediaPause);
+      navigator.mediaSession.setActionHandler('stop', handleMediaStop);
+      navigator.mediaSession.setActionHandler('nexttrack', handleMediaNext);
+      navigator.mediaSession.setActionHandler('previoustrack', handleMediaPrev);
+      navigator.mediaSession.setActionHandler('seekto', handleMediaSeek);
+    } catch (e) {
+      console.warn('MediaSession setActionHandler error:', e);
+    }
+
+    return () => {
+      try {
+        navigator.mediaSession.setActionHandler('play', null);
+        navigator.mediaSession.setActionHandler('pause', null);
+        navigator.mediaSession.setActionHandler('stop', null);
+        navigator.mediaSession.setActionHandler('nexttrack', null);
+        navigator.mediaSession.setActionHandler('previoustrack', null);
+        navigator.mediaSession.setActionHandler('seekto', null);
+      } catch (_) {}
+    };
+  }, [currentTrack, isPlaying, queue, queueIndex, isShuffled]);
 
   const handleToggleRepeat = () => {
     setRepeatMode(prev => {

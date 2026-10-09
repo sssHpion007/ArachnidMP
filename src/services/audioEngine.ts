@@ -75,12 +75,29 @@ class AudioEngine {
     });
 
     this.audio.addEventListener('play', () => {
+      if (this.isUsingWebAudio) {
+        // Strict guard: NEVER let HTMLAudioElement play while Web Audio API is active!
+        try {
+          this.audio.pause();
+        } catch (_) {}
+        return;
+      }
       this.isPlaying = true;
       this.onPlayCallback?.();
     });
 
     this.audio.addEventListener('pause', () => {
-      if (!this.isUsingWebAudio && !this.isPlaying) {
+      if (this.isUsingWebAudio) {
+        // If external OS event (like bluetooth headphone pause/stop) reached this.audio, pause the engine
+        if (this.isPlaying) {
+          this.pause();
+        }
+        return;
+      }
+      // If HTMLAudio was paused externally (e.g. headphone button or OS SMTC), sync state
+      if (this.isPlaying) {
+        this.isPlaying = false;
+        this.playbackPosition = this.audio.currentTime;
         this.onPauseCallback?.();
       }
     });
@@ -559,11 +576,10 @@ class AudioEngine {
     this.playbackPosition = this.getCurrentTime();
     this.isPlaying = false;
 
-    if (this.isUsingWebAudio) {
-      this.stopBufferSource();
-    } else {
+    this.stopBufferSource();
+    try {
       this.audio.pause();
-    }
+    } catch (_) {}
 
     this.onPauseCallback?.();
     this.onTimeUpdateCallback?.(this.playbackPosition);
@@ -575,8 +591,12 @@ class AudioEngine {
     const startPos = this.playbackPosition; // Resume from EXACT point where it was paused!
 
     if (this.currentBuffer && this.audioCtx && this.repeatMode === 'one' && this.fadeMode !== 'always') {
+      try {
+        this.audio.pause();
+      } catch (_) {}
       this.startBufferPlayback(startPos);
     } else {
+      this.stopBufferSource();
       this.audio.currentTime = startPos;
       try {
         await this.audio.play();
