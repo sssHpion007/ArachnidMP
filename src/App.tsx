@@ -1072,17 +1072,13 @@ export const App: React.FC = () => {
     navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
 
     const handleMediaPlay = () => {
-      if (!isPlaying) {
-        setIsPlaying(true);
-        audioEngine.resume();
-      }
+      setIsPlaying(true);
+      audioEngine.resume();
     };
 
     const handleMediaPause = () => {
-      if (isPlaying) {
-        setIsPlaying(false);
-        audioEngine.pause();
-      }
+      setIsPlaying(false);
+      audioEngine.pause();
     };
 
     const handleMediaStop = () => {

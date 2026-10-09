@@ -74,34 +74,6 @@ class AudioEngine {
       }
     });
 
-    this.audio.addEventListener('play', () => {
-      if (this.isUsingWebAudio) {
-        // Strict guard: NEVER let HTMLAudioElement play while Web Audio API is active!
-        try {
-          this.audio.pause();
-        } catch (_) {}
-        return;
-      }
-      this.isPlaying = true;
-      this.onPlayCallback?.();
-    });
-
-    this.audio.addEventListener('pause', () => {
-      if (this.isUsingWebAudio) {
-        // If external OS event (like bluetooth headphone pause/stop) reached this.audio, pause the engine
-        if (this.isPlaying) {
-          this.pause();
-        }
-        return;
-      }
-      // If HTMLAudio was paused externally (e.g. headphone button or OS SMTC), sync state
-      if (this.isPlaying) {
-        this.isPlaying = false;
-        this.playbackPosition = this.audio.currentTime;
-        this.onPauseCallback?.();
-      }
-    });
-
     this.audio.addEventListener('ended', () => {
       if (!this.isUsingWebAudio) {
         this.handleTrackEnded();
@@ -192,7 +164,7 @@ class AudioEngine {
   private setVolumeInstantly(vol: number) {
     const clamped = Math.max(0, Math.min(1, vol));
     try {
-      this.audio.volume = clamped;
+      this.audio.volume = this.isUsingWebAudio ? 0 : clamped;
     } catch (_) {}
     if (this.gainNode && this.audioCtx) {
       try {
@@ -358,6 +330,11 @@ class AudioEngine {
     try {
       this.gainNode!.gain.cancelScheduledValues(now);
       this.gainNode!.gain.setValueAtTime(effVol, now);
+    } catch (_) {}
+
+    try {
+      this.audio.pause();
+      this.audio.volume = 0;
     } catch (_) {}
 
     source.start(0, offset);
