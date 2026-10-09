@@ -123,7 +123,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <footer className="h-24 bg-md3-surface-container-high border-t border-md3-outline-variant/30 px-6 flex items-center justify-between select-none relative z-30 transition-colors duration-300">
+    <footer className="h-24 w-full shrink-0 bg-md3-surface-container-high border-t border-md3-outline-variant/30 px-6 flex items-center justify-between select-none relative z-30 transition-colors duration-300">
       {/* Top Floating Mini Progress Scrubber across entire width */}
       <div 
         ref={progressBarRef}

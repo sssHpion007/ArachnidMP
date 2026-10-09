@@ -596,7 +596,7 @@ export const App: React.FC = () => {
   }, [tracks, selectedTrackIds]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-md3-background text-md3-on-background select-none font-sans">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-md3-background text-md3-on-background select-none font-sans">
       {/* Hidden File Input for "Добавить файлы" */}
       <input
         ref={fileInputRef}

@@ -25,3 +25,5 @@ Thumbs.db
 # Sensitive credentials
 .env
 .env.local
+uploads/
+
