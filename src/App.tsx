@@ -88,6 +88,7 @@ export const App: React.FC = () => {
   const [isBatchTagEditorOpen, setIsBatchTagEditorOpen] = useState<boolean>(false);
   const [isCreatePlaylistOpen, setIsCreatePlaylistOpen] = useState<boolean>(false);
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState<boolean>(false);
+  const [editingFolderTarget, setEditingFolderTarget] = useState<PlaylistFolder | null>(null);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState<boolean>(false);
   const [playlistCreationTarget, setPlaylistCreationTarget] = useState<{ folderId?: string | null; groupId?: string | null } | null>(null);
   const [folderCreationTarget, setFolderCreationTarget] = useState<{ parentId?: string | null; groupId?: string | null } | null>(null);
@@ -268,6 +269,10 @@ export const App: React.FC = () => {
       try {
         const appWindow = getCurrentWebviewWindow();
         appWindow.onDragDropEvent((event) => {
+          if ((window as any).__isInternalDragging) {
+            setIsDraggingFile(false);
+            return;
+          }
           if (event.payload.type === 'over' || event.payload.type === 'enter') {
             setIsDraggingFile(true);
           } else if (event.payload.type === 'drop') {
@@ -296,14 +301,23 @@ export const App: React.FC = () => {
   useEffect(() => {
     const handleDragEnter = (e: DragEvent) => {
       e.preventDefault();
+      if ((window as any).__isInternalDragging) {
+        setIsDraggingFile(false);
+        return;
+      }
       dragCounterRef.current++;
-      if (e.dataTransfer?.types?.includes('Files')) {
+      if (e.dataTransfer?.types && Array.from(e.dataTransfer.types).includes('Files')) {
         setIsDraggingFile(true);
       }
     };
 
     const handleDragLeave = (e: DragEvent) => {
       e.preventDefault();
+      if ((window as any).__isInternalDragging) {
+        setIsDraggingFile(false);
+        dragCounterRef.current = 0;
+        return;
+      }
       dragCounterRef.current--;
       if (dragCounterRef.current <= 0) {
         setIsDraggingFile(false);
@@ -312,6 +326,10 @@ export const App: React.FC = () => {
     };
 
     const handleDragOver = (e: DragEvent) => {
+      if ((window as any).__isInternalDragging) {
+        setIsDraggingFile(false);
+        return;
+      }
       e.preventDefault();
       if (e.dataTransfer) {
         e.dataTransfer.dropEffect = 'copy';
@@ -319,6 +337,11 @@ export const App: React.FC = () => {
     };
 
     const handleDrop = async (e: DragEvent) => {
+      if ((window as any).__isInternalDragging) {
+        setIsDraggingFile(false);
+        dragCounterRef.current = 0;
+        return;
+      }
       e.preventDefault();
       dragCounterRef.current = 0;
       setIsDraggingFile(false);
@@ -821,18 +844,35 @@ export const App: React.FC = () => {
     setIsCreateFolderOpen(true);
   };
 
-  const handleCreateFolderSubmit = (name: string, color?: string) => {
+  const handleCreateFolderSubmit = (name: string, color?: string, icon?: string) => {
     const newFolder: PlaylistFolder = {
       id: `fld_${Date.now()}`,
       name: name.trim(),
       parentId: folderCreationTarget?.parentId || null,
       groupId: folderCreationTarget?.groupId || null,
       color: color || undefined,
+      icon: icon || undefined,
       createdAt: Date.now(),
       order: playlistFolders.length,
     };
     setPlaylistFolders(prev => [...prev, newFolder]);
     setFolderCreationTarget(null);
+  };
+
+  const handleSaveEditFolder = (name: string, color?: string, icon?: string) => {
+    if (!editingFolderTarget) return;
+    setPlaylistFolders(prev => prev.map(f => {
+      if (f.id === editingFolderTarget.id) {
+        return {
+          ...f,
+          name: name.trim(),
+          color: color || undefined,
+          icon: icon || undefined,
+        };
+      }
+      return f;
+    }));
+    setEditingFolderTarget(null);
   };
 
   const handleCreateGroupSubmit = (name: string) => {
@@ -1257,6 +1297,7 @@ export const App: React.FC = () => {
             onMoveFolderToFolder={handleMoveFolderToFolder}
             onMoveFolderToGroup={handleMoveFolderToGroup}
             onReorderPlaylists={setPlaylists}
+            onEditFolder={(folder) => setEditingFolderTarget(folder)}
           />
         ) : currentView === 'albums' ? (
           <AlbumsGridView
@@ -1450,6 +1491,7 @@ export const App: React.FC = () => {
           onPlayAll={handlePlayFolder}
           onAddToQueue={handleAddFolderToQueue}
           onRename={(f) => setRenameItemTarget({ isOpen: true, type: 'folder', item: f })}
+          onEditFolder={(f) => setEditingFolderTarget(f)}
           onDelete={(f) => setDeleteFolderTarget(f)}
           onMoveToGroup={handleMoveFolderToGroup}
         />
@@ -1466,15 +1508,23 @@ export const App: React.FC = () => {
         folderName={playlistCreationTarget?.folderId ? playlistFolders.find(f => f.id === playlistCreationTarget.folderId)?.name : undefined}
       />
 
-      {/* Material 3 Create Folder Modal */}
+      {/* Material 3 Create / Edit Folder Modal */}
       <CreateFolderModal
-        isOpen={isCreateFolderOpen}
+        isOpen={isCreateFolderOpen || !!editingFolderTarget}
         onClose={() => {
           setIsCreateFolderOpen(false);
           setFolderCreationTarget(null);
+          setEditingFolderTarget(null);
         }}
-        onCreate={handleCreateFolderSubmit}
+        onCreate={(name, color, icon) => {
+          if (editingFolderTarget) {
+            handleSaveEditFolder(name, color, icon);
+          } else {
+            handleCreateFolderSubmit(name, color, icon);
+          }
+        }}
         parentFolderName={folderCreationTarget?.parentId ? playlistFolders.find(f => f.id === folderCreationTarget.parentId)?.name : undefined}
+        folderToEdit={editingFolderTarget}
       />
 
       {/* Material 3 Create Group Modal */}

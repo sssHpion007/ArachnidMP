@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Play, ListPlus, Edit3, Trash2, FolderOpen, Layers } from 'lucide-react';
+import { Play, ListPlus, Edit3, Trash2, FolderOpen, Layers, Palette } from 'lucide-react';
 import { PlaylistFolder, PlaylistGroup } from '../types/music';
 
 interface FolderContextMenuProps {
@@ -12,6 +12,7 @@ interface FolderContextMenuProps {
   onPlayAll: (folder: PlaylistFolder) => void;
   onAddToQueue: (folder: PlaylistFolder) => void;
   onRename: (folder: PlaylistFolder) => void;
+  onEditFolder?: (folder: PlaylistFolder) => void;
   onDelete: (folder: PlaylistFolder) => void;
   onMoveToGroup: (folderId: string, groupId: string | null) => void;
 }
@@ -26,6 +27,7 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
   onPlayAll,
   onAddToQueue,
   onRename,
+  onEditFolder,
   onDelete,
   onMoveToGroup,
 }) => {
@@ -107,6 +109,19 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
         <Edit3 className="w-3.5 h-3.5 text-md3-primary" />
         <span>Переименовать</span>
       </button>
+
+      {onEditFolder && (
+        <button
+          onClick={() => {
+            onEditFolder(folder);
+            onClose();
+          }}
+          className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left"
+        >
+          <Palette className="w-3.5 h-3.5 text-md3-primary" />
+          <span>Значок и цвет...</span>
+        </button>
+      )}
 
       {groups.length > 0 && (
         <div className="border-t border-md3-outline-variant/20 my-1 py-1">

@@ -28,6 +28,7 @@ export interface PlaylistFolder {
   groupId?: string | null;  // For top-level group placement
   order?: number;
   color?: string;
+  icon?: string; // Icon identifier (e.g. 'gamepad', 'headphones', 'music', 'flame')
   createdAt: number;
 }
 

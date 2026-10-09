@@ -59,6 +59,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   const [hoveredTrackId, setHoveredTrackId] = useState<string | null>(null);
 
   const handleDragStart = (e: React.DragEvent, track: Track) => {
+    (window as any).__isInternalDragging = true;
     let idsToDrag: string[] = [];
     if (selectedTrackIds.has(track.id)) {
       idsToDrag = Array.from(selectedTrackIds);
@@ -67,6 +68,10 @@ export const TrackTable: React.FC<TrackTableProps> = ({
     }
     e.dataTransfer.setData('application/json', JSON.stringify({ trackIds: idsToDrag }));
     e.dataTransfer.effectAllowed = 'copyMove';
+  };
+
+  const handleDragEnd = () => {
+    (window as any).__isInternalDragging = false;
   };
 
   const handleTableDragOver = (e: React.DragEvent) => {
@@ -165,6 +170,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                 key={track.id}
                 draggable
                 onDragStart={(e) => handleDragStart(e, track)}
+                onDragEnd={handleDragEnd}
                 onMouseEnter={() => setHoveredTrackId(track.id)}
                 onMouseLeave={() => setHoveredTrackId(null)}
                 onClick={(e) => onSelectTrack(track.id, e, idx)}

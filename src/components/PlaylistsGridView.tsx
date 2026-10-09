@@ -3,7 +3,6 @@ import {
   Plus, 
   Play, 
   ListMusic, 
-  Folder, 
   FolderPlus, 
   Layers, 
   ChevronRight, 
@@ -11,12 +10,12 @@ import {
   ArrowLeft, 
   Edit3, 
   Trash2, 
-  MoreVertical,
-  CornerDownRight,
-  FolderOpen
+  FolderOpen,
+  Palette
 } from 'lucide-react';
 import { Playlist, PlaylistFolder, PlaylistGroup, Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
+import { getFolderIconComponent } from '../theme/folderIcons';
 
 interface PlaylistsGridViewProps {
   playlists: Playlist[];
@@ -39,6 +38,8 @@ interface PlaylistsGridViewProps {
   onMoveFolderToFolder: (folderId: string, targetParentId: string | null) => void;
   onMoveFolderToGroup: (folderId: string, groupId: string | null) => void;
   onReorderPlaylists: (reorderedPlaylists: Playlist[]) => void;
+  onReorderFolders?: (reorderedFolders: PlaylistFolder[]) => void;
+  onEditFolder?: (folder: PlaylistFolder) => void;
 }
 
 interface DragItemData {
@@ -67,6 +68,8 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   onMoveFolderToFolder,
   onMoveFolderToGroup,
   onReorderPlaylists,
+  onReorderFolders,
+  onEditFolder,
 }) => {
   // Navigation state: current folder view (null = root)
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
@@ -76,7 +79,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   const [hoveredFolderId, setHoveredFolderId] = useState<string | null>(null);
   const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);
   const [hoveredCrumbId, setHoveredCrumbId] = useState<string | null | 'root'>(null);
-  const [hoveredPlaylistId, setHoveredPlaylistId] = useState<string | null>(null);
+  const [dropTargetPlaylist, setDropTargetPlaylist] = useState<{ id: string; position: 'before' | 'after' } | null>(null);
 
   // Current folder object (if inside a folder)
   const currentFolder = useMemo(() => {
@@ -117,9 +120,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
 
   // Helper to count tracks and playlists in a folder recursively
   const getFolderStats = (folderId: string) => {
-    // Direct subfolders
     const subfolders = folders.filter((f) => f.parentId === folderId);
-    // Direct playlists
     const folderPlaylists = playlists.filter((p) => p.folderId === folderId);
     let totalTracks = 0;
     for (const pl of folderPlaylists) {
@@ -139,17 +140,19 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   // ---------------- Drag & Drop Handlers ----------------
 
   const handleDragStart = (e: React.DragEvent, item: DragItemData) => {
+    (window as any).__isInternalDragging = true;
     setDraggingItem(item);
     e.dataTransfer.setData('application/json', JSON.stringify(item));
     e.dataTransfer.effectAllowed = 'move';
   };
 
   const handleDragEnd = () => {
+    (window as any).__isInternalDragging = false;
     setDraggingItem(null);
     setHoveredFolderId(null);
     setHoveredGroupId(null);
     setHoveredCrumbId(null);
-    setHoveredPlaylistId(null);
+    setDropTargetPlaylist(null);
   };
 
   // Drop on a Folder card
@@ -162,12 +165,11 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     if (draggingItem.type === 'playlist') {
       onMovePlaylistToFolder(draggingItem.id, targetFolder.id);
     } else if (draggingItem.type === 'folder') {
-      // Don't drop on itself or create loop
       if (draggingItem.id !== targetFolder.id) {
         onMoveFolderToFolder(draggingItem.id, targetFolder.id);
       }
     }
-    setDraggingItem(null);
+    handleDragEnd();
   };
 
   // Drop on a Group section
@@ -182,7 +184,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     } else if (draggingItem.type === 'folder') {
       onMoveFolderToGroup(draggingItem.id, targetGroupId);
     }
-    setDraggingItem(null);
+    handleDragEnd();
   };
 
   // Drop on a Breadcrumb
@@ -199,41 +201,49 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         onMoveFolderToFolder(draggingItem.id, targetFolderId);
       }
     }
-    setDraggingItem(null);
+    handleDragEnd();
   };
 
-  // Reorder playlists inside the same container
+  // Reorder playlists inside grid (before / after target card)
   const handleDropOnPlaylist = (e: React.DragEvent, targetPlaylist: Playlist) => {
     e.preventDefault();
     e.stopPropagation();
-    setHoveredPlaylistId(null);
 
     if (!draggingItem || draggingItem.type !== 'playlist' || draggingItem.id === targetPlaylist.id) {
+      setDropTargetPlaylist(null);
+      handleDragEnd();
       return;
     }
 
-    const draggedPl = playlists.find((p) => p.id === draggingItem.id);
-    if (!draggedPl) return;
+    const pos = dropTargetPlaylist?.position || 'after';
+    setDropTargetPlaylist(null);
 
-    // If dragged from another folder or group, move it to this folder/group first
-    if (draggedPl.folderId !== targetPlaylist.folderId || draggedPl.groupId !== targetPlaylist.groupId) {
-      if (targetPlaylist.folderId) {
-        onMovePlaylistToFolder(draggedPl.id, targetPlaylist.folderId);
-      } else {
-        onMovePlaylistToGroup(draggedPl.id, targetPlaylist.groupId || null);
-      }
+    const nextPlaylists = [...playlists];
+    const fromIndex = nextPlaylists.findIndex((p) => p.id === draggingItem.id);
+    if (fromIndex === -1) {
+      handleDragEnd();
+      return;
     }
 
-    // Now reorder in the global playlists list
-    const fromIndex = playlists.findIndex((p) => p.id === draggedPl.id);
-    const toIndex = playlists.findIndex((p) => p.id === targetPlaylist.id);
-    if (fromIndex !== -1 && toIndex !== -1) {
-      const nextPlaylists = [...playlists];
-      const [removed] = nextPlaylists.splice(fromIndex, 1);
-      nextPlaylists.splice(toIndex, 0, removed);
+    const [draggedPl] = nextPlaylists.splice(fromIndex, 1);
+
+    // Apply target's folderId and groupId to the moved playlist
+    const updatedPl: Playlist = {
+      ...draggedPl,
+      folderId: targetPlaylist.folderId || null,
+      groupId: targetPlaylist.folderId ? null : (targetPlaylist.groupId || null),
+    };
+
+    let toIndex = nextPlaylists.findIndex((p) => p.id === targetPlaylist.id);
+    if (toIndex !== -1) {
+      if (pos === 'after') {
+        toIndex += 1;
+      }
+      nextPlaylists.splice(toIndex, 0, updatedPl);
       onReorderPlaylists(nextPlaylists);
     }
-    setDraggingItem(null);
+
+    handleDragEnd();
   };
 
   // Render a Single Folder Card
@@ -241,6 +251,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     const stats = getFolderStats(folder.id);
     const isHovered = hoveredFolderId === folder.id;
     const isSelfDragging = draggingItem?.type === 'folder' && draggingItem?.id === folder.id;
+    const IconComponent = getFolderIconComponent(folder.icon);
 
     return (
       <div
@@ -254,7 +265,12 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
             setHoveredFolderId(folder.id);
           }
         }}
-        onDragLeave={() => setHoveredFolderId(null)}
+        onDragLeave={(e) => {
+          // Only clear if actually leaving the card container
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            setHoveredFolderId(null);
+          }
+        }}
         onDrop={(e) => handleDropOnFolder(e, folder)}
         onClick={() => setCurrentFolderId(folder.id)}
         onContextMenu={(e) => {
@@ -269,13 +285,13 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         } ${isSelfDragging ? 'opacity-40 scale-95' : ''}`}
       >
         {/* Visual Folder Icon & Preview */}
-        <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest flex flex-col items-center justify-center mb-3 shadow-inner">
+        <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest flex flex-col items-center justify-center mb-3 shadow-inner pointer-events-none">
           <div 
             className="w-16 h-16 rounded-2xl flex items-center justify-center transition-transform duration-300 group-hover:scale-110 shadow-sm"
             style={{ backgroundColor: folder.color ? `${folder.color}25` : undefined }}
           >
-            <Folder 
-              className="w-10 h-10 transition-colors" 
+            <IconComponent 
+              className="w-9 h-9 transition-colors" 
               style={{ color: folder.color || 'var(--md3-primary)' }}
             />
           </div>
@@ -288,7 +304,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                 onPlayFolder(folder);
               }}
               title="Воспроизвести всю папку"
-              className="absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200"
+              className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200"
             >
               <Play className="w-5 h-5 fill-current ml-0.5" />
             </button>
@@ -304,7 +320,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         </div>
 
         {/* Folder Info */}
-        <div className="min-w-0">
+        <div className="min-w-0 pointer-events-none">
           <div className="flex items-center gap-1.5">
             <h3 className="font-bold text-sm text-md3-on-surface truncate group-hover:text-md3-primary transition-colors">
               {folder.name}
@@ -323,7 +339,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   const renderPlaylistCard = (playlist: Playlist) => {
     const cover = getPlaylistCover(playlist);
     const totalDuration = getPlaylistDuration(playlist);
-    const isHovered = hoveredPlaylistId === playlist.id;
+    const isTarget = dropTargetPlaylist?.id === playlist.id;
     const isSelfDragging = draggingItem?.type === 'playlist' && draggingItem?.id === playlist.id;
 
     return (
@@ -334,11 +350,20 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         onDragEnd={handleDragEnd}
         onDragOver={(e) => {
           e.preventDefault();
-          if (draggingItem && draggingItem.id !== playlist.id) {
-            setHoveredPlaylistId(playlist.id);
+          if (draggingItem && draggingItem.type === 'playlist' && draggingItem.id !== playlist.id) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const midX = rect.left + rect.width / 2;
+            const pos = e.clientX < midX ? 'before' : 'after';
+            setDropTargetPlaylist({ id: playlist.id, position: pos });
           }
         }}
-        onDragLeave={() => setHoveredPlaylistId(null)}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            if (dropTargetPlaylist?.id === playlist.id) {
+              setDropTargetPlaylist(null);
+            }
+          }
+        }}
         onDrop={(e) => handleDropOnPlaylist(e, playlist)}
         onClick={() => onSelectPlaylist(playlist.id)}
         onContextMenu={(e) => {
@@ -346,19 +371,28 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
           e.stopPropagation();
           onOpenPlaylistContextMenu(e, playlist);
         }}
-        className={`group relative flex flex-col p-3 rounded-3xl transition-all duration-200 cursor-pointer select-none border ${
-          isHovered
-            ? 'ring-2 ring-md3-primary scale-[1.02] bg-md3-surface-container border-md3-primary'
+        className={`group relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border ${
+          isTarget
+            ? 'ring-2 ring-md3-primary scale-[1.02] bg-md3-surface-container border-md3-primary shadow-lg'
             : 'bg-md3-surface-container-low hover:bg-md3-surface-container border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md'
-        } ${isSelfDragging ? 'opacity-40 scale-95' : ''}`}
+        } ${isSelfDragging ? 'opacity-35 scale-95' : ''}`}
       >
+        {/* Visual Insertion Indicator Bars */}
+        {isTarget && dropTargetPlaylist.position === 'before' && (
+          <div className="absolute -left-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 animate-pulse z-30" />
+        )}
+        {isTarget && dropTargetPlaylist.position === 'after' && (
+          <div className="absolute -right-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 animate-pulse z-30" />
+        )}
+
         {/* Cover Art Container */}
-        <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest mb-3 shadow-inner">
+        <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest mb-3 shadow-inner pointer-events-none">
           {cover ? (
             <img
               src={cover}
               alt={playlist.name}
-              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+              draggable={false}
+              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none"
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-md3-primary/50 bg-md3-primary/5">
@@ -374,7 +408,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                 onPlayPlaylist(playlist);
               }}
               title="Воспроизвести плейлист"
-              className="absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200"
+              className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200"
             >
               <Play className="w-5 h-5 fill-current ml-0.5" />
             </button>
@@ -389,7 +423,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         </div>
 
         {/* Title & Stats */}
-        <div className="min-w-0">
+        <div className="min-w-0 pointer-events-none">
           <h3 className="font-bold text-sm text-md3-on-surface truncate group-hover:text-md3-primary transition-colors">
             {playlist.name}
           </h3>
@@ -407,6 +441,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     const subfoldersInside = folders.filter((f) => f.parentId === currentFolderId);
     const playlistsInside = playlists.filter((p) => p.folderId === currentFolderId);
     const totalItems = subfoldersInside.length + playlistsInside.length;
+    const CurrentFolderIcon = getFolderIconComponent(currentFolder.icon);
 
     return (
       <div className="flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none">
@@ -469,7 +504,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
               </div>
 
               <div className="flex items-center gap-2">
-                <FolderOpen 
+                <CurrentFolderIcon 
                   className="w-5 h-5 text-md3-primary flex-shrink-0"
                   style={{ color: currentFolder.color || undefined }}
                 />
@@ -479,6 +514,15 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                 <span className="text-xs px-2.5 py-0.5 rounded-full bg-md3-surface-container-high text-md3-on-surface-variant font-medium">
                   {totalItems} {totalItems === 1 ? 'элемент' : totalItems < 5 ? 'элемента' : 'элементов'}
                 </span>
+                {onEditFolder && (
+                  <button
+                    onClick={() => onEditFolder(currentFolder)}
+                    title="Настроить значок и цвет"
+                    className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-primary hover:bg-md3-surface-container-high transition-colors"
+                  >
+                    <Palette className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -513,12 +557,12 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                 } else if (draggingItem.type === 'folder' && draggingItem.id !== currentFolder.id) {
                   onMoveFolderToFolder(draggingItem.id, currentFolder.id);
                 }
-                setDraggingItem(null);
+                handleDragEnd();
               }
             }}
             className="flex-1 flex flex-col items-center justify-center p-12 text-center border-2 border-dashed border-md3-outline-variant/30 rounded-3xl"
           >
-            <Folder className="w-14 h-14 text-md3-on-surface-variant/30 mb-3" />
+            <CurrentFolderIcon className="w-14 h-14 text-md3-on-surface-variant/30 mb-3" />
             <h3 className="text-base font-bold text-md3-on-surface mb-1">
               В этой папке пока пусто
             </h3>
@@ -553,12 +597,9 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   }
 
   // ---------------- ROOT VIEW (WITH GROUPS & FOLDERS) ----------------
-  // Root folders (no parentId)
   const rootFolders = folders.filter((f) => !f.parentId);
-  // Root playlists (no folderId)
   const rootPlaylists = playlists.filter((p) => !p.folderId);
 
-  // Ungrouped items at root
   const ungroupedFolders = rootFolders.filter((f) => !f.groupId);
   const ungroupedPlaylists = rootPlaylists.filter((p) => !p.groupId);
   const hasGroups = groups.length > 0;
@@ -623,7 +664,11 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                   e.preventDefault();
                   setHoveredGroupId(group.id);
                 }}
-                onDragLeave={() => setHoveredGroupId(null)}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setHoveredGroupId(null);
+                  }
+                }}
                 onDrop={(e) => handleDropOnGroup(e, group.id)}
                 className={`rounded-3xl border transition-all duration-200 overflow-hidden ${
                   isGroupHovered
@@ -719,7 +764,11 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
               setHoveredGroupId('ungrouped');
             }
           }}
-          onDragLeave={() => setHoveredGroupId(null)}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              setHoveredGroupId(null);
+            }
+          }}
           onDrop={(e) => {
             if (hasGroups) handleDropOnGroup(e, null);
           }}
