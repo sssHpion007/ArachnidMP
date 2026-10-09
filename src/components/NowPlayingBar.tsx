@@ -12,10 +12,7 @@ import {
   Volume1,
   Heart, 
   ListMusic, 
-  SlidersHorizontal,
-  Maximize2,
-  Disc3,
-  Activity
+  Disc3
 } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
@@ -42,7 +39,7 @@ interface NowPlayingBarProps {
   onToggleRepeat: () => void;
   onToggleQueue: () => void;
   onToggleFavorite: (trackId: string, e: React.MouseEvent) => void;
-  onOpenEQ: () => void;
+  onOpenEQ?: () => void;
 }
 
 export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
@@ -66,16 +63,15 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   onToggleRepeat,
   onToggleQueue,
   onToggleFavorite,
-  onOpenEQ,
 }) => {
   const [hoverSeekTime, setHoverSeekTime] = useState<number | null>(null);
   const [hoverSeekPos, setHoverSeekPos] = useState<number>(0);
   const [showRemainingTime, setShowRemainingTime] = useState<boolean>(false);
-  const [visBars, setVisBars] = useState<number[]>([15, 30, 45, 60, 40, 25, 50, 20]);
+  const [visBars, setVisBars] = useState<number[]>([20, 40, 60, 80, 50, 30, 70, 25]);
   const progressBarRef = useRef<HTMLDivElement>(null);
   const animFrameRef = useRef<number | null>(null);
 
-  // Visualizer loop
+  // Animated visualizer loop
   useEffect(() => {
     let active = true;
     const updateVis = () => {
@@ -86,12 +82,12 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
           const heights = [];
           for (let i = 0; i < 8; i++) {
             const val = data[i * step] || 0;
-            heights.push(Math.max(10, Math.min(100, Math.round((val / 255) * 100))));
+            heights.push(Math.max(15, Math.min(100, Math.round((val / 255) * 100))));
           }
           setVisBars(heights);
         }
       } else {
-        setVisBars([10, 10, 10, 10, 10, 10, 10, 10]);
+        setVisBars([15, 15, 15, 15, 15, 15, 15, 15]);
       }
       if (active) {
         animFrameRef.current = requestAnimationFrame(updateVis);
@@ -123,28 +119,28 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <footer className="h-24 w-full shrink-0 bg-md3-surface-container-high border-t border-md3-outline-variant/30 px-6 flex items-center justify-between select-none relative z-30 transition-colors duration-300">
-      {/* Top Floating Mini Progress Scrubber across entire width */}
+    <footer className="h-22 w-full shrink-0 bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-6 flex items-center justify-between select-none relative z-30 transition-colors duration-300">
+      {/* Top Embedded Timeline Scrubber */}
       <div 
         ref={progressBarRef}
         onMouseMove={handleProgressBarMouseMove}
         onMouseLeave={() => setHoverSeekTime(null)}
         onClick={handleProgressBarClick}
-        className="absolute top-0 left-0 right-0 h-1.5 hover:h-3 group cursor-pointer bg-md3-surface-container-highest transition-all duration-200"
+        className="absolute -top-1 left-0 right-0 h-2 hover:h-3 group cursor-pointer bg-md3-surface-container-highest/60 transition-all duration-200"
       >
         {/* Progress fill */}
         <div 
           className="h-full bg-md3-primary relative transition-all duration-75"
           style={{ width: `${progressPercent}%` }}
         >
-          {/* Scrubber thumb */}
-          <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3.5 h-3.5 rounded-full bg-md3-primary shadow-md opacity-0 group-hover:opacity-100 transition-opacity" />
+          {/* Glowing Scrubber Thumb */}
+          <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3.5 h-3.5 rounded-full bg-md3-primary shadow-lg ring-2 ring-md3-on-primary opacity-0 group-hover:opacity-100 transition-opacity" />
         </div>
 
         {/* Hover preview tooltip */}
         {hoverSeekTime !== null && (
           <div 
-            className="absolute -top-7 -translate-x-1/2 px-2 py-0.5 rounded-md bg-md3-surface-container-highest text-md3-on-surface text-[11px] font-mono shadow-lg border border-md3-outline-variant/40 pointer-events-none"
+            className="absolute -top-7 -translate-x-1/2 px-2 py-0.5 rounded-lg bg-md3-surface-container-highest text-md3-on-surface text-[11px] font-mono shadow-xl border border-md3-outline-variant/20 pointer-events-none"
             style={{ left: `${hoverSeekPos}px` }}
           >
             {formatTime(hoverSeekTime)}
@@ -152,49 +148,68 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
         )}
       </div>
 
-      {/* Left: Track Details & Album Art */}
-      <div className="flex items-center gap-4 w-1/4 min-w-[220px]">
-        <div className="w-14 h-14 rounded-2xl overflow-hidden shrink-0 bg-md3-surface-container-highest shadow-md relative group">
+      {/* Left: Cover Art & Track Metadata */}
+      <div className="flex items-center gap-3.5 w-1/4 min-w-[240px]">
+        {/* Cover Art with subtle glow */}
+        <div className="w-13 h-13 rounded-2xl overflow-hidden shrink-0 bg-md3-surface-container shadow-md border border-md3-outline-variant/15 relative group">
           {currentTrack?.coverArt ? (
             <img 
               src={currentTrack.coverArt} 
               alt={currentTrack.title} 
-              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" 
+              className={`w-full h-full object-cover transition-transform duration-300 ${isPlaying ? 'scale-105' : ''}`} 
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-md3-primary/10 text-md3-primary">
-              <Disc3 className="w-7 h-7" />
+              <Disc3 className={`w-7 h-7 ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }} />
             </div>
           )}
         </div>
 
+        {/* Title & Artist */}
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-md3-on-surface truncate">
-            {currentTrack ? currentTrack.title : 'Ничего не играет'}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-bold text-md3-on-surface truncate">
+              {currentTrack ? currentTrack.title : 'Ничего не играет'}
+            </p>
+            {currentTrack?.format && (
+              <span className="px-1.5 py-0.2 rounded-md bg-md3-surface-container text-[10px] font-mono font-semibold text-md3-on-surface-variant/80 border border-md3-outline-variant/15 shrink-0">
+                {currentTrack.format}
+              </span>
+            )}
+          </div>
           <p className="text-xs text-md3-on-surface-variant truncate font-medium mt-0.5">
-            {currentTrack ? currentTrack.artist : 'Выберите трек для воспроизведения'}
+            {currentTrack ? (
+              <>
+                <span>{currentTrack.artist}</span>
+                {currentTrack.album && <span className="opacity-60"> — {currentTrack.album}</span>}
+              </>
+            ) : (
+              'Выберите трек из библиотеки'
+            )}
           </p>
         </div>
 
+        {/* Favorite Heart Button */}
         {currentTrack && (
           <button
             onClick={(e) => onToggleFavorite(currentTrack.id, e)}
-            className="p-2 rounded-full text-md3-on-surface-variant hover:text-red-500 transition-colors"
+            title={currentTrack.isFavorite ? 'Удалить из любимых' : 'Добавить в любимые'}
+            className="p-2 rounded-full text-md3-on-surface-variant hover:text-red-500 transition-colors cursor-pointer"
           >
-            <Heart className={`w-5 h-5 ${currentTrack.isFavorite ? 'fill-red-500 text-red-500' : 'opacity-40 hover:opacity-100'}`} />
+            <Heart className={`w-4 h-4 transition-transform active:scale-125 ${currentTrack.isFavorite ? 'fill-red-500 text-red-500 scale-110' : 'opacity-40 hover:opacity-100'}`} />
           </button>
         )}
       </div>
 
-      {/* Center: Playback Controls */}
-      <div className="flex flex-col items-center justify-center gap-1.5 w-2/4 max-w-lg">
+      {/* Center: Playback Controls & Timeline */}
+      <div className="flex flex-col items-center justify-center gap-1.5 w-2/4 max-w-md">
+        {/* Main Controls Row */}
         <div className="flex items-center gap-3">
           {/* Shuffle */}
           <button
             onClick={onToggleShuffle}
-            title={isShuffled ? 'Случайный порядок включен' : 'Перемешать'}
-            className={`p-2 rounded-full transition-colors relative ${
+            title={isShuffled ? 'Случайный порядок включен' : 'Перемешать треки'}
+            className={`p-2 rounded-full transition-colors relative cursor-pointer ${
               isShuffled ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
             }`}
           >
@@ -205,17 +220,17 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
           {/* Previous */}
           <button
             onClick={onPrev}
-            title="Предыдущий трек"
-            className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors"
+            title="Предыдущий трек (Ctrl + Стрелка влево)"
+            className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer"
           >
-            <SkipBack className="w-5 h-5 fill-current" />
+            <SkipBack className="w-4 h-4 fill-current" />
           </button>
 
-          {/* Play / Pause FAB Button */}
+          {/* Play / Pause FAB */}
           <button
             onClick={onPlayPause}
             title={isPlaying ? 'Пауза (Пробел)' : 'Воспроизведение (Пробел)'}
-            className="w-12 h-12 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-transform duration-150"
+            className="w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-transform duration-150 cursor-pointer"
           >
             {isPlaying ? (
               <Pause className="w-5 h-5 fill-current" />
@@ -227,17 +242,17 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
           {/* Next */}
           <button
             onClick={onNext}
-            title="Следующий трек"
-            className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors"
+            title="Следующий трек (Ctrl + Стрелка вправо)"
+            className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer"
           >
-            <SkipForward className="w-5 h-5 fill-current" />
+            <SkipForward className="w-4 h-4 fill-current" />
           </button>
 
           {/* Repeat */}
           <button
             onClick={onToggleRepeat}
             title={`Повтор: ${repeatMode === 'off' ? 'Откл' : repeatMode === 'all' ? 'Все' : 'Один'}`}
-            className={`p-2 rounded-full transition-colors relative ${
+            className={`p-2 rounded-full transition-colors relative cursor-pointer ${
               repeatMode !== 'off' ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
             }`}
           >
@@ -246,13 +261,13 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
           </button>
         </div>
 
-        {/* Time display */}
-        <div className="flex items-center gap-2 text-xs font-mono text-md3-on-surface-variant">
+        {/* Embedded Time Numbers */}
+        <div className="flex items-center gap-2 text-[11px] font-mono text-md3-on-surface-variant/80">
           <span>{formatTime(currentTime)}</span>
-          <span>/</span>
+          <span className="opacity-40">/</span>
           <span 
             onClick={() => setShowRemainingTime(!showRemainingTime)}
-            className="cursor-pointer hover:text-md3-on-surface"
+            className="cursor-pointer hover:text-md3-on-surface transition-colors"
             title="Кликните для переключения оставшегося времени"
           >
             {showRemainingTime ? `-${formatTime(Math.max(0, duration - currentTime))}` : formatTime(duration)}
@@ -261,25 +276,27 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
       </div>
 
       {/* Right: Visualizer, Volume, Queue */}
-      <div className="flex items-center justify-end gap-3 w-1/4 min-w-[220px]">
-        {/* Animated Mini Spectrum Visualizer */}
+      <div className="flex items-center justify-end gap-3 w-1/4 min-w-[240px]">
+        {/* Animated Spectrum Visualizer */}
         <div 
-          className="hidden md:flex items-end gap-0.5 h-6 px-2 py-1 rounded-lg pointer-events-none"
+          className="hidden md:flex items-end gap-1 h-5 px-2 py-0.5 pointer-events-none"
+          title="Спектр воспроизведения"
         >
           {visBars.map((height, i) => (
             <span
               key={i}
-              className="w-1 rounded-full bg-md3-primary transition-all duration-75"
+              className="w-1 rounded-full bg-md3-primary/80 transition-all duration-75"
               style={{ height: `${height}%` }}
             />
           ))}
         </div>
 
-        {/* Volume controls */}
-        <div className="flex items-center gap-2 group">
+        {/* Volume controls with smooth slider */}
+        <div className="flex items-center gap-1.5 group">
           <button
             onClick={onToggleMute}
-            className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface transition-colors"
+            title={isMuted ? 'Включить звук' : 'Выключить звук'}
+            className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface transition-colors cursor-pointer"
           >
             {isMuted || volume === 0 ? (
               <VolumeX className="w-4 h-4 text-red-400" />
@@ -301,17 +318,17 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
           />
         </div>
 
-        {/* Queue Drawer Toggle */}
+        {/* Queue Drawer Button */}
         <button
           onClick={onToggleQueue}
           title="Очередь воспроизведения"
-          className={`relative p-2.5 rounded-full transition-colors ${
+          className={`relative p-2.5 rounded-full transition-colors cursor-pointer ${
             isQueueOpen
               ? 'bg-md3-primary text-md3-on-primary'
               : 'text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface'
           }`}
         >
-          <ListMusic className="w-5 h-5" />
+          <ListMusic className="w-4 h-4" />
           {queueCount > 0 && (
             <span className="absolute -top-1 -right-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-md3-tertiary text-md3-on-tertiary shadow-sm">
               {queueCount}

@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Track, Playlist, ThemeMode } from './types/music';
-import { Sidebar } from './components/Sidebar';
-import { TopBar } from './components/TopBar';
+import { TopBar, MainViewType } from './components/TopBar';
 import { TrackTable } from './components/TrackTable';
 import { NowPlayingBar } from './components/NowPlayingBar';
+import { PlaylistsGridView } from './components/PlaylistsGridView';
+import { AlbumsGridView } from './components/AlbumsGridView';
+import { ArtistsGridView } from './components/ArtistsGridView';
+import { GenresGridView } from './components/GenresGridView';
 import { QueueDrawer } from './components/QueueDrawer';
 import { BatchTagEditorModal } from './components/BatchTagEditorModal';
 import { EqualizerModal } from './components/EqualizerModal';
@@ -11,7 +14,6 @@ import { SettingsModal } from './components/SettingsModal';
 import { DragDropOverlay } from './components/DragDropOverlay';
 import { ContextMenu } from './components/ContextMenu';
 import { PlaylistContextMenu } from './components/PlaylistContextMenu';
-import { PlaylistsGridView } from './components/PlaylistsGridView';
 import { audioEngine } from './services/audioEngine';
 import { discordRpc } from './services/discordRpc';
 import { parseAudioFile } from './services/tagEditor';
@@ -23,6 +25,7 @@ import {
 } from './theme/material3';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { ArrowLeft, Play, Disc3, Mic2, Tag, Trash2, ListMusic } from 'lucide-react';
 
 const INITIAL_PLAYLISTS: Playlist[] = [
   {
@@ -39,9 +42,11 @@ export const App: React.FC = () => {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>(INITIAL_PLAYLISTS);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
-  const [currentView, setCurrentView] = useState<string>('tracks');
+  const [selectedAlbum, setSelectedAlbum] = useState<string | null>(null);
+  const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
+  const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+  const [currentView, setCurrentView] = useState<MainViewType>('tracks');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [activeGenre, setActiveGenre] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<string>('title');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
@@ -292,6 +297,7 @@ export const App: React.FC = () => {
   }, [tracks, queue]);
 
   // Filtered and Sorted Tracks
+  // Filtered and Sorted Tracks
   const filteredTracks = useMemo(() => {
     let result = [...tracks];
 
@@ -301,12 +307,14 @@ export const App: React.FC = () => {
         const idSet = new Set(pl.trackIds);
         result = result.filter(t => idSet.has(t.id));
       }
+    } else if (selectedAlbum) {
+      result = result.filter(t => (t.album ? t.album.trim() : 'Без альбома') === selectedAlbum);
+    } else if (selectedArtist) {
+      result = result.filter(t => (t.artist ? t.artist.trim() : 'Неизвестный исполнитель') === selectedArtist);
+    } else if (selectedGenre) {
+      result = result.filter(t => (t.genre ? t.genre.trim() : 'Без жанра') === selectedGenre);
     } else if (currentView === 'favorites') {
       result = result.filter(t => t.isFavorite);
-    }
-
-    if (activeGenre) {
-      result = result.filter(t => t.genre?.toLowerCase().includes(activeGenre.toLowerCase()));
     }
 
     if (searchQuery.trim()) {
@@ -314,7 +322,8 @@ export const App: React.FC = () => {
       result = result.filter(t =>
         t.title.toLowerCase().includes(q) ||
         t.artist.toLowerCase().includes(q) ||
-        t.album.toLowerCase().includes(q)
+        t.album.toLowerCase().includes(q) ||
+        (t.genre && t.genre.toLowerCase().includes(q))
       );
     }
 
@@ -329,7 +338,68 @@ export const App: React.FC = () => {
     });
 
     return result;
-  }, [tracks, selectedPlaylistId, currentView, activeGenre, searchQuery, sortBy, sortOrder, playlists]);
+  }, [tracks, selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, currentView, searchQuery, sortBy, sortOrder, playlists]);
+
+  // Information about current active detail view (if drilling into Album, Artist, Genre, or Playlist)
+  const currentDetail = useMemo(() => {
+    if (selectedPlaylistId) {
+      const pl = playlists.find(p => p.id === selectedPlaylistId);
+      if (!pl) return null;
+      const count = pl.trackIds.length;
+      return {
+        type: 'playlist' as const,
+        title: pl.name,
+        subtitle: pl.description || `${count} трек${count % 10 === 1 && count % 100 !== 11 ? '' : 'ов'}`,
+        icon: <ListMusic className="w-6 h-6" />,
+        playlist: pl,
+      };
+    }
+    if (selectedAlbum) {
+      const albumTracks = tracks.filter(t => (t.album ? t.album.trim() : 'Без альбома') === selectedAlbum);
+      const firstCover = albumTracks.find(t => t.coverArt)?.coverArt;
+      const artist = albumTracks[0]?.artist || 'Неизвестный исполнитель';
+      return {
+        type: 'album' as const,
+        title: selectedAlbum,
+        subtitle: `${artist} • ${albumTracks.length} трек(ов)`,
+        coverArt: firstCover,
+        icon: <Disc3 className="w-6 h-6" />,
+      };
+    }
+    if (selectedArtist) {
+      const artistTracks = tracks.filter(t => (t.artist ? t.artist.trim() : 'Неизвестный исполнитель') === selectedArtist);
+      const firstCover = artistTracks.find(t => t.coverArt)?.coverArt;
+      return {
+        type: 'artist' as const,
+        title: selectedArtist,
+        subtitle: `${artistTracks.length} трек(ов)`,
+        coverArt: firstCover,
+        icon: <Mic2 className="w-6 h-6" />,
+      };
+    }
+    if (selectedGenre) {
+      const genreTracks = tracks.filter(t => (t.genre ? t.genre.trim() : 'Без жанра') === selectedGenre);
+      return {
+        type: 'genre' as const,
+        title: selectedGenre,
+        subtitle: `${genreTracks.length} трек(ов)`,
+        icon: <Tag className="w-6 h-6" />,
+      };
+    }
+    return null;
+  }, [selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, playlists, tracks]);
+
+  const handleBackToGrid = () => {
+    setSelectedPlaylistId(null);
+    setSelectedAlbum(null);
+    setSelectedArtist(null);
+    setSelectedGenre(null);
+  };
+
+  const handleSelectView = (view: MainViewType) => {
+    setCurrentView(view);
+    handleBackToGrid();
+  };
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -685,6 +755,27 @@ export const App: React.FC = () => {
     }
   };
 
+  const handlePlayAlbum = (albumTracks: Track[]) => {
+    if (albumTracks.length === 0) return;
+    setQueue(albumTracks);
+    setQueueIndex(0);
+    playTrack(albumTracks[0]);
+  };
+
+  const handlePlayArtist = (artistTracks: Track[]) => {
+    if (artistTracks.length === 0) return;
+    setQueue(artistTracks);
+    setQueueIndex(0);
+    playTrack(artistTracks[0]);
+  };
+
+  const handlePlayGenre = (genreTracks: Track[]) => {
+    if (genreTracks.length === 0) return;
+    setQueue(genreTracks);
+    setQueueIndex(0);
+    playTrack(genreTracks[0]);
+  };
+
   const handleAddPlaylistToQueue = (playlist: Playlist) => {
     const plTracks = tracks.filter(t => playlist.trackIds.includes(t.id));
     setQueue(prev => [...prev, ...plTracks]);
@@ -798,67 +889,95 @@ export const App: React.FC = () => {
       {/* Drag & Drop Visual Overlay */}
       <DragDropOverlay isDragging={isDraggingFile} />
 
-      {/* Main Layout: Sidebar + Content */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Sidebar */}
-        <Sidebar
-          currentView={currentView}
-          onSelectView={(v) => {
-            setCurrentView(v);
-            setSelectedPlaylistId(null);
-          }}
-          playlists={playlists}
-          selectedPlaylistId={selectedPlaylistId}
-          onSelectPlaylist={(id) => setSelectedPlaylistId(id)}
-          onCreatePlaylist={handleCreatePlaylist}
-          onDropTracksToPlaylist={handleDropTracksToPlaylist}
-          onOpenPlaylistContextMenu={(e, pl) => {
-            e.preventDefault();
-            setPlaylistContextMenu({ x: e.clientX, y: e.clientY, playlist: pl });
-          }}
-          onOpenEQ={() => setIsEQOpen(true)}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          currentTrack={currentTrack}
-          isPlaying={isPlaying}
-          onOpenFiles={handleOpenFiles}
-        />
+      {/* Top Header Bar with App Logo, Navigation Pills, Search & Quick Actions */}
+      <TopBar
+        currentView={currentView}
+        onSelectView={handleSelectView}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        totalTracksCount={tracks.length}
+        onOpenFiles={handleOpenFiles}
+        themeMode={themeMode}
+        onToggleTheme={() => {
+          if (themeMode === 'dark') setThemeMode('amoled');
+          else if (themeMode === 'amoled') setThemeMode('light');
+          else setThemeMode('dark');
+        }}
+        onOpenEQ={() => setIsEQOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        discordEnabled={discordEnabled}
+        onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
+      />
 
-        {/* Center Main View */}
-        <main className="flex-1 flex flex-col min-w-0 h-full bg-md3-surface">
-          {/* Top Bar with Search & Quick Filters */}
-          <TopBar
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            activeGenre={activeGenre}
-            onSelectGenre={setActiveGenre}
-            genres={genres}
-            themeMode={themeMode}
-            onToggleTheme={() => {
-              if (themeMode === 'dark') setThemeMode('amoled');
-              else if (themeMode === 'amoled') setThemeMode('light');
-              else setThemeMode('dark');
-            }}
-            onOpenEQ={() => setIsEQOpen(true)}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-            discordEnabled={discordEnabled}
-            onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
-            totalTracksCount={filteredTracks.length}
-          />
+      {/* Main Content Area (Full width, No sidebar) */}
+      <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-md3-surface overflow-hidden">
+        {/* If a sub-view is active (Album, Artist, Genre, or Playlist) */}
+        {currentDetail ? (
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            {/* Header Banner */}
+            <div className="px-6 py-3.5 bg-md3-surface-container-low border-b border-md3-outline-variant/15 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-4 min-w-0">
+                <button
+                  onClick={handleBackToGrid}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-surface-container hover:bg-md3-surface-container-high text-xs font-semibold text-md3-on-surface transition-all cursor-pointer shrink-0 border border-md3-outline-variant/15 hover:scale-105 active:scale-95"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Назад</span>
+                </button>
 
-          {/* Main View: Grid of Playlists or Track Table */}
-          {currentView === 'playlists_grid' && !selectedPlaylistId ? (
-            <PlaylistsGridView
-              playlists={playlists}
-              tracks={tracks}
-              onSelectPlaylist={(id) => setSelectedPlaylistId(id)}
-              onCreatePlaylist={handleCreatePlaylist}
-              onPlayPlaylist={handlePlayPlaylist}
-              onOpenContextMenu={(e, pl) => {
-                e.preventDefault();
-                setPlaylistContextMenu({ x: e.clientX, y: e.clientY, playlist: pl });
-              }}
-            />
-          ) : (
+                <div className="flex items-center gap-3.5 min-w-0">
+                  {currentDetail.coverArt ? (
+                    <img 
+                      src={currentDetail.coverArt} 
+                      alt={currentDetail.title} 
+                      className="w-12 h-12 rounded-2xl object-cover shadow-md shrink-0 border border-md3-outline-variant/15" 
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-2xl bg-md3-primary/10 text-md3-primary flex items-center justify-center shadow-inner shrink-0">
+                      {currentDetail.icon}
+                    </div>
+                  )}
+
+                  <div className="min-w-0">
+                    <h2 className="text-lg font-bold text-md3-on-surface truncate leading-tight">
+                      {currentDetail.title}
+                    </h2>
+                    <p className="text-xs text-md3-on-surface-variant font-medium mt-0.5 truncate">
+                      {currentDetail.subtitle}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => {
+                    if (filteredTracks.length > 0) {
+                      setQueue(filteredTracks);
+                      setQueueIndex(0);
+                      playTrack(filteredTracks[0]);
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                >
+                  <Play className="w-4 h-4 fill-current ml-0.5" />
+                  <span>Воспроизвести всё</span>
+                </button>
+
+                {currentDetail.type === 'playlist' && !currentDetail.playlist.isSystem && (
+                  <button
+                    onClick={() => handleDeletePlaylist(currentDetail.playlist)}
+                    title="Удалить плейлист"
+                    className="p-2 rounded-full text-md3-on-surface-variant hover:text-red-500 hover:bg-md3-surface-container transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Track Table */}
             <TrackTable
               tracks={filteredTracks}
               currentTrack={currentTrack}
@@ -880,9 +999,62 @@ export const App: React.FC = () => {
               onSortChange={handleSortChange}
               onDropFiles={importFiles}
             />
-          )}
-        </main>
-      </div>
+          </div>
+        ) : currentView === 'playlists' ? (
+          <PlaylistsGridView
+            playlists={playlists}
+            tracks={tracks}
+            onSelectPlaylist={(id) => setSelectedPlaylistId(id)}
+            onCreatePlaylist={handleCreatePlaylist}
+            onPlayPlaylist={handlePlayPlaylist}
+            onOpenContextMenu={(e, pl) => {
+              e.preventDefault();
+              setPlaylistContextMenu({ x: e.clientX, y: e.clientY, playlist: pl });
+            }}
+          />
+        ) : currentView === 'albums' ? (
+          <AlbumsGridView
+            tracks={tracks}
+            onSelectAlbum={(alb) => setSelectedAlbum(alb)}
+            onPlayAlbum={handlePlayAlbum}
+          />
+        ) : currentView === 'artists' ? (
+          <ArtistsGridView
+            tracks={tracks}
+            onSelectArtist={(art) => setSelectedArtist(art)}
+            onPlayArtist={handlePlayArtist}
+          />
+        ) : currentView === 'genres' ? (
+          <GenresGridView
+            tracks={tracks}
+            onSelectGenre={(gen) => setSelectedGenre(gen)}
+            onPlayGenre={handlePlayGenre}
+          />
+        ) : (
+          /* 'tracks' and 'favorites' */
+          <TrackTable
+            tracks={filteredTracks}
+            currentTrack={currentTrack}
+            isPlaying={isPlaying}
+            selectedTrackIds={selectedTrackIds}
+            onSelectTrack={handleSelectTrack}
+            onPlayTrack={playTrack}
+            onToggleFavorite={handleToggleFavorite}
+            onOpenContextMenu={(e, track) => {
+              e.preventDefault();
+              setContextMenu({ x: e.clientX, y: e.clientY, track });
+            }}
+            onOpenBatchTagEditor={() => setIsBatchTagEditorOpen(true)}
+            onAddSelectedToQueue={handleAddSelectedToQueue}
+            onPlaySelected={handlePlaySelected}
+            onClearSelection={() => setSelectedTrackIds(new Set())}
+            sortBy={sortBy}
+            sortOrder={sortOrder}
+            onSortChange={handleSortChange}
+            onDropFiles={importFiles}
+          />
+        )}
+      </main>
 
       {/* Now Playing Bottom Bar */}
       <NowPlayingBar
@@ -906,7 +1078,6 @@ export const App: React.FC = () => {
         onToggleRepeat={handleToggleRepeat}
         onToggleQueue={() => setIsQueueOpen(!isQueueOpen)}
         onToggleFavorite={handleToggleFavorite}
-        onOpenEQ={() => setIsEQOpen(true)}
       />
 
       {/* Queue Drawer */}

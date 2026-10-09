@@ -5,30 +5,55 @@
 :root {
   /* Material You 3 Baseline Tokens (will be dynamically overwritten) */
   --md-sys-color-primary: #a879ff;
+  --md-sys-color-primary-rgb: 168 121 255;
   --md-sys-color-on-primary: #1e004d;
+  --md-sys-color-on-primary-rgb: 30 0 77;
   --md-sys-color-primary-container: #470f92;
+  --md-sys-color-primary-container-rgb: 71 15 146;
   --md-sys-color-on-primary-container: #ecdcff;
+  --md-sys-color-on-primary-container-rgb: 236 220 255;
   --md-sys-color-secondary: #cdc2db;
+  --md-sys-color-secondary-rgb: 205 194 219;
   --md-sys-color-on-secondary: #342d40;
+  --md-sys-color-on-secondary-rgb: 52 45 64;
   --md-sys-color-secondary-container: #4a4358;
+  --md-sys-color-secondary-container-rgb: 74 67 88;
   --md-sys-color-on-secondary-container: #e9def8;
+  --md-sys-color-on-secondary-container-rgb: 233 222 248;
   --md-sys-color-tertiary: #f0b7c5;
+  --md-sys-color-tertiary-rgb: 240 183 197;
   --md-sys-color-on-tertiary: #4a2532;
+  --md-sys-color-on-tertiary-rgb: 74 37 50;
   --md-sys-color-tertiary-container: #643b48;
+  --md-sys-color-tertiary-container-rgb: 100 59 72;
   --md-sys-color-on-tertiary-container: #ffd9e2;
+  --md-sys-color-on-tertiary-container-rgb: 255 217 226;
   --md-sys-color-background: #141218;
+  --md-sys-color-background-rgb: 20 18 24;
   --md-sys-color-on-background: #e6e1e5;
+  --md-sys-color-on-background-rgb: 230 225 229;
   --md-sys-color-surface: #141218;
+  --md-sys-color-surface-rgb: 20 18 24;
   --md-sys-color-on-surface: #e6e1e5;
+  --md-sys-color-on-surface-rgb: 230 225 229;
   --md-sys-color-surface-variant: #49454f;
+  --md-sys-color-surface-variant-rgb: 73 69 79;
   --md-sys-color-on-surface-variant: #cac4d0;
+  --md-sys-color-on-surface-variant-rgb: 202 196 208;
   --md-sys-color-surface-container-lowest: #0f0d13;
+  --md-sys-color-surface-container-lowest-rgb: 15 13 19;
   --md-sys-color-surface-container-low: #1d1b20;
+  --md-sys-color-surface-container-low-rgb: 29 27 32;
   --md-sys-color-surface-container: #211f26;
+  --md-sys-color-surface-container-rgb: 33 31 38;
   --md-sys-color-surface-container-high: #2b2930;
+  --md-sys-color-surface-container-high-rgb: 43 41 48;
   --md-sys-color-surface-container-highest: #36343b;
+  --md-sys-color-surface-container-highest-rgb: 54 52 59;
   --md-sys-color-outline: #938f99;
+  --md-sys-color-outline-rgb: 147 143 153;
   --md-sys-color-outline-variant: #49454f;
+  --md-sys-color-outline-variant-rgb: 73 69 79;
 }
 
 /* Custom scrollbars */

@@ -170,6 +170,13 @@ export function generateM3Palette(seedHex: string, mode: ThemeMode = 'dark'): M3
   };
 }
 
+function hexToRgbString(hex: string): string {
+  const c = colord(hex);
+  if (!c.isValid()) return '128 128 128';
+  const { r, g, b } = c.toRgb();
+  return `${r} ${g} ${b}`;
+}
+
 export function applyM3ThemeToDOM(colors: M3ThemeColors, mode: ThemeMode) {
   const root = document.documentElement;
 
@@ -179,31 +186,38 @@ export function applyM3ThemeToDOM(colors: M3ThemeColors, mode: ThemeMode) {
     root.classList.add('dark');
   }
 
-  root.style.setProperty('--md-sys-color-primary', colors.primary);
-  root.style.setProperty('--md-sys-color-on-primary', colors.onPrimary);
-  root.style.setProperty('--md-sys-color-primary-container', colors.primaryContainer);
-  root.style.setProperty('--md-sys-color-on-primary-container', colors.onPrimaryContainer);
-  root.style.setProperty('--md-sys-color-secondary', colors.secondary);
-  root.style.setProperty('--md-sys-color-on-secondary', colors.onSecondary);
-  root.style.setProperty('--md-sys-color-secondary-container', colors.secondaryContainer);
-  root.style.setProperty('--md-sys-color-on-secondary-container', colors.onSecondaryContainer);
-  root.style.setProperty('--md-sys-color-tertiary', colors.tertiary);
-  root.style.setProperty('--md-sys-color-on-tertiary', colors.onTertiary);
-  root.style.setProperty('--md-sys-color-tertiary-container', colors.tertiaryContainer);
-  root.style.setProperty('--md-sys-color-on-tertiary-container', colors.onTertiaryContainer);
-  root.style.setProperty('--md-sys-color-background', colors.background);
-  root.style.setProperty('--md-sys-color-on-background', colors.onBackground);
-  root.style.setProperty('--md-sys-color-surface', colors.surface);
-  root.style.setProperty('--md-sys-color-on-surface', colors.onSurface);
-  root.style.setProperty('--md-sys-color-surface-variant', colors.surfaceVariant);
-  root.style.setProperty('--md-sys-color-on-surface-variant', colors.onSurfaceVariant);
-  root.style.setProperty('--md-sys-color-surface-container-lowest', colors.surfaceContainerLowest);
-  root.style.setProperty('--md-sys-color-surface-container-low', colors.surfaceContainerLow);
-  root.style.setProperty('--md-sys-color-surface-container', colors.surfaceContainer);
-  root.style.setProperty('--md-sys-color-surface-container-high', colors.surfaceContainerHigh);
-  root.style.setProperty('--md-sys-color-surface-container-highest', colors.surfaceContainerHighest);
-  root.style.setProperty('--md-sys-color-outline', colors.outline);
-  root.style.setProperty('--md-sys-color-outline-variant', colors.outlineVariant);
+  const mapping: Record<string, string> = {
+    'primary': colors.primary,
+    'on-primary': colors.onPrimary,
+    'primary-container': colors.primaryContainer,
+    'on-primary-container': colors.onPrimaryContainer,
+    'secondary': colors.secondary,
+    'on-secondary': colors.onSecondary,
+    'secondary-container': colors.secondaryContainer,
+    'on-secondary-container': colors.onSecondaryContainer,
+    'tertiary': colors.tertiary,
+    'on-tertiary': colors.onTertiary,
+    'tertiary-container': colors.tertiaryContainer,
+    'on-tertiary-container': colors.onTertiaryContainer,
+    'background': colors.background,
+    'on-background': colors.onBackground,
+    'surface': colors.surface,
+    'on-surface': colors.onSurface,
+    'surface-variant': colors.surfaceVariant,
+    'on-surface-variant': colors.onSurfaceVariant,
+    'surface-container-lowest': colors.surfaceContainerLowest,
+    'surface-container-low': colors.surfaceContainerLow,
+    'surface-container': colors.surfaceContainer,
+    'surface-container-high': colors.surfaceContainerHigh,
+    'surface-container-highest': colors.surfaceContainerHighest,
+    'outline': colors.outline,
+    'outline-variant': colors.outlineVariant,
+  };
+
+  for (const [key, hex] of Object.entries(mapping)) {
+    root.style.setProperty(`--md-sys-color-${key}`, hex);
+    root.style.setProperty(`--md-sys-color-${key}-rgb`, hexToRgbString(hex));
+  }
 }
 
 export async function extractDominantColor(imageSrc: string): Promise<string> {

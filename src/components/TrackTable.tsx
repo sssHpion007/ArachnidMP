@@ -139,7 +139,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
             </div>
             <p className="text-base font-semibold text-md3-on-surface mb-1">Здесь пока пусто</p>
             <p className="text-sm max-w-sm text-md3-on-surface-variant/80">
-              Перетащите аудиофайлы (MP3, FLAC, WAV, OGG) прямо в это окно или нажмите «Добавить файлы» в боковом меню!
+              Перетащите аудиофайлы (MP3, FLAC, WAV, OGG) прямо в это окно или нажмите «Добавить файлы» в верхней панели!
             </p>
           </div>
         ) : (
