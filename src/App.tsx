@@ -251,8 +251,16 @@ export const App: React.FC = () => {
   // Audio Engine callbacks
   useEffect(() => {
     audioEngine.setCallbacks({
-      onTimeUpdate: (time) => setCurrentTime(time),
-      onDuration: (dur) => setDuration(dur),
+      onTimeUpdate: (time) => {
+        if (!isNaN(time) && isFinite(time) && time >= 0) {
+          setCurrentTime(time);
+        }
+      },
+      onDuration: (dur) => {
+        if (!isNaN(dur) && isFinite(dur) && dur > 0) {
+          setDuration(dur);
+        }
+      },
       onEnded: () => handleTrackEnded(),
       onPlay: () => setIsPlaying(true),
       onPause: () => setIsPlaying(false),
@@ -756,7 +764,7 @@ export const App: React.FC = () => {
       setQueue(prev => [...prev, track]);
       setQueueIndex(queue.length);
     }
-    await audioEngine.playTrack(track.src, true);
+    await audioEngine.playTrack(track.src, true, true, track.duration);
     setIsPlaying(true);
   };
 

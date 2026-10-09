@@ -120,8 +120,10 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
     onSeek(pos * duration);
   };
 
-  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
-  const remainingTime = Math.max(0, duration - currentTime);
+  const safeDuration = (duration > 0 && isFinite(duration) && !isNaN(duration)) ? duration : (currentTrack?.duration || 0);
+  const safeCurrentTime = Math.max(0, Math.min(safeDuration > 0 ? safeDuration : Infinity, currentTime || 0));
+  const progressPercent = safeDuration > 0 ? Math.min(100, Math.max(0, (safeCurrentTime / safeDuration) * 100)) : 0;
+  const remainingTime = Math.max(0, safeDuration - safeCurrentTime);
 
   return (
     <footer className="h-24 max-h-24 w-full shrink-0 bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-6 flex items-center justify-between select-none relative z-30 transition-colors duration-300">
@@ -254,12 +256,12 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             onMouseMove={handleProgressBarMouseMove}
             onMouseLeave={() => setHoverSeekTime(null)}
             onClick={handleProgressBarClick}
-            className="flex-1 h-1.5 hover:h-2.5 rounded-full bg-md3-surface-container-highest cursor-pointer transition-all duration-150 relative group"
+            className="flex-1 h-1.5 hover:h-2.5 rounded-full bg-md3-surface-container-highest cursor-pointer transition-all duration-150 relative group overflow-hidden"
           >
             {/* Progress Fill */}
             <div 
               className="h-full bg-md3-primary rounded-full relative transition-all duration-75"
-              style={{ width: `${progressPercent}%` }}
+              style={{ width: `${progressPercent}%`, maxWidth: '100%' }}
             >
               {/* Scrubber Thumb */}
               <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 rounded-full bg-md3-primary shadow-md ring-2 ring-md3-on-primary opacity-0 group-hover:opacity-100 transition-opacity" />
