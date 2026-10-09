@@ -105,6 +105,7 @@ export const App: React.FC = () => {
   const [renamePlaylistTarget, setRenamePlaylistTarget] = useState<Playlist | null>(null);
   const [clearPlaylistTarget, setClearPlaylistTarget] = useState<Playlist | null>(null);
   const [deletePlaylistTarget, setDeletePlaylistTarget] = useState<Playlist | null>(null);
+  const [deleteTracksTarget, setDeleteTracksTarget] = useState<string[] | null>(null);
   const [trackDetailsTarget, setTrackDetailsTarget] = useState<Track | null>(null);
   const [isLyricsOpen, setIsLyricsOpen] = useState<boolean>(false);
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
@@ -642,21 +643,108 @@ export const App: React.FC = () => {
       } else if (e.code === 'KeyA' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         setSelectedTrackIds(new Set(filteredTracks.map(t => t.id)));
+      } else if (e.code === 'Delete' && selectedTrackIds.size > 0) {
+        e.preventDefault();
+        handleRequestRemoveTracks(Array.from(selectedTrackIds));
       } else if (e.code === 'Escape') {
+        if (deleteTracksTarget) {
+          setDeleteTracksTarget(null);
+          return;
+        }
+        if (trackDetailsTarget) {
+          setTrackDetailsTarget(null);
+          return;
+        }
+        if (isSettingsOpen) {
+          setIsSettingsOpen(false);
+          return;
+        }
+        if (isEQOpen) {
+          setIsEQOpen(false);
+          return;
+        }
         if (isLyricsOpen) {
           setIsLyricsOpen(false);
           return;
         }
+        if (isQueueOpen) {
+          setIsQueueOpen(false);
+          return;
+        }
+        if (isBatchTagEditorOpen) {
+          setIsBatchTagEditorOpen(false);
+          return;
+        }
+        if (isCreatePlaylistOpen) {
+          setIsCreatePlaylistOpen(false);
+          return;
+        }
+        if (isCreateFolderOpen) {
+          setIsCreateFolderOpen(false);
+          return;
+        }
+        if (isCreateGroupOpen) {
+          setIsCreateGroupOpen(false);
+          return;
+        }
+        if (renameItemTarget) {
+          setRenameItemTarget(null);
+          return;
+        }
+        if (renamePlaylistTarget) {
+          setRenamePlaylistTarget(null);
+          return;
+        }
+        if (deleteFolderTarget) {
+          setDeleteFolderTarget(null);
+          return;
+        }
+        if (clearPlaylistTarget) {
+          setClearPlaylistTarget(null);
+          return;
+        }
+        if (deletePlaylistTarget) {
+          setDeletePlaylistTarget(null);
+          return;
+        }
+        if (contextMenu || playlistContextMenu || folderContextMenu) {
+          setContextMenu(null);
+          setPlaylistContextMenu(null);
+          setFolderContextMenu(null);
+          return;
+        }
         setSelectedTrackIds(new Set());
-        setContextMenu(null);
-        setPlaylistContextMenu(null);
-        setFolderContextMenu(null);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, currentTrack, queue, queueIndex, filteredTracks, repeatMode, isLyricsOpen]);
+  }, [
+    isPlaying,
+    currentTrack,
+    queue,
+    queueIndex,
+    filteredTracks,
+    repeatMode,
+    isLyricsOpen,
+    trackDetailsTarget,
+    isSettingsOpen,
+    isEQOpen,
+    isQueueOpen,
+    isBatchTagEditorOpen,
+    isCreatePlaylistOpen,
+    isCreateFolderOpen,
+    isCreateGroupOpen,
+    renameItemTarget,
+    renamePlaylistTarget,
+    deleteFolderTarget,
+    clearPlaylistTarget,
+    deletePlaylistTarget,
+    deleteTracksTarget,
+    contextMenu,
+    playlistContextMenu,
+    folderContextMenu,
+  ]);
 
   // Synchronous, robust track processor and playlist assigner
   const processImportedTracks = (newTracks: Track[]) => {
@@ -1374,6 +1462,17 @@ export const App: React.FC = () => {
     setSelectedTrackIds(new Set());
   };
 
+  const handleRequestRemoveTracks = (trackIds: string[]) => {
+    if (trackIds.length === 0) return;
+    setDeleteTracksTarget(trackIds);
+  };
+
+  const handleConfirmRemoveTracks = () => {
+    if (!deleteTracksTarget || deleteTracksTarget.length === 0) return;
+    handleRemoveTracks(deleteTracksTarget);
+    setDeleteTracksTarget(null);
+  };
+
   const selectedTracksList = useMemo(() => {
     return tracks.filter(t => selectedTrackIds.has(t.id));
   }, [tracks, selectedTrackIds]);
@@ -1703,7 +1802,7 @@ export const App: React.FC = () => {
           }}
           onToggleFavorite={handleToggleFavorite}
           onAddToPlaylist={handleDropTracksToPlaylist}
-          onRemoveTracks={handleRemoveTracks}
+          onRemoveTracks={handleRequestRemoveTracks}
           onOpenTrackDetails={(t) => setTrackDetailsTarget(t)}
         />
       )}
@@ -1825,6 +1924,22 @@ export const App: React.FC = () => {
         isDestructive={true}
         onConfirm={handleConfirmDeletePlaylist}
         onClose={() => setDeletePlaylistTarget(null)}
+      />
+
+      {/* Material 3 Delete Tracks Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!deleteTracksTarget && deleteTracksTarget.length > 0}
+        title={selectedPlaylistId ? "Удалить из плейлиста" : "Удалить из медиатеки"}
+        message={
+          selectedPlaylistId
+            ? `Вы уверены, что хотите удалить выбранные треки (${deleteTracksTarget?.length || 0} шт.) из этого плейлиста? Сами файлы останутся в вашей медиатеке.`
+            : `Вы уверены, что хотите удалить выбранные треки (${deleteTracksTarget?.length || 0} шт.) из медиатеки плеера?`
+        }
+        confirmLabel="Удалить"
+        cancelLabel="Отмена"
+        isDestructive={true}
+        onConfirm={handleConfirmRemoveTracks}
+        onClose={() => setDeleteTracksTarget(null)}
       />
 
       {/* Material 3 Track Details Modal */}

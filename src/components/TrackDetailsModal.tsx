@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { 
   Info, 
   X, 
@@ -28,6 +28,21 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
   track,
   onClose,
 }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown, true);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
+  }, [isOpen, onClose]);
+
   if (!isOpen || !track) return null;
 
   const handleOpenLocation = async () => {
@@ -66,11 +81,11 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
 
   return (
     <div
-      onKeyDown={(e) => e.key === 'Escape' && onClose()}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-150 select-none"
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-150 select-none cursor-pointer"
     >
       <div
-        className="w-full max-w-lg bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200"
+        className="w-full max-w-lg bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 cursor-default"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -264,16 +279,6 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
               </p>
             </div>
           )}
-        </div>
-
-        {/* Footer */}
-        <div className="p-4 bg-md3-surface-container-high/30 border-t border-md3-outline-variant/15 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-6 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer"
-          >
-            Закрыть
-          </button>
         </div>
       </div>
     </div>
