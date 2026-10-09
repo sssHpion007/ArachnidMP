@@ -596,6 +596,16 @@ export const App: React.FC = () => {
 
     if (audioFiles.length === 0) return;
 
+    if (isTauri()) {
+      const nativePaths: string[] = audioFiles
+        .map(f => (f as any).path)
+        .filter((p): p is string => typeof p === 'string' && p.length > 0);
+      if (nativePaths.length > 0) {
+        await importTauriPaths(nativePaths);
+        return;
+      }
+    }
+
     const newTracks: Track[] = [];
     for (const f of audioFiles) {
       try {
