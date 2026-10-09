@@ -120,6 +120,8 @@ export const App: React.FC = () => {
   const selectedPlaylistIdRef = useRef<string | null>(null);
   const tracksRef = useRef<Track[]>(tracks);
   const lastPrevPressRef = useRef<number>(0);
+  const pendingSeekTimeRef = useRef<number | null>(null);
+  const seekDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     selectedPlaylistIdRef.current = selectedPlaylistId;
@@ -574,21 +576,49 @@ export const App: React.FC = () => {
           audioEngine.setVolume(next);
           return next;
         });
-      // Plain Arrow Left / Right: Rewind / Fast-forward by 5 seconds in active track
+      // Plain Arrow Left / Right: Rewind / Fast-forward by 5 seconds (silent while holding, seeks when stopped)
       } else if ((e.code === 'ArrowLeft' || e.key === 'ArrowLeft') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
-        const cur = audioEngine.getCurrentTime();
         const dur = duration > 0 ? duration : audioEngine.getDuration();
-        const nextTime = Math.max(0, Math.min(dur > 0 ? dur : Infinity, cur - 5));
+        const baseTime = pendingSeekTimeRef.current !== null ? pendingSeekTimeRef.current : audioEngine.getCurrentTime();
+        const nextTime = Math.max(0, Math.min(dur > 0 ? dur : Infinity, baseTime - 5));
+
+        pendingSeekTimeRef.current = nextTime;
         setCurrentTime(nextTime);
-        audioEngine.seek(nextTime);
+        audioEngine.setScrubbing(true);
+
+        if (seekDebounceTimerRef.current) {
+          clearTimeout(seekDebounceTimerRef.current);
+        }
+        seekDebounceTimerRef.current = setTimeout(() => {
+          const finalTime = pendingSeekTimeRef.current;
+          pendingSeekTimeRef.current = null;
+          if (finalTime !== null) {
+            audioEngine.seek(finalTime);
+          }
+          audioEngine.setScrubbing(false);
+        }, 160);
       } else if ((e.code === 'ArrowRight' || e.key === 'ArrowRight') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
-        const cur = audioEngine.getCurrentTime();
         const dur = duration > 0 ? duration : audioEngine.getDuration();
-        const nextTime = Math.max(0, Math.min(dur > 0 ? dur : Infinity, cur + 5));
+        const baseTime = pendingSeekTimeRef.current !== null ? pendingSeekTimeRef.current : audioEngine.getCurrentTime();
+        const nextTime = Math.max(0, Math.min(dur > 0 ? dur : Infinity, baseTime + 5));
+
+        pendingSeekTimeRef.current = nextTime;
         setCurrentTime(nextTime);
-        audioEngine.seek(nextTime);
+        audioEngine.setScrubbing(true);
+
+        if (seekDebounceTimerRef.current) {
+          clearTimeout(seekDebounceTimerRef.current);
+        }
+        seekDebounceTimerRef.current = setTimeout(() => {
+          const finalTime = pendingSeekTimeRef.current;
+          pendingSeekTimeRef.current = null;
+          if (finalTime !== null) {
+            audioEngine.seek(finalTime);
+          }
+          audioEngine.setScrubbing(false);
+        }, 160);
       // Ctrl + Arrow Left / Right: Previous / Next track
       } else if ((e.code === 'ArrowRight' || e.key === 'ArrowRight') && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
@@ -877,6 +907,12 @@ export const App: React.FC = () => {
   };
 
   const handleSeek = (time: number) => {
+    if (seekDebounceTimerRef.current) {
+      clearTimeout(seekDebounceTimerRef.current);
+      seekDebounceTimerRef.current = null;
+    }
+    pendingSeekTimeRef.current = null;
+    audioEngine.setScrubbing(false);
     setCurrentTime(time);
     audioEngine.seek(time);
   };

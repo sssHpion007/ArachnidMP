@@ -72,6 +72,9 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   const [hoverSeekTime, setHoverSeekTime] = useState<number | null>(null);
   const [hoverSeekPos, setHoverSeekPos] = useState<number>(0);
   const [visBars, setVisBars] = useState<number[]>([20, 40, 60, 80, 50, 30, 70, 25]);
+  const [isScrubbing, setIsScrubbing] = useState<boolean>(false);
+  const [scrubPosition, setScrubPosition] = useState<number | null>(null);
+  const isScrubbingRef = useRef<boolean>(false);
   const progressBarRef = useRef<HTMLDivElement>(null);
   const animFrameRef = useRef<number | null>(null);
 
@@ -107,22 +110,71 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
 
   const safeDuration = (duration > 0 && isFinite(duration) && !isNaN(duration)) ? duration : (currentTrack?.duration || 0);
   const safeCurrentTime = Math.max(0, Math.min(safeDuration > 0 ? safeDuration : Infinity, currentTime || 0));
-  const progressPercent = safeDuration > 0 ? Math.min(100, Math.max(0, (safeCurrentTime / safeDuration) * 100)) : 0;
-  const remainingTime = Math.max(0, safeDuration - safeCurrentTime);
+  const effectiveDisplayTime = isScrubbing && scrubPosition !== null ? scrubPosition : safeCurrentTime;
+  const progressPercent = safeDuration > 0 ? Math.min(100, Math.max(0, (effectiveDisplayTime / safeDuration) * 100)) : 0;
+  const remainingTime = Math.max(0, safeDuration - effectiveDisplayTime);
 
-  const handleProgressBarMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleProgressBarPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!progressBarRef.current || safeDuration <= 0) return;
+    try {
+      (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    } catch (_) {}
+    isScrubbingRef.current = true;
+    setIsScrubbing(true);
+    audioEngine.setScrubbing(true);
+
     const rect = progressBarRef.current.getBoundingClientRect();
     const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const targetTime = pos * safeDuration;
+    setScrubPosition(targetTime);
     setHoverSeekPos(e.clientX - rect.left);
-    setHoverSeekTime(pos * safeDuration);
+    setHoverSeekTime(targetTime);
   };
 
-  const handleProgressBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleProgressBarPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!progressBarRef.current || safeDuration <= 0) return;
     const rect = progressBarRef.current.getBoundingClientRect();
     const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    onSeek(pos * safeDuration);
+    const targetTime = pos * safeDuration;
+    setHoverSeekPos(e.clientX - rect.left);
+    setHoverSeekTime(targetTime);
+
+    if (isScrubbingRef.current) {
+      setScrubPosition(targetTime);
+    }
+  };
+
+  const handleProgressBarPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isScrubbingRef.current) return;
+    try {
+      (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
+    } catch (_) {}
+
+    isScrubbingRef.current = false;
+    setIsScrubbing(false);
+
+    if (progressBarRef.current && safeDuration > 0) {
+      const rect = progressBarRef.current.getBoundingClientRect();
+      const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const targetTime = pos * safeDuration;
+      setScrubPosition(null);
+      audioEngine.setScrubbing(false);
+      onSeek(targetTime);
+    } else {
+      setScrubPosition(null);
+      audioEngine.setScrubbing(false);
+    }
+  };
+
+  const handleProgressBarPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isScrubbingRef.current) return;
+    try {
+      (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
+    } catch (_) {}
+    isScrubbingRef.current = false;
+    setIsScrubbing(false);
+    setScrubPosition(null);
+    audioEngine.setScrubbing(false);
   };
 
   return (
@@ -247,17 +299,19 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
         <div className="w-full flex items-center gap-2">
           {/* Current Time (Left) */}
           <span className="text-[11px] font-mono text-md3-on-surface-variant/80 shrink-0 w-11 text-right">
-            {formatTime(currentTime)}
+            {formatTime(effectiveDisplayTime)}
           </span>
 
           {/* Timeline Scrubber Bar (Middle) */}
           <div 
             ref={progressBarRef}
-            onMouseMove={handleProgressBarMouseMove}
-            onMouseLeave={() => setHoverSeekTime(null)}
-            onClick={handleProgressBarClick}
+            onPointerDown={handleProgressBarPointerDown}
+            onPointerMove={handleProgressBarPointerMove}
+            onPointerUp={handleProgressBarPointerUp}
+            onPointerCancel={handleProgressBarPointerCancel}
+            onMouseLeave={() => { if (!isScrubbingRef.current) setHoverSeekTime(null); }}
             title="Перемотка [← / → на 5 сек]"
-            className="flex-1 h-1.5 hover:h-2.5 rounded-full bg-md3-surface-container-highest cursor-pointer transition-all duration-150 relative group"
+            className={`flex-1 ${isScrubbing ? 'h-2.5' : 'h-1.5 hover:h-2.5'} rounded-full bg-md3-surface-container-highest cursor-pointer transition-all duration-150 relative group touch-none`}
           >
             {/* Progress Fill */}
             <div 
@@ -265,7 +319,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               style={{ width: `${progressPercent}%`, maxWidth: '100%' }}
             >
               {/* Scrubber Thumb */}
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 rounded-full bg-md3-primary shadow-md ring-2 ring-md3-on-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 rounded-full bg-md3-primary shadow-md ring-2 ring-md3-on-primary ${isScrubbing ? 'opacity-100 scale-125' : 'opacity-0 group-hover:opacity-100'} transition-all`} />
             </div>
 
             {/* Hover preview tooltip */}

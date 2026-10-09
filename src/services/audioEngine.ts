@@ -58,6 +58,7 @@ class AudioEngine {
   private lastTimeUpdateTimestamp: number = 0;
   private playRequestId: number = 0;
   private lastPlayTimestamp: number = 0;
+  private isScrubbing: boolean = false;
 
   constructor() {
     this.audio = new Audio();
@@ -131,22 +132,19 @@ class AudioEngine {
 
   public setRepeatMode(mode: 'off' | 'all' | 'one') {
     this.repeatMode = mode;
-    if (mode === 'one') {
-      // If single track repeat turned on, switch to gapless Web Audio loop if buffer ready
-      if (this.fadeMode !== 'always' && this.currentBuffer && this.isPlaying && !this.isUsingWebAudio) {
-        const cur = this.getCurrentTime();
-        this.audio.pause();
-        this.startBufferPlayback(cur);
-      }
+    if (this.bufferSource) {
+      this.bufferSource.loop = (mode === 'one' && this.fadeMode !== 'always');
+    }
+  }
+
+  public setScrubbing(isScrubbing: boolean): void {
+    this.isScrubbing = isScrubbing;
+    if (isScrubbing) {
+      // Temporarily mute output so scrubbing / rapid arrow seeking is completely silent!
+      this.setVolumeInstantly(0);
     } else {
-      if (this.isUsingWebAudio) {
-        const cur = this.getCurrentTime();
-        this.stopBufferSource();
-        this.audio.currentTime = cur;
-        this.audio.volume = this.getEffectiveVolume();
-        this.audio.play().catch(() => {});
-        this.isPlaying = true;
-      }
+      // Restore effective volume when scrubbing finishes
+      this.setVolumeInstantly(this.getEffectiveVolume());
     }
   }
 
@@ -360,7 +358,7 @@ class AudioEngine {
 
         const safeTime = Math.max(0, Math.min(dur > 0 ? dur : Infinity, curTime));
 
-        if (shouldDispatch) {
+        if (shouldDispatch && !this.isScrubbing) {
           this.lastTimeUpdateTimestamp = now;
           this.onTimeUpdateCallback?.(safeTime);
         }
@@ -523,8 +521,10 @@ class AudioEngine {
     this.cancelFade();
     this.playbackPosition = safeSec;
 
-    // Immediately restore target listening volume
-    this.setVolumeInstantly(this.getEffectiveVolume());
+    // Immediately restore target listening volume if not actively scrubbing
+    if (!this.isScrubbing) {
+      this.setVolumeInstantly(this.getEffectiveVolume());
+    }
 
     if (this.isPlaying) {
       if (this.isUsingWebAudio && this.currentBuffer && this.audioCtx) {
