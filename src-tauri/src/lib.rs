@@ -100,37 +100,62 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
         let properties = tagged_file.properties();
         duration_seconds = properties.duration().as_secs_f64();
 
-        if let Some(tag) = tagged_file.primary_tag().or_else(|| tagged_file.first_tag()) {
-            if let Some(t) = tag.title() {
-                title = t.to_string();
+        let mut all_tags: Vec<&Tag> = Vec::new();
+        if let Some(pt) = tagged_file.primary_tag() {
+            all_tags.push(pt);
+        }
+        for t in tagged_file.tags() {
+            if !all_tags.iter().any(|existing| std::ptr::eq(*existing, t)) {
+                all_tags.push(t);
             }
-            if let Some(a) = tag.artist() {
-                artist = a.to_string();
-            }
-            if let Some(al) = tag.album() {
-                album = al.to_string();
-            }
-            if let Some(g) = tag.genre() {
-                genre = Some(g.to_string());
-            }
-            if let Some(y) = tag.year() {
-                year = Some(y);
-            }
-            if let Some(tn) = tag.track() {
-                track_number = Some(tn);
-            }
-            let lyrics_val = tag.get_string(&ItemKey::Lyrics);
+        }
 
-            if let Some(pic) = tag.pictures().first() {
-                let mime = match pic.mime_type() {
-                    Some(m) => m.as_str(),
-                    None => "image/jpeg",
-                };
-                let b64 = BASE64_STANDARD.encode(pic.data());
-                cover_art = Some(format!("data:{};base64,{}", mime, b64));
+        for tag in all_tags {
+            if title == file_stem {
+                if let Some(t) = tag.title() {
+                    title = t.to_string();
+                }
             }
-
-            lyrics = lyrics_val.map(|s| s.to_string());
+            if artist == "Unknown Artist" {
+                if let Some(a) = tag.artist() {
+                    artist = a.to_string();
+                }
+            }
+            if album == "Unknown Album" {
+                if let Some(al) = tag.album() {
+                    album = al.to_string();
+                }
+            }
+            if genre.is_none() {
+                if let Some(g) = tag.genre() {
+                    genre = Some(g.to_string());
+                }
+            }
+            if year.is_none() {
+                if let Some(y) = tag.year() {
+                    year = Some(y);
+                }
+            }
+            if track_number.is_none() {
+                if let Some(tn) = tag.track() {
+                    track_number = Some(tn);
+                }
+            }
+            if lyrics.is_none() {
+                if let Some(l) = tag.get_string(&ItemKey::Lyrics) {
+                    lyrics = Some(l.to_string());
+                }
+            }
+            if cover_art.is_none() {
+                if let Some(pic) = tag.pictures().first() {
+                    let mime = match pic.mime_type() {
+                        Some(m) => m.as_str(),
+                        None => "image/jpeg",
+                    };
+                    let b64 = BASE64_STANDARD.encode(pic.data());
+                    cover_art = Some(format!("data:{};base64,{}", mime, b64));
+                }
+            }
         }
     }
 

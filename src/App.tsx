@@ -147,6 +147,36 @@ export const App: React.FC = () => {
               return t;
             });
             setTracks(hydrated);
+
+            // Auto-refresh metadata in background for existing tracks missing cover, artist, or lyrics
+            if (isTauri()) {
+              const pathsToRefresh = hydrated
+                .filter(t => t.path && (!t.coverArt || t.artist === 'Unknown Artist' || !t.lyrics))
+                .map(t => t.path as string);
+              if (pathsToRefresh.length > 0) {
+                invoke<any[]>('read_audio_files', { paths: pathsToRefresh }).then(refreshed => {
+                  if (refreshed && refreshed.length > 0) {
+                    const refreshedMap = new Map<string, any>(refreshed.map(r => [r.path.toLowerCase(), r]));
+                    setTracks(prev => prev.map(t => {
+                      if (!t.path) return t;
+                      const r = refreshedMap.get(t.path.toLowerCase());
+                      if (!r) return t;
+                      return {
+                        ...t,
+                        title: t.title === 'Unknown' || !t.title ? r.title : t.title,
+                        artist: t.artist === 'Unknown Artist' || !t.artist ? r.artist : t.artist,
+                        album: t.album === 'Unknown Album' || !t.album ? r.album : t.album,
+                        coverArt: t.coverArt || r.cover_art || undefined,
+                        lyrics: t.lyrics || r.lyrics || undefined,
+                        genre: t.genre || r.genre || undefined,
+                        year: t.year || r.year || undefined,
+                        trackNumber: t.trackNumber || r.track_number || undefined,
+                      };
+                    }));
+                  }
+                }).catch(err => console.warn('Background tag refresh error:', err));
+              }
+            }
           }
           if (parsed.playlists && Array.isArray(parsed.playlists) && parsed.playlists.length > 0) {
             setPlaylists(parsed.playlists);
