@@ -1116,13 +1116,30 @@ export const App: React.FC = () => {
     };
     const targetFolderIds = new Set(getSubfolderIds(folder.id));
     const folderPlaylists = playlists.filter(p => p.folderId && targetFolderIds.has(p.folderId));
-    const trackIdsSet = new Set<string>();
+    const trackMap = new Map<string, Track>(tracks.map(t => [t.id, t]));
+    const result: Track[] = [];
+    const addedIds = new Set<string>();
+
     for (const pl of folderPlaylists) {
       for (const tid of pl.trackIds) {
-        trackIdsSet.add(tid);
+        if (!addedIds.has(tid)) {
+          addedIds.add(tid);
+          const t = trackMap.get(tid);
+          if (t) result.push(t);
+        }
       }
     }
-    return tracks.filter(t => trackIdsSet.has(t.id));
+    return result;
+  };
+
+  const getOrderedPlaylistTracks = (playlist: Playlist): Track[] => {
+    const trackMap = new Map<string, Track>(tracks.map(t => [t.id, t]));
+    const result: Track[] = [];
+    for (const id of playlist.trackIds) {
+      const t = trackMap.get(id);
+      if (t) result.push(t);
+    }
+    return result;
   };
 
   const handlePlayFolder = (folder: PlaylistFolder) => {
@@ -1155,7 +1172,7 @@ export const App: React.FC = () => {
   };
 
   const handlePlayPlaylist = (playlist: Playlist) => {
-    const plTracks = tracks.filter(t => playlist.trackIds.includes(t.id));
+    const plTracks = getOrderedPlaylistTracks(playlist);
     if (plTracks.length > 0) {
       setQueue(plTracks);
       setQueueIndex(0);
@@ -1185,7 +1202,7 @@ export const App: React.FC = () => {
   };
 
   const handleAddPlaylistToQueue = (playlist: Playlist) => {
-    const plTracks = tracks.filter(t => playlist.trackIds.includes(t.id));
+    const plTracks = getOrderedPlaylistTracks(playlist);
     setQueue(prev => [...prev, ...plTracks]);
   };
 

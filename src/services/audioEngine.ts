@@ -161,7 +161,9 @@ class AudioEngine {
     } catch (_) {}
     if (this.gainNode && this.audioCtx) {
       try {
-        this.gainNode.gain.setValueAtTime(clamped, this.audioCtx.currentTime);
+        const now = this.audioCtx.currentTime;
+        this.gainNode.gain.cancelScheduledValues(now);
+        this.gainNode.gain.setValueAtTime(clamped, now);
       } catch (_) {}
     }
   }
@@ -271,13 +273,6 @@ class AudioEngine {
         this.currentBuffer = decodedBuffer;
         this.currentTrackDuration = decodedBuffer.duration;
         this.onDurationCallback?.(decodedBuffer.duration);
-
-        // If in single-track loop mode and currently playing, switch to seamless Web Audio loop
-        if (this.repeatMode === 'one' && this.fadeMode !== 'always' && this.isPlaying && !this.isUsingWebAudio) {
-          const cur = this.getCurrentTime();
-          this.audio.pause();
-          this.startBufferPlayback(cur);
-        }
       }
     } catch (e) {
       console.warn('Web Audio PCM preload fallback:', e);
@@ -288,9 +283,14 @@ class AudioEngine {
   /**
    * Starts hardware sample-accurate gapless loop with Web Audio API
    */
-  private startBufferPlayback(startOffset: number) {
+  private async startBufferPlayback(startOffset: number) {
     if (!this.currentBuffer) return;
     const ctx = this.getOrCreateAudioContext();
+    if (ctx.state === 'suspended') {
+      try {
+        await ctx.resume();
+      } catch (_) {}
+    }
 
     this.stopBufferSource();
 
@@ -302,6 +302,14 @@ class AudioEngine {
 
     const dur = this.currentBuffer.duration;
     const offset = Math.max(0, Math.min(dur, startOffset % dur));
+
+    // Ensure gain is at full effective volume
+    const effVol = this.getEffectiveVolume();
+    const now = ctx.currentTime;
+    try {
+      this.gainNode!.gain.cancelScheduledValues(now);
+      this.gainNode!.gain.setValueAtTime(effVol, now);
+    } catch (_) {}
 
     source.start(0, offset);
     this.bufferSource = source;
@@ -315,25 +323,10 @@ class AudioEngine {
     if (this.bufferSource) {
       const source = this.bufferSource;
       this.bufferSource = null;
-      if (this.gainNode && this.audioCtx && this.audioCtx.state === 'running') {
-        const now = this.audioCtx.currentTime;
-        try {
-          this.gainNode.gain.cancelScheduledValues(now);
-          this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
-          this.gainNode.gain.linearRampToValueAtTime(0, now + 0.015);
-        } catch (_) {}
-        setTimeout(() => {
-          try {
-            source.stop();
-            source.disconnect();
-          } catch (_) {}
-        }, 20);
-      } else {
-        try {
-          source.stop();
-          source.disconnect();
-        } catch (_) {}
-      }
+      try {
+        source.stop();
+        source.disconnect();
+      } catch (_) {}
     }
     this.isUsingWebAudio = false;
   }
@@ -524,17 +517,23 @@ class AudioEngine {
 
   public seek(seconds: number): void {
     const dur = this.getDuration();
-    const safeSec = Math.max(0, Math.min(dur > 0 ? dur : seconds, seconds));
+    const maxSafe = dur > 0.1 ? dur - 0.05 : seconds;
+    const safeSec = Math.max(0, Math.min(maxSafe, seconds));
 
     this.cancelFade();
     this.playbackPosition = safeSec;
 
+    // Immediately restore target listening volume
+    this.setVolumeInstantly(this.getEffectiveVolume());
+
     if (this.isPlaying) {
       if (this.isUsingWebAudio && this.currentBuffer && this.audioCtx) {
-        this.stopBufferSource();
         this.startBufferPlayback(safeSec);
       } else {
         this.audio.currentTime = safeSec;
+        if (this.audio.paused) {
+          this.audio.play().catch(() => {});
+        }
       }
     } else {
       if (!this.isUsingWebAudio) {
