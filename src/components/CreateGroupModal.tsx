@@ -24,15 +24,6 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
     }
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
-  const handleSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!name.trim()) return;
-    onCreate(name.trim());
-    onClose();
-  };
-
   useEffect(() => {
     if (!isOpen) return;
 
@@ -47,6 +38,15 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
     window.addEventListener('keydown', handleGlobalKeyDown, true);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!name.trim()) return;
+    onCreate(name.trim());
+    onClose();
+  };
 
   return (
     <div

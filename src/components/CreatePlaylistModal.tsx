@@ -28,15 +28,6 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
     }
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
-  const handleSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!name.trim()) return;
-    onCreate(name.trim(), description.trim() || undefined);
-    onClose();
-  };
-
   useEffect(() => {
     if (!isOpen) return;
 
@@ -51,6 +42,15 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
     window.addEventListener('keydown', handleGlobalKeyDown, true);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!name.trim()) return;
+    onCreate(name.trim(), description.trim() || undefined);
+    onClose();
+  };
 
   return (
     <div 

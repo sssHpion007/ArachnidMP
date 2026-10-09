@@ -20,26 +20,38 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
   selectedTracks,
   onSaveTags,
 }) => {
-  if (!isOpen || selectedTracks.length === 0) return null;
-
   // Initial detection: if all tracks share the same artist/album/genre, prefill them
-  const firstTrack = selectedTracks[0];
-  const allSameArtist = selectedTracks.every(t => t.artist === firstTrack.artist);
-  const allSameAlbum = selectedTracks.every(t => t.album === firstTrack.album);
-  const allSameGenre = selectedTracks.every(t => t.genre === firstTrack.genre);
-  const allSameYear = selectedTracks.every(t => t.year === firstTrack.year);
+  const firstTrack = selectedTracks[0] || null;
+  const allSameArtist = !!firstTrack && selectedTracks.every(t => t.artist === firstTrack.artist);
+  const allSameAlbum = !!firstTrack && selectedTracks.every(t => t.album === firstTrack.album);
+  const allSameGenre = !!firstTrack && selectedTracks.every(t => t.genre === firstTrack.genre);
+  const allSameYear = !!firstTrack && selectedTracks.every(t => t.year === firstTrack.year);
 
   const [applyArtist, setApplyArtist] = useState(false);
-  const [artistValue, setArtistValue] = useState(allSameArtist ? firstTrack.artist : '');
+  const [artistValue, setArtistValue] = useState(allSameArtist && firstTrack ? firstTrack.artist : '');
 
   const [applyAlbum, setApplyAlbum] = useState(false);
-  const [albumValue, setAlbumValue] = useState(allSameAlbum ? firstTrack.album : '');
+  const [albumValue, setAlbumValue] = useState(allSameAlbum && firstTrack ? firstTrack.album : '');
 
   const [applyGenre, setApplyGenre] = useState(false);
-  const [genreValue, setGenreValue] = useState(allSameGenre ? (firstTrack.genre || '') : '');
+  const [genreValue, setGenreValue] = useState(allSameGenre && firstTrack ? (firstTrack.genre || '') : '');
 
   const [applyYear, setApplyYear] = useState(false);
-  const [yearValue, setYearValue] = useState(allSameYear && firstTrack.year ? firstTrack.year.toString() : '');
+  const [yearValue, setYearValue] = useState(allSameYear && firstTrack && firstTrack.year ? firstTrack.year.toString() : '');
+
+  // Reset fields when modal opens or selected tracks change
+  useEffect(() => {
+    if (isOpen && firstTrack) {
+      setApplyArtist(false);
+      setArtistValue(allSameArtist ? firstTrack.artist : '');
+      setApplyAlbum(false);
+      setAlbumValue(allSameAlbum ? firstTrack.album : '');
+      setApplyGenre(false);
+      setGenreValue(allSameGenre ? (firstTrack.genre || '') : '');
+      setApplyYear(false);
+      setYearValue(allSameYear && firstTrack.year ? firstTrack.year.toString() : '');
+    }
+  }, [isOpen, firstTrack, allSameArtist, allSameAlbum, allSameGenre, allSameYear]);
 
   const handleSave = () => {
     const updates: {
@@ -78,6 +90,8 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
     window.addEventListener('keydown', handleGlobalKeyDown, true);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [isOpen, applyArtist, applyAlbum, applyGenre, applyYear, artistValue, albumValue, genreValue, yearValue, onClose]);
+
+  if (!isOpen || selectedTracks.length === 0) return null;
 
   return (
     <div

@@ -51,15 +51,6 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
     }
   }, [isOpen, folderToEdit]);
 
-  if (!isOpen) return null;
-
-  const handleSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!name.trim()) return;
-    onCreate(name.trim(), selectedColor || undefined, selectedIcon || undefined);
-    onClose();
-  };
-
   useEffect(() => {
     if (!isOpen) return;
 
@@ -74,6 +65,15 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
     window.addEventListener('keydown', handleGlobalKeyDown, true);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!name.trim()) return;
+    onCreate(name.trim(), selectedColor || undefined, selectedIcon || undefined);
+    onClose();
+  };
 
   return (
     <div

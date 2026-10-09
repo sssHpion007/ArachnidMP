@@ -29,6 +29,21 @@ export const RenameItemModal: React.FC<RenameItemModalProps> = ({
     }
   }, [isOpen, initialName]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown, true);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const typeLabels = {
@@ -45,21 +60,6 @@ export const RenameItemModal: React.FC<RenameItemModalProps> = ({
     onRename(name.trim());
     onClose();
   };
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleGlobalKeyDown, true);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
-  }, [isOpen, onClose]);
 
   return (
     <div

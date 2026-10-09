@@ -28,15 +28,6 @@ export const RenamePlaylistModal: React.FC<RenamePlaylistModalProps> = ({
     }
   }, [isOpen, playlist]);
 
-  if (!isOpen || !playlist) return null;
-
-  const handleSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!name.trim()) return;
-    onRename(playlist, name.trim());
-    onClose();
-  };
-
   useEffect(() => {
     if (!isOpen) return;
 
@@ -51,6 +42,15 @@ export const RenamePlaylistModal: React.FC<RenamePlaylistModalProps> = ({
     window.addEventListener('keydown', handleGlobalKeyDown, true);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [isOpen, onClose]);
+
+  if (!isOpen || !playlist) return null;
+
+  const handleSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!name.trim()) return;
+    onRename(playlist, name.trim());
+    onClose();
+  };
 
   return (
     <div

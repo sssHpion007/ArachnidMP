@@ -43,6 +43,14 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [isOpen, onClose]);
 
+  const genresList = useMemo(() => {
+    if (!track?.genre) return [];
+    return track.genre
+      .split(/[,/;\\]+/)
+      .map((g) => g.trim())
+      .filter((g) => g.length > 0);
+  }, [track?.genre]);
+
   if (!isOpen || !track) return null;
 
   const handleOpenLocation = async () => {
@@ -70,14 +78,6 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
         day: 'numeric' 
       }) 
     : '—';
-
-  const genresList = useMemo(() => {
-    if (!track.genre) return [];
-    return track.genre
-      .split(/[,/;\\]+/)
-      .map((g) => g.trim())
-      .filter((g) => g.length > 0);
-  }, [track.genre]);
 
   return (
     <div
