@@ -8,7 +8,8 @@ import {
   FolderPlus, 
   Trash2,
   Share2,
-  FileText
+  FileText,
+  Info
 } from 'lucide-react';
 import { Track, Playlist } from '../types/music';
 
@@ -26,6 +27,7 @@ interface ContextMenuProps {
   onToggleFavorite: (trackId: string) => void;
   onAddToPlaylist: (playlistId: string, trackIds: string[]) => void;
   onRemoveTracks: (trackIds: string[]) => void;
+  onOpenTrackDetails?: (track: Track) => void;
 }
 
 export const ContextMenu: React.FC<ContextMenuProps> = ({
@@ -42,6 +44,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   onToggleFavorite,
   onAddToPlaylist,
   onRemoveTracks,
+  onOpenTrackDetails,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -141,8 +144,21 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
         </div>
       )}
 
-      {/* Batch Tag Editor */}
+      {/* Batch Tag Editor & Details */}
       <div className="border-t border-md3-outline-variant/20 my-1 pt-1">
+        {onOpenTrackDetails && (
+          <button
+            onClick={() => {
+              onOpenTrackDetails(track);
+              onClose();
+            }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left"
+          >
+            <Info className="w-3.5 h-3.5 text-md3-primary" />
+            <span>Сведения о треке</span>
+          </button>
+        )}
+
         <button
           onClick={() => {
             onOpenTagEditor();

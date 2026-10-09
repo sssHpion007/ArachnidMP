@@ -40,6 +40,7 @@ interface NowPlayingBarProps {
   onToggleQueue: () => void;
   onToggleFavorite: (trackId: string, e: React.MouseEvent) => void;
   onOpenEQ?: () => void;
+  onOpenTrackDetails?: (track: Track) => void;
 }
 
 export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
@@ -63,6 +64,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   onToggleRepeat,
   onToggleQueue,
   onToggleFavorite,
+  onOpenTrackDetails,
 }) => {
   const [hoverSeekTime, setHoverSeekTime] = useState<number | null>(null);
   const [hoverSeekPos, setHoverSeekPos] = useState<number>(0);
@@ -120,18 +122,22 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
 
   return (
     <footer className="h-24 max-h-24 w-full shrink-0 bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-6 flex items-center justify-between select-none relative z-30 transition-colors duration-300">
-      {/* Left: Cover Art & Track Metadata */}
-      <div className="flex items-center gap-3.5 w-1/4 min-w-[240px]">
+      {/* Left: Cover Art & Track Metadata (Clickable to open Track Details) */}
+      <div 
+        onClick={() => currentTrack && onOpenTrackDetails && onOpenTrackDetails(currentTrack)}
+        title={currentTrack ? 'Нажмите, чтобы открыть сведения о треке' : undefined}
+        className={`flex items-center gap-3.5 w-1/4 min-w-[240px] select-none ${currentTrack ? 'cursor-pointer group' : ''}`}
+      >
         {/* Cover Art with subtle glow - strictly constrained to 56x56 */}
         <div 
           style={{ width: '56px', height: '56px', minWidth: '56px', minHeight: '56px', maxWidth: '56px', maxHeight: '56px' }}
-          className="w-14 h-14 min-w-[56px] min-h-[56px] max-w-[56px] max-h-[56px] rounded-2xl overflow-hidden shrink-0 bg-md3-surface-container shadow-md border border-md3-outline-variant/15 relative group"
+          className="w-14 h-14 min-w-[56px] min-h-[56px] max-w-[56px] max-h-[56px] rounded-2xl overflow-hidden shrink-0 bg-md3-surface-container shadow-md border border-md3-outline-variant/15 relative"
         >
           {currentTrack?.coverArt ? (
             <img 
               src={currentTrack.coverArt} 
               alt={currentTrack.title} 
-              className={`w-full h-full max-w-full max-h-full object-cover transition-transform duration-300 ${isPlaying ? 'scale-105' : ''}`} 
+              className={`w-full h-full max-w-full max-h-full object-cover transition-transform duration-300 ${isPlaying ? 'scale-105' : ''} group-hover:scale-110`} 
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-md3-primary/10 text-md3-primary">
@@ -142,16 +148,9 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
 
         {/* Title & Artist */}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="text-sm font-bold text-md3-on-surface truncate">
-              {currentTrack ? currentTrack.title : 'Ничего не играет'}
-            </p>
-            {currentTrack?.format && (
-              <span className="px-1.5 py-0.2 rounded-md bg-md3-surface-container text-[10px] font-mono font-semibold text-md3-on-surface-variant/80 border border-md3-outline-variant/15 shrink-0">
-                {currentTrack.format}
-              </span>
-            )}
-          </div>
+          <p className="text-sm font-bold text-md3-on-surface truncate group-hover:text-md3-primary transition-colors">
+            {currentTrack ? currentTrack.title : 'Ничего не играет'}
+          </p>
           <p className="text-xs text-md3-on-surface-variant truncate font-medium mt-0.5">
             {currentTrack ? (
               <>
@@ -167,7 +166,10 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
         {/* Favorite Heart Button */}
         {currentTrack && (
           <button
-            onClick={(e) => onToggleFavorite(currentTrack.id, e)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFavorite(currentTrack.id, e);
+            }}
             title={currentTrack.isFavorite ? 'Удалить из любимых' : 'Добавить в любимые'}
             className="p-2 rounded-full text-md3-on-surface-variant hover:text-red-500 transition-colors cursor-pointer shrink-0"
           >

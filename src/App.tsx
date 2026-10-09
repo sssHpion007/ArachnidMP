@@ -15,6 +15,9 @@ import { DragDropOverlay } from './components/DragDropOverlay';
 import { ContextMenu } from './components/ContextMenu';
 import { PlaylistContextMenu } from './components/PlaylistContextMenu';
 import { CreatePlaylistModal } from './components/CreatePlaylistModal';
+import { RenamePlaylistModal } from './components/RenamePlaylistModal';
+import { ConfirmationModal } from './components/ConfirmationModal';
+import { TrackDetailsModal } from './components/TrackDetailsModal';
 import { audioEngine } from './services/audioEngine';
 import { discordRpc } from './services/discordRpc';
 import { parseAudioFile } from './services/tagEditor';
@@ -77,6 +80,10 @@ export const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isBatchTagEditorOpen, setIsBatchTagEditorOpen] = useState<boolean>(false);
   const [isCreatePlaylistOpen, setIsCreatePlaylistOpen] = useState<boolean>(false);
+  const [renamePlaylistTarget, setRenamePlaylistTarget] = useState<Playlist | null>(null);
+  const [clearPlaylistTarget, setClearPlaylistTarget] = useState<Playlist | null>(null);
+  const [deletePlaylistTarget, setDeletePlaylistTarget] = useState<Playlist | null>(null);
+  const [trackDetailsTarget, setTrackDetailsTarget] = useState<Track | null>(null);
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; track: Track } | null>(null);
   const [playlistContextMenu, setPlaylistContextMenu] = useState<{ x: number; y: number; playlist: Playlist } | null>(null);
@@ -811,25 +818,34 @@ export const App: React.FC = () => {
   };
 
   const handleRenamePlaylist = (playlist: Playlist) => {
-    const newName = prompt('Новое название плейлиста:', playlist.name);
-    if (newName && newName.trim()) {
-      setPlaylists(prev => prev.map(p => p.id === playlist.id ? { ...p, name: newName.trim() } : p));
-    }
+    setRenamePlaylistTarget(playlist);
+  };
+
+  const handleConfirmRenamePlaylist = (playlist: Playlist, newName: string) => {
+    setPlaylists(prev => prev.map(p => p.id === playlist.id ? { ...p, name: newName } : p));
   };
 
   const handleClearPlaylist = (playlist: Playlist) => {
-    if (confirm(`Очистить все треки из плейлиста "${playlist.name}"?`)) {
-      setPlaylists(prev => prev.map(p => p.id === playlist.id ? { ...p, trackIds: [] } : p));
-    }
+    setClearPlaylistTarget(playlist);
+  };
+
+  const handleConfirmClearPlaylist = () => {
+    if (!clearPlaylistTarget) return;
+    setPlaylists(prev => prev.map(p => p.id === clearPlaylistTarget.id ? { ...p, trackIds: [] } : p));
+    setClearPlaylistTarget(null);
   };
 
   const handleDeletePlaylist = (playlist: Playlist) => {
-    if (confirm(`Удалить плейлист "${playlist.name}"?`)) {
-      setPlaylists(prev => prev.filter(p => p.id !== playlist.id));
-      if (selectedPlaylistId === playlist.id) {
-        setSelectedPlaylistId(null);
-      }
+    setDeletePlaylistTarget(playlist);
+  };
+
+  const handleConfirmDeletePlaylist = () => {
+    if (!deletePlaylistTarget) return;
+    setPlaylists(prev => prev.filter(p => p.id !== deletePlaylistTarget.id));
+    if (selectedPlaylistId === deletePlaylistTarget.id) {
+      setSelectedPlaylistId(null);
     }
+    setDeletePlaylistTarget(null);
   };
 
   const handleSaveBatchTags = (updates: {
@@ -1108,6 +1124,7 @@ export const App: React.FC = () => {
         onToggleRepeat={handleToggleRepeat}
         onToggleQueue={() => setIsQueueOpen(!isQueueOpen)}
         onToggleFavorite={handleToggleFavorite}
+        onOpenTrackDetails={(t) => setTrackDetailsTarget(t)}
       />
 
       {/* Queue Drawer */}
@@ -1197,6 +1214,7 @@ export const App: React.FC = () => {
           onToggleFavorite={handleToggleFavorite}
           onAddToPlaylist={handleDropTracksToPlaylist}
           onRemoveTracks={handleRemoveTracks}
+          onOpenTrackDetails={(t) => setTrackDetailsTarget(t)}
         />
       )}
 
@@ -1220,6 +1238,45 @@ export const App: React.FC = () => {
         isOpen={isCreatePlaylistOpen}
         onClose={() => setIsCreatePlaylistOpen(false)}
         onCreate={handleCreatePlaylistSubmit}
+      />
+
+      {/* Material 3 Rename Playlist Modal */}
+      <RenamePlaylistModal
+        isOpen={!!renamePlaylistTarget}
+        playlist={renamePlaylistTarget}
+        onClose={() => setRenamePlaylistTarget(null)}
+        onRename={handleConfirmRenamePlaylist}
+      />
+
+      {/* Material 3 Clear Playlist Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!clearPlaylistTarget}
+        title="Очистить плейлист"
+        message={`Вы уверены, что хотите удалить все треки из плейлиста «${clearPlaylistTarget?.name}»? Все композиции останутся в вашей медиатеке.`}
+        confirmLabel="Очистить"
+        cancelLabel="Отмена"
+        isDestructive={true}
+        onConfirm={handleConfirmClearPlaylist}
+        onClose={() => setClearPlaylistTarget(null)}
+      />
+
+      {/* Material 3 Delete Playlist Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!deletePlaylistTarget}
+        title="Удалить плейлист"
+        message={`Вы уверены, что хотите безвозвратно удалить плейлист «${deletePlaylistTarget?.name}»? Сами треки останутся в вашей библиотеке.`}
+        confirmLabel="Удалить"
+        cancelLabel="Отмена"
+        isDestructive={true}
+        onConfirm={handleConfirmDeletePlaylist}
+        onClose={() => setDeletePlaylistTarget(null)}
+      />
+
+      {/* Material 3 Track Details Modal */}
+      <TrackDetailsModal
+        isOpen={!!trackDetailsTarget}
+        track={trackDetailsTarget}
+        onClose={() => setTrackDetailsTarget(null)}
       />
     </div>
   );
