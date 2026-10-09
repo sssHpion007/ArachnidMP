@@ -58,30 +58,9 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   return (
     <header className="h-16 px-6 shrink-0 flex items-center justify-between gap-4 bg-md3-surface-container-low border-b border-md3-outline-variant/15 select-none transition-colors duration-300">
-      {/* Left: App Logo & Add Files & Search */}
-      <div className="flex items-center gap-3">
-        {/* Brand */}
-        <div className="flex items-center gap-2 pr-2">
-          <div className="w-9 h-9 rounded-2xl bg-md3-primary/15 flex items-center justify-center text-md3-primary shadow-sm border border-md3-primary/20">
-            <span className="text-lg leading-none">🕷️</span>
-          </div>
-          <span className="font-extrabold text-base tracking-tight text-md3-on-surface hidden sm:inline">
-            Arachnid
-          </span>
-        </div>
-
-        {/* Add Files Button */}
-        <button
-          onClick={onOpenFiles}
-          title="Добавить аудиофайлы с диска"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold shadow-sm hover:scale-[1.02] active:scale-95 transition-all cursor-pointer shrink-0"
-        >
-          <FolderPlus className="w-3.5 h-3.5" />
-          <span className="hidden md:inline">Добавить файлы</span>
-        </button>
-
-        {/* Search Bar */}
-        <div className="relative w-44 sm:w-56 md:w-64">
+      {/* Left: Search Bar */}
+      <div className="w-1/4 min-w-[180px] max-w-xs">
+        <div className="relative w-full">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-md3-on-surface-variant">
             <Search className="w-3.5 h-3.5" />
           </div>
@@ -95,7 +74,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           {searchQuery && (
             <button
               onClick={() => onSearchChange('')}
-              className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-md3-on-surface-variant hover:text-md3-on-surface"
+              className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -104,29 +83,41 @@ export const TopBar: React.FC<TopBarProps> = ({
       </div>
 
       {/* Center: Navigation Tabs (Pills) */}
-      <nav className="flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 overflow-x-auto custom-scrollbar">
-        {navTabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = currentView === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => onSelectView(tab.id)}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer ${
-                isActive
-                  ? 'bg-md3-primary text-md3-on-primary font-bold shadow-sm'
-                  : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
-              }`}
-            >
-              <Icon className={`w-3.5 h-3.5 ${isActive ? 'stroke-[2.5]' : ''}`} />
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
-      </nav>
+      <div className="flex-1 flex justify-center">
+        <nav className="flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 overflow-x-auto custom-scrollbar">
+          {navTabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = currentView === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => onSelectView(tab.id)}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer ${
+                  isActive
+                    ? 'bg-md3-primary text-md3-on-primary font-bold shadow-sm'
+                    : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
+                }`}
+              >
+                <Icon className={`w-3.5 h-3.5 ${isActive ? 'stroke-[2.5]' : ''}`} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
 
-      {/* Right Controls: Discord RPC, Theme, EQ, Settings */}
-      <div className="flex items-center gap-1.5 shrink-0">
+      {/* Right Controls: Add Files, Discord RPC, Theme, EQ, Settings */}
+      <div className="w-1/4 min-w-[280px] flex items-center justify-end gap-1.5 shrink-0">
+        {/* Add Files Button (placed right before Discord) */}
+        <button
+          onClick={onOpenFiles}
+          title="Добавить аудиофайлы с диска"
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold shadow-sm hover:scale-[1.02] active:scale-95 transition-all cursor-pointer shrink-0 mr-1"
+        >
+          <FolderPlus className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">Добавить файлы</span>
+        </button>
+
         {/* Discord RPC switch */}
         <button
           onClick={onToggleDiscord}

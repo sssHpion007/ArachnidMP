@@ -14,6 +14,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { DragDropOverlay } from './components/DragDropOverlay';
 import { ContextMenu } from './components/ContextMenu';
 import { PlaylistContextMenu } from './components/PlaylistContextMenu';
+import { CreatePlaylistModal } from './components/CreatePlaylistModal';
 import { audioEngine } from './services/audioEngine';
 import { discordRpc } from './services/discordRpc';
 import { parseAudioFile } from './services/tagEditor';
@@ -75,6 +76,7 @@ export const App: React.FC = () => {
   const [isEQOpen, setIsEQOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isBatchTagEditorOpen, setIsBatchTagEditorOpen] = useState<boolean>(false);
+  const [isCreatePlaylistOpen, setIsCreatePlaylistOpen] = useState<boolean>(false);
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; track: Track } | null>(null);
   const [playlistContextMenu, setPlaylistContextMenu] = useState<{ x: number; y: number; playlist: Playlist } | null>(null);
@@ -818,17 +820,19 @@ export const App: React.FC = () => {
   };
 
   const handleCreatePlaylist = () => {
-    const name = prompt('Введите название нового плейлиста:', `Плейлист #${playlists.length + 1}`);
-    if (name && name.trim()) {
-      const newPl: Playlist = {
-        id: `pl_${Date.now()}`,
-        name: name.trim(),
-        trackIds: Array.from(selectedTrackIds),
-        isSystem: false,
-      };
-      setPlaylists(prev => [...prev, newPl]);
-      setSelectedPlaylistId(newPl.id);
-    }
+    setIsCreatePlaylistOpen(true);
+  };
+
+  const handleCreatePlaylistSubmit = (name: string, description?: string) => {
+    const newPl: Playlist = {
+      id: `pl_${Date.now()}`,
+      name: name.trim(),
+      description: description?.trim() || undefined,
+      trackIds: Array.from(selectedTrackIds),
+      isSystem: false,
+    };
+    setPlaylists(prev => [...prev, newPl]);
+    setSelectedPlaylistId(newPl.id);
   };
 
   const handlePlayPlaylist = (playlist: Playlist) => {
@@ -1270,6 +1274,13 @@ export const App: React.FC = () => {
           onDelete={handleDeletePlaylist}
         />
       )}
+
+      {/* Material 3 Create Playlist Modal */}
+      <CreatePlaylistModal
+        isOpen={isCreatePlaylistOpen}
+        onClose={() => setIsCreatePlaylistOpen(false)}
+        onCreate={handleCreatePlaylistSubmit}
+      />
     </div>
   );
 };

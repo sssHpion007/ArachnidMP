@@ -60,17 +60,6 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
 
       {/* Grid of Playlist Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-        {/* Create Card */}
-        <div
-          onClick={onCreatePlaylist}
-          className="aspect-square rounded-3xl border-2 border-dashed border-md3-outline-variant/25 hover:border-md3-primary bg-md3-surface-container/30 hover:bg-md3-surface-container flex flex-col items-center justify-center p-4 cursor-pointer transition-all duration-200 group text-md3-on-surface-variant hover:text-md3-primary"
-        >
-          <div className="w-12 h-12 rounded-2xl bg-md3-primary/10 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
-            <Plus className="w-6 h-6 text-md3-primary" />
-          </div>
-          <span className="text-xs font-bold text-center">Создать плейлист</span>
-        </div>
-
         {/* Existing Playlists */}
         {playlists.map((pl) => {
           const cover = getPlaylistCover(pl);
