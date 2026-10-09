@@ -448,7 +448,11 @@ export const App: React.FC = () => {
     } else if (selectedArtist) {
       result = result.filter(t => (t.artist ? t.artist.trim() : 'Неизвестный исполнитель') === selectedArtist);
     } else if (selectedGenre) {
-      result = result.filter(t => (t.genre ? t.genre.trim() : 'Без жанра') === selectedGenre);
+      result = result.filter(t => {
+        if (!t.genre) return selectedGenre === 'Без жанра';
+        const list = t.genre.split(/[,/;\\]+/).map(g => g.trim()).filter(Boolean);
+        return list.length > 0 ? list.includes(selectedGenre) : selectedGenre === 'Без жанра';
+      });
     } else if (currentView === 'favorites') {
       result = result.filter(t => t.isFavorite);
     }
@@ -520,7 +524,11 @@ export const App: React.FC = () => {
       };
     }
     if (selectedGenre) {
-      const genreTracks = tracks.filter(t => (t.genre ? t.genre.trim() : 'Без жанра') === selectedGenre);
+      const genreTracks = tracks.filter(t => {
+        if (!t.genre) return selectedGenre === 'Без жанра';
+        const list = t.genre.split(/[,/;\\]+/).map(g => g.trim()).filter(Boolean);
+        return list.length > 0 ? list.includes(selectedGenre) : selectedGenre === 'Без жанра';
+      });
       return {
         type: 'genre' as const,
         title: selectedGenre,

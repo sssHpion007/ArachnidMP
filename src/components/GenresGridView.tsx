@@ -29,17 +29,26 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
     const map = new Map<string, { name: string; tracks: Track[]; coverArt?: string }>();
 
     for (const t of tracks) {
-      const g = t.genre ? t.genre.trim() : 'Без жанра';
-      if (!map.has(g)) {
-        map.set(g, {
-          name: g,
-          tracks: [t],
-          coverArt: t.coverArt,
-        });
-      } else {
-        const item = map.get(g)!;
-        item.tracks.push(t);
-        if (!item.coverArt && t.coverArt) item.coverArt = t.coverArt;
+      const genreList = t.genre
+        ? t.genre.split(/[,/;\\]+/).map((g) => g.trim()).filter(Boolean)
+        : ['Без жанра'];
+
+      const effectiveGenres = genreList.length > 0 ? genreList : ['Без жанра'];
+
+      for (const g of effectiveGenres) {
+        if (!map.has(g)) {
+          map.set(g, {
+            name: g,
+            tracks: [t],
+            coverArt: t.coverArt,
+          });
+        } else {
+          const item = map.get(g)!;
+          if (!item.tracks.some((existing) => existing.id === t.id)) {
+            item.tracks.push(t);
+          }
+          if (!item.coverArt && t.coverArt) item.coverArt = t.coverArt;
+        }
       }
     }
 
