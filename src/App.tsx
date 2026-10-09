@@ -18,6 +18,7 @@ import { CreatePlaylistModal } from './components/CreatePlaylistModal';
 import { RenamePlaylistModal } from './components/RenamePlaylistModal';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import { TrackDetailsModal } from './components/TrackDetailsModal';
+import { LyricsModal } from './components/LyricsModal';
 import { audioEngine } from './services/audioEngine';
 import { discordRpc } from './services/discordRpc';
 import { parseAudioFile } from './services/tagEditor';
@@ -84,6 +85,7 @@ export const App: React.FC = () => {
   const [clearPlaylistTarget, setClearPlaylistTarget] = useState<Playlist | null>(null);
   const [deletePlaylistTarget, setDeletePlaylistTarget] = useState<Playlist | null>(null);
   const [trackDetailsTarget, setTrackDetailsTarget] = useState<Track | null>(null);
+  const [isLyricsOpen, setIsLyricsOpen] = useState<boolean>(false);
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; track: Track } | null>(null);
   const [playlistContextMenu, setPlaylistContextMenu] = useState<{ x: number; y: number; playlist: Playlist } | null>(null);
@@ -877,6 +879,18 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleSaveLyrics = (trackId: string, lyrics: string, isInstrumental: boolean) => {
+    setTracks(prev => prev.map(t => {
+      if (t.id === trackId) {
+        return { ...t, lyrics, isInstrumental };
+      }
+      return t;
+    }));
+    if (currentTrack?.id === trackId) {
+      setCurrentTrack(prev => prev ? { ...prev, lyrics, isInstrumental } : null);
+    }
+  };
+
   const handleSortChange = (col: string) => {
     if (sortBy === col) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -1125,6 +1139,7 @@ export const App: React.FC = () => {
         onToggleQueue={() => setIsQueueOpen(!isQueueOpen)}
         onToggleFavorite={handleToggleFavorite}
         onOpenTrackDetails={(t) => setTrackDetailsTarget(t)}
+        onOpenLyrics={() => setIsLyricsOpen(true)}
       />
 
       {/* Queue Drawer */}
@@ -1277,6 +1292,17 @@ export const App: React.FC = () => {
         isOpen={!!trackDetailsTarget}
         track={trackDetailsTarget}
         onClose={() => setTrackDetailsTarget(null)}
+      />
+
+      {/* Material 3 Synchronized Lyrics Modal */}
+      <LyricsModal
+        isOpen={isLyricsOpen}
+        track={currentTrack}
+        currentTime={currentTime}
+        isPlaying={isPlaying}
+        onSeek={handleSeek}
+        onSaveLyrics={handleSaveLyrics}
+        onClose={() => setIsLyricsOpen(false)}
       />
     </div>
   );

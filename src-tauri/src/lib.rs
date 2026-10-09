@@ -221,6 +221,27 @@ fn batch_update_tags(tracks: Vec<TrackMetadata>) -> Result<usize, String> {
     Ok(count)
 }
 
+#[tauri::command]
+fn show_in_folder(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        Command::new("explorer")
+            .args(["/select,", &path])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -232,6 +253,7 @@ pub fn run() {
             update_discord_presence,
             read_audio_files,
             open_file_dialog,
+            show_in_folder,
             scan_folder,
             batch_update_tags,
             save_portable_data,

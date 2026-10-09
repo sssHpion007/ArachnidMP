@@ -12,7 +12,8 @@ import {
   Volume1,
   Heart, 
   ListMusic, 
-  Disc3
+  Disc3,
+  Mic2
 } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
@@ -41,6 +42,7 @@ interface NowPlayingBarProps {
   onToggleFavorite: (trackId: string, e: React.MouseEvent) => void;
   onOpenEQ?: () => void;
   onOpenTrackDetails?: (track: Track) => void;
+  onOpenLyrics?: () => void;
 }
 
 export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
@@ -65,6 +67,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   onToggleQueue,
   onToggleFavorite,
   onOpenTrackDetails,
+  onOpenLyrics,
 }) => {
   const [hoverSeekTime, setHoverSeekTime] = useState<number | null>(null);
   const [hoverSeekPos, setHoverSeekPos] = useState<number>(0);
@@ -280,11 +283,35 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
         </div>
       </div>
 
-      {/* Right: Visualizer, Volume, Queue */}
-      <div className="flex items-center justify-end gap-3 w-1/4 min-w-[240px]">
+      {/* Right: Lyrics, Visualizer, Volume, Queue */}
+      <div className="flex items-center justify-end gap-2.5 w-1/4 min-w-[240px]">
+        {/* Lyrics Button */}
+        {currentTrack && (
+          <button
+            onClick={onOpenLyrics}
+            title={
+              currentTrack.lyrics && currentTrack.lyrics.trim().length > 0
+                ? 'Текст песни (доступен)'
+                : currentTrack.isInstrumental
+                ? 'Инструментальная композиция (без слов)'
+                : 'Текст песни (нажмите, чтобы просмотреть или добавить)'
+            }
+            className={`p-2 rounded-full transition-all cursor-pointer relative ${
+              currentTrack.lyrics && currentTrack.lyrics.trim().length > 0
+                ? 'text-md3-primary bg-md3-primary/10 hover:bg-md3-primary/20 shadow-sm'
+                : 'text-md3-on-surface-variant/40 hover:text-md3-on-surface hover:bg-md3-surface-container'
+            }`}
+          >
+            <Mic2 className="w-4 h-4" />
+            {currentTrack.lyrics && currentTrack.lyrics.trim().length > 0 && (
+              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-md3-primary" />
+            )}
+          </button>
+        )}
+
         {/* Animated Spectrum Visualizer */}
         <div 
-          className="hidden md:flex items-end gap-1 h-5 px-2 py-0.5 pointer-events-none"
+          className="hidden md:flex items-end gap-1 h-5 px-1.5 py-0.5 pointer-events-none"
           title="Спектр воспроизведения"
         >
           {visBars.map((height, i) => (

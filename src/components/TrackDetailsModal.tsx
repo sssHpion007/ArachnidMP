@@ -1,10 +1,9 @@
-import React, { useState } from 'react';
+import React, { useMemo } from 'react';
 import { 
   Info, 
   X, 
   Disc3, 
-  Copy, 
-  Check, 
+  FolderOpen, 
   Clock, 
   HardDrive, 
   FileAudio, 
@@ -16,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
+import { isTauri, invoke } from '@tauri-apps/api/core';
 
 interface TrackDetailsModalProps {
   isOpen: boolean;
@@ -28,15 +28,19 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
   track,
   onClose,
 }) => {
-  const [copiedPath, setCopiedPath] = useState(false);
-
   if (!isOpen || !track) return null;
 
-  const handleCopyPath = () => {
+  const handleOpenLocation = async () => {
     if (track.path) {
+      if (isTauri()) {
+        try {
+          await invoke('show_in_folder', { path: track.path });
+          return;
+        } catch (e) {
+          console.warn('Failed to open location via Tauri:', e);
+        }
+      }
       navigator.clipboard.writeText(track.path);
-      setCopiedPath(true);
-      setTimeout(() => setCopiedPath(false), 2000);
     }
   };
 
@@ -51,6 +55,14 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
         day: 'numeric' 
       }) 
     : '—';
+
+  const genresList = useMemo(() => {
+    if (!track.genre) return [];
+    return track.genre
+      .split(/[,/;\\]+/)
+      .map((g) => g.trim())
+      .filter((g) => g.length > 0);
+  }, [track.genre]);
 
   return (
     <div
@@ -86,7 +98,7 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="p-6 overflow-y-auto custom-scrollbar space-y-5">
+        <div className="p-6 overflow-y-auto custom-scrollbar space-y-4">
           {/* Top Banner: Cover & Titles */}
           <div className="flex items-center gap-4 p-4 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/15">
             <div className="w-24 h-24 rounded-2xl overflow-hidden bg-md3-surface-container-high shadow-md shrink-0 border border-md3-outline-variant/15 relative">
@@ -153,15 +165,15 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
               </div>
             </div>
 
-            {/* Genre */}
+            {/* Release Date / Year (placed where genre was) */}
             <div className="p-3 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/10 flex items-center gap-3">
               <div className="w-8 h-8 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center shrink-0">
-                <Tag className="w-4 h-4" />
+                <Disc3 className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <span className="text-[11px] text-md3-on-surface-variant/70 block">Жанр</span>
+                <span className="text-[11px] text-md3-on-surface-variant/70 block">Дата выпуска</span>
                 <span className="font-bold text-md3-on-surface truncate">
-                  {track.genre || 'Не указан'}
+                  {track.year ? `${track.year} год` : 'Не указана'}
                 </span>
               </div>
             </div>
@@ -204,31 +216,47 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
                 </span>
               </div>
             </div>
+
+            {/* Expandable Genres (Full width, tags) */}
+            <div className="col-span-2 p-3.5 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/10 space-y-2">
+              <div className="flex items-center gap-2 text-[11px] text-md3-on-surface-variant/70">
+                <Tag className="w-3.5 h-3.5 text-md3-primary" />
+                <span className="font-semibold">Жанры</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {genresList.length > 0 ? (
+                  genresList.map((g, i) => (
+                    <span 
+                      key={i} 
+                      className="px-3 py-1 rounded-xl bg-md3-surface text-xs font-semibold text-md3-on-surface border border-md3-outline-variant/15 shadow-sm"
+                    >
+                      {g}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs text-md3-on-surface-variant/60 italic">
+                    Жанр не указан
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* Disk Path */}
+          {/* Disk Path with Open Location Button */}
           {track.path && (
-            <div className="p-3.5 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/10 space-y-1.5">
+            <div className="p-3.5 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/10 space-y-2">
               <div className="flex items-center justify-between text-[11px] text-md3-on-surface-variant/70">
                 <span className="flex items-center gap-1.5 font-semibold">
                   <Folder className="w-3.5 h-3.5" />
                   Путь к файлу на диске
                 </span>
                 <button
-                  onClick={handleCopyPath}
-                  className="flex items-center gap-1 text-xs text-md3-primary hover:underline cursor-pointer"
+                  onClick={handleOpenLocation}
+                  title="Открыть папку с файлом в Проводнике Windows"
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-md3-primary/10 hover:bg-md3-primary/20 text-xs font-semibold text-md3-primary transition-all cursor-pointer hover:scale-105 active:scale-95"
                 >
-                  {copiedPath ? (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Скопировано!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Копировать</span>
-                    </>
-                  )}
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  <span>Открыть папку</span>
                 </button>
               </div>
               <p className="text-xs font-mono text-md3-on-surface break-all select-all p-2 rounded-xl bg-md3-surface border border-md3-outline-variant/10">

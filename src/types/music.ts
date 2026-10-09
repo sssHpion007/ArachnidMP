@@ -16,6 +16,8 @@ export interface Track {
   dateAdded: number;
   playCount: number;
   isFavorite: boolean;
+  lyrics?: string;
+  isInstrumental?: boolean;
   localFile?: File;
 }
 
