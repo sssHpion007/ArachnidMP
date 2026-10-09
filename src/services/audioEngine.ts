@@ -1,3 +1,5 @@
+import { FadeMode } from '../types/music';
+
 export const EQ_FREQUENCIES = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 
 export const EQ_PRESETS = [
@@ -18,12 +20,21 @@ class AudioEngine {
   private onPlayCallback?: () => void;
   private onPauseCallback?: () => void;
 
+  private targetVolume: number = 0.85;
+  private isMuted: boolean = false;
+  private fadeMode: FadeMode = 'track_change_and_pause';
+  private fadeDuration: number = 2.0; // seconds
+  private repeatMode: 'off' | 'all' | 'one' = 'all';
+
+  private fadeAnimFrame: number | null = null;
+  private isFadingOutAtEnd: boolean = false;
+
   constructor() {
     this.audio = new Audio();
     this.audio.preload = 'auto';
 
     this.audio.addEventListener('timeupdate', () => {
-      this.onTimeUpdateCallback?.(this.audio.currentTime);
+      this.handleTimeUpdate();
     });
 
     this.audio.addEventListener('durationchange', () => {
@@ -33,6 +44,7 @@ class AudioEngine {
     });
 
     this.audio.addEventListener('ended', () => {
+      this.isFadingOutAtEnd = false;
       this.onEndCallback?.();
     });
 
@@ -64,50 +76,210 @@ class AudioEngine {
     this.onPauseCallback = callbacks.onPause;
   }
 
-  public async playTrack(src: string, autoPlay: boolean = true): Promise<void> {
-    if (this.audio.src !== src) {
+  public setFadeConfig(mode: FadeMode, durationSec: number) {
+    this.fadeMode = mode;
+    this.fadeDuration = Math.max(0.2, durationSec);
+    this.updateLoopState();
+  }
+
+  public setRepeatMode(mode: 'off' | 'all' | 'one') {
+    this.repeatMode = mode;
+    this.updateLoopState();
+  }
+
+  private updateLoopState() {
+    // Seamless native gapless loop:
+    // When repeating 'one' and fade is not 'always', native loop keeps playback running
+    // directly at sample accuracy without stopping or hitching.
+    const shouldLoopNatively = (this.repeatMode === 'one' && this.fadeMode !== 'always');
+    this.audio.loop = shouldLoopNatively;
+  }
+
+  public getEffectiveVolume(): number {
+    return this.isMuted ? 0 : this.targetVolume;
+  }
+
+  public setVolume(vol: number): void {
+    const clamped = Math.max(0, Math.min(1, vol));
+    this.targetVolume = clamped;
+    if (this.fadeAnimFrame === null && !this.isFadingOutAtEnd) {
+      this.audio.volume = this.getEffectiveVolume();
+    }
+  }
+
+  public setMuted(muted: boolean): void {
+    this.isMuted = muted;
+    if (this.fadeAnimFrame === null && !this.isFadingOutAtEnd) {
+      this.audio.volume = this.getEffectiveVolume();
+    }
+  }
+
+  private cancelFade() {
+    if (this.fadeAnimFrame !== null) {
+      cancelAnimationFrame(this.fadeAnimFrame);
+      this.fadeAnimFrame = null;
+    }
+  }
+
+  private startFade(targetVol: number, durationSec: number, onComplete?: () => void) {
+    this.cancelFade();
+
+    const startVol = this.audio.volume;
+    const startTime = performance.now();
+    const durationMs = Math.max(40, durationSec * 1000);
+
+    const step = () => {
+      const elapsed = performance.now() - startTime;
+      const progress = Math.min(1, elapsed / durationMs);
+
+      // Smooth ease-in-out curve
+      const eased = progress < 0.5 
+        ? 2 * progress * progress 
+        : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
+      const currentVol = startVol + (targetVol - startVol) * eased;
+      this.audio.volume = Math.max(0, Math.min(1, currentVol));
+
+      if (progress < 1) {
+        this.fadeAnimFrame = requestAnimationFrame(step);
+      } else {
+        this.audio.volume = Math.max(0, Math.min(1, targetVol));
+        this.fadeAnimFrame = null;
+        onComplete?.();
+      }
+    };
+
+    this.fadeAnimFrame = requestAnimationFrame(step);
+  }
+
+  private handleTimeUpdate() {
+    const curTime = this.audio.currentTime;
+    const dur = this.audio.duration;
+    this.onTimeUpdateCallback?.(curTime);
+
+    if (!dur || isNaN(dur) || this.audio.paused) return;
+
+    const remaining = dur - curTime;
+    const isSingleRepeat = this.repeatMode === 'one';
+
+    // End-of-track fade out decision:
+    // Mode 3 ('always'): fade out even when single track repeats
+    // Mode 2 ('track_change_and_pause'): fade out only when transitioning to a different track
+    // Mode 1 ('off'): no fade out
+    const shouldFadeOut = 
+      (this.fadeMode === 'always') || 
+      (this.fadeMode === 'track_change_and_pause' && !isSingleRepeat);
+
+    if (shouldFadeOut && this.fadeDuration > 0) {
+      if (remaining <= this.fadeDuration && remaining > 0) {
+        if (!this.isFadingOutAtEnd) {
+          this.isFadingOutAtEnd = true;
+          this.startFade(0, remaining);
+        }
+      } else if (remaining > this.fadeDuration && this.isFadingOutAtEnd) {
+        this.isFadingOutAtEnd = false;
+        this.startFade(this.getEffectiveVolume(), 0.5);
+      }
+    }
+  }
+
+  public async playTrack(src: string, autoPlay: boolean = true, isTrackChange: boolean = true): Promise<void> {
+    const isDifferentSrc = this.audio.src !== src;
+    const isCurrentlyPlaying = !this.audio.paused && this.audio.currentTime > 0;
+
+    // Fade out previous track if switching and fade is active
+    if (isDifferentSrc && isCurrentlyPlaying && this.fadeMode !== 'off') {
+      const fadeOutTime = Math.min(this.fadeDuration, 0.5);
+      await new Promise<void>((resolve) => {
+        this.startFade(0, fadeOutTime, () => resolve());
+      });
+    } else {
+      this.cancelFade();
+    }
+
+    this.isFadingOutAtEnd = false;
+
+    if (isDifferentSrc) {
       this.audio.src = src;
       this.audio.load();
     }
 
+    this.updateLoopState();
+
     if (autoPlay) {
-      try {
-        await this.audio.play();
-      } catch (e) {
-        console.warn('Playback play() was blocked or interrupted:', e);
+      if (this.fadeMode !== 'off' && (isDifferentSrc || isTrackChange)) {
+        this.audio.volume = 0;
+        try {
+          await this.audio.play();
+          this.startFade(this.getEffectiveVolume(), this.fadeDuration);
+        } catch (e) {
+          console.warn('Playback play() was blocked or interrupted:', e);
+        }
+      } else {
+        this.audio.volume = this.getEffectiveVolume();
+        try {
+          await this.audio.play();
+        } catch (e) {
+          console.warn('Playback play() was blocked or interrupted:', e);
+        }
       }
     }
   }
 
   public async resume(): Promise<void> {
-    return this.audio.play();
+    this.isFadingOutAtEnd = false;
+    this.updateLoopState();
+
+    if (this.fadeMode !== 'off') {
+      this.audio.volume = 0;
+      try {
+        await this.audio.play();
+        this.startFade(this.getEffectiveVolume(), this.fadeDuration);
+      } catch (e) {
+        console.warn('Resume play() was interrupted:', e);
+      }
+    } else {
+      this.audio.volume = this.getEffectiveVolume();
+      try {
+        await this.audio.play();
+      } catch (e) {
+        console.warn('Resume play() was interrupted:', e);
+      }
+    }
   }
 
-  public pause(): void {
-    this.audio.pause();
+  public async pause(): Promise<void> {
+    if (this.audio.paused) return;
+
+    if (this.fadeMode !== 'off') {
+      const fadeOutTime = Math.min(this.fadeDuration, 0.8);
+      return new Promise<void>((resolve) => {
+        this.startFade(0, fadeOutTime, () => {
+          this.audio.pause();
+          this.audio.volume = this.getEffectiveVolume();
+          resolve();
+        });
+      });
+    } else {
+      this.cancelFade();
+      this.audio.pause();
+      this.audio.volume = this.getEffectiveVolume();
+    }
   }
 
   public seek(seconds: number): void {
     if (!isNaN(seconds) && isFinite(seconds)) {
+      this.cancelFade();
+      this.isFadingOutAtEnd = false;
       this.audio.currentTime = Math.max(0, Math.min(seconds, this.audio.duration || seconds));
+      this.audio.volume = this.getEffectiveVolume();
     }
   }
 
-  public setVolume(vol: number): void {
-    const clamped = Math.max(0, Math.min(1, vol));
-    this.audio.volume = clamped;
-  }
-
-  public setEqGain(_bandIndex: number, _gainDb: number): void {
-    // Stored for EQ settings
-  }
-
-  public applyEqPreset(_values: number[]): void {
-    // Stored for EQ preset
-  }
+  public setEqGain(_bandIndex: number, _gainDb: number): void {}
+  public applyEqPreset(_values: number[]): void {}
 
   public getVisualizerData(): Uint8Array {
-    // Return animated spectrum bars when playing
     const bars = new Uint8Array(16);
     if (!this.audio.paused && !this.audio.ended) {
       const now = Date.now() / 150;

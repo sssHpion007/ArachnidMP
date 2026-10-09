@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Track, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode } from './types/music';
+import { Track, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode, FadeMode } from './types/music';
 import { TopBar, MainViewType } from './components/TopBar';
 import { TrackTable } from './components/TrackTable';
 import { NowPlayingBar } from './components/NowPlayingBar';
@@ -76,6 +76,10 @@ export const App: React.FC = () => {
   const [isShuffled, setIsShuffled] = useState<boolean>(false);
   const [queue, setQueue] = useState<Track[]>([]);
   const [queueIndex, setQueueIndex] = useState<number>(0);
+
+  // Audio Fading Settings
+  const [fadeMode, setFadeMode] = useState<FadeMode>('track_change_and_pause');
+  const [fadeDuration, setFadeDuration] = useState<number>(2.0);
 
   // Theming & M3 State
   const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
@@ -191,6 +195,8 @@ export const App: React.FC = () => {
           if (parsed.seedColor) setSeedColor(parsed.seedColor);
           if (typeof parsed.discordEnabled === 'boolean') setDiscordEnabled(parsed.discordEnabled);
           if (typeof parsed.isDynamicColor === 'boolean') setIsDynamicColor(parsed.isDynamicColor);
+          if (parsed.fadeMode) setFadeMode(parsed.fadeMode);
+          if (typeof parsed.fadeDuration === 'number') setFadeDuration(parsed.fadeDuration);
         }
       } catch (err) {
         console.warn('Could not load portable data:', err);
@@ -215,6 +221,8 @@ export const App: React.FC = () => {
       seedColor,
       discordEnabled,
       isDynamicColor,
+      fadeMode,
+      fadeDuration,
     };
 
     const jsonString = JSON.stringify(dataToSave);
@@ -226,7 +234,7 @@ export const App: React.FC = () => {
     } else {
       localStorage.setItem('arachnid_portable_data', jsonString);
     }
-  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, discordEnabled, isDynamicColor]);
+  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, discordEnabled, isDynamicColor, fadeMode, fadeDuration]);
 
   // Prevent default browser right-click menu
   useEffect(() => {
@@ -251,6 +259,16 @@ export const App: React.FC = () => {
     });
     audioEngine.setVolume(volume);
   }, [queue, queueIndex, repeatMode]);
+
+  // Sync Audio Engine Fade Configuration
+  useEffect(() => {
+    audioEngine.setFadeConfig(fadeMode, fadeDuration);
+  }, [fadeMode, fadeDuration]);
+
+  // Sync Audio Engine Repeat Mode
+  useEffect(() => {
+    audioEngine.setRepeatMode(repeatMode);
+  }, [repeatMode]);
 
   // Dynamic M3 Theme Palette
   useEffect(() => {
@@ -522,6 +540,9 @@ export const App: React.FC = () => {
       if (e.code === 'Space') {
         e.preventDefault();
         handlePlayPause();
+      } else if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        handleToggleRepeat();
       } else if (e.code === 'ArrowRight' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         handleNext();
@@ -540,7 +561,7 @@ export const App: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, currentTrack, queue, queueIndex, filteredTracks]);
+  }, [isPlaying, currentTrack, queue, queueIndex, filteredTracks, repeatMode]);
 
   // Synchronous, robust track processor and playlist assigner
   const processImportedTracks = (newTracks: Track[]) => {
@@ -747,11 +768,11 @@ export const App: React.FC = () => {
       return;
     }
     if (isPlaying) {
-      audioEngine.pause();
       setIsPlaying(false);
+      await audioEngine.pause();
     } else {
-      await audioEngine.resume();
       setIsPlaying(true);
+      await audioEngine.resume();
     }
   };
 
@@ -821,9 +842,11 @@ export const App: React.FC = () => {
   };
 
   const handleToggleRepeat = () => {
-    if (repeatMode === 'off') setRepeatMode('all');
-    else if (repeatMode === 'all') setRepeatMode('one');
-    else setRepeatMode('off');
+    setRepeatMode(prev => {
+      const next = prev === 'off' ? 'all' : prev === 'all' ? 'one' : 'off';
+      audioEngine.setRepeatMode(next);
+      return next;
+    });
   };
 
   const handleToggleFavorite = (trackId: string, e?: React.MouseEvent) => {
@@ -1522,6 +1545,10 @@ export const App: React.FC = () => {
         currentTrack={currentTrack}
         isPlaying={isPlaying}
         currentTime={currentTime}
+        fadeMode={fadeMode}
+        onSetFadeMode={setFadeMode}
+        fadeDuration={fadeDuration}
+        onSetFadeDuration={setFadeDuration}
       />
 
       {/* Track Context Menu */}

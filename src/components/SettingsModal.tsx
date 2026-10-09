@@ -3,16 +3,15 @@ import {
   X, 
   Palette, 
   Sparkles, 
-  Disc, 
-  Sliders, 
   Info, 
   Check, 
   Moon, 
   Sun,
-  Laptop
+  Volume2,
+  Clock,
+  Repeat
 } from 'lucide-react';
-import { ThemeMode, Track } from '../types/music';
-import { DEFAULT_SEED_COLOR } from '../theme/material3';
+import { ThemeMode, Track, FadeMode } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 
 interface SettingsModalProps {
@@ -29,6 +28,10 @@ interface SettingsModalProps {
   currentTrack: Track | null;
   isPlaying: boolean;
   currentTime: number;
+  fadeMode: FadeMode;
+  onSetFadeMode: (mode: FadeMode) => void;
+  fadeDuration: number;
+  onSetFadeDuration: (dur: number) => void;
 }
 
 const PRESET_COLORS = [
@@ -54,6 +57,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   currentTrack,
   isPlaying,
   currentTime,
+  fadeMode,
+  onSetFadeMode,
+  fadeDuration,
+  onSetFadeDuration,
 }) => {
   if (!isOpen) return null;
 
@@ -68,7 +75,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-base text-md3-on-surface">Настройки Arachnid</h3>
-              <p className="text-xs text-md3-on-surface-variant">Material You 3, Discord RPC и поведение</p>
+              <p className="text-xs text-md3-on-surface-variant">Material You 3, затухание, Discord RPC и поведение</p>
             </div>
           </div>
           <button
@@ -174,6 +181,134 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
           </div>
 
+          {/* Section: Track Fading Settings */}
+          <div className="space-y-4 pt-4 border-t border-md3-outline-variant/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
+                <Volume2 className="w-4 h-4 text-md3-primary" />
+                <span>Затухание трека (Fading)</span>
+              </div>
+              <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-md3-primary/10 text-md3-primary font-medium">
+                {fadeMode === 'off' ? 'Отключено' : `${fadeDuration.toFixed(1)} сек`}
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {/* Option 1: Off */}
+              <div
+                onClick={() => onSetFadeMode('off')}
+                className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${
+                  fadeMode === 'off'
+                    ? 'border-md3-primary bg-md3-primary/10 text-md3-on-surface'
+                    : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high/60 text-md3-on-surface-variant'
+                }`}
+              >
+                <div className={`w-4 h-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${
+                  fadeMode === 'off' ? 'border-md3-primary' : 'border-md3-outline-variant'
+                }`}>
+                  {fadeMode === 'off' && <div className="w-2 h-2 rounded-full bg-md3-primary" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className={`text-xs font-bold ${fadeMode === 'off' ? 'text-md3-primary' : 'text-md3-on-surface'}`}>
+                    1. Отключено
+                  </div>
+                  <div className="text-[11px] text-md3-on-surface-variant/80 mt-0.5">
+                    Мгновенное переключение между треками без плавного затухания.
+                  </div>
+                </div>
+              </div>
+
+              {/* Option 2: Track change and pause/start */}
+              <div
+                onClick={() => onSetFadeMode('track_change_and_pause')}
+                className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${
+                  fadeMode === 'track_change_and_pause'
+                    ? 'border-md3-primary bg-md3-primary/10 text-md3-on-surface'
+                    : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high/60 text-md3-on-surface-variant'
+                }`}
+              >
+                <div className={`w-4 h-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${
+                  fadeMode === 'track_change_and_pause' ? 'border-md3-primary' : 'border-md3-outline-variant'
+                }`}>
+                  {fadeMode === 'track_change_and_pause' && <div className="w-2 h-2 rounded-full bg-md3-primary" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className={`text-xs font-bold ${fadeMode === 'track_change_and_pause' ? 'text-md3-primary' : 'text-md3-on-surface'}`}>
+                    2. Только при переключении между разными треками и паузе/старте
+                  </div>
+                  <div className="text-[11px] text-md3-on-surface-variant/80 mt-0.5">
+                    Плавное затухание при паузе/старте и смене треков. При зацикливании одного трека (повтор 1) воспроизведение продолжается <b>беспрерывно и бесшовно</b> без заиканий.
+                  </div>
+                </div>
+              </div>
+
+              {/* Option 3: Always (even when repeating the same track) */}
+              <div
+                onClick={() => onSetFadeMode('always')}
+                className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${
+                  fadeMode === 'always'
+                    ? 'border-md3-primary bg-md3-primary/10 text-md3-on-surface'
+                    : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high/60 text-md3-on-surface-variant'
+                }`}
+              >
+                <div className={`w-4 h-4 rounded-full border mt-0.5 flex items-center justify-center shrink-0 ${
+                  fadeMode === 'always' ? 'border-md3-primary' : 'border-md3-outline-variant'
+                }`}>
+                  {fadeMode === 'always' && <div className="w-2 h-2 rounded-full bg-md3-primary" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className={`text-xs font-bold ${fadeMode === 'always' ? 'text-md3-primary' : 'text-md3-on-surface'}`}>
+                    3. Даже когда повторяется один и тот же трек (Во всех случаях)
+                  </div>
+                  <div className="text-[11px] text-md3-on-surface-variant/80 mt-0.5">
+                    Затухание срабатывает во всех ситуациях, включая конец трека при включенном повторе одного трека.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Fade Duration Slider (visible when fade is enabled) */}
+            {fadeMode !== 'off' && (
+              <div className="p-4 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 space-y-3 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-md3-on-surface">
+                    <Clock className="w-3.5 h-3.5 text-md3-primary" />
+                    <span>Длительность затухания</span>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-md3-primary">
+                    {fadeDuration.toFixed(1)} сек
+                  </span>
+                </div>
+
+                <input
+                  type="range"
+                  min="0.5"
+                  max="5.0"
+                  step="0.5"
+                  value={fadeDuration}
+                  onChange={(e) => onSetFadeDuration(parseFloat(e.target.value))}
+                  className="w-full accent-md3-primary cursor-pointer"
+                />
+
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  {[1.0, 1.5, 2.0, 3.0, 4.0].map((dur) => (
+                    <button
+                      key={dur}
+                      onClick={() => onSetFadeDuration(dur)}
+                      className={`flex-1 py-1 px-2 rounded-lg text-[11px] font-medium transition-colors ${
+                        fadeDuration === dur
+                          ? 'bg-md3-primary text-md3-on-primary font-bold shadow-sm'
+                          : 'bg-md3-surface-container-high text-md3-on-surface-variant hover:text-md3-on-surface'
+                      }`}
+                    >
+                      {dur.toFixed(1)}с
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Section: Discord Rich Presence */}
           <div className="space-y-4 pt-4 border-t border-md3-outline-variant/20">
             <div className="flex items-center justify-between">
@@ -235,11 +370,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="p-4 rounded-2xl bg-md3-surface-container-high/60 border border-md3-outline-variant/20 flex items-start gap-3 text-xs text-md3-on-surface-variant">
             <Info className="w-5 h-5 text-md3-primary shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <p className="font-bold text-md3-on-surface">Arachnid Music Player v0.1.0</p>
+              <p className="font-bold text-md3-on-surface">Arachnid Music Player</p>
               <p>
                 Построен на базе <b>Tauri 2.0 (Rust)</b> + <b>React & TypeScript</b>. Объединяет эстетику
-                Google Material You 3 и продвинутый функционал MusicBee: пакетный редактор тегов,
-                десктопный Drag-and-Drop, работу с плейлистами и нативный Discord RPC.
+                Google Material You 3 и продвинутый функционал MusicBee: плавное затухание, бесшовное зацикливание,
+                пакетный редактор тегов, десктопный Drag-and-Drop, работу с плейлистами и нативный Discord RPC.
+              </p>
+              <p className="text-[11px] opacity-75">
+                Горячие клавиши: <b>Пробел</b> — пауза/старт, <b>R</b> — переключение режима повтора, <b>Ctrl + Стрелки</b> — следующий/предыдущий трек.
               </p>
             </div>
           </div>

@@ -231,7 +231,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
           {/* Repeat */}
           <button
             onClick={onToggleRepeat}
-            title={`Повтор: ${repeatMode === 'off' ? 'Откл' : repeatMode === 'all' ? 'Все' : 'Один'}`}
+            title={`Повтор [R]: ${repeatMode === 'off' ? 'Откл' : repeatMode === 'all' ? 'Все' : 'Один'}`}
             className={`p-2 rounded-full transition-colors relative cursor-pointer ${
               repeatMode !== 'off' ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
             }`}

@@ -110,3 +110,6 @@ export interface M3ThemeColors {
 }
 
 export type ThemeMode = 'dark' | 'amoled' | 'light';
+
+export type FadeMode = 'off' | 'track_change_and_pause' | 'always';
+
