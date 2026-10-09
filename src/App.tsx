@@ -11,6 +11,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { DragDropOverlay } from './components/DragDropOverlay';
 import { ContextMenu } from './components/ContextMenu';
 import { PlaylistContextMenu } from './components/PlaylistContextMenu';
+import { PlaylistsGridView } from './components/PlaylistsGridView';
 import { audioEngine } from './services/audioEngine';
 import { discordRpc } from './services/discordRpc';
 import { parseAudioFile } from './services/tagEditor';
@@ -79,7 +80,7 @@ export const App: React.FC = () => {
   const dragCounterRef = useRef<number>(0);
   const isLoadedRef = useRef<boolean>(false);
 
-  // Load Portable Data on Startup (from folder with .exe or localStorage)
+  // Load Portable Data on Startup (strictly from arachnid_data.json next to exe in Tauri)
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -87,14 +88,22 @@ export const App: React.FC = () => {
         if (isTauri()) {
           const res = await invoke<string | null>('load_portable_data');
           if (res) rawJson = res;
-        }
-        if (!rawJson) {
+        } else {
           rawJson = localStorage.getItem('arachnid_portable_data');
         }
 
         if (rawJson) {
           const parsed = JSON.parse(rawJson);
-          if (parsed.tracks && Array.isArray(parsed.tracks)) setTracks(parsed.tracks);
+          if (parsed.tracks && Array.isArray(parsed.tracks)) {
+            // Re-convert native paths to fresh asset URLs
+            const hydrated = parsed.tracks.map((t: Track) => {
+              if (t.path && isTauri()) {
+                return { ...t, src: convertFileSrc(t.path) };
+              }
+              return t;
+            });
+            setTracks(hydrated);
+          }
           if (parsed.playlists && Array.isArray(parsed.playlists) && parsed.playlists.length > 0) {
             setPlaylists(parsed.playlists);
           }
@@ -127,12 +136,13 @@ export const App: React.FC = () => {
     };
 
     const jsonString = JSON.stringify(dataToSave);
-    localStorage.setItem('arachnid_portable_data', jsonString);
 
     if (isTauri()) {
       invoke('save_portable_data', { data: jsonString }).catch((e) => {
         console.warn('Failed to save to portable folder:', e);
       });
+    } else {
+      localStorage.setItem('arachnid_portable_data', jsonString);
     }
   }, [tracks, playlists, themeMode, seedColor, discordEnabled, isDynamicColor]);
 
@@ -358,6 +368,7 @@ export const App: React.FC = () => {
 
       const newTracks: Track[] = rawTracks.map(t => ({
         id: t.id,
+        path: t.path,
         title: t.title,
         artist: t.artist,
         album: t.album,
@@ -374,8 +385,19 @@ export const App: React.FC = () => {
         isFavorite: false,
       }));
 
-      setTracks(prev => [...prev, ...newTracks]);
-      setQueue(prev => [...prev, ...newTracks]);
+      // Deduplicate: avoid adding identical paths or titles
+      setTracks(prev => {
+        const existingKeys = new Set(prev.map(t => t.path || `${t.title}-${t.artist}`));
+        const unique = newTracks.filter(t => !existingKeys.has(t.path || `${t.title}-${t.artist}`));
+        return [...prev, ...unique];
+      });
+
+      setQueue(prev => {
+        const existingKeys = new Set(prev.map(t => t.path || `${t.title}-${t.artist}`));
+        const unique = newTracks.filter(t => !existingKeys.has(t.path || `${t.title}-${t.artist}`));
+        return [...prev, ...unique];
+      });
+
       if (!currentTrack || tracks.length === 0) {
         playTrack(newTracks[0]);
       }
@@ -387,7 +409,7 @@ export const App: React.FC = () => {
   // Process imported audio files from HTML5 input / drop
   const importFiles = async (files: File[]) => {
     const audioFiles = files.filter(f => 
-      /\.(mp3|flac|wav|ogg|m4a|aac|opus)$/i.test(f.name) || f.type.startsWith('audio/')
+      /\.(mp3|flac|wav|ogg|m4a|aac|opus|wma)$/i.test(f.name) || f.type.startsWith('audio/')
     );
 
     if (audioFiles.length === 0) return;
@@ -403,12 +425,66 @@ export const App: React.FC = () => {
     }
 
     if (newTracks.length > 0) {
-      setTracks((prev) => [...prev, ...newTracks]);
-      setQueue((prev) => [...prev, ...newTracks]);
+      setTracks((prev) => {
+        const existingKeys = new Set(prev.map(t => `${t.title}-${t.artist}-${t.fileSize}`));
+        const unique = newTracks.filter(t => !existingKeys.has(`${t.title}-${t.artist}-${t.fileSize}`));
+        return [...prev, ...unique];
+      });
+      setQueue((prev) => {
+        const existingKeys = new Set(prev.map(t => `${t.title}-${t.artist}-${t.fileSize}`));
+        const unique = newTracks.filter(t => !existingKeys.has(`${t.title}-${t.artist}-${t.fileSize}`));
+        return [...prev, ...unique];
+      });
       if (!currentTrack || tracks.length === 0) {
         playTrack(newTracks[0]);
       }
     }
+  };
+
+  const handleOpenFiles = async () => {
+    if (isTauri()) {
+      try {
+        const rawTracks = await invoke<any[]>('open_file_dialog');
+        if (rawTracks && rawTracks.length > 0) {
+          const newTracks: Track[] = rawTracks.map(t => ({
+            id: t.id,
+            path: t.path,
+            title: t.title,
+            artist: t.artist,
+            album: t.album,
+            duration: t.duration_seconds || 0,
+            src: convertFileSrc(t.path),
+            coverArt: t.cover_art || undefined,
+            genre: t.genre || undefined,
+            year: t.year || undefined,
+            trackNumber: t.track_number || undefined,
+            format: t.format,
+            fileSize: t.file_size,
+            dateAdded: Date.now(),
+            playCount: 0,
+            isFavorite: false,
+          }));
+
+          setTracks(prev => {
+            const existingKeys = new Set(prev.map(tr => tr.path || `${tr.title}-${tr.artist}`));
+            const unique = newTracks.filter(tr => !existingKeys.has(tr.path || `${tr.title}-${tr.artist}`));
+            return [...prev, ...unique];
+          });
+          setQueue(prev => {
+            const existingKeys = new Set(prev.map(tr => tr.path || `${tr.title}-${tr.artist}`));
+            const unique = newTracks.filter(tr => !existingKeys.has(tr.path || `${tr.title}-${tr.artist}`));
+            return [...prev, ...unique];
+          });
+          if (!currentTrack || tracks.length === 0) {
+            playTrack(newTracks[0]);
+          }
+          return;
+        }
+      } catch (err) {
+        console.warn('Native open file dialog error, fallback to HTML:', err);
+      }
+    }
+    fileInputRef.current?.click();
   };
 
   const genres = useMemo(() => {
@@ -686,6 +762,15 @@ export const App: React.FC = () => {
     } else {
       setTracks(prev => prev.filter(t => !idSet.has(t.id)));
       setQueue(prev => prev.filter(t => !idSet.has(t.id)));
+      setPlaylists(prev => prev.map(p => ({
+        ...p,
+        trackIds: p.trackIds.filter(id => !idSet.has(id))
+      })));
+    }
+    if (currentTrack && idSet.has(currentTrack.id)) {
+      audioEngine.pause();
+      setIsPlaying(false);
+      setCurrentTrack(null);
     }
     setSelectedTrackIds(new Set());
   };
@@ -735,7 +820,7 @@ export const App: React.FC = () => {
           onOpenSettings={() => setIsSettingsOpen(true)}
           currentTrack={currentTrack}
           isPlaying={isPlaying}
-          onOpenFiles={() => fileInputRef.current?.click()}
+          onOpenFiles={handleOpenFiles}
         />
 
         {/* Center Main View */}
@@ -760,28 +845,42 @@ export const App: React.FC = () => {
             totalTracksCount={filteredTracks.length}
           />
 
-          {/* Desktop Track Table with Shift/Ctrl selection and drop support */}
-          <TrackTable
-            tracks={filteredTracks}
-            currentTrack={currentTrack}
-            isPlaying={isPlaying}
-            selectedTrackIds={selectedTrackIds}
-            onSelectTrack={handleSelectTrack}
-            onPlayTrack={playTrack}
-            onToggleFavorite={handleToggleFavorite}
-            onOpenContextMenu={(e, track) => {
-              e.preventDefault();
-              setContextMenu({ x: e.clientX, y: e.clientY, track });
-            }}
-            onOpenBatchTagEditor={() => setIsBatchTagEditorOpen(true)}
-            onAddSelectedToQueue={handleAddSelectedToQueue}
-            onPlaySelected={handlePlaySelected}
-            onClearSelection={() => setSelectedTrackIds(new Set())}
-            sortBy={sortBy}
-            sortOrder={sortOrder}
-            onSortChange={handleSortChange}
-            onDropFiles={importFiles}
-          />
+          {/* Main View: Grid of Playlists or Track Table */}
+          {currentView === 'playlists_grid' && !selectedPlaylistId ? (
+            <PlaylistsGridView
+              playlists={playlists}
+              tracks={tracks}
+              onSelectPlaylist={(id) => setSelectedPlaylistId(id)}
+              onCreatePlaylist={handleCreatePlaylist}
+              onPlayPlaylist={handlePlayPlaylist}
+              onOpenContextMenu={(e, pl) => {
+                e.preventDefault();
+                setPlaylistContextMenu({ x: e.clientX, y: e.clientY, playlist: pl });
+              }}
+            />
+          ) : (
+            <TrackTable
+              tracks={filteredTracks}
+              currentTrack={currentTrack}
+              isPlaying={isPlaying}
+              selectedTrackIds={selectedTrackIds}
+              onSelectTrack={handleSelectTrack}
+              onPlayTrack={playTrack}
+              onToggleFavorite={handleToggleFavorite}
+              onOpenContextMenu={(e, track) => {
+                e.preventDefault();
+                setContextMenu({ x: e.clientX, y: e.clientY, track });
+              }}
+              onOpenBatchTagEditor={() => setIsBatchTagEditorOpen(true)}
+              onAddSelectedToQueue={handleAddSelectedToQueue}
+              onPlaySelected={handlePlaySelected}
+              onClearSelection={() => setSelectedTrackIds(new Set())}
+              sortBy={sortBy}
+              sortOrder={sortOrder}
+              onSortChange={handleSortChange}
+              onDropFiles={importFiles}
+            />
+          )}
         </main>
       </div>
 

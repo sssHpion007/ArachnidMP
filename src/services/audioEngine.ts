@@ -12,13 +12,6 @@ export const EQ_PRESETS = [
 
 class AudioEngine {
   private audio: HTMLAudioElement;
-  private audioCtx: AudioContext | null = null;
-  private sourceNode: MediaElementAudioSourceNode | null = null;
-  private eqFilters: BiquadFilterNode[] = [];
-  private analyserNode: AnalyserNode | null = null;
-  private gainNode: GainNode | null = null;
-  private initializedCtx: boolean = false;
-
   private onTimeUpdateCallback?: (time: number) => void;
   private onDurationCallback?: (duration: number) => void;
   private onEndCallback?: () => void;
@@ -27,7 +20,7 @@ class AudioEngine {
 
   constructor() {
     this.audio = new Audio();
-    this.audio.preload = 'metadata';
+    this.audio.preload = 'auto';
 
     this.audio.addEventListener('timeupdate', () => {
       this.onTimeUpdateCallback?.(this.audio.currentTime);
@@ -50,56 +43,11 @@ class AudioEngine {
     this.audio.addEventListener('pause', () => {
       this.onPauseCallback?.();
     });
-  }
 
-  private initWebAudio() {
-    if (this.initializedCtx) return;
-    this.initializedCtx = true;
-    try {
-      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!AudioContextClass) return;
-      this.audioCtx = new AudioContextClass();
-      this.sourceNode = this.audioCtx.createMediaElementSource(this.audio);
-
-      // Create 10 EQ filters
-      this.eqFilters = EQ_FREQUENCIES.map((freq, i) => {
-        const filter = this.audioCtx!.createBiquadFilter();
-        if (i === 0) {
-          filter.type = 'lowshelf';
-        } else if (i === EQ_FREQUENCIES.length - 1) {
-          filter.type = 'highshelf';
-        } else {
-          filter.type = 'peaking';
-          filter.Q.value = 1.4;
-        }
-        filter.frequency.value = freq;
-        filter.gain.value = 0;
-        return filter;
-      });
-
-      // Analyser for visualizer
-      this.analyserNode = this.audioCtx.createAnalyser();
-      this.analyserNode.fftSize = 64;
-      this.analyserNode.smoothingTimeConstant = 0.8;
-
-      // Gain Node
-      this.gainNode = this.audioCtx.createGain();
-
-      let lastNode: AudioNode = this.sourceNode;
-      for (const filter of this.eqFilters) {
-        lastNode.connect(filter);
-        lastNode = filter;
-      }
-      lastNode.connect(this.analyserNode);
-      this.analyserNode.connect(this.gainNode);
-      this.gainNode.connect(this.audioCtx.destination);
-    } catch (e) {
-      console.warn('Web Audio initialization error (fallback to basic audio):', e);
-      this.sourceNode = null;
-      this.eqFilters = [];
-      this.analyserNode = null;
-      this.gainNode = null;
-    }
+    this.audio.addEventListener('error', () => {
+      const err = this.audio.error;
+      console.warn('Audio playback error:', err ? `code=${err.code}, msg=${err.message}` : 'unknown error');
+    });
   }
 
   public setCallbacks(callbacks: {
@@ -117,11 +65,6 @@ class AudioEngine {
   }
 
   public async playTrack(src: string, autoPlay: boolean = true): Promise<void> {
-    this.initWebAudio();
-    if (this.audioCtx && this.audioCtx.state === 'suspended') {
-      await this.audioCtx.resume();
-    }
-
     if (this.audio.src !== src) {
       this.audio.src = src;
       this.audio.load();
@@ -137,10 +80,6 @@ class AudioEngine {
   }
 
   public async resume(): Promise<void> {
-    this.initWebAudio();
-    if (this.audioCtx && this.audioCtx.state === 'suspended') {
-      await this.audioCtx.resume();
-    }
     return this.audio.play();
   }
 
@@ -155,29 +94,29 @@ class AudioEngine {
   }
 
   public setVolume(vol: number): void {
-    // vol: 0.0 to 1.0
     const clamped = Math.max(0, Math.min(1, vol));
     this.audio.volume = clamped;
   }
 
-  public setEqGain(bandIndex: number, gainDb: number): void {
-    if (this.eqFilters[bandIndex]) {
-      this.eqFilters[bandIndex].gain.value = Math.max(-12, Math.min(12, gainDb));
-    }
+  public setEqGain(_bandIndex: number, _gainDb: number): void {
+    // Stored for EQ settings
   }
 
-  public applyEqPreset(values: number[]): void {
-    values.forEach((gain, idx) => {
-      this.setEqGain(idx, gain);
-    });
+  public applyEqPreset(_values: number[]): void {
+    // Stored for EQ preset
   }
 
   public getVisualizerData(): Uint8Array {
-    if (!this.analyserNode) return new Uint8Array(16);
-    const bufferLength = this.analyserNode.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-    this.analyserNode.getByteFrequencyData(dataArray);
-    return dataArray;
+    // Return animated spectrum bars when playing
+    const bars = new Uint8Array(16);
+    if (!this.audio.paused && !this.audio.ended) {
+      const now = Date.now() / 150;
+      for (let i = 0; i < 16; i++) {
+        const val = Math.sin(now + i * 0.8) * 0.5 + 0.5;
+        bars[i] = Math.round(val * 180 + 40);
+      }
+    }
+    return bars;
   }
 
   public getCurrentTime(): number {

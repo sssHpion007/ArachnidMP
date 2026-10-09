@@ -194,6 +194,40 @@ fn update_discord_presence(presence: DiscordPresenceState, state: State<'_, AppS
 }
 
 #[tauri::command]
+fn open_file_dialog() -> Result<Vec<TrackMetadata>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        let script = r#"
+            Add-Type -AssemblyName System.Windows.Forms
+            $dialog = New-Object System.Windows.Forms.OpenFileDialog
+            $dialog.Filter = 'Audio Files (*.mp3;*.flac;*.wav;*.ogg;*.m4a)|*.mp3;*.flac;*.wav;*.ogg;*.m4a|All files (*.*)|*.*'
+            $dialog.Multiselect = $true
+            if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                $dialog.FileNames | ForEach-Object { Write-Output $_ }
+            }
+        "#;
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", script])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let paths: Vec<String> = stdout
+            .lines()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        return read_audio_files(paths);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(vec![])
+    }
+}
+
+#[tauri::command]
 fn scan_folder(folder_path: String) -> Result<Vec<TrackMetadata>, String> {
     read_audio_files(vec![folder_path])
 }
@@ -214,6 +248,7 @@ pub fn run() {
             get_app_version,
             update_discord_presence,
             read_audio_files,
+            open_file_dialog,
             scan_folder,
             batch_update_tags,
             save_portable_data,

@@ -49,6 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const mainNav = [
     { id: 'tracks', label: 'Все треки', icon: Music },
+    { id: 'playlists_grid', label: 'Плейлисты', icon: ListMusic },
     { id: 'albums', label: 'Альбомы', icon: Disc },
     { id: 'artists', label: 'Артисты', icon: Mic2 },
     { id: 'favorites', label: 'Любимые', icon: Heart },
