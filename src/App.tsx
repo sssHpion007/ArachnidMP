@@ -525,6 +525,7 @@ export const App: React.FC = () => {
         trackNumber: t.track_number || undefined,
         format: t.format,
         fileSize: t.file_size,
+        lyrics: t.lyrics || undefined,
         dateAdded: Date.now(),
         playCount: 0,
         isFavorite: false,
@@ -578,6 +579,7 @@ export const App: React.FC = () => {
             trackNumber: t.track_number || undefined,
             format: t.format,
             fileSize: t.file_size,
+            lyrics: t.lyrics || undefined,
             dateAdded: Date.now(),
             playCount: 0,
             isFavorite: false,
@@ -879,7 +881,7 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleSaveLyrics = (trackId: string, lyrics: string, isInstrumental: boolean) => {
+  const handleSaveLyrics = async (trackId: string, lyrics: string, isInstrumental: boolean) => {
     setTracks(prev => prev.map(t => {
       if (t.id === trackId) {
         return { ...t, lyrics, isInstrumental };
@@ -888,6 +890,19 @@ export const App: React.FC = () => {
     }));
     if (currentTrack?.id === trackId) {
       setCurrentTrack(prev => prev ? { ...prev, lyrics, isInstrumental } : null);
+    }
+
+    // Embed lyrics directly into the audio file tags on disk!
+    const targetTrack = tracksRef.current.find(t => t.id === trackId);
+    if (isTauri() && targetTrack?.path) {
+      try {
+        await invoke('save_track_lyrics', { 
+          path: targetTrack.path, 
+          lyrics: isInstrumental ? '' : lyrics 
+        });
+      } catch (err) {
+        console.warn('Failed to embed lyrics into audio file on disk:', err);
+      }
     }
   };
 

@@ -12,6 +12,7 @@ export async function parseAudioFile(file: File): Promise<Track> {
   let year: number | undefined = undefined;
   let trackNumber: number | undefined = undefined;
   let bitrate: number | undefined = undefined;
+  let lyrics: string | undefined = undefined;
 
   try {
     const metadata = await mm.parseBlob(file);
@@ -28,6 +29,10 @@ export async function parseAudioFile(file: File): Promise<Track> {
     }
     if (metadata.format.bitrate) {
       bitrate = Math.round(metadata.format.bitrate / 1000);
+    }
+    if (metadata.common.lyrics && metadata.common.lyrics.length > 0) {
+      const lyrItem: any = metadata.common.lyrics[0];
+      lyrics = typeof lyrItem === 'string' ? lyrItem : lyrItem?.text;
     }
 
     // Extract cover image if present as persistent Data URI
@@ -89,6 +94,7 @@ export async function parseAudioFile(file: File): Promise<Track> {
     dateAdded: Date.now(),
     playCount: 0,
     isFavorite: false,
+    lyrics: lyrics || undefined,
     localFile: file,
   };
 }

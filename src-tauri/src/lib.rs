@@ -7,7 +7,7 @@ use tauri::State;
 use base64::prelude::*;
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::probe::Probe;
-use lofty::tag::Accessor;
+use lofty::tag::{Accessor, ItemKey, Tag, TagExt};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TrackMetadata {
@@ -23,6 +23,7 @@ pub struct TrackMetadata {
     pub cover_art: Option<String>,
     pub format: String,
     pub file_size: u64,
+    pub lyrics: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -117,6 +118,7 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
             if let Some(tn) = tag.track() {
                 track_number = Some(tn);
             }
+            let lyrics_val = tag.get_string(&ItemKey::Lyrics);
 
             if let Some(pic) = tag.pictures().first() {
                 let mime = match pic.mime_type() {
@@ -126,6 +128,8 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
                 let b64 = BASE64_STANDARD.encode(pic.data());
                 cover_art = Some(format!("data:{};base64,{}", mime, b64));
             }
+
+            lyrics = lyrics_val.map(|s| s.to_string());
         }
     }
 
@@ -144,6 +148,7 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
         cover_art,
         format: ext.to_uppercase(),
         file_size,
+        lyrics,
     })
 }
 
@@ -242,6 +247,39 @@ fn show_in_folder(path: String) -> Result<(), String> {
     }
 }
 
+#[tauri::command]
+fn save_track_lyrics(path: String, lyrics: String) -> Result<bool, String> {
+    let file_path = Path::new(&path);
+    if !file_path.is_file() {
+        return Err("File not found".to_string());
+    }
+
+    let mut tagged_file = lofty::read_from_path(file_path).map_err(|e| e.to_string())?;
+
+    let tag = match tagged_file.primary_tag_mut() {
+        Some(t) => t,
+        None => {
+            tagged_file.insert_tag(Tag::new(tagged_file.primary_tag_type()));
+            match tagged_file.primary_tag_mut() {
+                Some(t) => t,
+                None => match tagged_file.first_tag_mut() {
+                    Some(t) => t,
+                    None => return Err("Failed to access or create audio tags".to_string()),
+                },
+            }
+        }
+    };
+
+    if lyrics.trim().is_empty() {
+        tag.remove_key(&ItemKey::Lyrics);
+    } else {
+        tag.insert_text(ItemKey::Lyrics, lyrics);
+    }
+
+    tag.save_to_path(file_path).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -254,6 +292,7 @@ pub fn run() {
             read_audio_files,
             open_file_dialog,
             show_in_folder,
+            save_track_lyrics,
             scan_folder,
             batch_update_tags,
             save_portable_data,
