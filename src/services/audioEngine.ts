@@ -26,6 +26,7 @@ class AudioEngine {
   private audioCtx: AudioContext | null = null;
   private gainNode: GainNode | null = null;
   private bufferSource: AudioBufferSourceNode | null = null;
+  private bufferGainNode: GainNode | null = null;
   private currentBuffer: AudioBuffer | null = null;
 
   // Unified Playback State
@@ -132,9 +133,27 @@ class AudioEngine {
   }
 
   public setRepeatMode(mode: 'off' | 'all' | 'one') {
+    if (this.repeatMode === mode) return;
+    const prevMode = this.repeatMode;
     this.repeatMode = mode;
-    if (this.bufferSource) {
-      this.bufferSource.loop = (mode === 'one' && this.fadeMode !== 'always');
+
+    if (this.isUsingWebAudio && this.currentBuffer && this.audioCtx) {
+      // Snapshot the exact current playback position before changing loop flag
+      // This prevents (playbackPosition + elapsed) from prematurely exceeding dur when loop is toggled off!
+      const curPos = this.getCurrentTime();
+      this.playbackPosition = curPos;
+      this.playbackStartTime = this.audioCtx.currentTime;
+
+      if (this.bufferSource) {
+        this.bufferSource.loop = (mode === 'one' && this.fadeMode !== 'always');
+      }
+    } else if (mode === 'one' && prevMode !== 'one' && this.isPlaying && this.currentBuffer && this.audioCtx && this.fadeMode !== 'always') {
+      // Seamlessly transition to sample-accurate Web Audio loop if repeat 'one' was activated while playing HTMLAudio
+      const curPos = this.getCurrentTime();
+      try {
+        this.audio.pause();
+      } catch (_) {}
+      this.startBufferPlayback(curPos);
     }
   }
 
@@ -294,17 +313,31 @@ class AudioEngine {
     this.stopBufferSource();
 
     const source = ctx.createBufferSource();
+    const sourceGain = ctx.createGain();
     source.buffer = this.currentBuffer;
     const shouldLoop = (this.repeatMode === 'one' && this.fadeMode !== 'always');
     source.loop = shouldLoop;
-    source.connect(this.gainNode!);
+
+    // Connect source -> individual sourceGain (5ms micro-envelope) -> master gainNode -> destination
+    source.connect(sourceGain);
+    sourceGain.connect(this.gainNode!);
 
     const dur = this.currentBuffer.duration;
     const offset = Math.max(0, Math.min(dur, startOffset % dur));
 
-    // Ensure gain is at full effective volume
-    const effVol = this.getEffectiveVolume();
+    // Fast 5ms micro-fade in to eliminate any DC offset pop at start
     const now = ctx.currentTime;
+    try {
+      sourceGain.gain.setValueAtTime(0, now);
+      sourceGain.gain.linearRampToValueAtTime(1, now + 0.005);
+    } catch (_) {
+      try {
+        sourceGain.gain.setValueAtTime(1, now);
+      } catch (_) {}
+    }
+
+    // Ensure master gain is at target effective volume
+    const effVol = this.getEffectiveVolume();
     try {
       this.gainNode!.gain.cancelScheduledValues(now);
       this.gainNode!.gain.setValueAtTime(effVol, now);
@@ -312,6 +345,7 @@ class AudioEngine {
 
     source.start(0, offset);
     this.bufferSource = source;
+    this.bufferGainNode = sourceGain;
     this.isUsingWebAudio = true;
     this.isPlaying = true;
     this.playbackStartTime = ctx.currentTime;
@@ -321,11 +355,36 @@ class AudioEngine {
   private stopBufferSource() {
     if (this.bufferSource) {
       const source = this.bufferSource;
+      const gain = this.bufferGainNode;
       this.bufferSource = null;
-      try {
-        source.stop();
-        source.disconnect();
-      } catch (_) {}
+      this.bufferGainNode = null;
+
+      if (gain && this.audioCtx) {
+        try {
+          const now = this.audioCtx.currentTime;
+          gain.gain.cancelScheduledValues(now);
+          gain.gain.setValueAtTime(gain.gain.value, now);
+          gain.gain.linearRampToValueAtTime(0, now + 0.005);
+          source.stop(now + 0.006);
+          setTimeout(() => {
+            try {
+              source.disconnect();
+              gain.disconnect();
+            } catch (_) {}
+          }, 20);
+        } catch (_) {
+          try {
+            source.stop();
+            source.disconnect();
+            gain.disconnect();
+          } catch (_) {}
+        }
+      } else {
+        try {
+          source.stop();
+          source.disconnect();
+        } catch (_) {}
+      }
     }
     this.isUsingWebAudio = false;
   }
@@ -378,20 +437,35 @@ class AudioEngine {
       this.isHandlingEnd = false;
     }, 250);
 
-    // Mute instantly before stopping or repositioning to completely prevent DC-offset pop/crackle
-    this.setVolumeInstantly(0);
-    this.stopBufferSource();
-
     if (this.repeatMode === 'one') {
-      // Micro-delay of 20ms to allow audio buffer to cleanly flush without boundary collision
-      setTimeout(() => {
+      if (this.currentBuffer && this.audioCtx && this.fadeMode !== 'always') {
+        // Sample-accurate hardware PCM loop restart
+        try {
+          this.audio.pause();
+        } catch (_) {}
         this.playbackPosition = 0;
-        this.seek(0);
-        this.resume();
-      }, 20);
+        this.startBufferPlayback(0);
+        this.onPlayCallback?.();
+        this.onTimeUpdateCallback?.(0);
+      } else {
+        // Fallback to HTMLAudioElement with micro-fade in to avoid crackle
+        this.setVolumeInstantly(0);
+        this.playbackPosition = 0;
+        this.audio.currentTime = 0;
+        this.audio.play().then(() => {
+          this.isPlaying = true;
+          this.performFade(this.getEffectiveVolume(), 0.05);
+        }).catch(() => {});
+        this.onPlayCallback?.();
+        this.onTimeUpdateCallback?.(0);
+      }
     } else {
       this.isPlaying = false;
       this.playbackPosition = 0;
+      this.stopBufferSource();
+      try {
+        this.audio.pause();
+      } catch (_) {}
       this.onEndCallback?.();
     }
   }
