@@ -56,6 +56,8 @@ class AudioEngine {
   private fadeAnimFrame: number | null = null;
   private fadeResolve: (() => void) | null = null;
   private lastTimeUpdateTimestamp: number = 0;
+  private playRequestId: number = 0;
+  private lastPlayTimestamp: number = 0;
 
   constructor() {
     this.audio = new Audio();
@@ -190,10 +192,13 @@ class AudioEngine {
    * Safely cancels any ongoing fade and immediately resolves pending promises
    * to guarantee the playback pipeline NEVER hangs or goes silent!
    */
-  private cancelFade() {
+  private cancelFade(targetIfCancelled?: number) {
     if (this.fadeAnimFrame !== null) {
       cancelAnimationFrame(this.fadeAnimFrame);
       this.fadeAnimFrame = null;
+    }
+    if (targetIfCancelled !== undefined) {
+      this.setVolumeInstantly(targetIfCancelled);
     }
     if (this.fadeResolve) {
       const res = this.fadeResolve;
@@ -243,7 +248,7 @@ class AudioEngine {
   /**
    * Reads raw audio bytes directly via Rust backend (std::fs::read) to bypass CORS and network lag
    */
-  private async preloadBuffer(src: string, path?: string): Promise<void> {
+  private async preloadBuffer(src: string, path?: string, reqId?: number): Promise<void> {
     if (!src && !path) return;
     try {
       const ctx = this.getOrCreateAudioContext();
@@ -259,6 +264,8 @@ class AudioEngine {
       }
 
       const decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
+
+      if (reqId !== undefined && this.playRequestId !== reqId) return;
 
       if (this.currentTrackSrc === src) {
         this.currentBuffer = decodedBuffer;
@@ -306,11 +313,27 @@ class AudioEngine {
 
   private stopBufferSource() {
     if (this.bufferSource) {
-      try {
-        this.bufferSource.stop();
-        this.bufferSource.disconnect();
-      } catch (_) {}
+      const source = this.bufferSource;
       this.bufferSource = null;
+      if (this.gainNode && this.audioCtx && this.audioCtx.state === 'running') {
+        const now = this.audioCtx.currentTime;
+        try {
+          this.gainNode.gain.cancelScheduledValues(now);
+          this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
+          this.gainNode.gain.linearRampToValueAtTime(0, now + 0.015);
+        } catch (_) {}
+        setTimeout(() => {
+          try {
+            source.stop();
+            source.disconnect();
+          } catch (_) {}
+        }, 20);
+      } else {
+        try {
+          source.stop();
+          source.disconnect();
+        } catch (_) {}
+      }
     }
     this.isUsingWebAudio = false;
   }
@@ -377,17 +400,29 @@ class AudioEngine {
     durationHint?: number,
     nativePath?: string
   ): Promise<void> {
+    const reqId = ++this.playRequestId;
+    const now = performance.now();
+    const isRapid = (now - this.lastPlayTimestamp) < 350;
+    this.lastPlayTimestamp = now;
+
     const isDifferent = this.currentTrackSrc !== src;
 
-    // Quick smooth fade out of previous track without blocking pipeline
+    // Fast smooth micro-fade out on previous track: 35ms if rapid, otherwise up to 200ms
     if (isDifferent && this.isPlaying && this.fadeMode !== 'off') {
-      await this.performFade(0, Math.min(this.fadeDuration, 0.4));
+      const fadeOutTime = isRapid ? 0.035 : Math.min(this.fadeDuration, 0.2);
+      await this.performFade(0, fadeOutTime);
     } else {
-      this.cancelFade();
+      this.cancelFade(0);
     }
 
+    if (this.playRequestId !== reqId) return;
+
     this.stopBufferSource();
-    this.audio.pause();
+    try {
+      this.audio.volume = 0;
+      this.audio.pause();
+    } catch (_) {}
+
     this.isPlaying = false;
     this.playbackPosition = 0;
     this.currentTrackSrc = src;
@@ -405,7 +440,7 @@ class AudioEngine {
     this.audio.load();
 
     // Start background PCM decode in parallel via Rust
-    const loadPromise = this.preloadBuffer(src, nativePath);
+    const loadPromise = this.preloadBuffer(src, nativePath, reqId);
 
     if (autoPlay) {
       const initialVol = this.fadeMode !== 'off' && (isDifferent || isTrackChange) ? 0 : this.getEffectiveVolume();
@@ -413,11 +448,13 @@ class AudioEngine {
 
       try {
         await this.audio.play();
+        if (this.playRequestId !== reqId) return;
         this.isPlaying = true;
         this.onPlayCallback?.();
 
         if (this.fadeMode !== 'off' && (isDifferent || isTrackChange)) {
-          this.performFade(this.getEffectiveVolume(), this.fadeDuration);
+          const fadeInTime = isRapid ? 0.06 : this.fadeDuration;
+          this.performFade(this.getEffectiveVolume(), fadeInTime);
         }
       } catch (e) {
         console.warn('Playback play() was blocked or interrupted:', e);
@@ -426,7 +463,7 @@ class AudioEngine {
 
     loadPromise.then(() => {
       // If repeating single track and still playing this track, seamlessly switch to Web Audio loop
-      if (this.currentTrackSrc === src && this.repeatMode === 'one' && this.fadeMode !== 'always' && this.isPlaying) {
+      if (this.playRequestId === reqId && this.currentTrackSrc === src && this.repeatMode === 'one' && this.fadeMode !== 'always' && this.isPlaying) {
         const cur = this.getCurrentTime();
         this.audio.pause();
         this.startBufferPlayback(cur);

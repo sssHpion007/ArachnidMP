@@ -256,6 +256,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             onMouseMove={handleProgressBarMouseMove}
             onMouseLeave={() => setHoverSeekTime(null)}
             onClick={handleProgressBarClick}
+            title="Перемотка [← / → на 5 сек]"
             className="flex-1 h-1.5 hover:h-2.5 rounded-full bg-md3-surface-container-highest cursor-pointer transition-all duration-150 relative group"
           >
             {/* Progress Fill */}

@@ -119,6 +119,7 @@ export const App: React.FC = () => {
   const isLoadedRef = useRef<boolean>(false);
   const selectedPlaylistIdRef = useRef<string | null>(null);
   const tracksRef = useRef<Track[]>(tracks);
+  const lastPrevPressRef = useRef<number>(0);
 
   useEffect(() => {
     selectedPlaylistIdRef.current = selectedPlaylistId;
@@ -573,10 +574,26 @@ export const App: React.FC = () => {
           audioEngine.setVolume(next);
           return next;
         });
-      } else if (e.code === 'ArrowRight' && (e.ctrlKey || e.metaKey)) {
+      // Plain Arrow Left / Right: Rewind / Fast-forward by 5 seconds in active track
+      } else if ((e.code === 'ArrowLeft' || e.key === 'ArrowLeft') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        const cur = audioEngine.getCurrentTime();
+        const dur = duration > 0 ? duration : audioEngine.getDuration();
+        const nextTime = Math.max(0, Math.min(dur > 0 ? dur : Infinity, cur - 5));
+        setCurrentTime(nextTime);
+        audioEngine.seek(nextTime);
+      } else if ((e.code === 'ArrowRight' || e.key === 'ArrowRight') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        const cur = audioEngine.getCurrentTime();
+        const dur = duration > 0 ? duration : audioEngine.getDuration();
+        const nextTime = Math.max(0, Math.min(dur > 0 ? dur : Infinity, cur + 5));
+        setCurrentTime(nextTime);
+        audioEngine.seek(nextTime);
+      // Ctrl + Arrow Left / Right: Previous / Next track
+      } else if ((e.code === 'ArrowRight' || e.key === 'ArrowRight') && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         handleNext();
-      } else if (e.code === 'ArrowLeft' && (e.ctrlKey || e.metaKey)) {
+      } else if ((e.code === 'ArrowLeft' || e.key === 'ArrowLeft') && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         handlePrev();
       } else if (e.code === 'KeyA' && (e.ctrlKey || e.metaKey)) {
@@ -825,12 +842,20 @@ export const App: React.FC = () => {
   };
 
   const handlePrev = () => {
-    if (currentTime > 3) {
+    if (queue.length === 0) return;
+
+    const now = performance.now();
+    const isDoublePress = (now - lastPrevPressRef.current) < 900;
+    lastPrevPressRef.current = now;
+
+    // If played more than 3 seconds and this is a single press: restart current track from 0:00
+    if (currentTime > 3 && !isDoublePress) {
       audioEngine.seek(0);
       setCurrentTime(0);
       return;
     }
-    if (queue.length === 0) return;
+
+    // Double press within 900ms OR track at start (<= 3s): switch to previous track in queue
     const prevIdx = (queueIndex - 1 + queue.length) % queue.length;
     setQueueIndex(prevIdx);
     playTrack(queue[prevIdx]);
