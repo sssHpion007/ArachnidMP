@@ -37,7 +37,7 @@ pub struct DiscordPresenceState {
 }
 
 pub struct AppState {
-    pub discord: Mutex<discord::DiscordIpc>,
+    pub discord: discord::DiscordService,
 }
 
 fn get_portable_base_dir() -> PathBuf {
@@ -183,19 +183,14 @@ fn get_app_version() -> String {
 
 #[tauri::command]
 fn update_discord_presence(presence: DiscordPresenceState, state: State<'_, AppState>) -> Result<String, String> {
-    let mut client = state.discord.lock().map_err(|e| e.to_string())?;
-    if presence.enabled {
-        let _ = client.set_activity(
-            &presence.details,
-            &presence.state,
-            &presence.large_text,
-            presence.start_timestamp,
-        );
-        Ok(format!("Discord presence set: {} - {}", presence.details, presence.state))
-    } else {
-        let _ = client.clear_activity();
-        Ok("Discord presence cleared".to_string())
-    }
+    state.discord.update(discord::ActivityData {
+        enabled: presence.enabled,
+        details: presence.details,
+        state: presence.state,
+        large_text: presence.large_text,
+        start_timestamp: presence.start_timestamp,
+    });
+    Ok("Discord presence update queued".to_string())
 }
 
 #[tauri::command]
@@ -213,7 +208,7 @@ fn batch_update_tags(tracks: Vec<TrackMetadata>) -> Result<usize, String> {
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState {
-            discord: Mutex::new(discord::DiscordIpc::new()),
+            discord: discord::DiscordService::new(),
         })
         .invoke_handler(tauri::generate_handler![
             get_app_version,

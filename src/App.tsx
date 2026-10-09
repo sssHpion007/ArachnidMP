@@ -174,7 +174,7 @@ export const App: React.FC = () => {
     updateTheme();
   }, [currentTrack?.coverArt, isDynamicColor, seedColor, themeMode]);
 
-  // Discord Rich Presence update
+  // Discord Rich Presence update (only triggers when track changes or play/pause/enabled toggles, NEVER on timeupdate)
   useEffect(() => {
     if (currentTrack) {
       discordRpc.updatePresence({
@@ -182,8 +182,8 @@ export const App: React.FC = () => {
         trackName: currentTrack.title,
         artist: currentTrack.artist,
         album: currentTrack.album,
-        duration: duration,
-        currentTime: currentTime,
+        duration: currentTrack.duration || 0,
+        currentTime: 0,
         isPlaying: isPlaying,
       });
     } else {
@@ -197,7 +197,7 @@ export const App: React.FC = () => {
         isPlaying: false,
       });
     }
-  }, [currentTrack, isPlaying, currentTime, duration, discordEnabled]);
+  }, [currentTrack?.id, isPlaying, discordEnabled]);
 
   // Native Tauri Desktop Drag-and-Drop
   useEffect(() => {

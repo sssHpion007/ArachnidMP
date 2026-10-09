@@ -54,8 +54,10 @@ class AudioEngine {
 
   private initWebAudio() {
     if (this.initializedCtx) return;
+    this.initializedCtx = true;
     try {
       const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) return;
       this.audioCtx = new AudioContextClass();
       this.sourceNode = this.audioCtx.createMediaElementSource(this.audio);
 
@@ -83,7 +85,6 @@ class AudioEngine {
       // Gain Node
       this.gainNode = this.audioCtx.createGain();
 
-      // Connect graph: Source -> Filter 0 -> Filter 1 ... -> Filter 9 -> Analyser -> Gain -> Destination
       let lastNode: AudioNode = this.sourceNode;
       for (const filter of this.eqFilters) {
         lastNode.connect(filter);
@@ -92,10 +93,12 @@ class AudioEngine {
       lastNode.connect(this.analyserNode);
       this.analyserNode.connect(this.gainNode);
       this.gainNode.connect(this.audioCtx.destination);
-
-      this.initializedCtx = true;
     } catch (e) {
       console.warn('Web Audio initialization error (fallback to basic audio):', e);
+      this.sourceNode = null;
+      this.eqFilters = [];
+      this.analyserNode = null;
+      this.gainNode = null;
     }
   }
 

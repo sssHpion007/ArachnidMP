@@ -228,17 +228,17 @@ export async function extractDominantColor(imageSrc: string): Promise<string> {
           return;
         }
 
-        const size = 64;
+        const size = 16;
         canvas.width = size;
         canvas.height = size;
         ctx.drawImage(img, 0, 0, size, size);
 
         const data = ctx.getImageData(0, 0, size, size).data;
         let r = 0, g = 0, b = 0, count = 0;
-        let bestColor = DEFAULT_SEED_COLOR;
+        let bestR = 139, bestG = 92, bestB = 246;
         let maxSaturation = -1;
 
-        for (let i = 0; i < data.length; i += 16) {
+        for (let i = 0; i < data.length; i += 4) {
           const cr = data[i];
           const cg = data[i + 1];
           const cb = data[i + 2];
@@ -246,15 +246,20 @@ export async function extractDominantColor(imageSrc: string): Promise<string> {
 
           if (ca < 128) continue;
 
-          const luminance = (cr * 0.299 + cg * 0.587 + cb * 0.114) / 255;
-          if (luminance > 0.92 || luminance < 0.08) continue;
+          const max = Math.max(cr, cg, cb);
+          const min = Math.min(cr, cg, cb);
+          const delta = max - min;
+          const lum = (max + min) / 510;
 
-          const color = colord({ r: cr, g: cg, b: cb });
-          const sat = color.toHsl().s;
+          if (lum > 0.92 || lum < 0.08) continue;
+
+          const sat = max === 0 ? 0 : delta / max;
 
           if (sat > maxSaturation) {
             maxSaturation = sat;
-            bestColor = color.toHex();
+            bestR = cr;
+            bestG = cg;
+            bestB = cb;
           }
 
           r += cr;
@@ -263,8 +268,8 @@ export async function extractDominantColor(imageSrc: string): Promise<string> {
           count++;
         }
 
-        if (maxSaturation > 20) {
-          resolve(bestColor);
+        if (maxSaturation > 0.2) {
+          resolve(colord({ r: bestR, g: bestG, b: bestB }).toHex());
         } else if (count > 0) {
           resolve(colord({ r: Math.round(r / count), g: Math.round(g / count), b: Math.round(b / count) }).toHex());
         } else {
