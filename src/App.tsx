@@ -406,8 +406,8 @@ export const App: React.FC = () => {
     if (selectedPlaylistId) {
       const pl = playlists.find(p => p.id === selectedPlaylistId);
       if (pl) {
-        const idSet = new Set(pl.trackIds);
-        result = result.filter(t => idSet.has(t.id));
+        const trackMap = new Map(tracks.map(t => [t.id, t]));
+        result = pl.trackIds.map(id => trackMap.get(id)).filter((t): t is Track => Boolean(t));
       }
     } else if (selectedAlbum) {
       result = result.filter(t => (t.album ? t.album.trim() : 'Без альбома') === selectedAlbum);
@@ -429,15 +429,21 @@ export const App: React.FC = () => {
       );
     }
 
-    result.sort((a, b) => {
-      let valA: any = a[sortBy as keyof Track] || '';
-      let valB: any = b[sortBy as keyof Track] || '';
-      if (typeof valA === 'string') {
-        const cmp = valA.localeCompare(valB);
-        return sortOrder === 'asc' ? cmp : -cmp;
+    if (sortBy === 'custom') {
+      if (sortOrder === 'desc') {
+        result.reverse();
       }
-      return sortOrder === 'asc' ? (valA > valB ? 1 : -1) : (valA < valB ? 1 : -1);
-    });
+    } else if (sortBy && sortBy !== 'index') {
+      result.sort((a, b) => {
+        let valA: any = a[sortBy as keyof Track] || '';
+        let valB: any = b[sortBy as keyof Track] || '';
+        if (typeof valA === 'string') {
+          const cmp = valA.localeCompare(valB);
+          return sortOrder === 'asc' ? cmp : -cmp;
+        }
+        return sortOrder === 'asc' ? (valA > valB ? 1 : -1) : (valA < valB ? 1 : -1);
+      });
+    }
 
     return result;
   }, [tracks, selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, currentView, searchQuery, sortBy, sortOrder, playlists]);
@@ -496,6 +502,10 @@ export const App: React.FC = () => {
     setSelectedAlbum(null);
     setSelectedArtist(null);
     setSelectedGenre(null);
+    if (sortBy === 'custom') {
+      setSortBy('title');
+      setSortOrder('asc');
+    }
   };
 
   const handleSelectView = (view: MainViewType) => {
@@ -879,7 +889,27 @@ export const App: React.FC = () => {
     };
     setPlaylists(prev => [...prev, newPl]);
     setSelectedPlaylistId(newPl.id);
+    setSortBy('custom');
+    setSortOrder('asc');
     setPlaylistCreationTarget(null);
+  };
+
+  const handleSelectPlaylist = (id: string) => {
+    setSelectedPlaylistId(id);
+    setSortBy('custom');
+    setSortOrder('asc');
+  };
+
+  const handleReorderPlaylistTracks = (reorderedTrackIds: string[]) => {
+    if (!selectedPlaylistId) return;
+    setPlaylists(prev => prev.map(p => {
+      if (p.id === selectedPlaylistId) {
+        return { ...p, trackIds: reorderedTrackIds };
+      }
+      return p;
+    }));
+    setSortBy('custom');
+    setSortOrder('asc');
   };
 
   const handleOpenCreateFolder = (parentId?: string | null, groupId?: string | null) => {
@@ -1328,6 +1358,8 @@ export const App: React.FC = () => {
               onSortChange={handleSortChange}
               onDropFiles={importFiles}
               onDropInternalTracks={selectedPlaylistId ? (tIds) => handleDropTracksToPlaylist(selectedPlaylistId, tIds) : undefined}
+              isReorderable={Boolean(selectedPlaylistId) && !searchQuery.trim()}
+              onReorderTracks={selectedPlaylistId ? handleReorderPlaylistTracks : undefined}
             />
           </div>
         ) : currentView === 'playlists' ? (
@@ -1336,7 +1368,7 @@ export const App: React.FC = () => {
             folders={playlistFolders}
             groups={playlistGroups}
             tracks={tracks}
-            onSelectPlaylist={(id) => setSelectedPlaylistId(id)}
+            onSelectPlaylist={handleSelectPlaylist}
             onCreatePlaylist={handleCreatePlaylist}
             onCreateFolder={handleOpenCreateFolder}
             onCreateGroup={() => setIsCreateGroupOpen(true)}
