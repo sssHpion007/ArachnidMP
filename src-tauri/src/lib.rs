@@ -2,9 +2,9 @@ mod discord;
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use tauri::State;
 use base64::prelude::*;
+use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::probe::Probe;
 use lofty::tag::{Accessor, ItemKey, Tag, TagExt};
@@ -94,6 +94,7 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
     let mut track_number = None;
     let mut duration_seconds = 0.0;
     let mut cover_art = None;
+    let mut lyrics = None;
 
     if let Ok(tagged_file) = Probe::open(path).and_then(|p| p.read()) {
         let properties = tagged_file.properties();
@@ -276,7 +277,7 @@ fn save_track_lyrics(path: String, lyrics: String) -> Result<bool, String> {
         tag.insert_text(ItemKey::Lyrics, lyrics);
     }
 
-    tag.save_to_path(file_path).map_err(|e| e.to_string())?;
+    tag.save_to_path(file_path, WriteOptions::default()).map_err(|e| e.to_string())?;
     Ok(true)
 }
 
