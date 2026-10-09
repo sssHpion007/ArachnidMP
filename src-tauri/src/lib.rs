@@ -86,7 +86,7 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
     let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown").to_string();
     let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
-    let mut title = file_stem;
+    let mut title = file_stem.clone();
     let mut artist = "Unknown Artist".to_string();
     let mut album = "Unknown Album".to_string();
     let mut genre = None;
