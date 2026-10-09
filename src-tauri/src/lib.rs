@@ -1,5 +1,7 @@
+mod discord;
+
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::State;
 use base64::prelude::*;
@@ -35,7 +37,37 @@ pub struct DiscordPresenceState {
 }
 
 pub struct AppState {
-    pub discord_enabled: Mutex<bool>,
+    pub discord: Mutex<discord::DiscordIpc>,
+}
+
+fn get_portable_base_dir() -> PathBuf {
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            return parent.to_path_buf();
+        }
+    }
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+#[tauri::command]
+fn save_portable_data(data: String) -> Result<bool, String> {
+    let base_dir = get_portable_base_dir();
+    let file_path = base_dir.join("arachnid_data.json");
+    std::fs::write(&file_path, data).map_err(|e| format!("Failed to save portable data to {:?}: {}", file_path, e))?;
+    Ok(true)
+}
+
+#[tauri::command]
+fn load_portable_data() -> Result<Option<String>, String> {
+    let base_dir = get_portable_base_dir();
+    let file_path = base_dir.join("arachnid_data.json");
+    if file_path.exists() {
+        let content = std::fs::read_to_string(&file_path)
+            .map_err(|e| format!("Failed to read portable data from {:?}: {}", file_path, e))?;
+        Ok(Some(content))
+    } else {
+        Ok(None)
+    }
 }
 
 fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
@@ -86,7 +118,6 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
                 track_number = Some(tn);
             }
 
-            // Extract cover art
             if let Some(pic) = tag.pictures().first() {
                 let mime = match pic.mime_type() {
                     Some(m) => m.as_str(),
@@ -128,7 +159,6 @@ fn read_audio_files(paths: Vec<String>) -> Result<Vec<TrackMetadata>, String> {
     for p_str in paths {
         let p = Path::new(&p_str);
         if p.is_dir() {
-            // Traverse directory recursively
             for entry in walkdir::WalkDir::new(p).into_iter().filter_map(|e| e.ok()) {
                 if entry.path().is_file() {
                     if let Some(meta) = parse_single_file(&entry.path().to_string_lossy()) {
@@ -153,9 +183,19 @@ fn get_app_version() -> String {
 
 #[tauri::command]
 fn update_discord_presence(presence: DiscordPresenceState, state: State<'_, AppState>) -> Result<String, String> {
-    let mut enabled = state.discord_enabled.lock().map_err(|e| e.to_string())?;
-    *enabled = presence.enabled;
-    Ok(format!("Discord presence updated: {} - {}", presence.details, presence.state))
+    let mut client = state.discord.lock().map_err(|e| e.to_string())?;
+    if presence.enabled {
+        let _ = client.set_activity(
+            &presence.details,
+            &presence.state,
+            &presence.large_text,
+            presence.start_timestamp,
+        );
+        Ok(format!("Discord presence set: {} - {}", presence.details, presence.state))
+    } else {
+        let _ = client.clear_activity();
+        Ok("Discord presence cleared".to_string())
+    }
 }
 
 #[tauri::command]
@@ -173,14 +213,16 @@ fn batch_update_tags(tracks: Vec<TrackMetadata>) -> Result<usize, String> {
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState {
-            discord_enabled: Mutex::new(true),
+            discord: Mutex::new(discord::DiscordIpc::new()),
         })
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             update_discord_presence,
             read_audio_files,
             scan_folder,
-            batch_update_tags
+            batch_update_tags,
+            save_portable_data,
+            load_portable_data
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arachnid application");

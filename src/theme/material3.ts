@@ -214,7 +214,9 @@ export async function extractDominantColor(imageSrc: string): Promise<string> {
     }
 
     const img = new Image();
-    img.crossOrigin = 'Anonymous';
+    if (imageSrc.startsWith('http://') || imageSrc.startsWith('https://')) {
+      img.crossOrigin = 'Anonymous';
+    }
     img.src = imageSrc;
 
     img.onload = () => {

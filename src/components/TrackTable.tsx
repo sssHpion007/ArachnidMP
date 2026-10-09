@@ -33,6 +33,7 @@ interface TrackTableProps {
   sortBy: string;
   sortOrder: 'asc' | 'desc';
   onSortChange: (column: string) => void;
+  onDropFiles: (files: File[]) => void;
 }
 
 export const TrackTable: React.FC<TrackTableProps> = ({
@@ -51,11 +52,11 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   sortBy,
   sortOrder,
   onSortChange,
+  onDropFiles,
 }) => {
   const [hoveredTrackId, setHoveredTrackId] = useState<string | null>(null);
 
   const handleDragStart = (e: React.DragEvent, track: Track) => {
-    // If current track is in selection, drag all selected; otherwise drag only this track
     let idsToDrag: string[] = [];
     if (selectedTrackIds.has(track.id)) {
       idsToDrag = Array.from(selectedTrackIds);
@@ -66,10 +67,28 @@ export const TrackTable: React.FC<TrackTableProps> = ({
     e.dataTransfer.effectAllowed = 'copyMove';
   };
 
+  const handleTableDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  };
+
+  const handleTableDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      onDropFiles(Array.from(e.dataTransfer.files));
+    }
+  };
+
   const selectedCount = selectedTrackIds.size;
 
   return (
-    <div className="flex-1 flex flex-col h-full min-h-0 bg-md3-surface select-none relative">
+    <div 
+      onDragOver={handleTableDragOver}
+      onDrop={handleTableDrop}
+      className="flex-1 flex flex-col h-full min-h-0 bg-md3-surface select-none relative"
+    >
       {/* Table Header */}
       <div className="grid grid-cols-[48px_minmax(200px,2fr)_minmax(140px,1.5fr)_minmax(140px,1.5fr)_90px_70px_48px] items-center px-4 py-2.5 text-xs font-semibold text-md3-on-surface-variant/70 border-b border-md3-outline-variant/20 tracking-wider uppercase">
         <div className="text-center">#</div>

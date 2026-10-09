@@ -180,35 +180,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* Quick Add Files & Tools */}
-      <div className="p-3 border-t border-md3-outline-variant/30 space-y-1">
+      {/* Quick Add Files */}
+      <div className="p-3 border-t border-md3-outline-variant/30">
         <button
           onClick={onOpenFiles}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-md3-surface-container text-sm font-medium text-md3-primary hover:bg-md3-primary/10 transition-colors"
+          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-2xl bg-md3-surface-container text-sm font-semibold text-md3-primary hover:bg-md3-primary/10 transition-colors"
         >
           <FolderPlus className="w-4 h-4" />
           <span>Добавить файлы</span>
         </button>
-
-        <div className="flex items-center gap-1 pt-1">
-          <button
-            onClick={onOpenEQ}
-            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-xs font-medium text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors"
-            title="10-полосный эквалайзер"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
-            <span>Эквалайзер</span>
-          </button>
-
-          <button
-            onClick={onOpenSettings}
-            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-xs font-medium text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors"
-            title="Настройки Material 3 и Discord RPC"
-          >
-            <Settings className="w-3.5 h-3.5" />
-            <span>Настройки</span>
-          </button>
-        </div>
       </div>
     </aside>
   );

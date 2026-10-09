@@ -13,6 +13,7 @@ interface TopBarProps {
   onOpenEQ: () => void;
   onOpenSettings: () => void;
   discordEnabled: boolean;
+  onToggleDiscord: () => void;
   totalTracksCount: number;
 }
 
@@ -27,6 +28,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenEQ,
   onOpenSettings,
   discordEnabled,
+  onToggleDiscord,
   totalTracksCount,
 }) => {
   return (
@@ -82,18 +84,18 @@ export const TopBar: React.FC<TopBarProps> = ({
 
       {/* Right Controls */}
       <div className="flex items-center gap-2">
-        {/* Discord RPC Status Pill */}
+        {/* Discord RPC Status Toggle Button */}
         <button
-          onClick={onOpenSettings}
-          title={discordEnabled ? 'Discord RPC активен' : 'Discord RPC отключён'}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+          onClick={onToggleDiscord}
+          title={discordEnabled ? 'Кликните, чтобы выключить Discord RPC' : 'Кликните, чтобы включить Discord RPC'}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
             discordEnabled
-              ? 'bg-[#5865F2]/10 border-[#5865F2]/30 text-[#5865F2] hover:bg-[#5865F2]/20'
-              : 'bg-md3-surface-container border-md3-outline-variant/30 text-md3-on-surface-variant/60'
+              ? 'bg-[#5865F2]/15 border-[#5865F2]/40 text-[#5865F2] hover:bg-[#5865F2]/25'
+              : 'bg-md3-surface-container border-md3-outline-variant/30 text-md3-on-surface-variant/50 hover:bg-md3-surface-container-high'
           }`}
         >
           <span className={`w-2 h-2 rounded-full ${discordEnabled ? 'bg-[#5865F2] animate-pulse' : 'bg-gray-500'}`} />
-          <span className="font-semibold">Discord RPC</span>
+          <span>Discord: {discordEnabled ? 'Вкл' : 'Выкл'}</span>
         </button>
 
         {/* Theme mode toggle */}

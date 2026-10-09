@@ -23,88 +23,19 @@ import {
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 
-// Sample built-in tracks
-const INITIAL_TRACKS: Track[] = [
-  {
-    id: 'track_sample_1',
-    title: 'Neon Horizon',
-    artist: 'Synthwave Sunset',
-    album: 'Retrograde Dreams',
-    duration: 32,
-    src: '/samples/neon_horizon.wav',
-    coverArt: '/covers/cover1.svg',
-    genre: 'Synthwave',
-    year: 2026,
-    trackNumber: 1,
-    bitrate: 320,
-    format: 'WAV',
-    dateAdded: Date.now() - 3600000 * 2,
-    playCount: 12,
-    isFavorite: true,
-  },
-  {
-    id: 'track_sample_2',
-    title: 'Midnight Rain',
-    artist: 'Lo-Fi Chillhop',
-    album: 'Coffee & City Lights',
-    duration: 32,
-    src: '/samples/midnight_rain.wav',
-    coverArt: '/covers/cover2.svg',
-    genre: 'Lo-Fi',
-    year: 2026,
-    trackNumber: 2,
-    bitrate: 320,
-    format: 'WAV',
-    dateAdded: Date.now() - 3600000 * 5,
-    playCount: 8,
-    isFavorite: false,
-  },
-  {
-    id: 'track_sample_3',
-    title: 'Deep Space Echoes',
-    artist: 'Ambient Explorer',
-    album: 'Orbital Horizons',
-    duration: 32,
-    src: '/samples/deep_space.wav',
-    coverArt: '/covers/cover3.svg',
-    genre: 'Ambient',
-    year: 2025,
-    trackNumber: 3,
-    bitrate: 320,
-    format: 'WAV',
-    dateAdded: Date.now() - 3600000 * 24,
-    playCount: 5,
-    isFavorite: true,
-  },
-];
-
 const INITIAL_PLAYLISTS: Playlist[] = [
   {
     id: 'pl_favorites',
     name: 'Любимые треки',
     description: 'Треки, отмеченные сердечком',
-    trackIds: ['track_sample_1', 'track_sample_3'],
+    trackIds: [],
     isSystem: true,
-  },
-  {
-    id: 'pl_synth',
-    name: 'Night Drive',
-    description: 'Энергичный синтвейв и электронная музыка',
-    trackIds: ['track_sample_1'],
-    isSystem: false,
-  },
-  {
-    id: 'pl_chill',
-    name: 'Chill & Focus',
-    description: 'Фоновая музыка для концентрации и работы',
-    trackIds: ['track_sample_2', 'track_sample_3'],
-    isSystem: false,
   },
 ];
 
 export const App: React.FC = () => {
-  // Library & Content State
-  const [tracks, setTracks] = useState<Track[]>(INITIAL_TRACKS);
+  // Library & Content State (No dummy stubs)
+  const [tracks, setTracks] = useState<Track[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>(INITIAL_PLAYLISTS);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<string>('tracks');
@@ -113,20 +44,20 @@ export const App: React.FC = () => {
   const [sortBy, setSortBy] = useState<string>('title');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
-  // Multi-Selection State (MusicBee Desktop Style)
+  // Multi-Selection State
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set());
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
 
   // Player & Queue State
-  const [currentTrack, setCurrentTrack] = useState<Track | null>(INITIAL_TRACKS[0]);
+  const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
-  const [duration, setDuration] = useState<number>(32);
+  const [duration, setDuration] = useState<number>(0);
   const [volume, setVolume] = useState<number>(0.85);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [repeatMode, setRepeatMode] = useState<'off' | 'all' | 'one'>('all');
   const [isShuffled, setIsShuffled] = useState<boolean>(false);
-  const [queue, setQueue] = useState<Track[]>(INITIAL_TRACKS);
+  const [queue, setQueue] = useState<Track[]>([]);
   const [queueIndex, setQueueIndex] = useState<number>(0);
 
   // Theming & M3 State
@@ -134,7 +65,7 @@ export const App: React.FC = () => {
   const [isDynamicColor, setIsDynamicColor] = useState<boolean>(true);
   const [seedColor, setSeedColor] = useState<string>(DEFAULT_SEED_COLOR);
 
-  // Modals & Context Menus
+  // Modals & Menus
   const [isEQOpen, setIsEQOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isBatchTagEditorOpen, setIsBatchTagEditorOpen] = useState<boolean>(false);
@@ -146,8 +77,66 @@ export const App: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef<number>(0);
+  const isLoadedRef = useRef<boolean>(false);
 
-  // Prevent default browser right-click menu across entire app
+  // Load Portable Data on Startup (from folder with .exe or localStorage)
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        let rawJson: string | null = null;
+        if (isTauri()) {
+          const res = await invoke<string | null>('load_portable_data');
+          if (res) rawJson = res;
+        }
+        if (!rawJson) {
+          rawJson = localStorage.getItem('arachnid_portable_data');
+        }
+
+        if (rawJson) {
+          const parsed = JSON.parse(rawJson);
+          if (parsed.tracks && Array.isArray(parsed.tracks)) setTracks(parsed.tracks);
+          if (parsed.playlists && Array.isArray(parsed.playlists) && parsed.playlists.length > 0) {
+            setPlaylists(parsed.playlists);
+          }
+          if (parsed.themeMode) setThemeMode(parsed.themeMode);
+          if (parsed.seedColor) setSeedColor(parsed.seedColor);
+          if (typeof parsed.discordEnabled === 'boolean') setDiscordEnabled(parsed.discordEnabled);
+          if (typeof parsed.isDynamicColor === 'boolean') setIsDynamicColor(parsed.isDynamicColor);
+        }
+      } catch (err) {
+        console.warn('Could not load portable data:', err);
+      } finally {
+        isLoadedRef.current = true;
+      }
+    };
+
+    loadData();
+  }, []);
+
+  // Save Portable Data whenever library, playlists, or settings change
+  useEffect(() => {
+    if (!isLoadedRef.current) return;
+
+    const dataToSave = {
+      tracks,
+      playlists,
+      themeMode,
+      seedColor,
+      discordEnabled,
+      isDynamicColor,
+    };
+
+    const jsonString = JSON.stringify(dataToSave);
+    localStorage.setItem('arachnid_portable_data', jsonString);
+
+    if (isTauri()) {
+      invoke('save_portable_data', { data: jsonString }).catch((e) => {
+        console.warn('Failed to save to portable folder:', e);
+      });
+    }
+  }, [tracks, playlists, themeMode, seedColor, discordEnabled, isDynamicColor]);
+
+  // Prevent default browser right-click menu
   useEffect(() => {
     const handleGlobalContextMenu = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -159,7 +148,7 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('contextmenu', handleGlobalContextMenu);
   }, []);
 
-  // Set up Audio Engine callbacks
+  // Audio Engine callbacks
   useEffect(() => {
     audioEngine.setCallbacks({
       onTimeUpdate: (time) => setCurrentTime(time),
@@ -171,7 +160,7 @@ export const App: React.FC = () => {
     audioEngine.setVolume(volume);
   }, [queue, queueIndex, repeatMode]);
 
-  // Handle Dynamic M3 Theme Color Extraction
+  // Dynamic M3 Theme Palette
   useEffect(() => {
     const updateTheme = async () => {
       let activeColor = seedColor;
@@ -185,7 +174,7 @@ export const App: React.FC = () => {
     updateTheme();
   }, [currentTrack?.coverArt, isDynamicColor, seedColor, themeMode]);
 
-  // Update Discord Rich Presence
+  // Discord Rich Presence update
   useEffect(() => {
     if (currentTrack) {
       discordRpc.updatePresence({
@@ -196,6 +185,16 @@ export const App: React.FC = () => {
         duration: duration,
         currentTime: currentTime,
         isPlaying: isPlaying,
+      });
+    } else {
+      discordRpc.updatePresence({
+        enabled: false,
+        trackName: '',
+        artist: '',
+        album: '',
+        duration: 0,
+        currentTime: 0,
+        isPlaying: false,
       });
     }
   }, [currentTrack, isPlaying, currentTime, duration, discordEnabled]);
@@ -443,7 +442,7 @@ export const App: React.FC = () => {
 
   const playTrack = async (track: Track) => {
     setCurrentTrack(track);
-    setDuration(track.duration || 32);
+    setDuration(track.duration || 0);
     const qIdx = queue.findIndex(t => t.id === track.id);
     if (qIdx !== -1) {
       setQueueIndex(qIdx);
@@ -601,7 +600,6 @@ export const App: React.FC = () => {
     }
   };
 
-  // Playlist context menu actions
   const handlePlayPlaylist = (playlist: Playlist) => {
     const plTracks = tracks.filter(t => playlist.trackIds.includes(t.id));
     if (plTracks.length > 0) {
@@ -698,12 +696,12 @@ export const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-md3-background text-md3-on-background select-none font-sans">
-      {/* Hidden File Input for "Добавить файлы" */}
+      {/* Hidden File Input */}
       <input
         ref={fileInputRef}
         type="file"
         multiple
-        accept="audio/*,.mp3,.flac,.wav,.ogg,.m4a,.aac,.opus"
+        accept="audio/*,.mp3,.flac,.wav,.ogg,.m4a,.aac,.opus,.wma"
         className="hidden"
         onChange={(e) => {
           if (e.target.files) {
@@ -758,10 +756,11 @@ export const App: React.FC = () => {
             onOpenEQ={() => setIsEQOpen(true)}
             onOpenSettings={() => setIsSettingsOpen(true)}
             discordEnabled={discordEnabled}
+            onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
             totalTracksCount={filteredTracks.length}
           />
 
-          {/* Desktop Track Table with Shift/Ctrl selection */}
+          {/* Desktop Track Table with Shift/Ctrl selection and drop support */}
           <TrackTable
             tracks={filteredTracks}
             currentTrack={currentTrack}
@@ -781,6 +780,7 @@ export const App: React.FC = () => {
             sortBy={sortBy}
             sortOrder={sortOrder}
             onSortChange={handleSortChange}
+            onDropFiles={importFiles}
           />
         </main>
       </div>
@@ -839,7 +839,7 @@ export const App: React.FC = () => {
         }}
       />
 
-      {/* Batch Tag Editor Modal (MusicBee feature) */}
+      {/* Batch Tag Editor Modal */}
       <BatchTagEditorModal
         isOpen={isBatchTagEditorOpen}
         onClose={() => setIsBatchTagEditorOpen(false)}
@@ -853,7 +853,7 @@ export const App: React.FC = () => {
         onClose={() => setIsEQOpen(false)}
       />
 
-      {/* Settings Modal (Material You 3 + Discord RPC Preview) */}
+      {/* Settings Modal */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}

@@ -264,9 +264,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
       <div className="flex items-center justify-end gap-3 w-1/4 min-w-[220px]">
         {/* Animated Mini Spectrum Visualizer */}
         <div 
-          onClick={onOpenEQ}
-          title="Открыть эквалайзер"
-          className="hidden md:flex items-end gap-0.5 h-6 px-2 py-1 rounded-lg hover:bg-md3-surface-container cursor-pointer transition-colors"
+          className="hidden md:flex items-end gap-0.5 h-6 px-2 py-1 rounded-lg pointer-events-none"
         >
           {visBars.map((height, i) => (
             <span

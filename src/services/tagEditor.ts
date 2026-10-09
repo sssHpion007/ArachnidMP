@@ -30,11 +30,27 @@ export async function parseAudioFile(file: File): Promise<Track> {
       bitrate = Math.round(metadata.format.bitrate / 1000);
     }
 
-    // Extract cover image if present
+    // Extract cover image if present as persistent Data URI
     if (metadata.common.picture && metadata.common.picture.length > 0) {
       const pic = metadata.common.picture[0];
-      const blob = new Blob([pic.data], { type: pic.format });
-      coverArt = URL.createObjectURL(blob);
+      try {
+        let mime = pic.format || 'image/jpeg';
+        if (!mime.includes('/')) {
+          mime = `image/${mime}`;
+        }
+        const bytes = new Uint8Array(pic.data);
+        let binary = '';
+        const len = bytes.byteLength;
+        const chunkSize = 8192;
+        for (let i = 0; i < len; i += chunkSize) {
+          const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+          binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+        }
+        const b64 = btoa(binary);
+        coverArt = `data:${mime};base64,${b64}`;
+      } catch (err) {
+        console.warn('Failed to convert album picture to Data URI:', err);
+      }
     }
   } catch (err) {
     console.warn(`Could not parse ID3 metadata for ${file.name}, using defaults:`, err);
