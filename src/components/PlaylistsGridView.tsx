@@ -59,6 +59,177 @@ interface DragState {
   isDragging: boolean;
 }
 
+const getFolderColorRgba = (color: string | undefined, alpha: number): string => {
+  if (!color || color === 'default') {
+    return `rgb(var(--md-sys-color-primary-rgb) / ${alpha})`;
+  }
+  if (color.startsWith('#')) {
+    let c = color.slice(1);
+    if (c.length === 3) c = c.split('').map(x => x + x).join('');
+    const num = parseInt(c, 16);
+    return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
+  }
+  return color;
+};
+
+const getFolderColorHex = (color: string | undefined): string => {
+  if (!color || color === 'default') {
+    return 'rgb(var(--md-sys-color-primary-rgb))';
+  }
+  return color;
+};
+
+interface FolderCardItemProps {
+  folder: PlaylistFolder;
+  stats: { playlistsCount: number; subfoldersCount: number; totalTracks: number };
+  isDropTarget: boolean;
+  isSelfDragging: boolean;
+  onPointerDown: (e: React.PointerEvent) => void;
+  onClick: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  onPlayFolder: (folder: PlaylistFolder) => void;
+}
+
+const FolderCardItem: React.FC<FolderCardItemProps> = ({
+  folder,
+  stats,
+  isDropTarget,
+  isSelfDragging,
+  onPointerDown,
+  onClick,
+  onContextMenu,
+  onPlayFolder,
+}) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const IconComponent = getFolderIconComponent(folder.icon);
+
+  const baseColor = getFolderColorHex(folder.color);
+
+  // Dynamic card background on hover
+  const bgCard = isDropTarget
+    ? getFolderColorRgba(folder.color, 0.22)
+    : isHovered
+    ? getFolderColorRgba(folder.color, 0.12)
+    : undefined;
+
+  // Dynamic card border: highlighted with folder color
+  const borderCard = isDropTarget
+    ? baseColor
+    : isHovered
+    ? getFolderColorRgba(folder.color, 0.8)
+    : getFolderColorRgba(folder.color, 0.24);
+
+  // Colored soft glow shadow on hover
+  const shadowCard = isHovered && !isSelfDragging
+    ? `0 12px 28px -6px ${getFolderColorRgba(folder.color, 0.32)}`
+    : undefined;
+
+  // Fully colored background for the folder preview container
+  const previewBg = isHovered
+    ? `linear-gradient(145deg, ${getFolderColorRgba(folder.color, 0.36)}, ${getFolderColorRgba(folder.color, 0.22)})`
+    : `linear-gradient(145deg, ${getFolderColorRgba(folder.color, 0.22)}, ${getFolderColorRgba(folder.color, 0.12)})`;
+
+  // Inner icon badge background
+  const iconBadgeBg = isHovered
+    ? getFolderColorRgba(folder.color, 0.48)
+    : getFolderColorRgba(folder.color, 0.30);
+
+  const iconBadgeBorder = isHovered
+    ? getFolderColorRgba(folder.color, 0.70)
+    : getFolderColorRgba(folder.color, 0.38);
+
+  return (
+    <div
+      data-folder-id={folder.id}
+      onPointerDown={onPointerDown}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{
+        backgroundColor: bgCard,
+        borderColor: borderCard,
+        boxShadow: shadowCard,
+      }}
+      className={`group relative flex flex-col p-4 rounded-3xl transition-all duration-200 cursor-pointer select-none border touch-none ${
+        !isHovered && !isDropTarget ? 'bg-md3-surface-container-low shadow-sm' : ''
+      } ${isDropTarget ? 'ring-2 scale-[1.02]' : 'hover:scale-[1.01]'} ${
+        isSelfDragging ? 'opacity-30' : ''
+      }`}
+    >
+      {/* Visual Folder Icon & Preview - Completely colored background */}
+      <div 
+        className="relative aspect-square w-full rounded-2xl overflow-hidden flex flex-col items-center justify-center mb-3 shadow-inner pointer-events-none transition-all duration-300 border"
+        style={{
+          background: previewBg,
+          borderColor: getFolderColorRgba(folder.color, isHovered ? 0.45 : 0.20),
+        }}
+      >
+        {/* Inner Icon Badge - Colored background and border */}
+        <div 
+          className="w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:scale-110 shadow-sm border"
+          style={{ 
+            backgroundColor: iconBadgeBg,
+            borderColor: iconBadgeBorder,
+          }}
+        >
+          <IconComponent 
+            className="w-9 h-9 transition-colors" 
+            style={{ color: baseColor }}
+          />
+        </div>
+
+        {/* Quick Play Folder Button */}
+        {stats.totalTracks > 0 && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onPlayFolder(folder);
+            }}
+            title="Воспроизвести всю папку"
+            style={{
+              backgroundColor: baseColor,
+            }}
+            className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200"
+          >
+            <Play className="w-5 h-5 fill-current ml-0.5" />
+          </button>
+        )}
+
+        {isDropTarget && (
+          <div 
+            className="absolute inset-0 backdrop-blur-xs flex items-center justify-center"
+            style={{ backgroundColor: getFolderColorRgba(folder.color, 0.3) }}
+          >
+            <span 
+              className="px-2.5 py-1 rounded-full text-md3-on-primary text-[10px] font-bold shadow-md"
+              style={{ backgroundColor: baseColor }}
+            >
+              Переместить в папку
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Folder Info */}
+      <div className="min-w-0 pointer-events-none">
+        <div className="flex items-center gap-1.5">
+          <h3 
+            className="font-bold text-sm text-md3-on-surface truncate transition-colors"
+            style={isHovered ? { color: baseColor } : undefined}
+          >
+            {folder.name}
+          </h3>
+        </div>
+        <p className="text-xs text-md3-on-surface-variant/80 truncate mt-0.5 font-medium">
+          {stats.playlistsCount} {stats.playlistsCount === 1 ? 'плейлист' : stats.playlistsCount < 5 ? 'плейлиста' : 'плейлистов'}
+          {stats.subfoldersCount > 0 && ` • ${stats.subfoldersCount} папок`}
+        </p>
+      </div>
+    </div>
+  );
+};
+
 export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   playlists,
   folders,
@@ -438,12 +609,14 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     const stats = getFolderStats(folder.id);
     const isHovered = hoveredFolderId === folder.id;
     const isSelfDragging = dragState?.type === 'folder' && dragState?.id === folder.id && dragState.isDragging;
-    const IconComponent = getFolderIconComponent(folder.icon);
 
     return (
-      <div
+      <FolderCardItem
         key={folder.id}
-        data-folder-id={folder.id}
+        folder={folder}
+        stats={stats}
+        isDropTarget={isHovered}
+        isSelfDragging={isSelfDragging}
         onPointerDown={(e) => {
           handlePointerDown(e, {
             type: 'folder',
@@ -461,60 +634,8 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
           e.stopPropagation();
           onOpenFolderContextMenu(e, folder);
         }}
-        className={`group relative flex flex-col p-4 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
-          isHovered
-            ? 'ring-2 ring-md3-primary scale-[1.02] bg-md3-primary/10 border-md3-primary shadow-xl'
-            : 'bg-md3-surface-container-low hover:bg-md3-surface-container border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md'
-        } ${isSelfDragging ? 'opacity-30' : ''}`}
-      >
-        {/* Visual Folder Icon & Preview */}
-        <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest flex flex-col items-center justify-center mb-3 shadow-inner pointer-events-none">
-          <div 
-            className="w-16 h-16 rounded-2xl flex items-center justify-center transition-transform duration-300 group-hover:scale-110 shadow-sm"
-            style={{ backgroundColor: folder.color ? `${folder.color}25` : undefined }}
-          >
-            <IconComponent 
-              className="w-9 h-9 transition-colors" 
-              style={{ color: folder.color || 'var(--md3-primary)' }}
-            />
-          </div>
-
-          {/* Quick Play Folder Button */}
-          {stats.totalTracks > 0 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onPlayFolder(folder);
-              }}
-              title="Воспроизвести всю папку"
-              className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200"
-            >
-              <Play className="w-5 h-5 fill-current ml-0.5" />
-            </button>
-          )}
-
-          {isHovered && (
-            <div className="absolute inset-0 bg-md3-primary/20 backdrop-blur-xs flex items-center justify-center">
-              <span className="px-2.5 py-1 rounded-full bg-md3-primary text-md3-on-primary text-[10px] font-bold shadow-md">
-                Переместить в папку
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Folder Info */}
-        <div className="min-w-0 pointer-events-none">
-          <div className="flex items-center gap-1.5">
-            <h3 className="font-bold text-sm text-md3-on-surface truncate group-hover:text-md3-primary transition-colors">
-              {folder.name}
-            </h3>
-          </div>
-          <p className="text-xs text-md3-on-surface-variant/80 truncate mt-0.5 font-medium">
-            {stats.playlistsCount} {stats.playlistsCount === 1 ? 'плейлист' : stats.playlistsCount < 5 ? 'плейлиста' : 'плейлистов'}
-            {stats.subfoldersCount > 0 && ` • ${stats.subfoldersCount} папок`}
-          </p>
-        </div>
-      </div>
+        onPlayFolder={onPlayFolder}
+      />
     );
   };
 

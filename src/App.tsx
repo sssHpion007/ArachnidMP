@@ -543,14 +543,36 @@ export const App: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 
       if (e.code === 'Space') {
         e.preventDefault();
         handlePlayPause();
-      } else if (e.code === 'KeyR' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      } else if ((e.code === 'KeyR' || e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'к') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         handleToggleRepeat();
+      } else if ((e.code === 'KeyT' || e.key.toLowerCase() === 't' || e.key.toLowerCase() === 'е') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setIsLyricsOpen(prev => !prev);
+      } else if ((e.code === 'KeyE' || e.key.toLowerCase() === 'e' || e.key.toLowerCase() === 'у') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setIsShuffled(prev => !prev);
+      } else if ((e.code === 'ArrowUp' || e.key === 'ArrowUp') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setVolume(prev => {
+          const next = Math.min(1, Math.round((prev + 0.05) * 100) / 100);
+          setIsMuted(false);
+          audioEngine.setVolume(next);
+          return next;
+        });
+      } else if ((e.code === 'ArrowDown' || e.key === 'ArrowDown') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setVolume(prev => {
+          const next = Math.max(0, Math.round((prev - 0.05) * 100) / 100);
+          setIsMuted(false);
+          audioEngine.setVolume(next);
+          return next;
+        });
       } else if (e.code === 'ArrowRight' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         handleNext();
@@ -561,15 +583,20 @@ export const App: React.FC = () => {
         e.preventDefault();
         setSelectedTrackIds(new Set(filteredTracks.map(t => t.id)));
       } else if (e.code === 'Escape') {
+        if (isLyricsOpen) {
+          setIsLyricsOpen(false);
+          return;
+        }
         setSelectedTrackIds(new Set());
         setContextMenu(null);
         setPlaylistContextMenu(null);
+        setFolderContextMenu(null);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, currentTrack, queue, queueIndex, filteredTracks, repeatMode]);
+  }, [isPlaying, currentTrack, queue, queueIndex, filteredTracks, repeatMode, isLyricsOpen]);
 
   // Synchronous, robust track processor and playlist assigner
   const processImportedTracks = (newTracks: Track[]) => {

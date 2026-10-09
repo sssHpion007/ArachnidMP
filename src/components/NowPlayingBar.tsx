@@ -190,7 +190,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
           {/* Shuffle */}
           <button
             onClick={onToggleShuffle}
-            title={isShuffled ? 'Случайный порядок включен' : 'Перемешать треки'}
+            title={isShuffled ? 'Случайный порядок включен [E]' : 'Перемешать треки [E]'}
             className={`p-2 rounded-full transition-colors relative cursor-pointer ${
               isShuffled ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
             }`}
@@ -293,10 +293,10 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             onClick={onOpenLyrics}
             title={
               currentTrack.lyrics && currentTrack.lyrics.trim().length > 0
-                ? 'Текст песни (доступен)'
+                ? 'Текст песни [T] (доступен)'
                 : currentTrack.isInstrumental
-                ? 'Инструментальная композиция (без слов)'
-                : 'Текст песни (нажмите, чтобы просмотреть или добавить)'
+                ? 'Инструментальная композиция (без слов) [T]'
+                : 'Текст песни [T] (нажмите, чтобы добавить)'
             }
             className={`p-2 rounded-full transition-all cursor-pointer relative ${
               currentTrack.lyrics && currentTrack.lyrics.trim().length > 0
@@ -329,7 +329,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
         <div className="flex items-center gap-1.5 group">
           <button
             onClick={onToggleMute}
-            title={isMuted ? 'Включить звук' : 'Выключить звук'}
+            title={isMuted ? 'Включить звук' : `Громкость: ${Math.round(volume * 100)}% [↑/↓]`}
             className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface transition-colors cursor-pointer"
           >
             {isMuted || volume === 0 ? (
@@ -348,6 +348,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             step="0.01"
             value={isMuted ? 0 : volume}
             onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
+            title={`Громкость: ${Math.round(volume * 100)}% [↑/↓]`}
             className="w-20 accent-md3-primary h-1.5 rounded-full bg-md3-surface-container-highest cursor-pointer"
           />
         </div>
