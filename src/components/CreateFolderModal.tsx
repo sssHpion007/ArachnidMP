@@ -121,7 +121,7 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
             <label className="block text-xs font-semibold text-md3-on-surface-variant mb-2">
               Иконка папки
             </label>
-            <div className="grid grid-cols-6 gap-2 bg-md3-surface-container-highest/60 p-2.5 rounded-2xl border border-md3-outline-variant/20">
+            <div className="grid grid-cols-6 sm:grid-cols-9 gap-2 bg-md3-surface-container-highest/60 p-3 rounded-2xl border border-md3-outline-variant/20">
               {FOLDER_ICONS.map((opt: FolderIconOption) => {
                 const IconComp = opt.icon;
                 const isSelected = selectedIcon === opt.id;
@@ -131,16 +131,13 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
                     type="button"
                     onClick={() => setSelectedIcon(opt.id)}
                     title={opt.label}
-                    className={`flex flex-col items-center justify-center p-2 rounded-xl transition-all ${
+                    className={`w-10 h-10 flex items-center justify-center rounded-2xl transition-all mx-auto ${
                       isSelected
-                        ? 'bg-md3-primary text-md3-on-primary shadow-md scale-105'
-                        : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container'
+                        ? 'bg-md3-primary text-md3-on-primary shadow-md scale-110 ring-2 ring-offset-2 ring-offset-md3-surface-container ring-md3-primary'
+                        : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container hover:scale-105'
                     }`}
                   >
-                    <IconComp className="w-5 h-5 mb-1" />
-                    <span className="text-[9px] font-medium truncate max-w-full leading-tight">
-                      {opt.label.split('/')[0].trim()}
-                    </span>
+                    <IconComp className="w-5 h-5" />
                   </button>
                 );
               })}

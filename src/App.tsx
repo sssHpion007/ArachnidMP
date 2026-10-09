@@ -326,11 +326,14 @@ export const App: React.FC = () => {
     };
 
     const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
       if ((window as any).__isInternalDragging) {
         setIsDraggingFile(false);
+        if (e.dataTransfer) {
+          e.dataTransfer.dropEffect = 'move';
+        }
         return;
       }
-      e.preventDefault();
       if (e.dataTransfer) {
         e.dataTransfer.dropEffect = 'copy';
       }
@@ -889,6 +892,24 @@ export const App: React.FC = () => {
     setPlaylistGroups(prev => prev.map(g => g.id === groupId ? { ...g, isCollapsed: !g.isCollapsed } : g));
   };
 
+  const handleMoveGroup = (groupId: string, direction: 'up' | 'down') => {
+    setPlaylistGroups(prev => {
+      const idx = prev.findIndex(g => g.id === groupId);
+      if (idx === -1) return prev;
+      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+      if (targetIdx < 0 || targetIdx >= prev.length) return prev;
+      const next = [...prev];
+      const temp = next[idx];
+      next[idx] = next[targetIdx];
+      next[targetIdx] = temp;
+      return next.map((g, i) => ({ ...g, order: i }));
+    });
+  };
+
+  const handleReorderGroups = (reorderedGroups: PlaylistGroup[]) => {
+    setPlaylistGroups(reorderedGroups.map((g, i) => ({ ...g, order: i })));
+  };
+
   const handleDeleteGroup = (groupId: string) => {
     setPlaylists(prev => prev.map(p => p.groupId === groupId ? { ...p, groupId: null } : p));
     setPlaylistFolders(prev => prev.map(f => f.groupId === groupId ? { ...f, groupId: null } : f));
@@ -1290,6 +1311,8 @@ export const App: React.FC = () => {
               setFolderContextMenu({ x: e.clientX, y: e.clientY, folder });
             }}
             onToggleGroupCollapse={handleToggleGroupCollapse}
+            onMoveGroup={handleMoveGroup}
+            onReorderGroups={handleReorderGroups}
             onRenameGroup={(grp) => setRenameItemTarget({ isOpen: true, type: 'group', item: grp })}
             onDeleteGroup={handleDeleteGroup}
             onMovePlaylistToFolder={handleMovePlaylistToFolder}
