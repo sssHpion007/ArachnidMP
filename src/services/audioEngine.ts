@@ -59,6 +59,7 @@ class AudioEngine {
   private playRequestId: number = 0;
   private lastPlayTimestamp: number = 0;
   private isScrubbing: boolean = false;
+  private isHandlingEnd: boolean = false;
 
   constructor() {
     this.audio = new Audio();
@@ -371,15 +372,26 @@ class AudioEngine {
   }
 
   private handleTrackEnded() {
-    this.isPlaying = false;
-    this.playbackPosition = 0;
+    if (this.isHandlingEnd) return;
+    this.isHandlingEnd = true;
+    setTimeout(() => {
+      this.isHandlingEnd = false;
+    }, 250);
+
+    // Mute instantly before stopping or repositioning to completely prevent DC-offset pop/crackle
+    this.setVolumeInstantly(0);
     this.stopBufferSource();
 
     if (this.repeatMode === 'one') {
-      // Repeat same track
-      this.seek(0);
-      this.resume();
+      // Micro-delay of 20ms to allow audio buffer to cleanly flush without boundary collision
+      setTimeout(() => {
+        this.playbackPosition = 0;
+        this.seek(0);
+        this.resume();
+      }, 20);
     } else {
+      this.isPlaying = false;
+      this.playbackPosition = 0;
       this.onEndCallback?.();
     }
   }

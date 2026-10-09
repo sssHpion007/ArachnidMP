@@ -31,7 +31,7 @@ export const FOLDER_ICONS: FolderIconOption[] = [
   { id: 'gamepad', label: 'Игры / OST', icon: Gamepad2 },
   { id: 'headphones', label: 'Наушники', icon: Headphones },
   { id: 'music', label: 'Музыка', icon: Music },
-  { id: 'heart', label: 'Любимое', icon: Heart },
+  { id: 'heart', label: 'Избранное', icon: Heart },
   { id: 'flame', label: 'Огонь / Хиты', icon: Flame },
   { id: 'sparkles', label: 'Вайб / Магия', icon: Sparkles },
   { id: 'disc', label: 'Винил / Альбомы', icon: Disc3 },

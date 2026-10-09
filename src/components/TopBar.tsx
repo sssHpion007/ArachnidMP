@@ -51,8 +51,8 @@ export const TopBar: React.FC<TopBarProps> = ({
     { id: 'tracks' as const, label: 'Все треки', icon: Music },
     { id: 'playlists' as const, label: 'Плейлисты', icon: ListMusic },
     { id: 'albums' as const, label: 'Альбомы', icon: Disc },
-    { id: 'artists' as const, label: 'Артисты', icon: Mic2 },
-    { id: 'favorites' as const, label: 'Любимые', icon: Heart },
+    { id: 'artists' as const, label: 'Исполнители', icon: Mic2 },
+    { id: 'favorites' as const, label: 'Избранное', icon: Heart },
     { id: 'genres' as const, label: 'Жанры', icon: Tag },
   ];
 

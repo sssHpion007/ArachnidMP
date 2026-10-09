@@ -47,7 +47,7 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
         <div className="w-20 h-20 rounded-full bg-md3-surface-container-high flex items-center justify-center mb-4 text-md3-primary">
           <Mic2 className="w-10 h-10" />
         </div>
-        <h2 className="text-xl font-bold text-md3-on-surface mb-2">Артисты не найдены</h2>
+        <h2 className="text-xl font-bold text-md3-on-surface mb-2">Исполнители не найдены</h2>
         <p className="text-sm max-w-md">Добавьте аудиотреки в библиотеку, чтобы увидеть исполнителей.</p>
       </div>
     );

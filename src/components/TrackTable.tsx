@@ -298,7 +298,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
           onClick={() => onSortChange('artist')} 
           className="flex items-center gap-1 cursor-pointer hover:text-md3-primary"
         >
-          <span>Артист</span>
+          <span>Исполнитель</span>
           {sortBy === 'artist' && <ArrowUpDown className="w-3 h-3 text-md3-primary" />}
         </div>
         <div 

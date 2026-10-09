@@ -227,7 +227,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               e.stopPropagation();
               onToggleFavorite(currentTrack.id, e);
             }}
-            title={currentTrack.isFavorite ? 'Удалить из любимых' : 'Добавить в любимые'}
+            title={currentTrack.isFavorite ? 'Удалить из избранного' : 'Добавить в избранное'}
             className="p-2 rounded-full text-md3-on-surface-variant hover:text-red-500 transition-colors cursor-pointer shrink-0"
           >
             <Heart className={`w-4 h-4 transition-transform active:scale-125 ${currentTrack.isFavorite ? 'fill-red-500 text-red-500 scale-110' : 'opacity-40 hover:opacity-100'}`} />

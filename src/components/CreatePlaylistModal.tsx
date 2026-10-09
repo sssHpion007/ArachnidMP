@@ -63,7 +63,7 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
                 Новый плейлист
               </h2>
               <p className="text-xs text-md3-on-surface-variant mt-0.5 truncate max-w-[240px]">
-                {folderName ? `Внутри папки «${folderName}»` : 'Создайте подборку для любимых треков'}
+                {folderName ? `Внутри папки «${folderName}»` : 'Создайте подборку для избранных треков'}
               </p>
             </div>
           </div>

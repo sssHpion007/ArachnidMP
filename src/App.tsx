@@ -39,7 +39,7 @@ import { ArrowLeft, Play, Disc3, Mic2, Tag, Trash2, ListMusic } from 'lucide-rea
 const INITIAL_PLAYLISTS: Playlist[] = [
   {
     id: 'pl_favorites',
-    name: 'Любимые треки',
+    name: 'Избранное',
     description: 'Треки, отмеченные сердечком',
     trackIds: [],
     isSystem: true,
@@ -186,7 +186,12 @@ export const App: React.FC = () => {
             }
           }
           if (parsed.playlists && Array.isArray(parsed.playlists) && parsed.playlists.length > 0) {
-            setPlaylists(parsed.playlists);
+            setPlaylists(parsed.playlists.map((p: Playlist) => {
+              if (p.id === 'pl_favorites') {
+                return { ...p, name: 'Избранное' };
+              }
+              return p;
+            }));
           }
           if (parsed.playlistFolders && Array.isArray(parsed.playlistFolders)) {
             setPlaylistFolders(parsed.playlistFolders);
@@ -893,8 +898,8 @@ export const App: React.FC = () => {
 
   const handleTrackEnded = () => {
     if (repeatMode === 'one') {
-      audioEngine.seek(0);
-      audioEngine.resume();
+      // Handled internally by audioEngine with crackle-free micro-ramp
+      return;
     } else if (repeatMode === 'all') {
       handleNext();
     } else {
