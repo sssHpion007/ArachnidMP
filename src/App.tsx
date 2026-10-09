@@ -87,10 +87,15 @@ export const App: React.FC = () => {
   const dragCounterRef = useRef<number>(0);
   const isLoadedRef = useRef<boolean>(false);
   const selectedPlaylistIdRef = useRef<string | null>(null);
+  const tracksRef = useRef<Track[]>(tracks);
 
   useEffect(() => {
     selectedPlaylistIdRef.current = selectedPlaylistId;
   }, [selectedPlaylistId]);
+
+  useEffect(() => {
+    tracksRef.current = tracks;
+  }, [tracks]);
 
   // Load Portable Data on Startup (strictly from arachnid_data.json next to exe in Tauri)
   useEffect(() => {
@@ -437,6 +442,60 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isPlaying, currentTrack, queue, queueIndex, filteredTracks]);
 
+  // Synchronous, robust track processor and playlist assigner
+  const processImportedTracks = (newTracks: Track[]) => {
+    if (newTracks.length === 0) return;
+
+    // Use tracksRef.current synchronously!
+    const existingMap = new Map<string, Track>();
+    tracksRef.current.forEach(t => {
+      if (t.path) existingMap.set(t.path.toLowerCase(), t);
+      existingMap.set(`${t.title.toLowerCase()}|||${t.artist.toLowerCase()}`, t);
+    });
+
+    const uniqueToAdd: Track[] = [];
+    const plTrackIds: string[] = [];
+
+    for (const nt of newTracks) {
+      const byPath = nt.path ? existingMap.get(nt.path.toLowerCase()) : null;
+      const byTitle = existingMap.get(`${nt.title.toLowerCase()}|||${nt.artist.toLowerCase()}`);
+      const existing = byPath || byTitle;
+
+      if (existing) {
+        plTrackIds.push(existing.id);
+      } else {
+        uniqueToAdd.push(nt);
+        plTrackIds.push(nt.id);
+        // Also register in existingMap so siblings in the same batch don't duplicate
+        if (nt.path) existingMap.set(nt.path.toLowerCase(), nt);
+        existingMap.set(`${nt.title.toLowerCase()}|||${nt.artist.toLowerCase()}`, nt);
+      }
+    }
+
+    if (uniqueToAdd.length > 0) {
+      setTracks(prev => [...prev, ...uniqueToAdd]);
+      setQueue(prev => [...prev, ...uniqueToAdd]);
+    }
+
+    // If currently viewing a specific playlist, immediately add all tracks (new & existing) into it!
+    const activePlId = selectedPlaylistIdRef.current;
+    if (activePlId && plTrackIds.length > 0) {
+      setPlaylists(prev => prev.map(p => {
+        if (p.id === activePlId) {
+          const set = new Set(p.trackIds);
+          const toAdd = plTrackIds.filter(id => !set.has(id));
+          return { ...p, trackIds: [...p.trackIds, ...toAdd] };
+        }
+        return p;
+      }));
+    }
+
+    if (!currentTrack || tracksRef.current.length === 0) {
+      const first = uniqueToAdd[0] || newTracks[0];
+      if (first) playTrack(first);
+    }
+  };
+
   // Import native file paths in Tauri desktop
   const importTauriPaths = async (paths: string[]) => {
     try {
@@ -462,49 +521,7 @@ export const App: React.FC = () => {
         isFavorite: false,
       }));
 
-      // Collect IDs to add to active playlist if open
-      const trackIdsForPl: string[] = [];
-
-      // Deduplicate: avoid adding identical paths or titles
-      setTracks(prev => {
-        const existingMap = new Map<string, Track>();
-        prev.forEach(t => existingMap.set(t.path || `${t.title}-${t.artist}`, t));
-        const unique: Track[] = [];
-
-        for (const nt of newTracks) {
-          const key = nt.path || `${nt.title}-${nt.artist}`;
-          if (existingMap.has(key)) {
-            trackIdsForPl.push(existingMap.get(key)!.id);
-          } else {
-            unique.push(nt);
-            trackIdsForPl.push(nt.id);
-          }
-        }
-        return [...prev, ...unique];
-      });
-
-      // If dropped while viewing a specific playlist, automatically add to that playlist!
-      const activePlId = selectedPlaylistIdRef.current;
-      if (activePlId && trackIdsForPl.length > 0) {
-        setPlaylists(prev => prev.map(p => {
-          if (p.id === activePlId) {
-            const set = new Set(p.trackIds);
-            const toAdd = trackIdsForPl.filter(id => !set.has(id));
-            return { ...p, trackIds: [...p.trackIds, ...toAdd] };
-          }
-          return p;
-        }));
-      }
-
-      setQueue(prev => {
-        const existingKeys = new Set(prev.map(t => t.path || `${t.title}-${t.artist}`));
-        const unique = newTracks.filter(t => !existingKeys.has(t.path || `${t.title}-${t.artist}`));
-        return [...prev, ...unique];
-      });
-
-      if (!currentTrack || tracks.length === 0) {
-        playTrack(newTracks[0]);
-      }
+      processImportedTracks(newTracks);
     } catch (err) {
       console.warn('Error reading Tauri dropped files:', err);
     }
@@ -529,46 +546,7 @@ export const App: React.FC = () => {
     }
 
     if (newTracks.length > 0) {
-      const trackIdsForPl: string[] = [];
-
-      setTracks((prev) => {
-        const existingMap = new Map<string, Track>();
-        prev.forEach(t => existingMap.set(t.path || `${t.title}-${t.artist}-${t.fileSize}`, t));
-        const unique: Track[] = [];
-
-        for (const nt of newTracks) {
-          const key = nt.path || `${nt.title}-${nt.artist}-${nt.fileSize}`;
-          if (existingMap.has(key)) {
-            trackIdsForPl.push(existingMap.get(key)!.id);
-          } else {
-            unique.push(nt);
-            trackIdsForPl.push(nt.id);
-          }
-        }
-        return [...prev, ...unique];
-      });
-
-      // If dropped while viewing a specific playlist, automatically add to that playlist!
-      const activePlId = selectedPlaylistIdRef.current;
-      if (activePlId && trackIdsForPl.length > 0) {
-        setPlaylists(prev => prev.map(p => {
-          if (p.id === activePlId) {
-            const set = new Set(p.trackIds);
-            const toAdd = trackIdsForPl.filter(id => !set.has(id));
-            return { ...p, trackIds: [...p.trackIds, ...toAdd] };
-          }
-          return p;
-        }));
-      }
-
-      setQueue((prev) => {
-        const existingKeys = new Set(prev.map(t => `${t.title}-${t.artist}-${t.fileSize}`));
-        const unique = newTracks.filter(t => !existingKeys.has(`${t.title}-${t.artist}-${t.fileSize}`));
-        return [...prev, ...unique];
-      });
-      if (!currentTrack || tracks.length === 0) {
-        playTrack(newTracks[0]);
-      }
+      processImportedTracks(newTracks);
     }
   };
 
@@ -596,50 +574,12 @@ export const App: React.FC = () => {
             isFavorite: false,
           }));
 
-          const trackIdsForPl: string[] = [];
-
-          setTracks(prev => {
-            const existingMap = new Map<string, Track>();
-            prev.forEach(tr => existingMap.set(tr.path || `${tr.title}-${tr.artist}`, tr));
-            const unique: Track[] = [];
-
-            for (const nt of newTracks) {
-              const key = nt.path || `${nt.title}-${nt.artist}`;
-              if (existingMap.has(key)) {
-                trackIdsForPl.push(existingMap.get(key)!.id);
-              } else {
-                unique.push(nt);
-                trackIdsForPl.push(nt.id);
-              }
-            }
-            return [...prev, ...unique];
-          });
-
-          const activePlId = selectedPlaylistIdRef.current;
-          if (activePlId && trackIdsForPl.length > 0) {
-            setPlaylists(prev => prev.map(p => {
-              if (p.id === activePlId) {
-                const set = new Set(p.trackIds);
-                const toAdd = trackIdsForPl.filter(id => !set.has(id));
-                return { ...p, trackIds: [...p.trackIds, ...toAdd] };
-              }
-              return p;
-            }));
-          }
-
-          setQueue(prev => {
-            const existingKeys = new Set(prev.map(tr => tr.path || `${tr.title}-${tr.artist}`));
-            const unique = newTracks.filter(tr => !existingKeys.has(tr.path || `${tr.title}-${tr.artist}`));
-            return [...prev, ...unique];
-          });
-          if (!currentTrack || tracks.length === 0) {
-            playTrack(newTracks[0]);
-          }
-          return;
+          processImportedTracks(newTracks);
         }
       } catch (err) {
-        console.warn('Native open file dialog error, fallback to HTML:', err);
+        console.warn('Native open file dialog error:', err);
       }
+      return; // Always return in Tauri, never fall through to browser input!
     }
     fileInputRef.current?.click();
   };

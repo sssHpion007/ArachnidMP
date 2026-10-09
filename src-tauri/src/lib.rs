@@ -195,34 +195,17 @@ fn update_discord_presence(presence: DiscordPresenceState, state: State<'_, AppS
 
 #[tauri::command]
 fn open_file_dialog() -> Result<Vec<TrackMetadata>, String> {
-    #[cfg(target_os = "windows")]
-    {
-        use std::process::Command;
-        let script = r#"
-            Add-Type -AssemblyName System.Windows.Forms
-            $dialog = New-Object System.Windows.Forms.OpenFileDialog
-            $dialog.Filter = 'Audio Files (*.mp3;*.flac;*.wav;*.ogg;*.m4a)|*.mp3;*.flac;*.wav;*.ogg;*.m4a|All files (*.*)|*.*'
-            $dialog.Multiselect = $true
-            if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-                $dialog.FileNames | ForEach-Object { Write-Output $_ }
-            }
-        "#;
-        let output = Command::new("powershell")
-            .args(["-NoProfile", "-Command", script])
-            .output()
-            .map_err(|e| e.to_string())?;
+    let files = rfd::FileDialog::new()
+        .add_filter("Audio Files (*.mp3;*.flac;*.wav;*.ogg;*.m4a;*.opus;*.aac;*.wma)", &["mp3", "flac", "wav", "ogg", "m4a", "opus", "aac", "wma"])
+        .pick_files();
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let paths: Vec<String> = stdout
-            .lines()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
+    if let Some(paths) = files {
+        let string_paths: Vec<String> = paths
+            .into_iter()
+            .map(|p| p.to_string_lossy().to_string())
             .collect();
-
-        return read_audio_files(paths);
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
+        read_audio_files(string_paths)
+    } else {
         Ok(vec![])
     }
 }

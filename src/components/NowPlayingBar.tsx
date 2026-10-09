@@ -66,7 +66,6 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
 }) => {
   const [hoverSeekTime, setHoverSeekTime] = useState<number | null>(null);
   const [hoverSeekPos, setHoverSeekPos] = useState<number>(0);
-  const [showRemainingTime, setShowRemainingTime] = useState<boolean>(false);
   const [visBars, setVisBars] = useState<number[]>([20, 40, 60, 80, 50, 30, 70, 25]);
   const progressBarRef = useRef<HTMLDivElement>(null);
   const animFrameRef = useRef<number | null>(null);
@@ -117,37 +116,10 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   };
 
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const remainingTime = Math.max(0, duration - currentTime);
 
   return (
-    <footer className="h-20 max-h-20 w-full shrink-0 overflow-hidden bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-6 flex items-center justify-between select-none relative z-30 transition-colors duration-300">
-      {/* Top Embedded Timeline Scrubber */}
-      <div 
-        ref={progressBarRef}
-        onMouseMove={handleProgressBarMouseMove}
-        onMouseLeave={() => setHoverSeekTime(null)}
-        onClick={handleProgressBarClick}
-        className="absolute -top-1 left-0 right-0 h-2 hover:h-3 group cursor-pointer bg-md3-surface-container-highest/60 transition-all duration-200"
-      >
-        {/* Progress fill */}
-        <div 
-          className="h-full bg-md3-primary relative transition-all duration-75"
-          style={{ width: `${progressPercent}%` }}
-        >
-          {/* Glowing Scrubber Thumb */}
-          <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3.5 h-3.5 rounded-full bg-md3-primary shadow-lg ring-2 ring-md3-on-primary opacity-0 group-hover:opacity-100 transition-opacity" />
-        </div>
-
-        {/* Hover preview tooltip */}
-        {hoverSeekTime !== null && (
-          <div 
-            className="absolute -top-7 -translate-x-1/2 px-2 py-0.5 rounded-lg bg-md3-surface-container-highest text-md3-on-surface text-[11px] font-mono shadow-xl border border-md3-outline-variant/20 pointer-events-none"
-            style={{ left: `${hoverSeekPos}px` }}
-          >
-            {formatTime(hoverSeekTime)}
-          </div>
-        )}
-      </div>
-
+    <footer className="h-24 max-h-24 w-full shrink-0 bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-6 flex items-center justify-between select-none relative z-30 transition-colors duration-300">
       {/* Left: Cover Art & Track Metadata */}
       <div className="flex items-center gap-3.5 w-1/4 min-w-[240px]">
         {/* Cover Art with subtle glow - strictly constrained to 56x56 */}
@@ -197,17 +169,17 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
           <button
             onClick={(e) => onToggleFavorite(currentTrack.id, e)}
             title={currentTrack.isFavorite ? 'Удалить из любимых' : 'Добавить в любимые'}
-            className="p-2 rounded-full text-md3-on-surface-variant hover:text-red-500 transition-colors cursor-pointer"
+            className="p-2 rounded-full text-md3-on-surface-variant hover:text-red-500 transition-colors cursor-pointer shrink-0"
           >
             <Heart className={`w-4 h-4 transition-transform active:scale-125 ${currentTrack.isFavorite ? 'fill-red-500 text-red-500 scale-110' : 'opacity-40 hover:opacity-100'}`} />
           </button>
         )}
       </div>
 
-      {/* Center: Playback Controls & Timeline */}
-      <div className="flex flex-col items-center justify-center gap-1.5 w-2/4 max-w-md">
+      {/* Center: Playback Controls & Timeline (Dedicated row for buttons + dedicated row for scrubber) */}
+      <div className="flex flex-col items-center justify-center w-2/4 max-w-xl px-4">
         {/* Main Controls Row */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4 mb-1.5">
           {/* Shuffle */}
           <button
             onClick={onToggleShuffle}
@@ -229,11 +201,11 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             <SkipBack className="w-4 h-4 fill-current" />
           </button>
 
-          {/* Play / Pause FAB */}
+          {/* Play / Pause Primary Button */}
           <button
             onClick={onPlayPause}
             title={isPlaying ? 'Пауза (Пробел)' : 'Воспроизведение (Пробел)'}
-            className="w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-transform duration-150 cursor-pointer"
+            className="w-10 h-10 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-transform duration-150 cursor-pointer"
           >
             {isPlaying ? (
               <Pause className="w-5 h-5 fill-current" />
@@ -264,16 +236,44 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
           </button>
         </div>
 
-        {/* Embedded Time Numbers */}
-        <div className="flex items-center gap-2 text-[11px] font-mono text-md3-on-surface-variant/80">
-          <span>{formatTime(currentTime)}</span>
-          <span className="opacity-40">/</span>
-          <span 
-            onClick={() => setShowRemainingTime(!showRemainingTime)}
-            className="cursor-pointer hover:text-md3-on-surface transition-colors"
-            title="Кликните для переключения оставшегося времени"
+        {/* Timeline Row: time progress scrubber */}
+        <div className="w-full flex items-center gap-2">
+          {/* Current Time (Left) */}
+          <span className="text-[11px] font-mono text-md3-on-surface-variant/80 shrink-0 w-11 text-right">
+            {formatTime(currentTime)}
+          </span>
+
+          {/* Timeline Scrubber Bar (Middle) */}
+          <div 
+            ref={progressBarRef}
+            onMouseMove={handleProgressBarMouseMove}
+            onMouseLeave={() => setHoverSeekTime(null)}
+            onClick={handleProgressBarClick}
+            className="flex-1 h-1.5 hover:h-2.5 rounded-full bg-md3-surface-container-highest cursor-pointer transition-all duration-150 relative group"
           >
-            {showRemainingTime ? `-${formatTime(Math.max(0, duration - currentTime))}` : formatTime(duration)}
+            {/* Progress Fill */}
+            <div 
+              className="h-full bg-md3-primary rounded-full relative transition-all duration-75"
+              style={{ width: `${progressPercent}%` }}
+            >
+              {/* Scrubber Thumb */}
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 rounded-full bg-md3-primary shadow-md ring-2 ring-md3-on-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+
+            {/* Hover preview tooltip */}
+            {hoverSeekTime !== null && (
+              <div 
+                className="absolute -top-7 -translate-x-1/2 px-2 py-0.5 rounded-lg bg-md3-surface-container-highest text-md3-on-surface text-[11px] font-mono shadow-xl border border-md3-outline-variant/20 pointer-events-none"
+                style={{ left: `${hoverSeekPos}px` }}
+              >
+                {formatTime(hoverSeekTime)}
+              </div>
+            )}
+          </div>
+
+          {/* Remaining Negative Time (Right) */}
+          <span className="text-[11px] font-mono text-md3-on-surface-variant/80 shrink-0 w-12 text-left">
+            -{formatTime(remainingTime)}
           </span>
         </div>
       </div>
