@@ -2,6 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Prevent buttons and interactive items from showing browser focus rings / outlines on click or key navigation */
+button {
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button:focus,
+button:focus-visible,
+button:active {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+*:focus-visible {
+  outline: none !important;
+}
+
 :root {
   /* Material You 3 Baseline Tokens (will be dynamically overwritten) */
   --md-sys-color-primary: #a879ff;

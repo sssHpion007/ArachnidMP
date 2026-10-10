@@ -99,8 +99,10 @@ export const TopBar: React.FC<TopBarProps> = ({
           />
           {searchQuery && (
             <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => onSearchChange('')}
-              className="absolute inset-y-0 right-0 pr-2 sm:pr-2.5 flex items-center text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
+              className="absolute inset-y-0 right-0 pr-2 sm:pr-2.5 flex items-center text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -118,11 +120,13 @@ export const TopBar: React.FC<TopBarProps> = ({
             return (
               <button
                 key={tab.id}
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => onSelectView(tab.id)}
                 title={tab.label}
                 className={`flex items-center gap-1.5 ${
                   isUltraCompact ? 'px-2 py-1' : isCompact ? 'px-2.5 py-1.5' : 'px-3.5 py-1.5'
-                } rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer ${
+                } rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
                   isActive
                     ? 'bg-md3-primary text-md3-on-primary font-bold shadow-sm'
                     : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
@@ -141,11 +145,13 @@ export const TopBar: React.FC<TopBarProps> = ({
         <div className="flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15">
           {/* Add Files Button */}
           <button
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={onOpenFiles}
             title={t.controls.openFiles}
             className={`flex items-center gap-1.5 ${
               isCompact ? 'p-1.5' : 'px-3.5 py-1.5'
-            } rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold shadow-sm hover:scale-[1.02] active:scale-95 transition-all cursor-pointer shrink-0`}
+            } rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold shadow-sm hover:scale-[1.02] active:scale-95 transition-all cursor-pointer shrink-0 outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0`}
           >
             <FolderPlus className="w-3.5 h-3.5" />
             <span className={isCompact ? 'hidden' : 'inline'}>
@@ -156,6 +162,8 @@ export const TopBar: React.FC<TopBarProps> = ({
           {/* Discord RPC switch (optional via settings) */}
           {showDiscordButton && (
             <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={onToggleDiscord}
               title={language === 'ru'
                 ? `Discord RPC: ${discordEnabled ? 'Включен [D]' : 'Выключен [D]'} (кликните или нажмите D для переключения)`
@@ -163,7 +171,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               }
               className={`flex items-center gap-1.5 ${
                 isCompact ? 'px-2 py-1.5' : 'px-3 py-1.5'
-              } rounded-full text-xs font-semibold transition-all cursor-pointer ${
+              } rounded-full text-xs font-semibold transition-all cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
                 discordEnabled
                   ? 'bg-[#5865F2]/20 text-[#5865F2] font-bold shadow-sm'
                   : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
@@ -178,12 +186,14 @@ export const TopBar: React.FC<TopBarProps> = ({
 
           {/* Theme mode toggle */}
           <button
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={onToggleTheme}
             title={language === 'ru'
               ? `Тема: ${themeMode === 'dark' ? 'Темная' : themeMode === 'amoled' ? 'AMOLED' : 'Светлая'}`
               : `Theme: ${themeMode === 'dark' ? 'Dark' : themeMode === 'amoled' ? 'AMOLED' : 'Light'}`
             }
-            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer"
+            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
           >
             {themeMode === 'light' ? (
               <Sun className="w-4 h-4 text-amber-500" />
@@ -194,18 +204,22 @@ export const TopBar: React.FC<TopBarProps> = ({
 
           {/* EQ Modal button */}
           <button
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={onOpenEQ}
             title={t.controls.equalizer}
-            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer"
+            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
           >
             <SlidersHorizontal className="w-4 h-4" />
           </button>
 
           {/* Settings button */}
           <button
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={onOpenSettings}
             title={t.controls.settings}
-            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer"
+            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
           >
             <Settings className="w-4 h-4" />
           </button>

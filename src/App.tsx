@@ -680,14 +680,38 @@ export const App: React.FC = () => {
     handleBackToGrid();
   };
 
+  // Prevent buttons from retaining focus on click so keyboard shortcuts never highlight or re-trigger them
+  useEffect(() => {
+    const handleGlobalMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('button')) {
+        setTimeout(() => {
+          if (document.activeElement && document.activeElement instanceof HTMLElement && document.activeElement.tagName === 'BUTTON') {
+            document.activeElement.blur();
+          }
+        }, 0);
+      }
+    };
+    window.addEventListener('mousedown', handleGlobalMouseDown, true);
+    return () => window.removeEventListener('mousedown', handleGlobalMouseDown, true);
+  }, []);
+
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 
+      // Immediately clear button focus if any element was focused
+      if (document.activeElement && document.activeElement instanceof HTMLElement && document.activeElement.tagName === 'BUTTON') {
+        document.activeElement.blur();
+      }
+
       if (e.code === 'Tab' || e.key === 'Tab') {
         e.preventDefault();
+        if (document.activeElement && document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
         const ALL_TABS: MainViewType[] = ['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'];
         const activeTabs = ALL_TABS.filter(tabId => visibleTabs[tabId] ?? true);
         if (activeTabs.length > 0) {

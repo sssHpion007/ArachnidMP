@@ -227,12 +227,14 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
         {/* Favorite Heart Button */}
         {currentTrack && (
           <button
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => {
               e.stopPropagation();
               onToggleFavorite(currentTrack.id, e);
             }}
             title={currentTrack.isFavorite ? t.controls.removeFromFavorites : t.controls.addToFavorites}
-            className="p-2 rounded-full text-md3-on-surface-variant hover:text-red-500 transition-colors cursor-pointer shrink-0"
+            className="p-2 rounded-full text-md3-on-surface-variant hover:text-red-500 transition-colors cursor-pointer shrink-0 outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
           >
             <Heart className={`w-4 h-4 transition-transform active:scale-125 ${currentTrack.isFavorite ? 'fill-red-500 text-red-500 scale-110' : 'opacity-40 hover:opacity-100'}`} />
           </button>
@@ -246,9 +248,11 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
           <div className="flex items-center gap-3 sm:gap-4 mb-1.5">
             {/* Shuffle */}
             <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={onToggleShuffle}
               title={isShuffled ? `${t.controls.shuffleOn} [E]` : `${t.controls.shuffleOff} [E]`}
-              className={`p-2 rounded-full transition-colors relative cursor-pointer ${
+              className={`p-2 rounded-full transition-colors relative cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
                 isShuffled ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
               }`}
             >
@@ -258,18 +262,22 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
 
             {/* Previous */}
             <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={onPrev}
               title={language === 'ru' ? 'Предыдущий трек (Ctrl + ←)' : 'Previous Track (Ctrl + ←)'}
-              className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer"
+              className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
             >
               <SkipBack className="w-4 h-4 fill-current" />
             </button>
 
             {/* Play / Pause Primary Button */}
             <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={onPlayPause}
               title={isPlaying ? `${t.controls.pause} (Space)` : `${t.controls.play} (Space)`}
-              className="w-10 h-10 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-transform duration-150 cursor-pointer"
+              className="w-10 h-10 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-transform duration-150 cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
             >
               {isPlaying ? (
                 <Pause className="w-5 h-5 fill-current" />
@@ -280,18 +288,22 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
 
             {/* Next */}
             <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={onNext}
               title={language === 'ru' ? 'Следующий трек (Ctrl + →)' : 'Next Track (Ctrl + →)'}
-              className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer"
+              className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
             >
               <SkipForward className="w-4 h-4 fill-current" />
             </button>
 
             {/* Repeat */}
             <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={onToggleRepeat}
               title={`${t.controls.repeatPrefix} [R]: ${repeatMode === 'off' ? t.controls.repeatOff : repeatMode === 'all' ? t.controls.repeatAll : t.controls.repeatOne}`}
-              className={`p-2 rounded-full transition-colors relative cursor-pointer ${
+              className={`p-2 rounded-full transition-colors relative cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
                 repeatMode !== 'off' ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
               }`}
             >
@@ -365,9 +377,11 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
         {/* Volume controls with smooth slider */}
         <div className="flex items-center gap-1.5 group shrink-0">
           <button
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={onToggleMute}
             title={isMuted ? t.controls.unmute : `${t.controls.volume}: ${Math.round(volume * 100)}% [↑/↓]`}
-            className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface transition-colors cursor-pointer"
+            className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface transition-colors cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
           >
             {isMuted || volume === 0 ? (
               <VolumeX className="w-4 h-4 text-red-400" />
@@ -383,11 +397,12 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             min="0"
             max="1"
             step="0.01"
+            tabIndex={-1}
             value={isMuted ? 0 : volume}
             onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
             onInput={(e) => onVolumeChange(parseFloat((e.target as HTMLInputElement).value))}
             title={`${t.controls.volume}: ${Math.round((isMuted ? 0 : volume) * 100)}% [↑/↓]`}
-            className="w-16 sm:w-20 lg:w-24 accent-md3-primary h-1.5 rounded-full bg-md3-surface-container-highest cursor-pointer"
+            className="w-16 sm:w-20 lg:w-24 accent-md3-primary h-1.5 rounded-full bg-md3-surface-container-highest cursor-pointer outline-none focus:outline-none focus-visible:outline-none"
           />
         </div>
 
@@ -395,6 +410,8 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
         <div className="flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 shadow-xs shrink-0">
           {/* Lyrics Button [L] - Always rendered to prevent layout shift */}
           <button
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={onOpenLyrics}
             disabled={!currentTrack}
             title={
@@ -406,7 +423,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
                 ? (language === 'ru' ? 'Инструментальная композиция [L]' : 'Instrumental track [L]')
                 : (language === 'ru' ? 'Текст песни [L] (нажмите, чтобы добавить)' : 'Lyrics [L] (click to add)')
             }
-            className={`relative p-2 rounded-full transition-all ${
+            className={`relative p-2 rounded-full transition-all outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
               !currentTrack
                 ? 'text-md3-on-surface-variant/30 cursor-not-allowed opacity-40'
                 : currentTrack.lyrics && currentTrack.lyrics.trim().length > 0
@@ -422,9 +439,11 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
 
           {/* Queue Drawer Button [Q] */}
           <button
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
             onClick={onToggleQueue}
             title={`${t.controls.queue} [Q]`}
-            className={`relative p-2 rounded-full transition-all cursor-pointer ${
+            className={`relative p-2 rounded-full transition-all cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
               isQueueOpen
                 ? 'bg-md3-primary text-md3-on-primary shadow-xs'
                 : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'

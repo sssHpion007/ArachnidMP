@@ -16,7 +16,12 @@ export const TitleBar: React.FC = () => {
       try {
         const win = getCurrentWindow();
         const initialMax = await win.isMaximized();
-        if (isMounted) setIsMaximized(initialMax);
+        if (!initialMax) {
+          try {
+            await win.maximize();
+          } catch (_) {}
+        }
+        if (isMounted) setIsMaximized(true);
 
         unlisten = await win.onResized(async () => {
           try {
@@ -118,11 +123,13 @@ export const TitleBar: React.FC = () => {
       >
         {/* Minimize Button */}
         <button
+          tabIndex={-1}
+          onMouseDown={(e) => e.preventDefault()}
           onClick={handleMinimize}
           title="Свернуть"
           aria-label="Свернуть"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          className="w-10 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-md3-primary/30 cursor-pointer"
+          className="w-10 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-md3-primary/30 cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
         >
           <svg className="w-2.5 h-2.5 pointer-events-none" viewBox="0 0 10 1" fill="currentColor">
             <rect width="10" height="1" rx="0.5" />
@@ -131,11 +138,13 @@ export const TitleBar: React.FC = () => {
 
         {/* Maximize / Restore Button */}
         <button
+          tabIndex={-1}
+          onMouseDown={(e) => e.preventDefault()}
           onClick={handleToggleMaximize}
           title={isMaximized ? 'Восстановить' : 'Развернуть'}
           aria-label={isMaximized ? 'Восстановить' : 'Развернуть'}
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          className="w-10 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-md3-primary/30 cursor-pointer"
+          className="w-10 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-md3-primary/30 cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
         >
           {isMaximized ? (
             /* Restore icon (overlapping squares) */
@@ -153,11 +162,13 @@ export const TitleBar: React.FC = () => {
 
         {/* Close Button */}
         <button
+          tabIndex={-1}
+          onMouseDown={(e) => e.preventDefault()}
           onClick={handleClose}
           title="Закрыть"
           aria-label="Закрыть"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          className="w-11 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-red-500 active:text-white cursor-pointer"
+          className="w-11 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-red-500 active:text-white cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
         >
           <svg className="w-2.5 h-2.5 pointer-events-none" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
             <line x1="1" y1="1" x2="9" y2="9" />
