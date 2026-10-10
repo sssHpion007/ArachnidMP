@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   Settings, 
@@ -71,6 +71,8 @@ interface SettingsModalProps {
   onSetFadeMode: (mode: FadeMode) => void;
   fadeDuration: number;
   onSetFadeDuration: (dur: number) => void;
+  hasUpdate?: boolean;
+  onUpdateFound?: () => void;
 }
 
 const STANDARD_PRESETS = [
@@ -135,16 +137,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSetFadeMode,
   fadeDuration,
   onSetFadeDuration,
+  hasUpdate = false,
+  onUpdateFound,
 }) => {
   const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes'>('main');
   const [customThemesList, setCustomThemesList] = useState<Array<{ name: string; filename: string }>>([]);
+  const updateSectionRef = useRef<HTMLDivElement>(null);
   
   // Accordion (шторка) open/closed states
   const [isThemeCurtainOpen, setIsThemeCurtainOpen] = useState<boolean>(false);
   const [isLangCurtainOpen, setIsLangCurtainOpen] = useState<boolean>(false);
 
   // App version & Update checker state
-  const [appVersion, setAppVersion] = useState<string>('0.3.52');
+  const [appVersion, setAppVersion] = useState<string>('0.3.53');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'installing' | 'error'>('idle');
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [downloadStats, setDownloadStats] = useState<{ received: string; total: string }>({ received: '0', total: '0' });
@@ -191,17 +196,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setUpdateStatus('checking');
     setInstallError(null);
     try {
-      let res: Response;
-      try {
-        res = await fetch('https://api.github.com/repos/sssHpion007/arachnid/releases/latest', {
-          headers: {
-            'Accept': 'application/vnd.github.v3+json',
-            'Authorization': 'token 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',
-          },
-        });
-      } catch (_) {
-        res = await fetch('https://api.github.com/repos/sssHpion007/arachnid/releases/latest');
-      }
+      const res = await fetch('https://api.github.com/repos/sssHpion007/ArachnidMP/releases/latest');
 
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
@@ -220,14 +215,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         name: data.name || tagName,
         body: data.body || '',
         publishedAt: data.published_at,
-        htmlUrl: data.html_url || `https://github.com/sssHpion007/arachnid/releases/tag/${tagName}`,
+        htmlUrl: data.html_url || `https://github.com/sssHpion007/ArachnidMP/releases/tag/${tagName}`,
         downloadUrl: exeAsset?.browser_download_url || data.html_url,
-        assetUrl: exeAsset?.url || exeAsset?.browser_download_url,
+        assetUrl: exeAsset?.browser_download_url || exeAsset?.url,
         assetName: exeAsset?.name || 'Arachnid-Portable.exe',
       });
 
       if (isNewerVersion(cleanCurrent, cleanLatest)) {
         setUpdateStatus('available');
+        onUpdateFound?.();
       } else {
         setUpdateStatus('upToDate');
       }
@@ -239,9 +235,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleInstallUpdate = async () => {
-    if (!latestRelease?.assetUrl) {
-      if (latestRelease?.downloadUrl) {
-        handleDownloadUpdate(latestRelease.downloadUrl);
+    const downloadTarget = latestRelease?.downloadUrl || latestRelease?.assetUrl;
+    if (!downloadTarget) {
+      if (latestRelease?.htmlUrl) {
+        handleDownloadUpdate(latestRelease.htmlUrl);
       }
       return;
     }
@@ -251,27 +248,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setInstallError(null);
 
     try {
-      let dlRes: Response;
-      try {
-        dlRes = await fetch(latestRelease.assetUrl, {
-          headers: {
-            'Authorization': 'token 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',
-            'Accept': 'application/octet-stream',
-          },
-        });
-      } catch (_) {
-        dlRes = await fetch(latestRelease.assetUrl, {
-          headers: {
-            'Accept': 'application/octet-stream',
-          },
-        });
-      }
+      const dlRes = await fetch(downloadTarget);
 
       if (!dlRes.ok) {
-        throw new Error(`HTTP ${dlRes.status}`);
+        throw new Error(`Failed to download binary: HTTP ${dlRes.status}`);
       }
 
-      const contentLength = Number(dlRes.headers.get('content-length')) || 11607040;
+      const contentLength = Number(dlRes.headers.get('content-length')) || 11650000;
       const reader = dlRes.body?.getReader();
 
       let chunks: Uint8Array[] = [];
@@ -349,6 +332,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       e.preventDefault();
       handleDownloadUpdate(target.href);
     }
+  };
+
+  const scrollToUpdateSection = () => {
+    if (currentView !== 'main') {
+      setCurrentView('main');
+    }
+    setTimeout(() => {
+      updateSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
   };
 
   // Fetch Tauri app version if available
@@ -449,13 +441,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
             <div>
-              <h3 className="font-bold text-base text-md3-on-surface">
-                {currentView === 'shortcuts'
-                  ? t.settings.shortcuts
-                  : currentView === 'release_notes'
-                  ? t.settings.releaseNotes
-                  : t.settings.title}
-              </h3>
+              <div className="flex items-center gap-2.5">
+                <h3 className="font-bold text-base text-md3-on-surface">
+                  {currentView === 'shortcuts'
+                    ? t.settings.shortcuts
+                    : currentView === 'release_notes'
+                    ? t.settings.releaseNotes
+                    : t.settings.title}
+                </h3>
+                {/* When an update is available, show an "Обновление" button next to "Настройки" */}
+                {currentView === 'main' && (updateStatus === 'available' || hasUpdate) && (
+                  <button
+                    tabIndex={-1}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={scrollToUpdateSection}
+                    className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-xs font-bold border border-emerald-500/40 animate-pulse transition-all cursor-pointer shadow-xs outline-none focus:outline-none"
+                    title={t.settings.updateAvailable}
+                  >
+                    <Sparkles className="w-3 h-3 text-emerald-400" />
+                    <span>{language === 'ru' ? 'Обновление' : 'Update'}</span>
+                  </button>
+                )}
+              </div>
               <p className="text-xs text-md3-on-surface-variant">
                 {currentView === 'shortcuts'
                   ? t.settings.shortcutsDesc
@@ -1512,7 +1519,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             {/* 7. About Application & Updates Card */}
-            <div className="pt-2">
+            <div ref={updateSectionRef} className="pt-2">
               <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col gap-3.5">
                 <div className="flex items-center gap-4">
                   <img

@@ -37,6 +37,7 @@ import {
   injectCustomThemeCss
 } from './theme/material3';
 import { AppLanguage, detectSystemLanguage } from './i18n';
+import { isNewerVersion, CURRENT_APP_VERSION } from './utils/version';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { ArrowLeft, Play, Disc3, Mic2, Tag, Trash2, ListMusic } from 'lucide-react';
@@ -136,6 +137,7 @@ export const App: React.FC = () => {
   // Modals & Menus
   const [isEQOpen, setIsEQOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [hasUpdate, setHasUpdate] = useState<boolean>(false);
   const [isBatchTagEditorOpen, setIsBatchTagEditorOpen] = useState<boolean>(false);
   const [isCreatePlaylistOpen, setIsCreatePlaylistOpen] = useState<boolean>(false);
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState<boolean>(false);
@@ -465,6 +467,32 @@ export const App: React.FC = () => {
       });
     }
   }, [currentTrack?.id, isPlaying, discordEnabled]);
+
+  // Check for updates on startup
+  useEffect(() => {
+    const checkUpdates = async () => {
+      try {
+        const res = await fetch('https://api.github.com/repos/sssHpion007/ArachnidMP/releases/latest');
+        if (res.ok) {
+          const data = await res.json();
+          const latestTag = data.tag_name || '';
+          let currentVer = CURRENT_APP_VERSION;
+          if (isTauri()) {
+            try {
+              const v = await invoke<string>('get_app_version');
+              if (v) currentVer = v;
+            } catch (_) {}
+          }
+          if (isNewerVersion(currentVer, latestTag)) {
+            setHasUpdate(true);
+          }
+        }
+      } catch (_) {}
+    };
+
+    const timer = setTimeout(checkUpdates, 2000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Native Tauri Desktop Drag-and-Drop
   useEffect(() => {
@@ -2112,6 +2140,7 @@ export const App: React.FC = () => {
         showDiscordButton={showDiscordButton}
         visibleTabs={visibleTabs}
         language={language}
+        hasUpdate={hasUpdate}
       />
 
       {/* Main Content Area (Full width, No sidebar) */}
@@ -2423,6 +2452,8 @@ export const App: React.FC = () => {
         onSetFadeMode={setFadeMode}
         fadeDuration={fadeDuration}
         onSetFadeDuration={setFadeDuration}
+        hasUpdate={hasUpdate}
+        onUpdateFound={() => setHasUpdate(true)}
       />
 
       {/* Track Context Menu */}
