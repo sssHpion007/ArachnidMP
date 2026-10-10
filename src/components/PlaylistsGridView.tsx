@@ -19,6 +19,7 @@ import {
 import { Playlist, PlaylistFolder, PlaylistGroup, Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 import { getFolderIconComponent } from '../theme/folderIcons';
+import { AppLanguage } from '../i18n';
 
 interface PlaylistsGridViewProps {
   playlists: Playlist[];
@@ -26,6 +27,7 @@ interface PlaylistsGridViewProps {
   groups: PlaylistGroup[];
   tracks: Track[];
   searchQuery?: string;
+  language?: AppLanguage;
   onSelectPlaylist: (id: string) => void;
   onCreatePlaylist: (folderId?: string | null, groupId?: string | null) => void;
   onCreateFolder: (parentId?: string | null, groupId?: string | null) => void;
@@ -237,6 +239,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   groups,
   tracks,
   searchQuery = '',
+  language = 'ru',
   onSelectPlaylist,
   onCreatePlaylist,
   onCreateFolder,
@@ -771,10 +774,18 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
       <div className="flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none">
         <div className="flex items-center justify-between mb-6 pb-4 border-b border-md3-outline-variant/15">
           <div>
-            <h2 className="text-xl font-bold text-md3-on-surface">Поиск в плейлистах</h2>
+            <h2 className="text-xl font-bold text-md3-on-surface">
+              {language === 'ru' ? 'Поиск в плейлистах' : 'Search Playlists'}
+            </h2>
             <p className="text-xs text-md3-on-surface-variant mt-0.5">
-              По запросу «{searchQuery}»: найдено {searchFilteredPlaylists.length} {searchFilteredPlaylists.length === 1 ? 'плейлист' : 'плейлистов'}
-              {searchFilteredFolders.length > 0 && ` и ${searchFilteredFolders.length} папок`}
+              {language === 'ru'
+                ? `По запросу «${searchQuery}»: найдено ${searchFilteredPlaylists.length} ${searchFilteredPlaylists.length === 1 ? 'плейлист' : 'плейлистов'}`
+                : `For "${searchQuery}": found ${searchFilteredPlaylists.length} ${searchFilteredPlaylists.length === 1 ? 'playlist' : 'playlists'}`
+              }
+              {searchFilteredFolders.length > 0 && (language === 'ru'
+                ? ` и ${searchFilteredFolders.length} папок`
+                : ` and ${searchFilteredFolders.length} folders`
+              )}
             </p>
           </div>
         </div>
@@ -1004,11 +1015,22 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
       {/* Top Bar with Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-md3-outline-variant/15">
         <div>
-          <h2 className="text-xl font-bold text-md3-on-surface">Мои Плейлисты</h2>
+          <h2 className="text-xl font-bold text-md3-on-surface">
+            {language === 'ru' ? 'Мои Плейлисты' : 'My Playlists'}
+          </h2>
           <p className="text-xs text-md3-on-surface-variant mt-0.5">
-            {playlists.length} {playlists.length === 1 ? 'плейлист' : playlists.length < 5 ? 'плейлиста' : 'плейлистов'}
-            {folders.length > 0 && ` • ${folders.length} ${folders.length === 1 ? 'папка' : 'папок'}`}
-            {groups.length > 0 && ` • ${groups.length} ${groups.length === 1 ? 'группа' : 'групп'}`}
+            {playlists.length} {language === 'ru'
+              ? (playlists.length === 1 ? 'плейлист' : playlists.length < 5 ? 'плейлиста' : 'плейлистов')
+              : (playlists.length === 1 ? 'playlist' : 'playlists')
+            }
+            {folders.length > 0 && (language === 'ru'
+              ? ` • ${folders.length} ${folders.length === 1 ? 'папка' : 'папок'}`
+              : ` • ${folders.length} ${folders.length === 1 ? 'folder' : 'folders'}`
+            )}
+            {groups.length > 0 && (language === 'ru'
+              ? ` • ${groups.length} ${groups.length === 1 ? 'группа' : 'групп'}`
+              : ` • ${groups.length} ${groups.length === 1 ? 'group' : 'groups'}`
+            )}
           </p>
         </div>
 
@@ -1016,28 +1038,28 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={onCreateGroup}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all"
-            title="Создать группу плейлистов"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
+            title={language === 'ru' ? "Создать группу плейлистов" : "Create playlist group"}
           >
             <Layers className="w-4 h-4 text-md3-primary" />
-            <span>Новая группа</span>
+            <span>{language === 'ru' ? 'Новая группа' : 'New Group'}</span>
           </button>
 
           <button
             onClick={() => onCreateFolder(null, null)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all"
-            title="Создать папку"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
+            title={language === 'ru' ? "Создать папку" : "Create folder"}
           >
             <FolderPlus className="w-4 h-4 text-md3-primary" />
-            <span>Новая папка</span>
+            <span>{language === 'ru' ? 'Новая папка' : 'New Folder'}</span>
           </button>
 
           <button
             onClick={() => onCreatePlaylist(null, null)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 shadow-md transition-all"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 shadow-md transition-all cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>Новый плейлист</span>
+            <span>{language === 'ru' ? 'Новый плейлист' : 'New Playlist'}</span>
           </button>
         </div>
       </div>
@@ -1198,7 +1220,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
           {hasGroups && (
             <div className="flex items-center gap-2 mb-3">
               <h3 className="text-xs font-bold uppercase tracking-wider text-md3-on-surface-variant/70">
-                Общие плейлисты и папки
+                {language === 'ru' ? 'Общие плейлисты и папки' : 'General Playlists and Folders'}
               </h3>
               <span className="text-[11px] px-2 py-0.2 rounded-full bg-md3-surface-container-high text-md3-on-surface-variant font-medium">
                 {ungroupedFolders.length + ungroupedPlaylists.length}

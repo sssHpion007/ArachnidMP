@@ -589,73 +589,80 @@ export const App: React.FC = () => {
       return {
         type: 'playlist' as const,
         title: pl.name,
-        subtitle: pl.description || `${count} трек${count % 10 === 1 && count % 100 !== 11 ? '' : 'ов'}`,
+        subtitle: pl.description || (language === 'ru' 
+          ? `${count} трек${count % 10 === 1 && count % 100 !== 11 ? '' : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 10 || count % 100 >= 20) ? 'а' : 'ов'}`
+          : `${count} ${count === 1 ? 'track' : 'tracks'}`
+        ),
         icon: <ListMusic className="w-6 h-6" />,
         playlist: pl,
       };
     }
     if (selectedAlbum) {
-      const albumTracks = tracks.filter(t => (t.album ? t.album.trim() : 'Без альбома') === selectedAlbum);
+      const unknownAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
+      const albumTracks = tracks.filter(t => (t.album ? t.album.trim() : unknownAlbumLabel) === selectedAlbum);
       const firstCover = albumTracks.find(t => t.coverArt)?.coverArt;
-      const artist = albumTracks[0]?.artist || 'Неизвестный исполнитель';
+      const artist = albumTracks[0]?.artist || (language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist');
       return {
         type: 'album' as const,
         title: selectedAlbum,
-        subtitle: `${artist} • ${albumTracks.length} трек(ов)`,
+        subtitle: `${artist} • ${albumTracks.length} ${language === 'ru' ? 'трек(ов)' : 'tracks'}`,
         coverArt: firstCover,
         icon: <Disc3 className="w-6 h-6" />,
       };
     }
     if (selectedArtist) {
-      const artistTracks = tracks.filter(t => (t.artist ? t.artist.trim() : 'Неизвестный исполнитель') === selectedArtist);
+      const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
+      const artistTracks = tracks.filter(t => (t.artist ? t.artist.trim() : unknownArtistLabel) === selectedArtist);
       const firstCover = artistTracks.find(t => t.coverArt)?.coverArt;
       return {
         type: 'artist' as const,
         title: selectedArtist,
-        subtitle: `${artistTracks.length} трек(ов)`,
+        subtitle: `${artistTracks.length} ${language === 'ru' ? 'трек(ов)' : 'tracks'}`,
         coverArt: firstCover,
         icon: <Mic2 className="w-6 h-6" />,
       };
     }
     if (selectedGenre) {
+      const unknownGenreLabel = language === 'ru' ? 'Без жанра' : 'No Genre';
       const genreTracks = tracks.filter(t => {
-        if (!t.genre) return selectedGenre === 'Без жанра';
+        if (!t.genre) return selectedGenre === unknownGenreLabel;
         const list = t.genre.split(/[,/;\\]+/).map(g => g.trim()).filter(Boolean);
-        return list.length > 0 ? list.includes(selectedGenre) : selectedGenre === 'Без жанра';
+        return list.length > 0 ? list.includes(selectedGenre) : selectedGenre === unknownGenreLabel;
       });
       return {
         type: 'genre' as const,
         title: selectedGenre,
-        subtitle: `${genreTracks.length} трек(ов)`,
+        subtitle: `${genreTracks.length} ${language === 'ru' ? 'трек(ов)' : 'tracks'}`,
         icon: <Tag className="w-6 h-6" />,
       };
     }
     return null;
-  }, [selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, playlists, tracks]);
+  }, [selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, playlists, tracks, language]);
 
   const searchPlaceholder = useMemo(() => {
     if (currentDetail) {
-      if (currentDetail.type === 'playlist') return `Поиск в «${currentDetail.title}»...`;
-      if (currentDetail.type === 'album') return `Поиск в «${currentDetail.title}»...`;
-      if (currentDetail.type === 'artist') return `Поиск в «${currentDetail.title}»...`;
-      if (currentDetail.type === 'genre') return `Поиск в «${currentDetail.title}»...`;
+      return language === 'ru'
+        ? `Поиск в «${currentDetail.title}»...`
+        : `Search in "${currentDetail.title}"...`;
     }
     switch (currentView) {
       case 'playlists':
-        return 'Поиск по плейлистам и папкам...';
+        return language === 'ru' ? 'Поиск по плейлистам и папкам...' : 'Search playlists and folders...';
       case 'albums':
-        return 'Поиск по альбомам...';
+        return language === 'ru' ? 'Поиск по альбомам...' : 'Search albums...';
       case 'artists':
-        return 'Поиск по исполнителям...';
+        return language === 'ru' ? 'Поиск по исполнителям...' : 'Search artists...';
       case 'genres':
-        return 'Поиск по жанрам...';
+        return language === 'ru' ? 'Поиск по жанрам...' : 'Search genres...';
       case 'favorites':
-        return 'Поиск в избранном...';
+        return language === 'ru' ? 'Поиск в избранном...' : 'Search favorites...';
       case 'tracks':
       default:
-        return `Поиск среди треков (${tracks.length})...`;
+        return language === 'ru'
+          ? `Поиск среди треков (${tracks.length})...`
+          : `Search all tracks (${tracks.length})...`;
     }
-  }, [currentDetail, currentView, tracks.length]);
+  }, [currentDetail, currentView, tracks.length, language]);
 
   const handleBackToGrid = () => {
     setSelectedPlaylistId(null);
@@ -2033,7 +2040,7 @@ export const App: React.FC = () => {
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-surface-container hover:bg-md3-surface-container-high text-xs font-semibold text-md3-on-surface transition-all cursor-pointer shrink-0 border border-md3-outline-variant/15 hover:scale-105 active:scale-95"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Назад</span>
+                  <span>{language === 'ru' ? 'Назад' : 'Back'}</span>
                 </button>
 
                 <div className="flex items-center gap-3.5 min-w-0">
@@ -2071,13 +2078,13 @@ export const App: React.FC = () => {
                   className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer"
                 >
                   <Play className="w-4 h-4 fill-current ml-0.5" />
-                  <span>Воспроизвести всё</span>
+                  <span>{language === 'ru' ? 'Воспроизвести всё' : 'Play All'}</span>
                 </button>
 
                 {currentDetail.type === 'playlist' && !currentDetail.playlist.isSystem && (
                   <button
                     onClick={() => handleDeletePlaylist(currentDetail.playlist)}
-                    title="Удалить плейлист"
+                    title={language === 'ru' ? "Удалить плейлист" : "Delete playlist"}
                     className="p-2 rounded-full text-md3-on-surface-variant hover:text-red-500 hover:bg-md3-surface-container transition-colors cursor-pointer"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -2113,6 +2120,7 @@ export const App: React.FC = () => {
               currentView={currentView}
               isReorderable={Boolean(selectedPlaylistId) && !searchQuery.trim()}
               onReorderTracks={selectedPlaylistId ? handleReorderPlaylistTracks : undefined}
+              language={language}
             />
           </div>
         ) : currentView === 'playlists' ? (
@@ -2122,6 +2130,7 @@ export const App: React.FC = () => {
             groups={playlistGroups}
             tracks={tracks}
             searchQuery={searchQuery}
+            language={language}
             onSelectPlaylist={handleSelectPlaylist}
             onCreatePlaylist={handleCreatePlaylist}
             onCreateFolder={handleOpenCreateFolder}
@@ -2152,6 +2161,7 @@ export const App: React.FC = () => {
           <AlbumsGridView
             tracks={tracks}
             searchQuery={searchQuery}
+            language={language}
             onSelectAlbum={(alb) => setSelectedAlbum(alb)}
             onPlayAlbum={handlePlayAlbum}
           />
@@ -2159,6 +2169,7 @@ export const App: React.FC = () => {
           <ArtistsGridView
             tracks={tracks}
             searchQuery={searchQuery}
+            language={language}
             onSelectArtist={(art) => setSelectedArtist(art)}
             onPlayArtist={handlePlayArtist}
           />
@@ -2166,6 +2177,7 @@ export const App: React.FC = () => {
           <GenresGridView
             tracks={tracks}
             searchQuery={searchQuery}
+            language={language}
             onSelectGenre={(gen) => setSelectedGenre(gen)}
             onPlayGenre={handlePlayGenre}
           />
@@ -2194,6 +2206,7 @@ export const App: React.FC = () => {
             onDropFiles={importFiles}
             isReorderable={currentView === 'favorites' && !searchQuery.trim()}
             onReorderTracks={currentView === 'favorites' ? handleReorderFavoriteTracks : undefined}
+            language={language}
           />
         )}
       </main>
@@ -2398,6 +2411,7 @@ export const App: React.FC = () => {
         }}
         onCreate={handleCreatePlaylistSubmit}
         folderName={playlistCreationTarget?.folderId ? playlistFolders.find(f => f.id === playlistCreationTarget.folderId)?.name : undefined}
+        language={language}
       />
 
       {/* Material 3 Create / Edit Folder Modal */}
@@ -2438,10 +2452,13 @@ export const App: React.FC = () => {
       {/* Delete Folder Confirmation Modal */}
       <ConfirmationModal
         isOpen={!!deleteFolderTarget}
-        title="Удалить папку"
-        message={`Вы уверены, что хотите удалить папку «${deleteFolderTarget?.name}»? Все плейлисты и треки внутри сохранятся и будут перемещены наружу.`}
-        confirmLabel="Удалить"
-        cancelLabel="Отмена"
+        title={language === 'ru' ? "Удалить папку" : "Delete Folder"}
+        message={language === 'ru'
+          ? `Вы уверены, что хотите удалить папку «${deleteFolderTarget?.name}»? Все плейлисты и треки внутри сохранятся и будут перемещены наружу.`
+          : `Are you sure you want to delete the folder "${deleteFolderTarget?.name}"? All playlists and tracks inside will be preserved and moved outside.`
+        }
+        confirmLabel={language === 'ru' ? "Удалить" : "Delete"}
+        cancelLabel={language === 'ru' ? "Отмена" : "Cancel"}
         isDestructive={true}
         onConfirm={handleConfirmDeleteFolder}
         onClose={() => setDeleteFolderTarget(null)}
@@ -2450,10 +2467,13 @@ export const App: React.FC = () => {
       {/* Material 3 Clear Playlist Confirmation Modal */}
       <ConfirmationModal
         isOpen={!!clearPlaylistTarget}
-        title="Очистить плейлист"
-        message={`Вы уверены, что хотите удалить все треки из плейлиста «${clearPlaylistTarget?.name}»? Все композиции останутся в вашей медиатеке.`}
-        confirmLabel="Очистить"
-        cancelLabel="Отмена"
+        title={language === 'ru' ? "Очистить плейлист" : "Clear Playlist"}
+        message={language === 'ru'
+          ? `Вы уверены, что хотите удалить все треки из плейлиста «${clearPlaylistTarget?.name}»? Все композиции останутся в вашей медиатеке.`
+          : `Are you sure you want to remove all tracks from the playlist "${clearPlaylistTarget?.name}"? All files will remain in your library.`
+        }
+        confirmLabel={language === 'ru' ? "Очистить" : "Clear"}
+        cancelLabel={language === 'ru' ? "Отмена" : "Cancel"}
         isDestructive={true}
         onConfirm={handleConfirmClearPlaylist}
         onClose={() => setClearPlaylistTarget(null)}
@@ -2462,10 +2482,13 @@ export const App: React.FC = () => {
       {/* Material 3 Delete Playlist Confirmation Modal */}
       <ConfirmationModal
         isOpen={!!deletePlaylistTarget}
-        title="Удалить плейлист"
-        message={`Вы уверены, что хотите безвозвратно удалить плейлист «${deletePlaylistTarget?.name}»? Сами треки останутся в вашей библиотеке.`}
-        confirmLabel="Удалить"
-        cancelLabel="Отмена"
+        title={language === 'ru' ? "Удалить плейлист" : "Delete Playlist"}
+        message={language === 'ru'
+          ? `Вы уверены, что хотите безвозвратно удалить плейлист «${deletePlaylistTarget?.name}»? Сами треки останутся в вашей библиотеке.`
+          : `Are you sure you want to delete the playlist "${deletePlaylistTarget?.name}"? The audio files will remain in your library.`
+        }
+        confirmLabel={language === 'ru' ? "Удалить" : "Delete"}
+        cancelLabel={language === 'ru' ? "Отмена" : "Cancel"}
         isDestructive={true}
         onConfirm={handleConfirmDeletePlaylist}
         onClose={() => setDeletePlaylistTarget(null)}
@@ -2474,14 +2497,24 @@ export const App: React.FC = () => {
       {/* Material 3 Delete Tracks Confirmation Modal */}
       <ConfirmationModal
         isOpen={!!deleteTracksTarget && deleteTracksTarget.length > 0}
-        title={selectedPlaylistId ? "Удалить из плейлиста" : "Удалить из медиатеки"}
+        title={
+          selectedPlaylistId
+            ? (language === 'ru' ? "Удалить из плейлиста" : "Remove from Playlist")
+            : (language === 'ru' ? "Удалить из медиатеки" : "Remove from Library")
+        }
         message={
           selectedPlaylistId
-            ? `Вы уверены, что хотите удалить выбранные треки (${deleteTracksTarget?.length || 0} шт.) из этого плейлиста? Сами файлы останутся в вашей медиатеке.`
-            : `Вы уверены, что хотите удалить выбранные треки (${deleteTracksTarget?.length || 0} шт.) из медиатеки плеера?`
+            ? (language === 'ru'
+                ? `Вы уверены, что хотите удалить выбранные треки (${deleteTracksTarget?.length || 0} шт.) из этого плейлиста? Сами файлы останутся в вашей медиатеке.`
+                : `Are you sure you want to remove selected tracks (${deleteTracksTarget?.length || 0}) from this playlist? The files will remain in your library.`
+              )
+            : (language === 'ru'
+                ? `Вы уверены, что хотите удалить выбранные треки (${deleteTracksTarget?.length || 0} шт.) из медиатеки плеера?`
+                : `Are you sure you want to remove selected tracks (${deleteTracksTarget?.length || 0}) from the library?`
+              )
         }
-        confirmLabel="Удалить"
-        cancelLabel="Отмена"
+        confirmLabel={language === 'ru' ? "Удалить" : "Delete"}
+        cancelLabel={language === 'ru' ? "Отмена" : "Cancel"}
         isDestructive={true}
         onConfirm={handleConfirmRemoveTracks}
         onClose={() => setDeleteTracksTarget(null)}

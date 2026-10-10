@@ -1221,7 +1221,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="space-y-0.5 min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-sm text-md3-on-surface">{t.settings.about}</span>
-                    <span className="text-[11px] font-mono opacity-70">v0.3.44</span>
+                    <span className="text-[11px] font-mono opacity-70">v0.3.45</span>
                   </div>
                   <p className="text-xs text-md3-on-surface-variant">
                     {t.settings.aboutDesc}

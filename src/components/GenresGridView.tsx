@@ -2,10 +2,12 @@ import React, { useMemo } from 'react';
 import { Tag, Play, Music2, Clock, Disc3 } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
+import { AppLanguage } from '../i18n';
 
 interface GenresGridViewProps {
   tracks: Track[];
   searchQuery?: string;
+  language?: AppLanguage;
   onSelectGenre: (genreName: string) => void;
   onPlayGenre: (tracks: Track[]) => void;
 }
@@ -24,6 +26,7 @@ const GENRE_GRADIENTS = [
 export const GenresGridView: React.FC<GenresGridViewProps> = ({
   tracks,
   searchQuery = '',
+  language = 'ru',
   onSelectGenre,
   onPlayGenre,
 }) => {
@@ -76,8 +79,14 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
         <div className="w-20 h-20 rounded-full bg-md3-surface-container-high flex items-center justify-center mb-4 text-md3-primary">
           <Tag className="w-10 h-10" />
         </div>
-        <h2 className="text-xl font-bold text-md3-on-surface mb-2">Жанры не найдены</h2>
-        <p className="text-sm max-w-md">Добавьте аудиотреки с тегами жанров в библиотеку.</p>
+        <h2 className="text-xl font-bold text-md3-on-surface mb-2">
+          {language === 'ru' ? 'Жанры не найдены' : 'No genres found'}
+        </h2>
+        <p className="text-sm max-w-md">
+          {language === 'ru'
+            ? 'Добавьте аудиотреки с тегами жанров в библиотеку.'
+            : 'Add audio tracks with genre tags to your library.'}
+        </p>
       </div>
     );
   }
@@ -88,8 +97,14 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
         <div className="w-20 h-20 rounded-full bg-md3-surface-container-high flex items-center justify-center mb-4 text-md3-primary">
           <Tag className="w-10 h-10" />
         </div>
-        <h2 className="text-xl font-bold text-md3-on-surface mb-2">Ничего не найдено</h2>
-        <p className="text-sm max-w-md">По запросу «{searchQuery}» жанры не найдены.</p>
+        <h2 className="text-xl font-bold text-md3-on-surface mb-2">
+          {language === 'ru' ? 'Ничего не найдено' : 'Nothing found'}
+        </h2>
+        <p className="text-sm max-w-md">
+          {language === 'ru'
+            ? `По запросу «${searchQuery}» жанры не найдены.`
+            : `No genres found for "${searchQuery}".`}
+        </p>
       </div>
     );
   }
@@ -98,9 +113,11 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
     <div className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-md3-on-surface">Жанры</h1>
+          <h1 className="text-2xl font-bold text-md3-on-surface">
+            {language === 'ru' ? 'Жанры' : 'Genres'}
+          </h1>
           <p className="text-xs text-md3-on-surface-variant mt-0.5">
-            Всего жанров: {genres.length}
+            {language === 'ru' ? `Всего жанров: ${genres.length}` : `Total genres: ${genres.length}`}
           </p>
         </div>
       </div>

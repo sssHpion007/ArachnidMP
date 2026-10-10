@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ListMusic, X, Check } from 'lucide-react';
+import { AppLanguage } from '../i18n';
 
 interface CreatePlaylistModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreate: (name: string, description?: string) => void;
   folderName?: string;
+  language?: AppLanguage;
 }
 
 export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
@@ -13,6 +15,7 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
   onClose,
   onCreate,
   folderName,
+  language = 'ru',
 }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -69,10 +72,13 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-md3-on-surface leading-tight">
-                Новый плейлист
+                {language === 'ru' ? 'Новый плейлист' : 'New Playlist'}
               </h2>
               <p className="text-xs text-md3-on-surface-variant mt-0.5 truncate max-w-[240px]">
-                {folderName ? `Внутри папки «${folderName}»` : 'Создайте подборку для избранных треков'}
+                {folderName 
+                  ? (language === 'ru' ? `Внутри папки «${folderName}»` : `Inside folder "${folderName}"`)
+                  : (language === 'ru' ? 'Создайте подборку для избранных треков' : 'Create a collection for your favorite tracks')
+                }
               </p>
             </div>
           </div>
@@ -89,14 +95,14 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
             <label className="block text-xs font-semibold text-md3-on-surface-variant mb-1.5">
-              Название плейлиста <span className="text-red-400">*</span>
+              {language === 'ru' ? 'Название плейлиста' : 'Playlist Name'} <span className="text-red-400">*</span>
             </label>
             <input
               ref={inputRef}
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Например: Любимый Рок, Вечерний чилл..."
+              placeholder={language === 'ru' ? "Например: Любимый Рок, Вечерний чилл..." : "For example: Favorite Rock, Chillout..."}
               className="w-full px-4 py-2.5 rounded-2xl bg-md3-surface text-sm text-md3-on-surface placeholder-md3-on-surface-variant/40 border border-md3-outline-variant/20 focus:border-md3-primary outline-none transition-all shadow-inner"
               maxLength={60}
             />
@@ -104,12 +110,12 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
 
           <div>
             <label className="block text-xs font-semibold text-md3-on-surface-variant mb-1.5">
-              Описание (необязательно)
+              {language === 'ru' ? 'Описание (необязательно)' : 'Description (optional)'}
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Коротко о настроении или содержании плейлиста..."
+              placeholder={language === 'ru' ? "Коротко о настроении или содержании плейлиста..." : "Short note about mood or tracks..."}
               rows={2}
               className="w-full px-4 py-2.5 rounded-2xl bg-md3-surface text-sm text-md3-on-surface placeholder-md3-on-surface-variant/40 border border-md3-outline-variant/20 focus:border-md3-primary outline-none transition-all resize-none shadow-inner"
               maxLength={150}
@@ -123,7 +129,7 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 rounded-full text-xs font-semibold text-md3-on-surface-variant hover:bg-md3-surface-container-high transition-colors cursor-pointer"
             >
-              Отмена
+              {language === 'ru' ? 'Отмена' : 'Cancel'}
             </button>
             <button
               type="submit"
@@ -131,7 +137,7 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
               className="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-md3-primary text-md3-on-primary text-xs font-bold shadow-md hover:scale-105 active:scale-95 disabled:opacity-40 disabled:hover:scale-100 disabled:cursor-not-allowed transition-all cursor-pointer"
             >
               <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>Создать</span>
+              <span>{language === 'ru' ? 'Создать' : 'Create'}</span>
             </button>
           </div>
         </form>

@@ -2,10 +2,12 @@ import React, { useMemo } from 'react';
 import { Disc3, Play, Clock, Music2 } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
+import { AppLanguage } from '../i18n';
 
 interface AlbumsGridViewProps {
   tracks: Track[];
   searchQuery?: string;
+  language?: AppLanguage;
   onSelectAlbum: (albumName: string) => void;
   onPlayAlbum: (tracks: Track[]) => void;
 }
@@ -13,6 +15,7 @@ interface AlbumsGridViewProps {
 export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
   tracks,
   searchQuery = '',
+  language = 'ru',
   onSelectAlbum,
   onPlayAlbum,
 }) => {
@@ -57,8 +60,14 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
         <div className="w-20 h-20 rounded-full bg-md3-surface-container-high flex items-center justify-center mb-4 text-md3-primary">
           <Disc3 className="w-10 h-10" />
         </div>
-        <h2 className="text-xl font-bold text-md3-on-surface mb-2">Альбомы не найдены</h2>
-        <p className="text-sm max-w-md">Добавьте аудиотреки в библиотеку, чтобы увидеть сгруппированные альбомы.</p>
+        <h2 className="text-xl font-bold text-md3-on-surface mb-2">
+          {language === 'ru' ? 'Альбомы не найдены' : 'No albums found'}
+        </h2>
+        <p className="text-sm max-w-md">
+          {language === 'ru'
+            ? 'Добавьте аудиотреки в библиотеку, чтобы увидеть сгруппированные альбомы.'
+            : 'Add audio tracks to your library to see grouped albums.'}
+        </p>
       </div>
     );
   }
@@ -69,8 +78,14 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
         <div className="w-20 h-20 rounded-full bg-md3-surface-container-high flex items-center justify-center mb-4 text-md3-primary">
           <Disc3 className="w-10 h-10" />
         </div>
-        <h2 className="text-xl font-bold text-md3-on-surface mb-2">Ничего не найдено</h2>
-        <p className="text-sm max-w-md">По запросу «{searchQuery}» альбомы не найдены.</p>
+        <h2 className="text-xl font-bold text-md3-on-surface mb-2">
+          {language === 'ru' ? 'Ничего не найдено' : 'Nothing found'}
+        </h2>
+        <p className="text-sm max-w-md">
+          {language === 'ru'
+            ? `По запросу «${searchQuery}» альбомы не найдены.`
+            : `No albums found for "${searchQuery}".`}
+        </p>
       </div>
     );
   }
@@ -79,9 +94,11 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
     <div className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-md3-on-surface">Альбомы</h1>
+          <h1 className="text-2xl font-bold text-md3-on-surface">
+            {language === 'ru' ? 'Альбомы' : 'Albums'}
+          </h1>
           <p className="text-xs text-md3-on-surface-variant mt-0.5">
-            Всего альбомов: {albums.length}
+            {language === 'ru' ? `Всего альбомов: ${albums.length}` : `Total albums: ${albums.length}`}
           </p>
         </div>
       </div>

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
+import { AppLanguage } from '../i18n';
 
 interface TrackTableProps {
   tracks: Track[];
@@ -38,6 +39,7 @@ interface TrackTableProps {
   currentView?: string;
   isReorderable?: boolean;
   onReorderTracks?: (reorderedTrackIds: string[]) => void;
+  language?: AppLanguage;
 }
 
 interface TrackDragState {
@@ -82,6 +84,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   currentView,
   isReorderable = false,
   onReorderTracks,
+  language = 'ru',
 }) => {
   const [hoveredTrackId, setHoveredTrackId] = useState<string | null>(null);
 
@@ -294,7 +297,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
         <div 
           onClick={() => onSortChange(isReorderable ? 'custom' : 'title')}
           className="flex items-center justify-center gap-1 cursor-pointer hover:text-md3-primary"
-          title={isReorderable ? "Порядок в плейлисте (нажмите для сброса сортировки)" : "Номер"}
+          title={isReorderable ? (language === 'ru' ? "Порядок в плейлисте (нажмите для сброса сортировки)" : "Playlist order (click to reset sorting)") : (language === 'ru' ? "Номер" : "Index")}
         >
           {isReorderable && <GripVertical className="w-3.5 h-3.5 opacity-50" />}
           <span>#</span>
@@ -304,33 +307,34 @@ export const TrackTable: React.FC<TrackTableProps> = ({
           onClick={() => onSortChange('title')} 
           className="flex items-center gap-1 cursor-pointer hover:text-md3-primary"
         >
-          <span>Название</span>
+          <span>{language === 'ru' ? 'Название' : 'Title'}</span>
           {sortBy === 'title' && <ArrowUpDown className="w-3 h-3 text-md3-primary" />}
         </div>
         <div 
           onClick={() => onSortChange('artist')} 
           className="flex items-center gap-1 cursor-pointer hover:text-md3-primary"
         >
-          <span>Исполнитель</span>
+          <span>{language === 'ru' ? 'Исполнитель' : 'Artist'}</span>
           {sortBy === 'artist' && <ArrowUpDown className="w-3 h-3 text-md3-primary" />}
         </div>
         <div 
           onClick={() => onSortChange('album')} 
           className="flex items-center gap-1 cursor-pointer hover:text-md3-primary"
         >
-          <span>Альбом</span>
+          <span>{language === 'ru' ? 'Альбом' : 'Album'}</span>
           {sortBy === 'album' && <ArrowUpDown className="w-3 h-3 text-md3-primary" />}
         </div>
         <div 
           onClick={() => onSortChange('genre')} 
           className="flex items-center gap-1 cursor-pointer hover:text-md3-primary"
         >
-          <span>Жанр</span>
+          <span>{language === 'ru' ? 'Жанр' : 'Genre'}</span>
           {sortBy === 'genre' && <ArrowUpDown className="w-3 h-3 text-md3-primary" />}
         </div>
         <div 
           onClick={() => onSortChange('duration')} 
           className="flex items-center justify-end gap-1 cursor-pointer hover:text-md3-primary pr-2"
+          title={language === 'ru' ? 'Длительность' : 'Duration'}
         >
           <Clock className="w-3.5 h-3.5" />
           {sortBy === 'duration' && <ArrowUpDown className="w-3 h-3 text-md3-primary" />}
@@ -348,9 +352,13 @@ export const TrackTable: React.FC<TrackTableProps> = ({
             <div className="w-16 h-16 rounded-3xl bg-md3-surface-container-high flex items-center justify-center text-md3-primary mb-4">
               <Music className="w-8 h-8 opacity-60" />
             </div>
-            <p className="text-base font-semibold text-md3-on-surface mb-1">Здесь пока пусто</p>
+            <p className="text-base font-semibold text-md3-on-surface mb-1">
+              {language === 'ru' ? 'Здесь пока пусто' : "It's empty here yet"}
+            </p>
             <p className="text-sm max-w-sm text-md3-on-surface-variant/80">
-              Перетащите аудиофайлы (MP3, FLAC, WAV, OGG) прямо в это окно или нажмите «Добавить файлы» в верхней панели!
+              {language === 'ru'
+                ? 'Перетащите аудиофайлы (MP3, FLAC, WAV, OGG) прямо в это окно или нажмите «Добавить файлы» в верхней панели!'
+                : 'Drag audio files (MP3, FLAC, WAV, OGG) right into this window or click "Add Files" in the top bar!'}
             </p>
           </div>
         ) : (
@@ -542,37 +550,37 @@ export const TrackTable: React.FC<TrackTableProps> = ({
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-4 py-2.5 rounded-full bg-md3-surface-container-highest/95 backdrop-blur-md shadow-2xl border border-md3-outline-variant/40 animate-in fade-in slide-in-from-bottom-3 duration-200">
           <div className="flex items-center gap-2 pr-3 border-r border-md3-outline-variant/40 text-xs font-bold text-md3-on-surface">
             <CheckSquare className="w-4 h-4 text-md3-primary" />
-            <span>Выбрано: {selectedCount}</span>
+            <span>{language === 'ru' ? `Выбрано: ${selectedCount}` : `Selected: ${selectedCount}`}</span>
           </div>
 
           <button
             onClick={onPlaySelected}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 shadow-sm"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 shadow-sm cursor-pointer"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
-            <span>Воспроизвести</span>
+            <span>{language === 'ru' ? 'Воспроизвести' : 'Play'}</span>
           </button>
 
           <button
             onClick={onAddSelectedToQueue}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-surface-container text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-high"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-surface-container text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-high cursor-pointer"
           >
             <ListPlus className="w-3.5 h-3.5" />
-            <span>В очередь</span>
+            <span>{language === 'ru' ? 'В очередь' : 'To Queue'}</span>
           </button>
 
           <button
             onClick={onOpenBatchTagEditor}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-secondary-container text-md3-on-secondary-container text-xs font-semibold hover:opacity-90"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-secondary-container text-md3-on-secondary-container text-xs font-semibold hover:opacity-90 cursor-pointer"
           >
             <Edit3 className="w-3.5 h-3.5" />
-            <span>Редактировать теги</span>
+            <span>{language === 'ru' ? 'Редактировать теги' : 'Edit Tags'}</span>
           </button>
 
           <button
             onClick={onClearSelection}
-            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface"
-            title="Снять выделение"
+            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface cursor-pointer"
+            title={language === 'ru' ? 'Снять выделение' : 'Clear selection'}
           >
             ✕
           </button>
