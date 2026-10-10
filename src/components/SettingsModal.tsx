@@ -30,8 +30,11 @@ import {
   Download,
   CheckCircle2,
   AlertCircle,
-  ExternalLink
+  ExternalLink,
+  FileText,
+  Calendar
 } from 'lucide-react';
+import { marked } from 'marked';
 import { ThemeMode, Track, FadeMode } from '../types/music';
 import { MainViewType } from './TopBar';
 import { formatTime } from '../services/tagEditor';
@@ -133,7 +136,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   fadeDuration,
   onSetFadeDuration,
 }) => {
-  const [currentView, setCurrentView] = useState<'main' | 'shortcuts'>('main');
+  const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes'>('main');
   const [customThemesList, setCustomThemesList] = useState<Array<{ name: string; filename: string }>>([]);
   
   // Accordion (шторка) open/closed states
@@ -141,7 +144,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isLangCurtainOpen, setIsLangCurtainOpen] = useState<boolean>(false);
 
   // App version & Update checker state
-  const [appVersion, setAppVersion] = useState<string>('0.3.51');
+  const [appVersion, setAppVersion] = useState<string>('0.3.52');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'installing' | 'error'>('idle');
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [downloadStats, setDownloadStats] = useState<{ received: string; total: string }>({ received: '0', total: '0' });
@@ -333,6 +336,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     window.open(url, '_blank');
   };
 
+  const handleOpenReleaseNotes = async () => {
+    if (!latestRelease) {
+      handleCheckUpdates();
+    }
+    setCurrentView('release_notes');
+  };
+
+  const handleMarkdownClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = (e.target as HTMLElement).closest('a');
+    if (target && target.href) {
+      e.preventDefault();
+      handleDownloadUpdate(target.href);
+    }
+  };
+
   // Fetch Tauri app version if available
   useEffect(() => {
     if (isTauri()) {
@@ -415,10 +433,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-md3-outline-variant/20 bg-md3-surface/50">
           <div className="flex items-center gap-3">
-            {currentView === 'shortcuts' ? (
+            {currentView !== 'main' ? (
               <button
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => setCurrentView('main')}
-                className="w-10 h-10 rounded-2xl bg-md3-primary/10 hover:bg-md3-primary/20 text-md3-primary flex items-center justify-center transition-all cursor-pointer"
+                className="w-10 h-10 rounded-2xl bg-md3-primary/10 hover:bg-md3-primary/20 text-md3-primary flex items-center justify-center transition-all cursor-pointer outline-none focus:outline-none"
                 title={t.settings.back}
               >
                 <ArrowLeft className="w-5 h-5 text-md3-primary" />
@@ -430,11 +450,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
             <div>
               <h3 className="font-bold text-base text-md3-on-surface">
-                {currentView === 'shortcuts' ? t.settings.shortcuts : t.settings.title}
+                {currentView === 'shortcuts'
+                  ? t.settings.shortcuts
+                  : currentView === 'release_notes'
+                  ? t.settings.releaseNotes
+                  : t.settings.title}
               </h3>
               <p className="text-xs text-md3-on-surface-variant">
                 {currentView === 'shortcuts'
                   ? t.settings.shortcutsDesc
+                  : currentView === 'release_notes'
+                  ? (latestRelease?.tagName ? `${latestRelease.name || latestRelease.tagName}` : (language === 'ru' ? 'Что нового в обновлении' : "What's new in update"))
                   : t.settings.subtitle}
               </p>
             </div>
@@ -587,6 +613,82 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
             </div>
+          </div>
+        ) : currentView === 'release_notes' ? (
+          /* Formatted Markdown Release Notes View */
+          <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar flex-1">
+            {latestRelease ? (
+              <div className="space-y-4 animate-in fade-in duration-200">
+                {/* Meta Header Card */}
+                <div className="p-4 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex items-center justify-between flex-wrap gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm text-md3-on-surface">
+                        {latestRelease.name || `Arachnid ${latestRelease.tagName}`}
+                      </span>
+                      <span className="text-[10px] font-bold font-mono px-2 py-0.5 rounded-full bg-md3-primary/15 text-md3-primary border border-md3-primary/30">
+                        {latestRelease.tagName}
+                      </span>
+                    </div>
+                    {latestRelease.publishedAt && (
+                      <div className="text-[11px] text-md3-on-surface-variant flex items-center gap-1.5 font-mono">
+                        <Calendar className="w-3.5 h-3.5 text-md3-primary" />
+                        <span>
+                          {new Date(latestRelease.publishedAt).toLocaleDateString(language === 'ru' ? 'ru-RU' : 'en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                          })}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {updateStatus === 'available' && (
+                      <button
+                        tabIndex={-1}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={handleInstallUpdate}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm hover:scale-102 active:scale-95 transition-all cursor-pointer outline-none focus:outline-none"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>{t.settings.installUpdate}</span>
+                      </button>
+                    )}
+                    <button
+                      tabIndex={-1}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleDownloadUpdate(latestRelease.htmlUrl)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-surface hover:bg-md3-surface-container-high text-md3-on-surface text-xs font-medium border border-md3-outline-variant/20 transition-all cursor-pointer outline-none focus:outline-none"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 text-md3-primary" />
+                      <span>GitHub</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Formatted Markdown Body Card */}
+                <div className="p-5 rounded-2xl bg-md3-surface border border-md3-outline-variant/15 shadow-xs">
+                  <div
+                    className="markdown-body"
+                    onClick={handleMarkdownClick}
+                    dangerouslySetInnerHTML={{
+                      __html: marked.parse(latestRelease.body || '', { async: false }) as string,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-16 space-y-3">
+                <FileText className="w-8 h-8 text-md3-on-surface-variant/40 mx-auto" />
+                <p className="text-xs text-md3-on-surface-variant">
+                  {updateStatus === 'checking'
+                    ? t.settings.checkingUpdates
+                    : (language === 'ru' ? 'Загрузка списка изменений...' : 'Loading release notes...')}
+                </p>
+              </div>
+            )}
           </div>
         ) : (
           /* Main Settings View */
@@ -1453,9 +1555,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                   {/* Status: Up to date */}
                   {updateStatus === 'upToDate' && (
-                    <div className="flex items-center gap-2 p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium animate-in fade-in">
-                      <CheckCircle2 className="w-4 h-4 shrink-0" />
-                      <span>{t.settings.latestVersionInstalled} (v{appVersion})</span>
+                    <div className="flex items-center justify-between p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium animate-in fade-in flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        <span>{t.settings.latestVersionInstalled} (v{appVersion})</span>
+                      </div>
+                      <button
+                        tabIndex={-1}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={handleOpenReleaseNotes}
+                        className="flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[11px] font-bold border border-emerald-500/30 transition-all cursor-pointer outline-none focus:outline-none"
+                      >
+                        <FileText className="w-3 h-3" />
+                        <span>{t.settings.releaseNotes}</span>
+                      </button>
                     </div>
                   )}
 
@@ -1523,12 +1636,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         )}
                       </div>
 
-                      {latestRelease.body && (
-                        <div className="text-[11px] text-md3-on-surface-variant max-h-24 overflow-y-auto custom-scrollbar whitespace-pre-wrap bg-md3-surface/60 p-2.5 rounded-xl border border-md3-outline-variant/15">
-                          {latestRelease.body}
-                        </div>
-                      )}
-
                       <div className="flex items-center gap-2 pt-1 flex-wrap">
                         {/* 1. In-place auto update & restart button */}
                         <button
@@ -1564,6 +1671,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         >
                           <ExternalLink className="w-3.5 h-3.5 text-md3-primary" />
                           <span>GitHub</span>
+                        </button>
+
+                        {/* 4. Open formatted Release Notes sub-view */}
+                        <button
+                          tabIndex={-1}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={handleOpenReleaseNotes}
+                          className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-md3-primary/15 hover:bg-md3-primary/25 text-md3-primary text-xs font-semibold border border-md3-primary/30 transition-all cursor-pointer outline-none focus:outline-none"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>{t.settings.releaseNotes}</span>
                         </button>
                       </div>
                     </div>
