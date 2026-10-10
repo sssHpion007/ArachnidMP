@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { X, Trash2, Shuffle, Music, Play, ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
+import { AppLanguage } from '../i18n';
 
 interface QueueDrawerProps {
   isOpen: boolean;
@@ -9,6 +10,7 @@ interface QueueDrawerProps {
   queue: Track[];
   queueIndex: number;
   currentTrack: Track | null;
+  language?: AppLanguage;
   onPlayQueueTrack: (index: number) => void;
   onRemoveFromQueue: (index: number) => void;
   onClearQueue: () => void;
@@ -22,6 +24,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
   queue,
   queueIndex,
   currentTrack,
+  language = 'ru',
   onPlayQueueTrack,
   onRemoveFromQueue,
   onClearQueue,
@@ -198,31 +201,36 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
       {/* Header */}
       <div className="p-4 border-b border-md3-outline-variant/20 flex items-center justify-between">
         <div>
-          <h2 className="font-bold text-base text-md3-on-surface">Очередь</h2>
+          <h2 className="font-bold text-base text-md3-on-surface">
+            {language === 'ru' ? 'Очередь' : 'Queue'}
+          </h2>
           <p className="text-xs text-md3-on-surface-variant">
-            {queue.length} {queue.length === 1 ? 'трек' : queue.length < 5 ? 'трека' : 'треков'}
+            {queue.length} {language === 'ru' 
+              ? (queue.length === 1 ? 'трек' : queue.length < 5 ? 'трека' : 'треков')
+              : (queue.length === 1 ? 'track' : 'tracks')
+            }
           </p>
         </div>
 
         <div className="flex items-center gap-1">
           <button
             onClick={onShuffleQueue}
-            title="Перемешать очередь"
-            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface"
+            title={language === 'ru' ? 'Перемешать очередь' : 'Shuffle Queue'}
+            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface cursor-pointer"
           >
             <Shuffle className="w-4 h-4" />
           </button>
           <button
             onClick={onClearQueue}
-            title="Очистить очередь [X]"
-            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-red-400"
+            title={language === 'ru' ? 'Очистить очередь [X]' : 'Clear Queue [X]'}
+            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-red-400 cursor-pointer"
           >
             <Trash2 className="w-4 h-4" />
           </button>
           <button
             onClick={onClose}
-            title="Закрыть очередь [Q / Esc]"
-            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface"
+            title={language === 'ru' ? 'Закрыть очередь [Q / Esc]' : 'Close Queue [Q / Esc]'}
+            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -234,7 +242,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
         {queue.length === 0 ? (
           <div className="h-48 flex flex-col items-center justify-center text-center text-md3-on-surface-variant text-sm p-4">
             <Music className="w-8 h-8 opacity-40 mb-2" />
-            <span>Очередь воспроизведения пуста</span>
+            <span>{language === 'ru' ? 'Очередь воспроизведения пуста' : 'Playback queue is empty'}</span>
           </div>
         ) : (
           queue.map((track, idx) => {

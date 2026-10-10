@@ -13,12 +13,14 @@ import {
   PenTool
 } from 'lucide-react';
 import { Track } from '../types/music';
+import { AppLanguage } from '../i18n';
 
 interface LyricsModalProps {
   isOpen: boolean;
   track: Track | null;
   currentTime: number;
   isPlaying: boolean;
+  language?: AppLanguage;
   onSeek?: (time: number) => void;
   onSaveLyrics: (trackId: string, lyrics: string, isInstrumental: boolean, lyricist?: string) => void;
   onClose: () => void;
@@ -34,6 +36,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
   track,
   currentTime,
   isPlaying,
+  language = 'ru',
   onSeek,
   onSaveLyrics,
   onClose,
@@ -213,18 +216,18 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
             {hasLyricsText && (
               <button
                 onClick={handleCopyLyrics}
-                title={copiedLyrics ? 'Текст скопирован!' : 'Скопировать текст песни'}
+                title={copiedLyrics ? (language === 'ru' ? 'Текст скопирован!' : 'Lyrics copied!') : (language === 'ru' ? 'Скопировать текст песни' : 'Copy lyrics')}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-md3-surface-container text-md3-on-surface hover:bg-md3-surface-container-high border border-md3-outline-variant/20 transition-all cursor-pointer hover:scale-102 active:scale-95"
               >
                 {copiedLyrics ? (
                   <>
                     <Check className="w-3.5 h-3.5 text-emerald-500" />
-                    <span className="text-emerald-500 font-bold">Скопировано</span>
+                    <span className="text-emerald-500 font-bold">{language === 'ru' ? 'Скопировано' : 'Copied'}</span>
                   </>
                 ) : (
                   <>
                     <Copy className="w-3.5 h-3.5 text-md3-primary" />
-                    <span>Копировать</span>
+                    <span>{language === 'ru' ? 'Копировать' : 'Copy'}</span>
                   </>
                 )}
               </button>
@@ -240,12 +243,12 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
               }`}
             >
               <Edit3 className="w-3.5 h-3.5" />
-              <span>{isEditing ? 'Просмотр' : 'Редактировать'}</span>
+              <span>{isEditing ? (language === 'ru' ? 'Просмотр' : 'View') : (language === 'ru' ? 'Редактировать' : 'Edit')}</span>
             </button>
 
             <button
               onClick={onClose}
-              title="Закрыть [Esc]"
+              title={language === 'ru' ? 'Закрыть [Esc]' : 'Close [Esc]'}
               className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer"
             >
               <X className="w-4 h-4" />

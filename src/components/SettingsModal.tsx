@@ -20,11 +20,13 @@ import {
   Keyboard,
   ArrowLeft,
   ChevronRight,
+  ChevronDown,
   Globe,
   FolderOpen,
   RefreshCw,
   Layers,
-  FileCode
+  FileCode,
+  Radio
 } from 'lucide-react';
 import { ThemeMode, Track, FadeMode } from '../types/music';
 import { MainViewType } from './TopBar';
@@ -129,6 +131,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [currentView, setCurrentView] = useState<'main' | 'shortcuts'>('main');
   const [customThemesList, setCustomThemesList] = useState<Array<{ name: string; filename: string }>>([]);
+  
+  // Accordion (шторка) open/closed states
+  const [isThemeCurtainOpen, setIsThemeCurtainOpen] = useState<boolean>(false);
+  const [isLangCurtainOpen, setIsLangCurtainOpen] = useState<boolean>(false);
 
   const t = getTranslations(language);
 
@@ -174,6 +180,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     { id: 'genres' as MainViewType, label: t.nav.genres, icon: Tag },
   ];
 
+  // Helper to get active theme display label
+  const getActiveThemeLabel = () => {
+    if (appTheme === 'default') return t.settings.themeStandard;
+    if (appTheme === 'discord') return t.settings.themeDiscord;
+    if (appTheme === 'telegram') return t.settings.themeTelegram;
+    if (appTheme === 'cyberpunk') return t.settings.themeCyberpunk;
+    if (appTheme.startsWith('custom:')) {
+      const filename = appTheme.replace('custom:', '');
+      const found = customThemesList.find(c => c.filename === filename);
+      return found ? found.name : filename;
+    }
+    return t.settings.themeStandard;
+  };
+
+  const getActiveThemeBadge = () => {
+    if (appTheme === 'default') return 'Material 3';
+    if (appTheme === 'discord') return 'Discord';
+    if (appTheme === 'telegram') return 'Telegram';
+    if (appTheme === 'cyberpunk') return 'Duotone';
+    return '.css';
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div 
@@ -187,7 +215,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <button
                 onClick={() => setCurrentView('main')}
                 className="w-10 h-10 rounded-2xl bg-md3-primary/10 hover:bg-md3-primary/20 text-md3-primary flex items-center justify-center transition-all cursor-pointer"
-                title="Назад к настройкам"
+                title={t.settings.back}
               >
                 <ArrowLeft className="w-5 h-5 text-md3-primary" />
               </button>
@@ -217,87 +245,87 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Content */}
         {currentView === 'shortcuts' ? (
-          /* Keyboard Shortcuts View */
+          /* Keyboard Shortcuts View (100% Fully Localized) */
           <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar">
             {/* Playback & Volume */}
             <div className="space-y-3">
               <div className="text-xs font-bold uppercase tracking-wider text-md3-primary flex items-center gap-2">
                 <Music className="w-4 h-4" />
-                <span>Воспроизведение и звук</span>
+                <span>{t.shortcuts.playbackAndSound}</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
                   <span className="text-md3-on-surface-variant">{t.shortcuts.space}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Space
+                    {t.shortcuts.spaceKey}
                   </kbd>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">Следующий трек</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.nextTrack}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     Ctrl + →
                   </kbd>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">Предыдущий трек</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.prevTrack}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     Ctrl + ←
                   </kbd>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">Перемотка (±5 сек)</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.seek}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     ← / →
                   </kbd>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.ctrlArrows}</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.volumeAdj}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     Ctrl + ↑ / ↓
                   </kbd>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.arrowsNav}</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.trackNav}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     ↑ / ↓
                   </kbd>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.enterPlay}</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.playSelected}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     Enter
                   </kbd>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.shiftEnterEdit}</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.editTags}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     Shift + Enter
                   </kbd>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.keyM}</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.mute}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     M
                   </kbd>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">Случайный порядок</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.shuffle}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     E
                   </kbd>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">Режим зацикливания</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.repeat}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     R
                   </kbd>
@@ -309,46 +337,46 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="space-y-3">
               <div className="text-xs font-bold uppercase tracking-wider text-md3-primary flex items-center gap-2">
                 <LayoutGrid className="w-4 h-4" />
-                <span>Навигация и панели</span>
+                <span>{t.shortcuts.navigationAndPanels}</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.keyF}</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.search}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     F / Ctrl + F
                   </kbd>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.keyQ}</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.queue}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     Q
                   </kbd>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.keyL}</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.lyrics}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     L
                   </kbd>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.keyD}</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.discord}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     D
                   </kbd>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.keyComma}</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.settings}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     Ctrl + ,
                   </kbd>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">Полноэкранный режим</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.fullscreen}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     F11
                   </kbd>
@@ -418,116 +446,199 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
 
-              {/* Theme Style Selector (CSS Темы) */}
-              <div className="space-y-2.5 pt-1">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-semibold text-md3-on-surface flex items-center gap-1.5">
-                    <Layers className="w-3.5 h-3.5 text-md3-primary" />
-                    <span>{t.settings.themeStyle}</span>
-                  </div>
-                  <button 
-                    onClick={refreshCustomThemes}
-                    title={t.settings.reloadThemes}
-                    className="p-1 rounded-lg text-md3-on-surface-variant hover:text-md3-primary hover:bg-md3-surface-container-high transition-colors cursor-pointer"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  </button>
+              {/* Theme Style Selector (ШТОРКА ТЕМЫ ОФОРМЛЕНИЯ) */}
+              <div className="space-y-2 pt-1">
+                <div className="text-xs font-semibold text-md3-on-surface flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-md3-primary" />
+                  <span>{t.settings.themeStyle}</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2.5">
-                  {/* Built-in Standard Theme (Cannot be deleted) */}
+                {/* Шторка trigger card */}
+                <div className="rounded-2xl border border-md3-outline-variant/20 bg-md3-surface overflow-hidden transition-all shadow-xs">
                   <button
-                    onClick={() => onSetAppTheme('default')}
-                    className={`p-3 rounded-2xl border flex flex-col items-start gap-1 transition-all cursor-pointer text-left ${
-                      appTheme === 'default'
-                        ? 'border-md3-primary bg-md3-primary/10 text-md3-primary shadow-xs'
-                        : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
-                    }`}
+                    onClick={() => setIsThemeCurtainOpen(!isThemeCurtainOpen)}
+                    className="w-full p-3.5 flex items-center justify-between text-left cursor-pointer hover:bg-md3-surface-container-high/60 transition-colors"
                   >
-                    <div className="flex items-center justify-between w-full">
-                      <span className="text-xs font-bold text-md3-on-surface">Material 3 (Вшитая)</span>
-                      {appTheme === 'default' && <Check className="w-3.5 h-3.5 text-md3-primary" />}
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-xl bg-md3-primary/15 text-md3-primary flex items-center justify-center shrink-0">
+                        <Palette className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-md3-on-surface truncate">
+                            {getActiveThemeLabel()}
+                          </span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-md3-primary/15 text-md3-primary font-mono shrink-0">
+                            {getActiveThemeBadge()}
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-md3-on-surface-variant truncate block">
+                          {appTheme === 'default' ? t.settings.themeStandardDesc : t.settings.themeCurtainSelect}
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-[10px] opacity-70">Стандартная палитра Material Design</span>
+                    <ChevronDown className={`w-4 h-4 text-md3-on-surface-variant transition-transform duration-200 shrink-0 ml-2 ${isThemeCurtainOpen ? 'rotate-180 text-md3-primary' : ''}`} />
                   </button>
 
-                  {/* Built-in Discord Theme */}
-                  <button
-                    onClick={() => onSetAppTheme('discord')}
-                    className={`p-3 rounded-2xl border flex flex-col items-start gap-1 transition-all cursor-pointer text-left ${
-                      appTheme === 'discord'
-                        ? 'border-[#5865f2] bg-[#5865f2]/10 text-[#5865f2] shadow-xs'
-                        : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between w-full">
-                      <span className="text-xs font-bold text-md3-on-surface">Discord</span>
-                      {appTheme === 'discord' && <Check className="w-3.5 h-3.5 text-[#5865f2]" />}
-                    </div>
-                    <span className="text-[10px] opacity-70">Тёмная эстетика Discord с акцентами</span>
-                  </button>
+                  {/* Раскрывающаяся шторка с плавной прокруткой */}
+                  {isThemeCurtainOpen && (
+                    <div className="border-t border-md3-outline-variant/20 p-2.5 bg-md3-surface-container-low/70 space-y-3 animate-in fade-in duration-200">
+                      
+                      {/* Секция: Встроенные темы */}
+                      <div className="space-y-1.5">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-md3-primary px-1">
+                          {t.settings.builtinThemes}
+                        </div>
+                        <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
+                          
+                          {/* 1. Material 3 (Standard) */}
+                          <button
+                            onClick={() => {
+                              onSetAppTheme('default');
+                              setIsThemeCurtainOpen(false);
+                            }}
+                            className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
+                              appTheme === 'default'
+                                ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                                : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-3.5 h-3.5 rounded-full bg-[#8b5cf6] shrink-0" />
+                              <div className="min-w-0">
+                                <div className="text-xs font-semibold text-md3-on-surface truncate">{t.settings.themeStandard}</div>
+                                <div className="text-[10px] text-md3-on-surface-variant truncate">{t.settings.themeStandardDesc}</div>
+                              </div>
+                            </div>
+                            {appTheme === 'default' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
+                          </button>
 
-                  {/* Built-in Telegram Theme */}
-                  <button
-                    onClick={() => onSetAppTheme('telegram')}
-                    className={`p-3 rounded-2xl border flex flex-col items-start gap-1 transition-all cursor-pointer text-left ${
-                      appTheme === 'telegram'
-                        ? 'border-[#5288c1] bg-[#5288c1]/10 text-[#5288c1] shadow-xs'
-                        : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between w-full">
-                      <span className="text-xs font-bold text-md3-on-surface">Telegram</span>
-                      {appTheme === 'telegram' && <Check className="w-3.5 h-3.5 text-[#5288c1]" />}
-                    </div>
-                    <span className="text-[10px] opacity-70">Ночная сине-графитовая тема</span>
-                  </button>
+                          {/* 2. Discord */}
+                          <button
+                            onClick={() => {
+                              onSetAppTheme('discord');
+                              setIsThemeCurtainOpen(false);
+                            }}
+                            className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
+                              appTheme === 'discord'
+                                ? 'border-[#5865f2] bg-[#5865f2]/10 text-[#5865f2] font-bold shadow-xs'
+                                : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-3.5 h-3.5 rounded-full bg-[#5865f2] shrink-0" />
+                              <div className="min-w-0">
+                                <div className="text-xs font-semibold text-md3-on-surface truncate">{t.settings.themeDiscord}</div>
+                                <div className="text-[10px] text-md3-on-surface-variant truncate">{t.settings.themeDiscordDesc}</div>
+                              </div>
+                            </div>
+                            {appTheme === 'discord' && <Check className="w-4 h-4 text-[#5865f2] shrink-0" />}
+                          </button>
 
-                  {/* Built-in Cyberpunk Duotone Theme */}
-                  <button
-                    onClick={() => onSetAppTheme('cyberpunk')}
-                    className={`p-3 rounded-2xl border flex flex-col items-start gap-1 transition-all cursor-pointer text-left ${
-                      appTheme === 'cyberpunk'
-                        ? 'border-[#00f5d4] bg-[#00f5d4]/10 text-[#00f5d4] shadow-xs'
-                        : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between w-full">
-                      <span className="text-xs font-bold text-md3-on-surface">Cyberpunk (2 цвета)</span>
-                      {appTheme === 'cyberpunk' && <Check className="w-3.5 h-3.5 text-[#00f5d4]" />}
+                          {/* 3. Telegram */}
+                          <button
+                            onClick={() => {
+                              onSetAppTheme('telegram');
+                              setIsThemeCurtainOpen(false);
+                            }}
+                            className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
+                              appTheme === 'telegram'
+                                ? 'border-[#5288c1] bg-[#5288c1]/10 text-[#5288c1] font-bold shadow-xs'
+                                : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-3.5 h-3.5 rounded-full bg-[#5288c1] shrink-0" />
+                              <div className="min-w-0">
+                                <div className="text-xs font-semibold text-md3-on-surface truncate">{t.settings.themeTelegram}</div>
+                                <div className="text-[10px] text-md3-on-surface-variant truncate">{t.settings.themeTelegramDesc}</div>
+                              </div>
+                            </div>
+                            {appTheme === 'telegram' && <Check className="w-4 h-4 text-[#5288c1] shrink-0" />}
+                          </button>
+
+                          {/* 4. Cyberpunk Duotone (2 цвета) */}
+                          <button
+                            onClick={() => {
+                              onSetAppTheme('cyberpunk');
+                              setIsThemeCurtainOpen(false);
+                            }}
+                            className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
+                              appTheme === 'cyberpunk'
+                                ? 'border-[#00f5d4] bg-[#00f5d4]/10 text-[#00f5d4] font-bold shadow-xs'
+                                : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="flex items-center -space-x-1.5 shrink-0">
+                                <div className="w-3.5 h-3.5 rounded-full bg-[#00f5d4]" />
+                                <div className="w-3.5 h-3.5 rounded-full bg-[#f72585]" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs font-semibold text-md3-on-surface truncate">{t.settings.themeCyberpunk}</div>
+                                <div className="text-[10px] text-md3-on-surface-variant truncate">{t.settings.themeCyberpunkDesc}</div>
+                              </div>
+                            </div>
+                            {appTheme === 'cyberpunk' && <Check className="w-4 h-4 text-[#00f5d4] shrink-0" />}
+                          </button>
+
+                          {/* Секция: Пользовательские темы из themes/ */}
+                          <div className="pt-2">
+                            <div className="flex items-center justify-between px-1 pb-1">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-md3-primary">
+                                {t.settings.customThemes}
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  refreshCustomThemes();
+                                }}
+                                title={t.settings.reloadThemes}
+                                className="p-1 rounded text-md3-on-surface-variant hover:text-md3-primary cursor-pointer"
+                              >
+                                <RefreshCw className="w-3 h-3" />
+                              </button>
+                            </div>
+
+                            {customThemesList.length > 0 ? (
+                              customThemesList.map((ct) => (
+                                <button
+                                  key={ct.filename}
+                                  onClick={() => {
+                                    onSetAppTheme(`custom:${ct.filename}`);
+                                    setIsThemeCurtainOpen(false);
+                                  }}
+                                  className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left mb-1.5 ${
+                                    appTheme === `custom:${ct.filename}`
+                                      ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                                      : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    <FileCode className="w-3.5 h-3.5 text-md3-primary shrink-0" />
+                                    <div className="min-w-0">
+                                      <div className="text-xs font-semibold text-md3-on-surface truncate">{ct.name}</div>
+                                      <div className="text-[10px] text-md3-on-surface-variant font-mono truncate">{ct.filename}</div>
+                                    </div>
+                                  </div>
+                                  {appTheme === `custom:${ct.filename}` && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
+                                </button>
+                              ))
+                            ) : (
+                              <div className="p-2.5 rounded-xl bg-md3-surface text-center text-[11px] text-md3-on-surface-variant">
+                                {t.settings.noCustomThemes}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
                     </div>
-                    <span className="text-[10px] opacity-70">Неоновый двухцветный дуэт</span>
-                  </button>
+                  )}
                 </div>
-
-                {/* Custom CSS files from themes/ folder */}
-                {customThemesList.length > 0 && (
-                  <div className="pt-1.5 space-y-1.5">
-                    <div className="text-[11px] font-semibold text-md3-on-surface-variant flex items-center gap-1.5">
-                      <FileCode className="w-3.5 h-3.5 text-md3-primary" />
-                      <span>{t.settings.customThemes} (папка themes/)</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {customThemesList.map((ct) => (
-                        <button
-                          key={ct.filename}
-                          onClick={() => onSetAppTheme(`custom:${ct.filename}`)}
-                          className={`p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
-                            appTheme === `custom:${ct.filename}`
-                              ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                              : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
-                          }`}
-                        >
-                          <span className="text-xs truncate">{ct.name}</span>
-                          {appTheme === `custom:${ct.filename}` && <Check className="w-3.5 h-3.5 text-md3-primary shrink-0" />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
 
-              {/* Dynamic Color Controls Depending on Theme Style */}
+              {/* Dynamic Color Controls Depending on Selected Theme */}
               {appTheme === 'default' && (
                 <div className="space-y-2.5 pt-2 border-t border-md3-outline-variant/15 animate-in fade-in duration-200">
                   <div className="text-xs font-semibold text-md3-on-surface">{t.settings.colorPalette}</div>
@@ -595,7 +706,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <label
                           className="relative w-8 h-8 rounded-full shadow-md hover:scale-110 active:scale-95 transition-transform cursor-pointer flex items-center justify-center border-2 border-white/40 overflow-hidden"
                           style={{ backgroundColor: seedColor }}
-                          title="Выбрать свой цвет"
+                          title={t.settings.paletteCustom}
                         >
                           <input
                             type="color"
@@ -614,7 +725,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {appTheme === 'discord' && (
                 <div className="p-3.5 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 space-y-2.5 animate-in fade-in duration-200">
                   <div className="text-xs font-medium text-md3-on-surface-variant">
-                    Выберите акцентный цвет Discord:
+                    {t.settings.pickDiscordColor}
                   </div>
                   <div className="flex items-center gap-2.5 flex-wrap">
                     {DISCORD_PRESETS.map((p) => (
@@ -633,7 +744,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <label
                       className="relative w-8 h-8 rounded-full shadow-md hover:scale-110 active:scale-95 transition-transform cursor-pointer flex items-center justify-center border-2 border-white/40 overflow-hidden"
                       style={{ backgroundColor: seedColor }}
-                      title="Выбрать свой цвет"
+                      title={t.settings.paletteCustom}
                     >
                       <input
                         type="color"
@@ -650,7 +761,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {appTheme === 'telegram' && (
                 <div className="p-3.5 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 space-y-2.5 animate-in fade-in duration-200">
                   <div className="text-xs font-medium text-md3-on-surface-variant">
-                    Выберите акцентный цвет Telegram:
+                    {t.settings.pickTelegramColor}
                   </div>
                   <div className="flex items-center gap-2.5 flex-wrap">
                     {TELEGRAM_PRESETS.map((p) => (
@@ -669,7 +780,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <label
                       className="relative w-8 h-8 rounded-full shadow-md hover:scale-110 active:scale-95 transition-transform cursor-pointer flex items-center justify-center border-2 border-white/40 overflow-hidden"
                       style={{ backgroundColor: seedColor }}
-                      title="Выбрать свой цвет"
+                      title={t.settings.paletteCustom}
                     >
                       <input
                         type="color"
@@ -686,7 +797,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {appTheme === 'cyberpunk' && (
                 <div className="p-3.5 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 space-y-3.5 animate-in fade-in duration-200">
                   <div className="text-xs font-medium text-md3-on-surface-variant">
-                    Пресеты двух цветов:
+                    {t.settings.duotonePresets}
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     {CYBERPUNK_PAIRS.map((pair) => (
@@ -751,14 +862,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {appTheme.startsWith('custom:') && (
                 <div className="p-3.5 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 text-xs text-md3-on-surface-variant flex items-center justify-between animate-in fade-in duration-200">
                   <div className="space-y-0.5">
-                    <div className="font-semibold text-md3-on-surface">Пользовательский CSS</div>
-                    <div className="text-[11px]">Файл: {appTheme.replace('custom:', '')}</div>
+                    <div className="font-semibold text-md3-on-surface">{t.settings.customCssActive}</div>
+                    <div className="text-[11px]">{t.settings.customCssFile} {appTheme.replace('custom:', '')}</div>
                   </div>
                   <button
                     onClick={refreshCustomThemes}
                     className="px-3 py-1.5 rounded-xl bg-md3-primary/10 text-md3-primary hover:bg-md3-primary/20 text-xs font-semibold cursor-pointer"
                   >
-                    Обновить стили
+                    {t.settings.refreshStyles}
                   </button>
                 </div>
               )}
@@ -771,8 +882,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <Volume2 className="w-4 h-4 text-md3-primary" />
                   <span>{t.settings.crossfade}</span>
                 </div>
-                <div className="text-xs text-md3-on-surface-variant">
-                  {fadeMode === 'off' ? 'Выключено' : `${fadeDuration.toFixed(1)} сек`}
+                <div className="text-xs text-md3-on-surface-variant font-mono">
+                  {fadeMode === 'off' ? t.settings.crossfadeOff : `${fadeDuration.toFixed(1)}s`}
                 </div>
               </div>
 
@@ -786,8 +897,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
                   }`}
                 >
-                  <span className="text-xs">Выключено</span>
-                  <span className="text-[10px] opacity-70">Без затухания</span>
+                  <span className="text-xs">{t.settings.crossfadeOff}</span>
+                  <span className="text-[10px] opacity-70">{t.settings.crossfadeOffDesc}</span>
                 </button>
 
                 <button
@@ -798,8 +909,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
                   }`}
                 >
-                  <span className="text-xs">Смена и пауза</span>
-                  <span className="text-[10px] opacity-70">Мягкие переходы</span>
+                  <span className="text-xs">{t.settings.crossfadeChangePause}</span>
+                  <span className="text-[10px] opacity-70">{t.settings.crossfadeChangePauseDesc}</span>
                 </button>
 
                 <button
@@ -810,8 +921,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
                   }`}
                 >
-                  <span className="text-xs">Всегда</span>
-                  <span className="text-[10px] opacity-70">Включая зацикливание</span>
+                  <span className="text-xs">{t.settings.crossfadeAlways}</span>
+                  <span className="text-[10px] opacity-70">{t.settings.crossfadeAlwaysDesc}</span>
                 </button>
               </div>
 
@@ -821,9 +932,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-md3-on-surface-variant flex items-center gap-1.5">
                       <Clock className="w-3.5 h-3.5 text-md3-primary" />
-                      Длительность затухания
+                      {t.settings.fadeDuration}
                     </span>
-                    <span className="font-bold text-md3-primary font-mono">{fadeDuration.toFixed(1)} с</span>
+                    <span className="font-bold text-md3-primary font-mono">{fadeDuration.toFixed(1)}s</span>
                   </div>
                   <input
                     type="range"
@@ -851,7 +962,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <span>{t.settings.navigationTabs}</span>
               </div>
               <p className="text-xs text-md3-on-surface-variant">
-                Включите или отключите разделы в верхней навигационной панели:
+                {t.settings.navigationTabsDesc}
               </p>
               <div className="grid grid-cols-2 gap-2">
                 {navTabConfigs.map((tab) => {
@@ -897,7 +1008,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     ? 'bg-[#5865F2]/15 text-[#5865F2] border border-[#5865F2]/30' 
                     : 'bg-md3-surface-container-high text-md3-on-surface-variant'
                 }`}>
-                  {discordEnabled ? 'Включено' : 'Выключено'}
+                  {discordEnabled ? t.settings.discordEnabled : t.settings.discordDisabled}
                 </div>
               </div>
 
@@ -908,7 +1019,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {t.settings.discordToggle}
                   </div>
                   <div className="text-[11px] text-md3-on-surface-variant">
-                    Транслировать текущий трек, обложку и статус воспроизведения в Discord
+                    {t.settings.discordToggleDesc}
                   </div>
                 </div>
                 <input
@@ -922,7 +1033,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {/* Live Preview Card */}
               <div className="p-3.5 rounded-2xl bg-[#2b2d31] border border-white/10 space-y-2">
                 <div className="text-[11px] font-bold text-[#949ba4] uppercase tracking-wider flex items-center gap-1.5">
-                  <span>Предпросмотр профиля Discord</span>
+                  <span>{t.settings.discordPreview}</span>
                 </div>
 
                 <div className="flex items-center gap-3 p-2 rounded-xl bg-[#1e1f22]">
@@ -954,7 +1065,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       by {currentTrack ? currentTrack.artist : 'Synthwave Sunset'}
                     </div>
                     <div className="text-[10px] text-[#949ba4] font-mono">
-                      {isPlaying ? `${formatTime(currentTime)} прошло (Играет)` : 'Пауза'}
+                      {isPlaying ? `${formatTime(currentTime)} (${t.settings.playing})` : t.settings.paused}
                     </div>
                   </div>
                 </div>
@@ -967,7 +1078,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {t.settings.discordTopBar}
                   </div>
                   <div className="text-[11px] text-md3-on-surface-variant">
-                    Отображать быстрый переключатель Discord в правом углу (горячая клавиша: D)
+                    {t.settings.discordTopBarDesc}
                   </div>
                 </div>
                 <input
@@ -979,7 +1090,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
-            {/* 5. Section: Language (Язык интерфейса) - Перед горячими клавишами */}
+            {/* 5. Section: Language (ШТОРКА ЯЗЫКА ИНТЕРФЕЙСА) - Перед горячими клавишами */}
             <div className="space-y-3 pt-4 border-t border-md3-outline-variant/20">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
@@ -996,37 +1107,83 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
               <p className="text-xs text-md3-on-surface-variant">
-                {t.settings.languageDesc} (определяется автоматически по языку системы при первом запуске)
+                {t.settings.languageDesc}
               </p>
-              <div className="grid grid-cols-2 gap-3">
+
+              {/* Шторка trigger card */}
+              <div className="rounded-2xl border border-md3-outline-variant/20 bg-md3-surface overflow-hidden transition-all shadow-xs">
                 <button
-                  onClick={() => onSetLanguage('ru')}
-                  className={`p-3 rounded-2xl border flex items-center gap-3 transition-all cursor-pointer ${
-                    language === 'ru'
-                      ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                      : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
-                  }`}
+                  onClick={() => setIsLangCurtainOpen(!isLangCurtainOpen)}
+                  className="w-full p-3.5 flex items-center justify-between text-left cursor-pointer hover:bg-md3-surface-container-high/60 transition-colors"
                 >
-                  <span className="text-2xl">🇷🇺</span>
-                  <div className="text-left">
-                    <div className="text-xs font-bold text-md3-on-surface">Русский</div>
-                    <div className="text-[10px] opacity-70">По умолчанию для RU/CIS</div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl shrink-0">
+                      {language === 'ru' ? '🇷🇺' : '🇬🇧'}
+                    </span>
+                    <div>
+                      <div className="text-xs font-bold text-md3-on-surface">
+                        {language === 'ru' ? 'Русский' : 'English'}
+                      </div>
+                      <div className="text-[10px] text-md3-on-surface-variant opacity-80">
+                        {language === 'ru' ? 'По умолчанию для RU/CIS' : 'International'}
+                      </div>
+                    </div>
                   </div>
+                  <ChevronDown className={`w-4 h-4 text-md3-on-surface-variant transition-transform duration-200 shrink-0 ${isLangCurtainOpen ? 'rotate-180 text-md3-primary' : ''}`} />
                 </button>
-                <button
-                  onClick={() => onSetLanguage('en')}
-                  className={`p-3 rounded-2xl border flex items-center gap-3 transition-all cursor-pointer ${
-                    language === 'en'
-                      ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                      : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
-                  }`}
-                >
-                  <span className="text-2xl">🇬🇧</span>
-                  <div className="text-left">
-                    <div className="text-xs font-bold text-md3-on-surface">English</div>
-                    <div className="text-[10px] opacity-70">International</div>
+
+                {/* Раскрывающаяся шторка с плавной прокруткой */}
+                {isLangCurtainOpen && (
+                  <div className="border-t border-md3-outline-variant/20 p-2.5 bg-md3-surface-container-low/70 space-y-2 animate-in fade-in duration-200">
+                    <div className="max-h-48 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
+                      
+                      {/* Русский */}
+                      <button
+                        onClick={() => {
+                          onSetLanguage('ru');
+                          setIsLangCurtainOpen(false);
+                        }}
+                        className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
+                          language === 'ru'
+                            ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                            : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-xl shrink-0">🇷🇺</span>
+                          <div>
+                            <div className="text-xs font-bold text-md3-on-surface">Русский</div>
+                            <div className="text-[10px] text-md3-on-surface-variant">По умолчанию для RU/CIS</div>
+                          </div>
+                        </div>
+                        {language === 'ru' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
+                      </button>
+
+                      {/* English */}
+                      <button
+                        onClick={() => {
+                          onSetLanguage('en');
+                          setIsLangCurtainOpen(false);
+                        }}
+                        className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
+                          language === 'en'
+                            ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                            : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-xl shrink-0">🇬🇧</span>
+                          <div>
+                            <div className="text-xs font-bold text-md3-on-surface">English</div>
+                            <div className="text-[10px] text-md3-on-surface-variant">International</div>
+                          </div>
+                        </div>
+                        {language === 'en' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
+                      </button>
+
+                    </div>
                   </div>
-                </button>
+                )}
               </div>
             </div>
 
@@ -1063,11 +1220,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 />
                 <div className="space-y-0.5 min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-sm text-md3-on-surface">Arachnid Music Player</span>
-                    <span className="text-[11px] font-mono opacity-70">v0.3.43</span>
+                    <span className="font-bold text-sm text-md3-on-surface">{t.settings.about}</span>
+                    <span className="text-[11px] font-mono opacity-70">v0.3.44</span>
                   </div>
                   <p className="text-xs text-md3-on-surface-variant">
-                    Модульный аудиоплеер с поддержкой gapless loop, Discord RPC и тем оформления
+                    {t.settings.aboutDesc}
                   </p>
                 </div>
               </div>
@@ -1082,7 +1239,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             onClick={onClose}
             className="px-5 py-2 rounded-xl bg-md3-primary text-md3-on-primary font-semibold text-xs shadow-md hover:opacity-90 active:scale-98 transition-all cursor-pointer"
           >
-            Готово
+            {t.settings.done}
           </button>
         </div>
       </div>

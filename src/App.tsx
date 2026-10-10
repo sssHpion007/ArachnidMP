@@ -2210,6 +2210,7 @@ export const App: React.FC = () => {
         isShuffled={isShuffled}
         queueCount={queue.length}
         isQueueOpen={isQueueOpen}
+        language={language}
         onPlayPause={handlePlayPause}
         onPrev={handlePrev}
         onNext={handleNext}
@@ -2231,6 +2232,7 @@ export const App: React.FC = () => {
         queue={queue}
         queueIndex={queueIndex}
         currentTrack={currentTrack}
+        language={language}
         onPlayQueueTrack={(idx) => {
           playQueueIndex(idx);
         }}
@@ -2498,6 +2500,7 @@ export const App: React.FC = () => {
         track={currentTrack}
         currentTime={currentTime}
         isPlaying={isPlaying}
+        language={language}
         onSeek={handleSeek}
         onSaveLyrics={handleSaveLyrics}
         onClose={() => setIsLyricsOpen(false)}

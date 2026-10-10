@@ -142,20 +142,25 @@ export const TopBar: React.FC<TopBarProps> = ({
           {/* Add Files Button */}
           <button
             onClick={onOpenFiles}
-            title="Добавить аудиофайлы с диска"
+            title={t.controls.openFiles}
             className={`flex items-center gap-1.5 ${
               isCompact ? 'p-1.5' : 'px-3.5 py-1.5'
             } rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold shadow-sm hover:scale-[1.02] active:scale-95 transition-all cursor-pointer shrink-0`}
           >
             <FolderPlus className="w-3.5 h-3.5" />
-            <span className={isCompact ? 'hidden' : 'inline'}>Добавить файлы</span>
+            <span className={isCompact ? 'hidden' : 'inline'}>
+              {language === 'ru' ? 'Добавить файлы' : 'Add Files'}
+            </span>
           </button>
 
           {/* Discord RPC switch (optional via settings) */}
           {showDiscordButton && (
             <button
               onClick={onToggleDiscord}
-              title={`Discord RPC: ${discordEnabled ? 'Включен [D]' : 'Выключен [D]'} (кликните или нажмите D для переключения)`}
+              title={language === 'ru'
+                ? `Discord RPC: ${discordEnabled ? 'Включен [D]' : 'Выключен [D]'} (кликните или нажмите D для переключения)`
+                : `Discord RPC: ${discordEnabled ? 'Enabled [D]' : 'Disabled [D]'} (click or press D)`
+              }
               className={`flex items-center gap-1.5 ${
                 isCompact ? 'px-2 py-1.5' : 'px-3 py-1.5'
               } rounded-full text-xs font-semibold transition-all cursor-pointer ${
@@ -174,7 +179,10 @@ export const TopBar: React.FC<TopBarProps> = ({
           {/* Theme mode toggle */}
           <button
             onClick={onToggleTheme}
-            title={`Тема: ${themeMode === 'dark' ? 'Темная' : themeMode === 'amoled' ? 'AMOLED' : 'Светлая'}`}
+            title={language === 'ru'
+              ? `Тема: ${themeMode === 'dark' ? 'Темная' : themeMode === 'amoled' ? 'AMOLED' : 'Светлая'}`
+              : `Theme: ${themeMode === 'dark' ? 'Dark' : themeMode === 'amoled' ? 'AMOLED' : 'Light'}`
+            }
             className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer"
           >
             {themeMode === 'light' ? (
@@ -187,7 +195,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           {/* EQ Modal button */}
           <button
             onClick={onOpenEQ}
-            title="Эквалайзер"
+            title={t.controls.equalizer}
             className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer"
           >
             <SlidersHorizontal className="w-4 h-4" />
@@ -196,7 +204,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           {/* Settings button */}
           <button
             onClick={onOpenSettings}
-            title="Настройки"
+            title={t.controls.settings}
             className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer"
           >
             <Settings className="w-4 h-4" />
