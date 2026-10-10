@@ -46,6 +46,15 @@ const INITIAL_PLAYLISTS: Playlist[] = [
   },
 ];
 
+const DEFAULT_VISIBLE_TABS: Record<MainViewType, boolean> = {
+  tracks: true,
+  playlists: true,
+  albums: true,
+  artists: true,
+  favorites: true,
+  genres: true,
+};
+
 export const App: React.FC = () => {
   // Library & Content State (No dummy stubs)
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -115,6 +124,7 @@ export const App: React.FC = () => {
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
   const [discordEnabled, setDiscordEnabled] = useState<boolean>(true);
   const [showDiscordButton, setShowDiscordButton] = useState<boolean>(true);
+  const [visibleTabs, setVisibleTabs] = useState<Record<MainViewType, boolean>>(DEFAULT_VISIBLE_TABS);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef<number>(0);
@@ -205,6 +215,9 @@ export const App: React.FC = () => {
           if (parsed.seedColor) setSeedColor(parsed.seedColor);
           if (typeof parsed.discordEnabled === 'boolean') setDiscordEnabled(parsed.discordEnabled);
           if (typeof parsed.showDiscordButton === 'boolean') setShowDiscordButton(parsed.showDiscordButton);
+          if (parsed.visibleTabs && typeof parsed.visibleTabs === 'object') {
+            setVisibleTabs({ ...DEFAULT_VISIBLE_TABS, ...parsed.visibleTabs });
+          }
           if (typeof parsed.isDynamicColor === 'boolean') setIsDynamicColor(parsed.isDynamicColor);
           if (parsed.fadeMode) setFadeMode(parsed.fadeMode);
           if (typeof parsed.fadeDuration === 'number') setFadeDuration(parsed.fadeDuration);
@@ -232,6 +245,7 @@ export const App: React.FC = () => {
       seedColor,
       discordEnabled,
       showDiscordButton,
+      visibleTabs,
       isDynamicColor,
       fadeMode,
       fadeDuration,
@@ -246,7 +260,7 @@ export const App: React.FC = () => {
     } else {
       localStorage.setItem('arachnid_portable_data', jsonString);
     }
-  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, discordEnabled, showDiscordButton, isDynamicColor, fadeMode, fadeDuration]);
+  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, discordEnabled, showDiscordButton, visibleTabs, isDynamicColor, fadeMode, fadeDuration]);
 
   // Prevent default browser right-click menu
   useEffect(() => {
@@ -801,6 +815,9 @@ export const App: React.FC = () => {
     }
 
     if (uniqueToAdd.length > 0) {
+      if (currentView === 'favorites') {
+        uniqueToAdd.forEach(t => t.isFavorite = true);
+      }
       setTracks(prev => [...prev, ...uniqueToAdd]);
       setQueue(prev => [...prev, ...uniqueToAdd]);
     }
@@ -1196,6 +1213,39 @@ export const App: React.FC = () => {
       }
       return t;
     }));
+  };
+
+  const handleAddTracksToFavorites = (trackIds: string[]) => {
+    if (!trackIds || trackIds.length === 0) return;
+    const idSet = new Set(trackIds);
+    setTracks(prev => prev.map(t => idSet.has(t.id) ? { ...t, isFavorite: true } : t));
+    // Also sync with the system favorites playlist
+    setPlaylists(prev => prev.map(p => {
+      if (p.id === 'pl_favorites') {
+        const unique = Array.from(new Set([...p.trackIds, ...trackIds]));
+        return { ...p, trackIds: unique };
+      }
+      return p;
+    }));
+  };
+
+  const handleToggleTabVisibility = (tabId: MainViewType) => {
+    setVisibleTabs(prev => {
+      const visibleCount = Object.values(prev).filter(Boolean).length;
+      if (prev[tabId] && visibleCount <= 1) return prev;
+
+      const next = { ...prev, [tabId]: !prev[tabId] };
+      if (prev[tabId] && currentView === tabId) {
+        const order: MainViewType[] = ['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'];
+        const firstAvailable = order.find(id => next[id]) || 'tracks';
+        setCurrentView(firstAvailable);
+        setSelectedPlaylistId(null);
+        setSelectedAlbum(null);
+        setSelectedArtist(null);
+        setSelectedGenre(null);
+      }
+      return next;
+    });
   };
 
   const handlePlaySelected = () => {
@@ -1635,6 +1685,8 @@ export const App: React.FC = () => {
         discordEnabled={discordEnabled}
         onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
         showDiscordButton={showDiscordButton}
+        visibleTabs={visibleTabs}
+        onAddTracksToFavorites={handleAddTracksToFavorites}
       />
 
       {/* Main Content Area (Full width, No sidebar) */}
@@ -1726,6 +1778,8 @@ export const App: React.FC = () => {
               onSortChange={handleSortChange}
               onDropFiles={importFiles}
               onDropInternalTracks={selectedPlaylistId ? (tIds) => handleDropTracksToPlaylist(selectedPlaylistId, tIds) : undefined}
+              onAddTracksToFavorites={handleAddTracksToFavorites}
+              currentView={currentView}
               isReorderable={Boolean(selectedPlaylistId) && !searchQuery.trim()}
               onReorderTracks={selectedPlaylistId ? handleReorderPlaylistTracks : undefined}
             />
@@ -1803,6 +1857,8 @@ export const App: React.FC = () => {
             sortOrder={sortOrder}
             onSortChange={handleSortChange}
             onDropFiles={importFiles}
+            onAddTracksToFavorites={handleAddTracksToFavorites}
+            currentView={currentView}
           />
         )}
       </main>
@@ -1911,6 +1967,8 @@ export const App: React.FC = () => {
         onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
         showDiscordButton={showDiscordButton}
         onToggleShowDiscordButton={() => setShowDiscordButton(prev => !prev)}
+        visibleTabs={visibleTabs}
+        onToggleTabVisibility={handleToggleTabVisibility}
         currentTrack={currentTrack}
         isPlaying={isPlaying}
         currentTime={currentTime}

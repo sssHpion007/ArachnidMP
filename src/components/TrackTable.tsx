@@ -34,6 +34,8 @@ interface TrackTableProps {
   onSortChange: (column: string) => void;
   onDropFiles: (files: File[]) => void;
   onDropInternalTracks?: (trackIds: string[]) => void;
+  onAddTracksToFavorites?: (trackIds: string[]) => void;
+  currentView?: string;
   isReorderable?: boolean;
   onReorderTracks?: (reorderedTrackIds: string[]) => void;
 }
@@ -76,6 +78,8 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   onSortChange,
   onDropFiles,
   onDropInternalTracks,
+  onAddTracksToFavorites,
+  currentView,
   isReorderable = false,
   onReorderTracks,
 }) => {
@@ -90,7 +94,6 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const handlePointerDown = (e: React.PointerEvent, track: Track, index: number) => {
-    if (!isReorderable || !onReorderTracks) return;
     if (e.button !== 0) return;
 
     // Don't start drag if clicking interactive controls
@@ -183,7 +186,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
       dropTargetRef.current = null;
     };
 
-    const handlePointerUp = () => {
+    const handlePointerUp = (e?: PointerEvent) => {
       const current = dragStateRef.current;
       const drop = dropTargetRef.current;
 
@@ -200,7 +203,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
         }, 80);
       };
 
-      if (!current || !current.isDragging || !drop || !onReorderTracks) {
+      if (!current || !current.isDragging) {
         cleanup();
         return;
       }
@@ -213,20 +216,42 @@ export const TrackTable: React.FC<TrackTableProps> = ({
         idsToMove = [draggedTrackId];
       }
 
-      if (idsToMove.includes(drop.trackId)) {
+      // Check drop target element under the cursor
+      const clientX = e?.clientX ?? current.currentX;
+      const clientY = e?.clientY ?? current.currentY;
+      const targetElement = document.elementFromPoint(clientX, clientY);
+
+      // Check if dropped onto the Favorites navigation tab
+      const favTab = targetElement?.closest('[data-nav-view="favorites"]');
+      if (favTab) {
+        onAddTracksToFavorites?.(idsToMove);
         cleanup();
         return;
       }
 
-      const currentIds = tracks.map(t => t.id);
-      const remaining = currentIds.filter(id => !idsToMove.includes(id));
-      let targetIdx = remaining.indexOf(drop.trackId);
-      if (targetIdx !== -1) {
-        if (drop.position === 'below') {
-          targetIdx += 1;
+      // Check if dropped inside table in "favorites" view
+      if (currentView === 'favorites' && onAddTracksToFavorites) {
+        onAddTracksToFavorites(idsToMove);
+        cleanup();
+        return;
+      }
+
+      // Reordering within a playlist
+      if (isReorderable && onReorderTracks && drop) {
+        if (!idsToMove.includes(drop.trackId)) {
+          const currentIds = tracks.map(t => t.id);
+          const remaining = currentIds.filter(id => !idsToMove.includes(id));
+          let targetIdx = remaining.indexOf(drop.trackId);
+          if (targetIdx !== -1) {
+            if (drop.position === 'below') {
+              targetIdx += 1;
+            }
+            remaining.splice(targetIdx, 0, ...idsToMove);
+            onReorderTracks(remaining);
+          }
         }
-        remaining.splice(targetIdx, 0, ...idsToMove);
-        onReorderTracks(remaining);
+        cleanup();
+        return;
       }
 
       cleanup();
@@ -252,6 +277,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
 
   const handleTableDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    (window as any).__isInternalDragging = false;
     if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       onDropFiles(Array.from(e.dataTransfer.files));
       return;
@@ -260,8 +286,12 @@ export const TrackTable: React.FC<TrackTableProps> = ({
       const data = e.dataTransfer?.getData('application/json');
       if (data) {
         const parsed = JSON.parse(data);
-        if (parsed.trackIds && Array.isArray(parsed.trackIds) && onDropInternalTracks) {
-          onDropInternalTracks(parsed.trackIds);
+        if (parsed.trackIds && Array.isArray(parsed.trackIds)) {
+          if (currentView === 'favorites' && onAddTracksToFavorites) {
+            onAddTracksToFavorites(parsed.trackIds);
+          } else if (onDropInternalTracks) {
+            onDropInternalTracks(parsed.trackIds);
+          }
         }
       }
     } catch (_) {}
@@ -360,6 +390,19 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                 key={track.id}
                 data-track-row-id={track.id}
                 data-track-row-index={idx}
+                draggable={true}
+                onDragStart={(e) => {
+                  const ids = selectedTrackIds.has(track.id)
+                    ? Array.from(selectedTrackIds)
+                    : [track.id];
+                  (window as any).__isInternalDragging = true;
+                  e.dataTransfer.setData('application/json', JSON.stringify({ type: 'tracks', trackIds: ids }));
+                  e.dataTransfer.setData('text/plain', ids.join(','));
+                  e.dataTransfer.effectAllowed = 'copyMove';
+                }}
+                onDragEnd={() => {
+                  (window as any).__isInternalDragging = false;
+                }}
                 onPointerDown={(e) => handlePointerDown(e, track, idx)}
                 onMouseEnter={() => setHoveredTrackId(track.id)}
                 onMouseLeave={() => setHoveredTrackId(null)}

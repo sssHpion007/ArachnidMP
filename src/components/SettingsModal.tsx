@@ -9,9 +9,17 @@ import {
   Sun,
   Volume2,
   Clock,
-  Repeat
+  Repeat,
+  LayoutGrid,
+  Music,
+  ListMusic,
+  Disc,
+  Mic2,
+  Heart,
+  Tag
 } from 'lucide-react';
 import { ThemeMode, Track, FadeMode } from '../types/music';
+import { MainViewType } from './TopBar';
 import { formatTime } from '../services/tagEditor';
 
 interface SettingsModalProps {
@@ -27,6 +35,8 @@ interface SettingsModalProps {
   onToggleDiscord: () => void;
   showDiscordButton: boolean;
   onToggleShowDiscordButton: () => void;
+  visibleTabs: Record<MainViewType, boolean>;
+  onToggleTabVisibility: (tab: MainViewType) => void;
   currentTrack: Track | null;
   isPlaying: boolean;
   currentTime: number;
@@ -58,6 +68,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onToggleDiscord,
   showDiscordButton,
   onToggleShowDiscordButton,
+  visibleTabs,
+  onToggleTabVisibility,
   currentTrack,
   isPlaying,
   currentTime,
@@ -406,6 +418,56 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onChange={onToggleShowDiscordButton}
                 className="w-4 h-4 rounded accent-md3-primary cursor-pointer"
               />
+            </div>
+          </div>
+
+          {/* Section: Top Bar Tabs Visibility */}
+          <div className="space-y-4 pt-4 border-t border-md3-outline-variant/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
+                <LayoutGrid className="w-4 h-4 text-md3-primary" />
+                <span>Вкладки верхней панели</span>
+              </div>
+              <span className="text-[11px] text-md3-on-surface-variant">
+                Настройте отображение нужных разделов
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: 'tracks' as const, label: 'Все треки', icon: Music },
+                { id: 'playlists' as const, label: 'Плейлисты', icon: ListMusic },
+                { id: 'albums' as const, label: 'Альбомы', icon: Disc },
+                { id: 'artists' as const, label: 'Исполнители', icon: Mic2 },
+                { id: 'favorites' as const, label: 'Избранное', icon: Heart },
+                { id: 'genres' as const, label: 'Жанры', icon: Tag },
+              ].map((tab) => {
+                const Icon = tab.icon;
+                const isChecked = visibleTabs[tab.id] ?? true;
+                return (
+                  <div
+                    key={tab.id}
+                    onClick={() => onToggleTabVisibility(tab.id)}
+                    className={`flex items-center justify-between p-3 rounded-2xl border transition-all cursor-pointer ${
+                      isChecked
+                        ? 'bg-md3-surface-container border-md3-primary/30 text-md3-on-surface'
+                        : 'bg-md3-surface-container-low/50 border-md3-outline-variant/15 text-md3-on-surface-variant/60'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Icon className={`w-4 h-4 ${isChecked ? 'text-md3-primary' : 'text-md3-on-surface-variant/50'}`} />
+                      <span className="text-xs font-semibold truncate">{tab.label}</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => onToggleTabVisibility(tab.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-4 h-4 rounded accent-md3-primary cursor-pointer shrink-0"
+                    />
+                  </div>
+                );
+              })}
             </div>
           </div>
 

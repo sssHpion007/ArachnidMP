@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { X, Trash2, Shuffle, Music, Play, ArrowUp, ArrowDown } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { X, Trash2, Shuffle, Music, Play, ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 
@@ -28,6 +28,9 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
   onShuffleQueue,
   onMoveQueueTrack,
 }) => {
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ index: number; position: 'above' | 'below' } | null>(null);
+
   useEffect(() => {
     if (!isOpen) return;
 
@@ -91,15 +94,90 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
         ) : (
           queue.map((track, idx) => {
             const isCurrent = idx === queueIndex;
+            const isBeingDragged = draggedIndex === idx;
+            const isDropAbove = dropTarget?.index === idx && dropTarget.position === 'above';
+            const isDropBelow = dropTarget?.index === idx && dropTarget.position === 'below';
+
             return (
               <div
                 key={`${track.id}-${idx}`}
-                className={`group flex items-center justify-between p-2 rounded-2xl transition-all ${
-                  isCurrent
+                draggable={true}
+                onDragStart={(e) => {
+                  setDraggedIndex(idx);
+                  (window as any).__isInternalDragging = true;
+                  e.dataTransfer.setData('text/plain', String(idx));
+                  e.dataTransfer.effectAllowed = 'move';
+                }}
+                onDragEnd={() => {
+                  setDraggedIndex(null);
+                  setDropTarget(null);
+                  (window as any).__isInternalDragging = false;
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+                  if (draggedIndex === null || draggedIndex === idx) {
+                    setDropTarget(null);
+                    return;
+                  }
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const position = e.clientY < rect.top + rect.height / 2 ? 'above' : 'below';
+                  setDropTarget({ index: idx, position });
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setDropTarget(null);
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  (window as any).__isInternalDragging = false;
+                  if (draggedIndex === null || draggedIndex === idx) {
+                    setDraggedIndex(null);
+                    setDropTarget(null);
+                    return;
+                  }
+                  let target = idx;
+                  if (dropTarget?.position === 'below') {
+                    target = draggedIndex < idx ? idx : idx + 1;
+                  } else {
+                    target = draggedIndex < idx ? idx - 1 : idx;
+                  }
+                  const finalTarget = Math.max(0, Math.min(queue.length - 1, target));
+                  onMoveQueueTrack(draggedIndex, finalTarget);
+                  setDraggedIndex(null);
+                  setDropTarget(null);
+                }}
+                className={`relative group flex items-center justify-between p-2 rounded-2xl transition-all ${
+                  isBeingDragged
+                    ? 'opacity-30 bg-md3-primary/10 border-dashed border border-md3-primary/40'
+                    : isCurrent
                     ? 'bg-md3-primary-container text-md3-on-primary-container font-semibold shadow-sm'
                     : 'hover:bg-md3-surface-container-high text-md3-on-surface'
                 }`}
               >
+                {/* Drop Indicator Lines */}
+                {isDropAbove && (
+                  <div className="absolute top-0 left-2 right-2 h-0.5 bg-md3-primary rounded-full z-20 pointer-events-none shadow-[0_0_8px_rgba(var(--primary-rgb),0.8)] flex items-center justify-between">
+                    <div className="w-1.5 h-1.5 rounded-full bg-md3-primary -ml-1 ring-2 ring-md3-surface-container" />
+                    <div className="w-1.5 h-1.5 rounded-full bg-md3-primary -mr-1 ring-2 ring-md3-surface-container" />
+                  </div>
+                )}
+                {isDropBelow && (
+                  <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-md3-primary rounded-full z-20 pointer-events-none shadow-[0_0_8px_rgba(var(--primary-rgb),0.8)] flex items-center justify-between">
+                    <div className="w-1.5 h-1.5 rounded-full bg-md3-primary -ml-1 ring-2 ring-md3-surface-container" />
+                    <div className="w-1.5 h-1.5 rounded-full bg-md3-primary -mr-1 ring-2 ring-md3-surface-container" />
+                  </div>
+                )}
+
+                {/* Drag handle */}
+                <div 
+                  className="cursor-grab active:cursor-grabbing text-md3-on-surface-variant/40 hover:text-md3-on-surface-variant p-1 mr-1 shrink-0 rounded transition-colors"
+                  title="Перетащите для изменения порядка"
+                >
+                  <GripVertical className="w-3.5 h-3.5" />
+                </div>
+
                 <div 
                   onClick={() => onPlayQueueTrack(idx)}
                   className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer pr-2"
@@ -128,7 +206,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                   {idx > 0 && (
                     <button
                       onClick={() => onMoveQueueTrack(idx, idx - 1)}
-                      className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface"
+                      className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
                       title="Переместить выше"
                     >
                       <ArrowUp className="w-3.5 h-3.5" />
@@ -137,7 +215,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                   {idx < queue.length - 1 && (
                     <button
                       onClick={() => onMoveQueueTrack(idx, idx + 1)}
-                      className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface"
+                      className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
                       title="Переместить ниже"
                     >
                       <ArrowDown className="w-3.5 h-3.5" />
@@ -145,7 +223,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                   )}
                   <button
                     onClick={() => onRemoveFromQueue(idx)}
-                    className="p-1 rounded-full text-md3-on-surface-variant hover:text-red-400"
+                    className="p-1 rounded-full text-md3-on-surface-variant hover:text-red-400 cursor-pointer"
                     title="Удалить из очереди"
                   >
                     <X className="w-3.5 h-3.5" />

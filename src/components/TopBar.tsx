@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, 
   X, 
@@ -32,6 +32,8 @@ interface TopBarProps {
   discordEnabled: boolean;
   onToggleDiscord: () => void;
   showDiscordButton?: boolean;
+  visibleTabs?: Record<MainViewType, boolean>;
+  onAddTracksToFavorites?: (trackIds: string[]) => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -48,8 +50,22 @@ export const TopBar: React.FC<TopBarProps> = ({
   discordEnabled,
   onToggleDiscord,
   showDiscordButton = true,
+  visibleTabs,
+  onAddTracksToFavorites,
 }) => {
-  const navTabs = [
+  const [windowWidth, setWindowWidth] = useState<number>(window.innerWidth);
+  const [isDragOverFav, setIsDragOverFav] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const isCompact = windowWidth < 1200;
+  const isSuperCompact = windowWidth < 850;
+
+  const allNavTabs = [
     { id: 'tracks' as const, label: 'Все треки', icon: Music },
     { id: 'playlists' as const, label: 'Плейлисты', icon: ListMusic },
     { id: 'albums' as const, label: 'Альбомы', icon: Disc },
@@ -58,10 +74,12 @@ export const TopBar: React.FC<TopBarProps> = ({
     { id: 'genres' as const, label: 'Жанры', icon: Tag },
   ];
 
+  const navTabs = allNavTabs.filter(tab => (visibleTabs ? visibleTabs[tab.id] ?? true : true));
+
   return (
-    <header className="h-16 px-6 shrink-0 flex items-center justify-between gap-4 bg-md3-surface-container-low border-b border-md3-outline-variant/15 select-none transition-colors duration-300">
-      {/* Left: Search Bar */}
-      <div className="w-1/4 min-w-[180px] max-w-xs">
+    <header className="h-16 px-4 sm:px-6 shrink-0 flex items-center justify-between gap-2 sm:gap-4 bg-md3-surface-container-low border-b border-md3-outline-variant/15 select-none transition-colors duration-300">
+      {/* Left: Search Bar (Flexible width, never forces overflow) */}
+      <div className="shrink-0 w-36 sm:w-44 md:w-52 lg:w-60 transition-all">
         <div className="relative w-full">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-md3-on-surface-variant">
             <Search className="w-3.5 h-3.5" />
@@ -70,7 +88,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder={`Поиск (${totalTracksCount})...`}
+            placeholder={isSuperCompact ? 'Поиск...' : `Поиск (${totalTracksCount})...`}
             className="w-full pl-8 pr-7 py-1.5 rounded-full bg-md3-surface-container text-xs text-md3-on-surface placeholder-md3-on-surface-variant/50 border border-transparent focus:border-md3-primary focus:bg-md3-surface-container-high outline-none transition-all"
           />
           {searchQuery && (
@@ -84,41 +102,78 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
       </div>
 
-      {/* Center: Navigation Tabs (Pills) */}
-      <div className="flex-1 flex justify-center">
-        <nav className="flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 overflow-x-auto custom-scrollbar">
+      {/* Center: Navigation Tabs (Pills) with auto-compactness and Drag & Drop onto Favorites */}
+      <div className="flex-1 min-w-0 flex justify-center px-1">
+        <nav className="flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 overflow-x-auto custom-scrollbar max-w-full">
           {navTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = currentView === tab.id;
+            const isFav = tab.id === 'favorites';
+            const isFavHighlighted = isFav && isDragOverFav;
+
             return (
               <button
                 key={tab.id}
+                data-nav-view={tab.id}
                 onClick={() => onSelectView(tab.id)}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer ${
-                  isActive
+                title={tab.label}
+                onDragOver={(e) => {
+                  if (isFav) {
+                    e.preventDefault();
+                    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+                    setIsDragOverFav(true);
+                  }
+                }}
+                onDragLeave={() => {
+                  if (isFav) setIsDragOverFav(false);
+                }}
+                onDrop={(e) => {
+                  if (isFav) {
+                    e.preventDefault();
+                    setIsDragOverFav(false);
+                    (window as any).__isInternalDragging = false;
+                    try {
+                      const data = e.dataTransfer.getData('application/json');
+                      if (data) {
+                        const parsed = JSON.parse(data);
+                        if (parsed.trackIds && Array.isArray(parsed.trackIds)) {
+                          onAddTracksToFavorites?.(parsed.trackIds);
+                        }
+                      }
+                    } catch (_) {}
+                  }
+                }}
+                className={`flex items-center gap-1.5 ${
+                  isCompact ? 'px-2.5 py-1.5' : 'px-3.5 py-1.5'
+                } rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer ${
+                  isFavHighlighted
+                    ? 'bg-rose-500/25 border border-rose-500 text-rose-400 font-bold scale-105 shadow-md animate-pulse ring-2 ring-rose-500/40'
+                    : isActive
                     ? 'bg-md3-primary text-md3-on-primary font-bold shadow-sm'
                     : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
                 }`}
               >
-                <Icon className={`w-3.5 h-3.5 ${isActive ? 'stroke-[2.5]' : ''}`} />
-                <span>{tab.label}</span>
+                <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'stroke-[2.5]' : ''} ${isFavHighlighted ? 'text-rose-400 fill-rose-400 animate-bounce' : ''}`} />
+                <span className={isCompact ? 'hidden' : 'inline'}>{tab.label}</span>
               </button>
             );
           })}
         </nav>
       </div>
 
-      {/* Right Controls: Unified pill frame like the navigation bar */}
-      <div className="w-1/4 min-w-[280px] flex items-center justify-end shrink-0">
+      {/* Right Controls: Unified pill frame, compact and responsive */}
+      <div className="shrink-0 flex items-center justify-end">
         <div className="flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15">
           {/* Add Files Button */}
           <button
             onClick={onOpenFiles}
             title="Добавить аудиофайлы с диска"
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold shadow-sm hover:scale-[1.02] active:scale-95 transition-all cursor-pointer shrink-0"
+            className={`flex items-center gap-1.5 ${
+              isCompact ? 'p-1.5' : 'px-3.5 py-1.5'
+            } rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold shadow-sm hover:scale-[1.02] active:scale-95 transition-all cursor-pointer shrink-0`}
           >
             <FolderPlus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Добавить файлы</span>
+            <span className={isCompact ? 'hidden' : 'inline'}>Добавить файлы</span>
           </button>
 
           {/* Discord RPC switch (optional via settings) */}
@@ -126,15 +181,18 @@ export const TopBar: React.FC<TopBarProps> = ({
             <button
               onClick={onToggleDiscord}
               title={`Discord RPC: ${discordEnabled ? 'Вкл [D]' : 'Выкл [D]'} (кликните или нажмите D для переключения)`}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 ${
+                isCompact ? 'px-2 py-1.5' : 'px-3 py-1.5'
+              } rounded-full text-xs font-semibold transition-all cursor-pointer ${
                 discordEnabled
                   ? 'bg-[#5865F2]/20 text-[#5865F2] font-bold shadow-sm'
                   : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
               }`}
             >
-              <span className={`w-2 h-2 rounded-full ${discordEnabled ? 'bg-[#5865F2] animate-pulse' : 'bg-gray-400'}`} />
-              <span className="hidden xl:inline">Discord:</span>
-              <span>{discordEnabled ? 'Вкл' : 'Выкл'}</span>
+              <span className={`w-2 h-2 rounded-full shrink-0 ${discordEnabled ? 'bg-[#5865F2] animate-pulse' : 'bg-gray-400'}`} />
+              <span className={isCompact ? 'hidden' : 'inline'}>
+                {discordEnabled ? 'Discord: Вкл' : 'Discord: Выкл'}
+              </span>
             </button>
           )}
 
@@ -173,3 +231,4 @@ export const TopBar: React.FC<TopBarProps> = ({
     </header>
   );
 };
+
