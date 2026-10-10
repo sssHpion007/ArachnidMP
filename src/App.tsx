@@ -10,7 +10,7 @@ import { GenresGridView } from './components/GenresGridView';
 import { QueueDrawer } from './components/QueueDrawer';
 import { BatchTagEditorModal } from './components/BatchTagEditorModal';
 import { EqualizerModal } from './components/EqualizerModal';
-import { SettingsModal } from './components/SettingsModal';
+import { SettingsModal, ColorSchemeMode } from './components/SettingsModal';
 import { DragDropOverlay } from './components/DragDropOverlay';
 import { ContextMenu } from './components/ContextMenu';
 import { PlaylistContextMenu } from './components/PlaylistContextMenu';
@@ -92,7 +92,7 @@ export const App: React.FC = () => {
 
   // Theming & M3 State
   const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
-  const [isDynamicColor, setIsDynamicColor] = useState<boolean>(true);
+  const [colorSchemeMode, setColorSchemeMode] = useState<ColorSchemeMode>('dynamic');
   const [seedColor, setSeedColor] = useState<string>(DEFAULT_SEED_COLOR);
 
   // Modals & Menus
@@ -218,7 +218,11 @@ export const App: React.FC = () => {
           if (parsed.visibleTabs && typeof parsed.visibleTabs === 'object') {
             setVisibleTabs({ ...DEFAULT_VISIBLE_TABS, ...parsed.visibleTabs });
           }
-          if (typeof parsed.isDynamicColor === 'boolean') setIsDynamicColor(parsed.isDynamicColor);
+          if (parsed.colorSchemeMode) {
+            setColorSchemeMode(parsed.colorSchemeMode);
+          } else if (typeof parsed.isDynamicColor === 'boolean') {
+            setColorSchemeMode(parsed.isDynamicColor ? 'dynamic' : 'custom');
+          }
           if (parsed.fadeMode) setFadeMode(parsed.fadeMode);
           if (typeof parsed.fadeDuration === 'number') setFadeDuration(parsed.fadeDuration);
         }
@@ -246,7 +250,8 @@ export const App: React.FC = () => {
       discordEnabled,
       showDiscordButton,
       visibleTabs,
-      isDynamicColor,
+      colorSchemeMode,
+      isDynamicColor: colorSchemeMode === 'dynamic',
       fadeMode,
       fadeDuration,
     };
@@ -260,7 +265,7 @@ export const App: React.FC = () => {
     } else {
       localStorage.setItem('arachnid_portable_data', jsonString);
     }
-  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, discordEnabled, showDiscordButton, visibleTabs, isDynamicColor, fadeMode, fadeDuration]);
+  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, discordEnabled, showDiscordButton, visibleTabs, colorSchemeMode, fadeMode, fadeDuration]);
 
   // Prevent default browser right-click menu
   useEffect(() => {
@@ -307,16 +312,24 @@ export const App: React.FC = () => {
   // Dynamic M3 Theme Palette
   useEffect(() => {
     const updateTheme = async () => {
-      let activeColor = seedColor;
-      if (isDynamicColor && currentTrack?.coverArt) {
-        activeColor = await extractDominantColor(currentTrack.coverArt);
+      let activeColor = DEFAULT_SEED_COLOR;
+      if (colorSchemeMode === 'dynamic') {
+        if (currentTrack?.coverArt) {
+          activeColor = await extractDominantColor(currentTrack.coverArt);
+        } else {
+          activeColor = DEFAULT_SEED_COLOR;
+        }
+      } else if (colorSchemeMode === 'system') {
+        activeColor = DEFAULT_SEED_COLOR;
+      } else if (colorSchemeMode === 'custom') {
+        activeColor = seedColor;
       }
       const palette = generateM3Palette(activeColor, themeMode);
       applyM3ThemeToDOM(palette, themeMode);
     };
 
     updateTheme();
-  }, [currentTrack?.coverArt, isDynamicColor, seedColor, themeMode]);
+  }, [currentTrack?.coverArt, colorSchemeMode, seedColor, themeMode]);
 
   // Discord Rich Presence update (only triggers when track changes or play/pause/enabled toggles, NEVER on timeupdate)
   useEffect(() => {
@@ -2023,8 +2036,8 @@ export const App: React.FC = () => {
         onClose={() => setIsSettingsOpen(false)}
         themeMode={themeMode}
         onSetThemeMode={setThemeMode}
-        isDynamicColor={isDynamicColor}
-        onToggleDynamicColor={() => setIsDynamicColor(!isDynamicColor)}
+        colorSchemeMode={colorSchemeMode}
+        onSetColorSchemeMode={setColorSchemeMode}
         seedColor={seedColor}
         onSetSeedColor={setSeedColor}
         discordEnabled={discordEnabled}
