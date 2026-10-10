@@ -22,6 +22,7 @@ interface TrackTableProps {
   selectedTrackIds: Set<string>;
   onSelectTrack: (trackId: string, e: React.MouseEvent, index: number) => void;
   onPlayTrack: (track: Track) => void;
+  onTogglePlayPause?: () => void;
   onToggleFavorite: (trackId: string, e: React.MouseEvent) => void;
   onOpenContextMenu: (e: React.MouseEvent, track: Track) => void;
   onOpenBatchTagEditor: () => void;
@@ -63,6 +64,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   selectedTrackIds,
   onSelectTrack,
   onPlayTrack,
+  onTogglePlayPause,
   onToggleFavorite,
   onOpenContextMenu,
   onOpenBatchTagEditor,
@@ -410,7 +412,11 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          onPlayTrack(track);
+                          if (isCurrent && onTogglePlayPause) {
+                            onTogglePlayPause();
+                          } else {
+                            onPlayTrack(track);
+                          }
                         }}
                         className="w-7 h-7 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-sm hover:scale-110 transition-transform"
                       >

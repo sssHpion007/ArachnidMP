@@ -66,13 +66,14 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
           </button>
           <button
             onClick={onClearQueue}
-            title="Очистить очередь"
+            title="Очистить очередь [X]"
             className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-red-400"
           >
             <Trash2 className="w-4 h-4" />
           </button>
           <button
             onClick={onClose}
+            title="Закрыть очередь [Q / Esc]"
             className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface"
           >
             <X className="w-4 h-4" />

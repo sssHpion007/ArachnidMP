@@ -580,6 +580,12 @@ export const App: React.FC = () => {
       } else if (e.code === 'MediaTrackPrevious' || e.key === 'MediaTrackPrevious') {
         e.preventDefault();
         handlePrev();
+      } else if ((e.code === 'KeyQ' || e.key.toLowerCase() === 'q' || e.key.toLowerCase() === 'й') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setIsQueueOpen(prev => !prev);
+      } else if ((e.code === 'KeyX' || e.key.toLowerCase() === 'x' || e.key.toLowerCase() === 'ч') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        handleClearQueue();
       } else if ((e.code === 'KeyD' || e.key.toLowerCase() === 'd' || e.key.toLowerCase() === 'в') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         setDiscordEnabled(prev => !prev);
@@ -814,7 +820,7 @@ export const App: React.FC = () => {
 
     if (!currentTrack || tracksRef.current.length === 0) {
       const first = uniqueToAdd[0] || newTracks[0];
-      if (first) playTrack(first);
+      if (first) playTrackWithContext(first, newTracks);
     }
   };
 
@@ -947,24 +953,55 @@ export const App: React.FC = () => {
     }
   };
 
-  const playTrack = async (track: Track) => {
+  // Plays a specific track at an existing index in the queue without replacing the queue
+  const playQueueIndex = async (index: number) => {
+    if (index < 0 || index >= queue.length) return;
+    const track = queue[index];
+    setQueueIndex(index);
     setCurrentTrack(track);
     setDuration(track.duration || 0);
-    const qIdx = queue.findIndex(t => t.id === track.id);
-    if (qIdx !== -1) {
-      setQueueIndex(qIdx);
-    } else {
-      setQueue(prev => [...prev, track]);
-      setQueueIndex(queue.length);
-    }
     await audioEngine.playTrack(track.src, true, true, track.duration, track.path);
     setIsPlaying(true);
   };
 
+  // Starts playback of a track with context: populates the playback queue with all tracks from that view/playlist
+  // in their exact displayed order, and sets the active queue index to the clicked track.
+  const playTrackWithContext = async (track: Track, contextTracks?: Track[]) => {
+    const list = contextTracks && contextTracks.length > 0 ? contextTracks : [track];
+    setQueue(list);
+    const idx = list.findIndex(t => t.id === track.id);
+    const targetIdx = idx !== -1 ? idx : 0;
+    setQueueIndex(targetIdx);
+
+    setCurrentTrack(track);
+    setDuration(track.duration || 0);
+    await audioEngine.playTrack(track.src, true, true, track.duration, track.path);
+    setIsPlaying(true);
+  };
+
+  const playTrack = async (track: Track) => {
+    playTrackWithContext(track, filteredTracks.length > 0 ? filteredTracks : [track]);
+  };
+
+  const handleClearQueue = () => {
+    setQueue([]);
+    setQueueIndex(0);
+    setCurrentTrack(null);
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    audioEngine.stop();
+  };
+
   const handlePlayPause = async () => {
     if (!currentTrack) {
+      if (queue.length > 0) {
+        const idx = (queueIndex >= 0 && queueIndex < queue.length) ? queueIndex : 0;
+        playQueueIndex(idx);
+        return;
+      }
       if (filteredTracks.length > 0) {
-        playTrack(filteredTracks[0]);
+        playTrackWithContext(filteredTracks[0], filteredTracks);
       }
       return;
     }
@@ -981,13 +1018,11 @@ export const App: React.FC = () => {
     if (queue.length === 0) return;
     if (isShuffled) {
       const nextIdx = Math.floor(Math.random() * queue.length);
-      setQueueIndex(nextIdx);
-      playTrack(queue[nextIdx]);
+      playQueueIndex(nextIdx);
       return;
     }
     const nextIdx = (queueIndex + 1) % queue.length;
-    setQueueIndex(nextIdx);
-    playTrack(queue[nextIdx]);
+    playQueueIndex(nextIdx);
   };
 
   const handlePrev = (forcePrevious: boolean = false) => {
@@ -1006,8 +1041,7 @@ export const App: React.FC = () => {
 
     // Double press within 2.5s OR forcePrevious OR at track start (<= 4s): switch to previous track in queue
     const prevIdx = (queueIndex - 1 + queue.length) % queue.length;
-    setQueueIndex(prevIdx);
-    playTrack(queue[prevIdx]);
+    playQueueIndex(prevIdx);
   };
 
   const handleTrackEnded = () => {
@@ -1133,7 +1167,7 @@ export const App: React.FC = () => {
       navigator.mediaSession.metadata = null;
     }
 
-    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+    navigator.mediaSession.playbackState = !currentTrack ? 'none' : (isPlaying ? 'playing' : 'paused');
   }, [currentTrack, isPlaying]);
 
   const handleToggleRepeat = () => {
@@ -1167,9 +1201,7 @@ export const App: React.FC = () => {
   const handlePlaySelected = () => {
     const selected = tracks.filter(t => selectedTrackIds.has(t.id));
     if (selected.length > 0) {
-      setQueue(selected);
-      setQueueIndex(0);
-      playTrack(selected[0]);
+      playTrackWithContext(selected[0], selected);
     }
   };
 
@@ -1380,9 +1412,7 @@ export const App: React.FC = () => {
   const handlePlayFolder = (folder: PlaylistFolder) => {
     const folderTracks = getFolderAllTracks(folder);
     if (folderTracks.length > 0) {
-      setQueue(folderTracks);
-      setQueueIndex(0);
-      playTrack(folderTracks[0]);
+      playTrackWithContext(folderTracks[0], folderTracks);
     }
   };
 
@@ -1409,31 +1439,23 @@ export const App: React.FC = () => {
   const handlePlayPlaylist = (playlist: Playlist) => {
     const plTracks = getOrderedPlaylistTracks(playlist);
     if (plTracks.length > 0) {
-      setQueue(plTracks);
-      setQueueIndex(0);
-      playTrack(plTracks[0]);
+      playTrackWithContext(plTracks[0], plTracks);
     }
   };
 
   const handlePlayAlbum = (albumTracks: Track[]) => {
     if (albumTracks.length === 0) return;
-    setQueue(albumTracks);
-    setQueueIndex(0);
-    playTrack(albumTracks[0]);
+    playTrackWithContext(albumTracks[0], albumTracks);
   };
 
   const handlePlayArtist = (artistTracks: Track[]) => {
     if (artistTracks.length === 0) return;
-    setQueue(artistTracks);
-    setQueueIndex(0);
-    playTrack(artistTracks[0]);
+    playTrackWithContext(artistTracks[0], artistTracks);
   };
 
   const handlePlayGenre = (genreTracks: Track[]) => {
     if (genreTracks.length === 0) return;
-    setQueue(genreTracks);
-    setQueueIndex(0);
-    playTrack(genreTracks[0]);
+    playTrackWithContext(genreTracks[0], genreTracks);
   };
 
   const handleAddPlaylistToQueue = (playlist: Playlist) => {
@@ -1660,9 +1682,7 @@ export const App: React.FC = () => {
                 <button
                   onClick={() => {
                     if (filteredTracks.length > 0) {
-                      setQueue(filteredTracks);
-                      setQueueIndex(0);
-                      playTrack(filteredTracks[0]);
+                      playTrackWithContext(filteredTracks[0], filteredTracks);
                     }
                   }}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer"
@@ -1690,7 +1710,8 @@ export const App: React.FC = () => {
               isPlaying={isPlaying}
               selectedTrackIds={selectedTrackIds}
               onSelectTrack={handleSelectTrack}
-              onPlayTrack={playTrack}
+              onPlayTrack={(t) => playTrackWithContext(t, filteredTracks)}
+              onTogglePlayPause={handlePlayPause}
               onToggleFavorite={handleToggleFavorite}
               onOpenContextMenu={(e, track) => {
                 e.preventDefault();
@@ -1767,7 +1788,8 @@ export const App: React.FC = () => {
             isPlaying={isPlaying}
             selectedTrackIds={selectedTrackIds}
             onSelectTrack={handleSelectTrack}
-            onPlayTrack={playTrack}
+            onPlayTrack={(t) => playTrackWithContext(t, filteredTracks)}
+            onTogglePlayPause={handlePlayPause}
             onToggleFavorite={handleToggleFavorite}
             onOpenContextMenu={(e, track) => {
               e.preventDefault();
@@ -1819,16 +1841,30 @@ export const App: React.FC = () => {
         queueIndex={queueIndex}
         currentTrack={currentTrack}
         onPlayQueueTrack={(idx) => {
-          setQueueIndex(idx);
-          playTrack(queue[idx]);
+          playQueueIndex(idx);
         }}
         onRemoveFromQueue={(idx) => {
-          setQueue(prev => prev.filter((_, i) => i !== idx));
+          const newQueue = queue.filter((_, i) => i !== idx);
+          setQueue(newQueue);
+          if (idx < queueIndex) {
+            setQueueIndex(prev => Math.max(0, prev - 1));
+          } else if (idx === queueIndex) {
+            if (newQueue.length === 0) {
+              handleClearQueue();
+            } else {
+              const nextIdx = Math.min(idx, newQueue.length - 1);
+              playQueueIndex(nextIdx);
+            }
+          }
         }}
-        onClearQueue={() => setQueue([])}
+        onClearQueue={handleClearQueue}
         onShuffleQueue={() => {
           const shuffled = [...queue].sort(() => Math.random() - 0.5);
           setQueue(shuffled);
+          if (currentTrack) {
+            const newIdx = shuffled.findIndex(t => t.id === currentTrack.id);
+            if (newIdx !== -1) setQueueIndex(newIdx);
+          }
         }}
         onMoveQueueTrack={(from, to) => {
           setQueue(prev => {
@@ -1837,6 +1873,13 @@ export const App: React.FC = () => {
             copy.splice(to, 0, moved);
             return copy;
           });
+          if (queueIndex === from) {
+            setQueueIndex(to);
+          } else if (from < queueIndex && to >= queueIndex) {
+            setQueueIndex(prev => prev - 1);
+          } else if (from > queueIndex && to <= queueIndex) {
+            setQueueIndex(prev => prev + 1);
+          }
         }}
       />
 
@@ -1886,7 +1929,7 @@ export const App: React.FC = () => {
           selectedTrackIds={selectedTrackIds}
           playlists={playlists}
           onClose={() => setContextMenu(null)}
-          onPlay={playTrack}
+          onPlay={(t) => playTrackWithContext(t, filteredTracks)}
           onAddToQueue={(t) => setQueue(prev => [...prev, ...t])}
           onPlayNext={(t) => {
             setQueue(prev => {

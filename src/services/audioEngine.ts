@@ -553,6 +553,25 @@ class AudioEngine {
     });
   }
 
+  public stop(): void {
+    this.playRequestId++;
+    this.cancelFade(0);
+    this.isPlaying = false;
+    this.playbackPosition = 0;
+    this.currentTrackSrc = '';
+    this.currentTrackPath = '';
+    this.currentBuffer = null;
+    this.stopBufferSource();
+    try {
+      this.audio.pause();
+      this.audio.currentTime = 0;
+      this.audio.removeAttribute('src');
+      this.audio.load();
+    } catch (_) {}
+    this.onPauseCallback?.();
+    this.onTimeUpdateCallback?.(0);
+  }
+
   public async pause(): Promise<void> {
     if (!this.isPlaying) return;
 

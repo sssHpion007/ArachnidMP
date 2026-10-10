@@ -411,7 +411,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
         {/* Queue Drawer Button */}
         <button
           onClick={onToggleQueue}
-          title="Очередь воспроизведения"
+          title="Очередь воспроизведения [Q]"
           className={`relative p-2.5 rounded-full transition-colors cursor-pointer ${
             isQueueOpen
               ? 'bg-md3-primary text-md3-on-primary'
