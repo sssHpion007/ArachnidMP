@@ -666,10 +666,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             {/* 6. Restrained About Section */}
-            <div className="p-4 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/15 text-xs text-md3-on-surface-variant space-y-1.5">
+            <div className="p-4 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/15 text-xs text-md3-on-surface-variant space-y-2">
               <div className="flex items-center justify-between">
-                <span className="font-bold text-md3-on-surface text-xs">Arachnid Music Player</span>
-                <span className="text-[11px] font-mono opacity-70">v0.3.40</span>
+                <div className="flex items-center gap-2.5">
+                  <img src="/app-logo.png" alt="Arachnid Logo" className="w-6 h-6 rounded-lg object-contain shadow-xs" />
+                  <span className="font-bold text-md3-on-surface text-xs">Arachnid Music Player</span>
+                </div>
+                <span className="text-[11px] font-mono opacity-70">v0.3.41</span>
               </div>
               <p className="text-[11px] leading-relaxed text-md3-on-surface-variant/90">
                 Лёгкий и быстрый аудиоплеер для Windows с поддержкой gapless-воспроизведения, встроенным редактором тегов, текстами песен и интерфейсом Material Design 3.

@@ -94,9 +94,11 @@ export const TitleBar: React.FC = () => {
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
         className="flex items-center gap-2 pl-3 h-full cursor-default select-none pointer-events-auto"
       >
-        <div className="w-3.5 h-3.5 rounded-full bg-md3-primary flex items-center justify-center text-[8px] font-black text-md3-on-primary shadow-xs pointer-events-none">
-          A
-        </div>
+        <img
+          src="/app-logo.png"
+          alt="Arachnid"
+          className="w-4 h-4 rounded-md object-contain pointer-events-none shadow-xs"
+        />
         <span className="text-[10px] font-bold tracking-wider text-md3-on-surface-variant/90 pointer-events-none">
           ARACHNID
         </span>
