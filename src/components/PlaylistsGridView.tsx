@@ -25,6 +25,7 @@ interface PlaylistsGridViewProps {
   folders: PlaylistFolder[];
   groups: PlaylistGroup[];
   tracks: Track[];
+  searchQuery?: string;
   onSelectPlaylist: (id: string) => void;
   onCreatePlaylist: (folderId?: string | null, groupId?: string | null) => void;
   onCreateFolder: (parentId?: string | null, groupId?: string | null) => void;
@@ -235,6 +236,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   folders,
   groups,
   tracks,
+  searchQuery = '',
   onSelectPlaylist,
   onCreatePlaylist,
   onCreateFolder,
@@ -732,6 +734,91 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
       </div>
     );
   };
+
+  // Search filtering logic
+  const isSearchActive = Boolean(searchQuery && searchQuery.trim());
+  const normalizedQuery = searchQuery.toLowerCase().trim();
+
+  const trackMap = useMemo(() => new Map(tracks.map((t) => [t.id, t])), [tracks]);
+
+  const searchFilteredPlaylists = useMemo(() => {
+    if (!isSearchActive) return [];
+    return playlists.filter((pl) => {
+      if (pl.name.toLowerCase().includes(normalizedQuery)) return true;
+      if (pl.description && pl.description.toLowerCase().includes(normalizedQuery)) return true;
+      return pl.trackIds.some((id) => {
+        const t = trackMap.get(id);
+        if (!t) return false;
+        return (
+          t.title.toLowerCase().includes(normalizedQuery) ||
+          t.artist.toLowerCase().includes(normalizedQuery) ||
+          (t.album && t.album.toLowerCase().includes(normalizedQuery))
+        );
+      });
+    });
+  }, [isSearchActive, normalizedQuery, playlists, trackMap]);
+
+  const searchFilteredFolders = useMemo(() => {
+    if (!isSearchActive) return [];
+    return folders.filter((f) => f.name.toLowerCase().includes(normalizedQuery));
+  }, [isSearchActive, normalizedQuery, folders]);
+
+  // If search query is active, display filtered results across playlists & folders
+  if (isSearchActive) {
+    const hasResults = searchFilteredFolders.length > 0 || searchFilteredPlaylists.length > 0;
+
+    return (
+      <div className="flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none">
+        <div className="flex items-center justify-between mb-6 pb-4 border-b border-md3-outline-variant/15">
+          <div>
+            <h2 className="text-xl font-bold text-md3-on-surface">Поиск в плейлистах</h2>
+            <p className="text-xs text-md3-on-surface-variant mt-0.5">
+              По запросу «{searchQuery}»: найдено {searchFilteredPlaylists.length} {searchFilteredPlaylists.length === 1 ? 'плейлист' : 'плейлистов'}
+              {searchFilteredFolders.length > 0 && ` и ${searchFilteredFolders.length} папок`}
+            </p>
+          </div>
+        </div>
+
+        {!hasResults ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-md3-on-surface-variant">
+            <div className="w-16 h-16 rounded-full bg-md3-surface-container-high flex items-center justify-center mb-3 text-md3-primary">
+              <ListMusic className="w-8 h-8" />
+            </div>
+            <h3 className="text-lg font-bold text-md3-on-surface mb-1">Ничего не найдено</h3>
+            <p className="text-xs max-w-sm">
+              По запросу «{searchQuery}» плейлисты и папки не найдены.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {searchFilteredFolders.length > 0 && (
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-md3-on-surface-variant mb-4 flex items-center gap-2">
+                  <FolderOpen className="w-4 h-4 text-md3-primary" />
+                  Папки ({searchFilteredFolders.length})
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                  {searchFilteredFolders.map(renderFolderCard)}
+                </div>
+              </div>
+            )}
+
+            {searchFilteredPlaylists.length > 0 && (
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-md3-on-surface-variant mb-4 flex items-center gap-2">
+                  <ListMusic className="w-4 h-4 text-md3-primary" />
+                  Плейлисты ({searchFilteredPlaylists.length})
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                  {searchFilteredPlaylists.map(renderPlaylistCard)}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // ---------------- VIEW INSIDE A FOLDER ----------------
   if (currentFolderId && currentFolder) {

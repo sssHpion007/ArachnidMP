@@ -4,16 +4,18 @@ import { Track } from '../types/music';
 
 interface ArtistsGridViewProps {
   tracks: Track[];
+  searchQuery?: string;
   onSelectArtist: (artistName: string) => void;
   onPlayArtist: (tracks: Track[]) => void;
 }
 
 export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
   tracks,
+  searchQuery = '',
   onSelectArtist,
   onPlayArtist,
 }) => {
-  const artists = useMemo(() => {
+  const allArtists = useMemo(() => {
     const map = new Map<string, { name: string; coverArt?: string; tracks: Track[]; albumsCount: number }>();
 
     for (const t of tracks) {
@@ -41,7 +43,19 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [tracks]);
 
-  if (artists.length === 0) {
+  const artists = useMemo(() => {
+    if (!searchQuery.trim()) return allArtists;
+    const q = searchQuery.toLowerCase().trim();
+    return allArtists.filter((a) =>
+      a.name.toLowerCase().includes(q) ||
+      a.tracks.some((t) =>
+        t.title.toLowerCase().includes(q) ||
+        (t.album && t.album.toLowerCase().includes(q))
+      )
+    );
+  }, [allArtists, searchQuery]);
+
+  if (allArtists.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none text-md3-on-surface-variant">
         <div className="w-20 h-20 rounded-full bg-md3-surface-container-high flex items-center justify-center mb-4 text-md3-primary">
@@ -49,6 +63,18 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
         </div>
         <h2 className="text-xl font-bold text-md3-on-surface mb-2">Исполнители не найдены</h2>
         <p className="text-sm max-w-md">Добавьте аудиотреки в библиотеку, чтобы увидеть исполнителей.</p>
+      </div>
+    );
+  }
+
+  if (artists.length === 0) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none text-md3-on-surface-variant">
+        <div className="w-20 h-20 rounded-full bg-md3-surface-container-high flex items-center justify-center mb-4 text-md3-primary">
+          <Mic2 className="w-10 h-10" />
+        </div>
+        <h2 className="text-xl font-bold text-md3-on-surface mb-2">Ничего не найдено</h2>
+        <p className="text-sm max-w-md">По запросу «{searchQuery}» исполнители не найдены.</p>
       </div>
     );
   }

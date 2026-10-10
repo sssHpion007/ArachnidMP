@@ -566,6 +566,30 @@ export const App: React.FC = () => {
     return null;
   }, [selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, playlists, tracks]);
 
+  const searchPlaceholder = useMemo(() => {
+    if (currentDetail) {
+      if (currentDetail.type === 'playlist') return `Поиск в «${currentDetail.title}»...`;
+      if (currentDetail.type === 'album') return `Поиск в «${currentDetail.title}»...`;
+      if (currentDetail.type === 'artist') return `Поиск в «${currentDetail.title}»...`;
+      if (currentDetail.type === 'genre') return `Поиск в «${currentDetail.title}»...`;
+    }
+    switch (currentView) {
+      case 'playlists':
+        return 'Поиск по плейлистам и папкам...';
+      case 'albums':
+        return 'Поиск по альбомам...';
+      case 'artists':
+        return 'Поиск по исполнителям...';
+      case 'genres':
+        return 'Поиск по жанрам...';
+      case 'favorites':
+        return 'Поиск в избранном...';
+      case 'tracks':
+      default:
+        return `Поиск среди треков (${tracks.length})...`;
+    }
+  }, [currentDetail, currentView, tracks.length]);
+
   const handleBackToGrid = () => {
     setSelectedPlaylistId(null);
     setSelectedAlbum(null);
@@ -1709,6 +1733,7 @@ export const App: React.FC = () => {
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         totalTracksCount={tracks.length}
+        searchPlaceholder={searchPlaceholder}
         onOpenFiles={handleOpenFiles}
         themeMode={themeMode}
         onToggleTheme={() => {
@@ -1825,6 +1850,7 @@ export const App: React.FC = () => {
             folders={playlistFolders}
             groups={playlistGroups}
             tracks={tracks}
+            searchQuery={searchQuery}
             onSelectPlaylist={handleSelectPlaylist}
             onCreatePlaylist={handleCreatePlaylist}
             onCreateFolder={handleOpenCreateFolder}
@@ -1854,18 +1880,21 @@ export const App: React.FC = () => {
         ) : currentView === 'albums' ? (
           <AlbumsGridView
             tracks={tracks}
+            searchQuery={searchQuery}
             onSelectAlbum={(alb) => setSelectedAlbum(alb)}
             onPlayAlbum={handlePlayAlbum}
           />
         ) : currentView === 'artists' ? (
           <ArtistsGridView
             tracks={tracks}
+            searchQuery={searchQuery}
             onSelectArtist={(art) => setSelectedArtist(art)}
             onPlayArtist={handlePlayArtist}
           />
         ) : currentView === 'genres' ? (
           <GenresGridView
             tracks={tracks}
+            searchQuery={searchQuery}
             onSelectGenre={(gen) => setSelectedGenre(gen)}
             onPlayGenre={handlePlayGenre}
           />

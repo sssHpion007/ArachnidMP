@@ -24,6 +24,7 @@ interface TopBarProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
   totalTracksCount: number;
+  searchPlaceholder?: string;
   onOpenFiles: () => void;
   themeMode: ThemeMode;
   onToggleTheme: () => void;
@@ -41,6 +42,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   searchQuery,
   onSearchChange,
   totalTracksCount,
+  searchPlaceholder,
   onOpenFiles,
   themeMode,
   onToggleTheme,
@@ -85,8 +87,8 @@ export const TopBar: React.FC<TopBarProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder={isSuperCompact ? 'Поиск...' : `Поиск (${totalTracksCount})...`}
-            className="w-full pl-8 pr-7 py-1.5 rounded-full bg-md3-surface-container text-xs text-md3-on-surface placeholder-md3-on-surface-variant/50 border border-transparent focus:border-md3-primary focus:bg-md3-surface-container-high outline-none transition-all"
+            placeholder={searchPlaceholder || (isSuperCompact ? 'Поиск...' : `Поиск (${totalTracksCount})...`)}
+            className="w-full pl-8 pr-7 py-1.5 rounded-full bg-md3-surface-container text-xs text-md3-on-surface placeholder-md3-on-surface-variant/50 border border-transparent focus:border-md3-primary focus:bg-md3-surface-container-high outline-none transition-all truncate"
           />
           {searchQuery && (
             <button

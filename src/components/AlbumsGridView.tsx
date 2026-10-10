@@ -5,16 +5,18 @@ import { formatTime } from '../services/tagEditor';
 
 interface AlbumsGridViewProps {
   tracks: Track[];
+  searchQuery?: string;
   onSelectAlbum: (albumName: string) => void;
   onPlayAlbum: (tracks: Track[]) => void;
 }
 
 export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
   tracks,
+  searchQuery = '',
   onSelectAlbum,
   onPlayAlbum,
 }) => {
-  const albums = useMemo(() => {
+  const allAlbums = useMemo(() => {
     const map = new Map<string, { name: string; artist: string; year?: number; coverArt?: string; tracks: Track[] }>();
 
     for (const t of tracks) {
@@ -38,7 +40,18 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [tracks]);
 
-  if (albums.length === 0) {
+  const albums = useMemo(() => {
+    if (!searchQuery.trim()) return allAlbums;
+    const q = searchQuery.toLowerCase().trim();
+    return allAlbums.filter((a) =>
+      a.name.toLowerCase().includes(q) ||
+      a.artist.toLowerCase().includes(q) ||
+      (a.year && a.year.toString().includes(q)) ||
+      a.tracks.some((t) => t.title.toLowerCase().includes(q))
+    );
+  }, [allAlbums, searchQuery]);
+
+  if (allAlbums.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none text-md3-on-surface-variant">
         <div className="w-20 h-20 rounded-full bg-md3-surface-container-high flex items-center justify-center mb-4 text-md3-primary">
@@ -46,6 +59,18 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
         </div>
         <h2 className="text-xl font-bold text-md3-on-surface mb-2">Альбомы не найдены</h2>
         <p className="text-sm max-w-md">Добавьте аудиотреки в библиотеку, чтобы увидеть сгруппированные альбомы.</p>
+      </div>
+    );
+  }
+
+  if (albums.length === 0) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none text-md3-on-surface-variant">
+        <div className="w-20 h-20 rounded-full bg-md3-surface-container-high flex items-center justify-center mb-4 text-md3-primary">
+          <Disc3 className="w-10 h-10" />
+        </div>
+        <h2 className="text-xl font-bold text-md3-on-surface mb-2">Ничего не найдено</h2>
+        <p className="text-sm max-w-md">По запросу «{searchQuery}» альбомы не найдены.</p>
       </div>
     );
   }

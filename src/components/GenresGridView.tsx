@@ -5,6 +5,7 @@ import { formatTime } from '../services/tagEditor';
 
 interface GenresGridViewProps {
   tracks: Track[];
+  searchQuery?: string;
   onSelectGenre: (genreName: string) => void;
   onPlayGenre: (tracks: Track[]) => void;
 }
@@ -22,10 +23,11 @@ const GENRE_GRADIENTS = [
 
 export const GenresGridView: React.FC<GenresGridViewProps> = ({
   tracks,
+  searchQuery = '',
   onSelectGenre,
   onPlayGenre,
 }) => {
-  const genres = useMemo(() => {
+  const allGenres = useMemo(() => {
     const map = new Map<string, { name: string; tracks: Track[]; coverArt?: string }>();
 
     for (const t of tracks) {
@@ -55,7 +57,20 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
     return Array.from(map.values()).sort((a, b) => b.tracks.length - a.tracks.length);
   }, [tracks]);
 
-  if (genres.length === 0) {
+  const genres = useMemo(() => {
+    if (!searchQuery.trim()) return allGenres;
+    const q = searchQuery.toLowerCase().trim();
+    return allGenres.filter((g) =>
+      g.name.toLowerCase().includes(q) ||
+      g.tracks.some((t) => 
+        t.title.toLowerCase().includes(q) || 
+        t.artist.toLowerCase().includes(q) ||
+        (t.album && t.album.toLowerCase().includes(q))
+      )
+    );
+  }, [allGenres, searchQuery]);
+
+  if (allGenres.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none text-md3-on-surface-variant">
         <div className="w-20 h-20 rounded-full bg-md3-surface-container-high flex items-center justify-center mb-4 text-md3-primary">
@@ -63,6 +78,18 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
         </div>
         <h2 className="text-xl font-bold text-md3-on-surface mb-2">Жанры не найдены</h2>
         <p className="text-sm max-w-md">Добавьте аудиотреки с тегами жанров в библиотеку.</p>
+      </div>
+    );
+  }
+
+  if (genres.length === 0) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none text-md3-on-surface-variant">
+        <div className="w-20 h-20 rounded-full bg-md3-surface-container-high flex items-center justify-center mb-4 text-md3-primary">
+          <Tag className="w-10 h-10" />
+        </div>
+        <h2 className="text-xl font-bold text-md3-on-surface mb-2">Ничего не найдено</h2>
+        <p className="text-sm max-w-md">По запросу «{searchQuery}» жанры не найдены.</p>
       </div>
     );
   }

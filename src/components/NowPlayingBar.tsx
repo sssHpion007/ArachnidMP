@@ -340,7 +340,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
         </div>
       </div>
 
-      {/* Right: Visualizer, Panels Pill (Lyrics + Queue), Volume */}
+      {/* Right: Visualizer, Volume, Panels Pill (Lyrics + Queue) */}
       <div className="flex items-center justify-end gap-3 w-1/4 min-w-[260px] max-w-xs shrink-0">
         {/* Animated Spectrum Visualizer */}
         <div 
@@ -356,7 +356,35 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
           ))}
         </div>
 
-        {/* Secondary Panels Pill Frame: Lyrics & Queue (Unified Material You capsule) */}
+        {/* Volume controls with smooth slider */}
+        <div className="flex items-center gap-1.5 group shrink-0">
+          <button
+            onClick={onToggleMute}
+            title={isMuted ? 'Включить звук' : `Громкость: ${Math.round(volume * 100)}% [↑/↓]`}
+            className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface transition-colors cursor-pointer"
+          >
+            {isMuted || volume === 0 ? (
+              <VolumeX className="w-4 h-4 text-red-400" />
+            ) : volume < 0.5 ? (
+              <Volume1 className="w-4 h-4" />
+            ) : (
+              <Volume2 className="w-4 h-4" />
+            )}
+          </button>
+
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={isMuted ? 0 : volume}
+            onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
+            title={`Громкость: ${Math.round(volume * 100)}% [↑/↓]`}
+            className="w-20 lg:w-24 accent-md3-primary h-1.5 rounded-full bg-md3-surface-container-highest cursor-pointer"
+          />
+        </div>
+
+        {/* Secondary Panels Pill Frame: Lyrics & Queue (Moved to the end, after volume) */}
         <div className="flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 shadow-xs shrink-0">
           {/* Lyrics Button [T] - Always rendered to prevent layout shift */}
           <button
@@ -402,34 +430,6 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               </span>
             )}
           </button>
-        </div>
-
-        {/* Volume controls with smooth slider */}
-        <div className="flex items-center gap-1.5 group shrink-0">
-          <button
-            onClick={onToggleMute}
-            title={isMuted ? 'Включить звук' : `Громкость: ${Math.round(volume * 100)}% [↑/↓]`}
-            className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface transition-colors cursor-pointer"
-          >
-            {isMuted || volume === 0 ? (
-              <VolumeX className="w-4 h-4 text-red-400" />
-            ) : volume < 0.5 ? (
-              <Volume1 className="w-4 h-4" />
-            ) : (
-              <Volume2 className="w-4 h-4" />
-            )}
-          </button>
-
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={isMuted ? 0 : volume}
-            onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-            title={`Громкость: ${Math.round(volume * 100)}% [↑/↓]`}
-            className="w-20 lg:w-24 accent-md3-primary h-1.5 rounded-full bg-md3-surface-container-highest cursor-pointer"
-          />
         </div>
       </div>
     </footer>
