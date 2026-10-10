@@ -88,17 +88,17 @@ export const TitleBar: React.FC = () => {
     <div
       data-tauri-drag-region
       onDoubleClick={handleToggleMaximize}
-      className="h-8 w-full bg-md3-surface-container-low border-b border-md3-outline-variant/15 flex items-center justify-between select-none z-50 shrink-0 text-md3-on-surface-variant transition-colors duration-300"
+      className="h-7 w-full bg-md3-surface-container-low border-b border-md3-outline-variant/15 flex items-center justify-between select-none z-50 shrink-0 text-md3-on-surface-variant transition-colors duration-300"
     >
       {/* Left: App Logo & Title (Draggable) */}
       <div
         data-tauri-drag-region
-        className="flex items-center gap-2 pl-3.5 h-full pointer-events-none"
+        className="flex items-center gap-2 pl-3 h-full pointer-events-none"
       >
-        <div className="w-4 h-4 rounded-full bg-md3-primary flex items-center justify-center text-[9px] font-black text-md3-on-primary shadow-xs">
+        <div className="w-3.5 h-3.5 rounded-full bg-md3-primary flex items-center justify-center text-[8px] font-black text-md3-on-primary shadow-xs">
           A
         </div>
-        <span className="text-[11px] font-bold tracking-wider text-md3-on-surface-variant/90">
+        <span className="text-[10px] font-bold tracking-wider text-md3-on-surface-variant/90">
           ARACHNID
         </span>
       </div>
@@ -113,7 +113,7 @@ export const TitleBar: React.FC = () => {
           onClick={handleMinimize}
           title="Свернуть"
           aria-label="Свернуть"
-          className="w-11 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface active:bg-md3-surface-container-highest transition-colors cursor-pointer"
+          className="w-10 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-md3-primary/30 transition-colors cursor-pointer"
         >
           <svg className="w-2.5 h-2.5" viewBox="0 0 10 1" fill="currentColor">
             <rect width="10" height="1" rx="0.5" />
@@ -125,7 +125,7 @@ export const TitleBar: React.FC = () => {
           onClick={handleToggleMaximize}
           title={isMaximized ? 'Восстановить' : 'Развернуть'}
           aria-label={isMaximized ? 'Восстановить' : 'Развернуть'}
-          className="w-11 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface active:bg-md3-surface-container-highest transition-colors cursor-pointer"
+          className="w-10 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-md3-primary/30 transition-colors cursor-pointer"
         >
           {isMaximized ? (
             /* Restore icon (overlapping squares) */
@@ -146,9 +146,9 @@ export const TitleBar: React.FC = () => {
           onClick={handleClose}
           title="Закрыть"
           aria-label="Закрыть"
-          className="w-12 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-[#e81123] hover:text-white active:bg-[#c4101f] transition-colors cursor-pointer"
+          className="w-11 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-red-500 active:text-white transition-colors cursor-pointer"
         >
-          <svg className="w-3 h-3" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+          <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
             <line x1="1" y1="1" x2="9" y2="9" />
             <line x1="9" y1="1" x2="1" y2="9" />
           </svg>

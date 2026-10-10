@@ -194,7 +194,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
   if (!isOpen) return null;
 
   return (
-    <aside className="fixed top-0 right-0 bottom-24 w-80 lg:w-96 bg-md3-surface-container shadow-2xl border-l border-md3-outline-variant/30 z-40 flex flex-col animate-in slide-in-from-right duration-200 select-none">
+    <aside className="fixed top-7 right-0 bottom-24 w-80 lg:w-96 bg-md3-surface-container shadow-2xl border-l border-md3-outline-variant/30 z-40 flex flex-col animate-in slide-in-from-right duration-200 select-none">
       {/* Header */}
       <div className="p-4 border-b border-md3-outline-variant/20 flex items-center justify-between">
         <div>

@@ -1,7 +1,7 @@
 {
   "name": "arachnid",
   "private": true,
-  "version": "0.3.34",
+  "version": "0.3.35",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",

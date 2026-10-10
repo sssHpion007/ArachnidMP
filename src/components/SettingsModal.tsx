@@ -648,7 +648,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="p-4 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/15 text-xs text-md3-on-surface-variant space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-md3-on-surface text-xs">Arachnid Music Player</span>
-                <span className="text-[11px] font-mono opacity-70">v0.3.34</span>
+                <span className="text-[11px] font-mono opacity-70">v0.3.35</span>
               </div>
               <p className="text-[11px] leading-relaxed text-md3-on-surface-variant/90">
                 Лёгкий и быстрый аудиоплеер для Windows с поддержкой gapless-воспроизведения, встроенным редактором тегов, текстами песен и интерфейсом Material Design 3.
