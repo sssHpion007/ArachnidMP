@@ -94,6 +94,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const handlePointerDown = (e: React.PointerEvent, track: Track, index: number) => {
+    if (!isReorderable || !onReorderTracks) return;
     if (e.button !== 0) return;
 
     // Don't start drag if clicking interactive controls
@@ -216,27 +217,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
         idsToMove = [draggedTrackId];
       }
 
-      // Check drop target element under the cursor
-      const clientX = e?.clientX ?? current.currentX;
-      const clientY = e?.clientY ?? current.currentY;
-      const targetElement = document.elementFromPoint(clientX, clientY);
-
-      // Check if dropped onto the Favorites navigation tab
-      const favTab = targetElement?.closest('[data-nav-view="favorites"]');
-      if (favTab) {
-        onAddTracksToFavorites?.(idsToMove);
-        cleanup();
-        return;
-      }
-
-      // Check if dropped inside table in "favorites" view
-      if (currentView === 'favorites' && onAddTracksToFavorites) {
-        onAddTracksToFavorites(idsToMove);
-        cleanup();
-        return;
-      }
-
-      // Reordering within a playlist
+      // Reordering within a playlist or favorites
       if (isReorderable && onReorderTracks && drop) {
         if (!idsToMove.includes(drop.trackId)) {
           const currentIds = tracks.map(t => t.id);
@@ -390,19 +371,6 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                 key={track.id}
                 data-track-row-id={track.id}
                 data-track-row-index={idx}
-                draggable={true}
-                onDragStart={(e) => {
-                  const ids = selectedTrackIds.has(track.id)
-                    ? Array.from(selectedTrackIds)
-                    : [track.id];
-                  (window as any).__isInternalDragging = true;
-                  e.dataTransfer.setData('application/json', JSON.stringify({ type: 'tracks', trackIds: ids }));
-                  e.dataTransfer.setData('text/plain', ids.join(','));
-                  e.dataTransfer.effectAllowed = 'copyMove';
-                }}
-                onDragEnd={() => {
-                  (window as any).__isInternalDragging = false;
-                }}
                 onPointerDown={(e) => handlePointerDown(e, track, idx)}
                 onMouseEnter={() => setHoveredTrackId(track.id)}
                 onMouseLeave={() => setHoveredTrackId(null)}

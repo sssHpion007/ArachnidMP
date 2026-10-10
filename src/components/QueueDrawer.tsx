@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { X, Trash2, Shuffle, Music, Play, ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
@@ -28,8 +28,27 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
   onShuffleQueue,
   onMoveQueueTrack,
 }) => {
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragState, setDragState] = useState<{
+    index: number;
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+    isDragging: boolean;
+  } | null>(null);
+  const dragStateRef = useRef<typeof dragState>(null);
   const [dropTarget, setDropTarget] = useState<{ index: number; position: 'above' | 'below' } | null>(null);
+  const dropTargetRef = useRef<typeof dropTarget>(null);
+  const hasDraggedRef = useRef<boolean>(false);
+  const listContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    dragStateRef.current = dragState;
+  }, [dragState]);
+
+  useEffect(() => {
+    dropTargetRef.current = dropTarget;
+  }, [dropTarget]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -45,6 +64,132 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
     window.addEventListener('keydown', handleGlobalKeyDown, true);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [isOpen, onClose]);
+
+  const handlePointerDown = (e: React.PointerEvent, index: number) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button') || target.closest('input')) return;
+
+    const initial = {
+      index,
+      startX: e.clientX,
+      startY: e.clientY,
+      currentX: e.clientX,
+      currentY: e.clientY,
+      isDragging: false,
+    };
+    setDragState(initial);
+    dragStateRef.current = initial;
+    hasDraggedRef.current = false;
+  };
+
+  useEffect(() => {
+    if (!dragState) return;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      const current = dragStateRef.current;
+      if (!current) return;
+
+      const deltaX = Math.abs(e.clientX - current.startX);
+      const deltaY = Math.abs(e.clientY - current.startY);
+      const isDraggingNow = current.isDragging || deltaX > 4 || deltaY > 4;
+
+      if (isDraggingNow) {
+        hasDraggedRef.current = true;
+        (window as any).__isInternalDragging = true;
+        document.body.style.cursor = 'grabbing';
+        document.body.style.userSelect = 'none';
+      }
+
+      const updated = {
+        ...current,
+        currentX: e.clientX,
+        currentY: e.clientY,
+        isDragging: isDraggingNow,
+      };
+      setDragState(updated);
+      dragStateRef.current = updated;
+
+      if (!isDraggingNow) return;
+
+      // Auto-scroll list if dragging near edges
+      if (listContainerRef.current) {
+        const rect = listContainerRef.current.getBoundingClientRect();
+        const threshold = 40;
+        if (e.clientY < rect.top + threshold && listContainerRef.current.scrollTop > 0) {
+          listContainerRef.current.scrollTop -= 8;
+        } else if (e.clientY > rect.bottom - threshold && listContainerRef.current.scrollTop < listContainerRef.current.scrollHeight - listContainerRef.current.clientHeight) {
+          listContainerRef.current.scrollTop += 8;
+        }
+      }
+
+      // Find drop target row under pointer
+      const element = document.elementFromPoint(e.clientX, e.clientY);
+      const rowEl = element?.closest('[data-queue-row-index]');
+      if (rowEl) {
+        const targetIdxStr = rowEl.getAttribute('data-queue-row-index');
+        const targetIndex = targetIdxStr !== null ? parseInt(targetIdxStr, 10) : -1;
+        if (targetIndex !== -1 && targetIndex !== current.index) {
+          const rect = rowEl.getBoundingClientRect();
+          const position = e.clientY < rect.top + rect.height / 2 ? 'above' : 'below';
+          const newDrop = { index: targetIndex, position: position as 'above' | 'below' };
+          setDropTarget(newDrop);
+          dropTargetRef.current = newDrop;
+          return;
+        }
+      }
+      setDropTarget(null);
+      dropTargetRef.current = null;
+    };
+
+    const handlePointerUp = () => {
+      const current = dragStateRef.current;
+      const drop = dropTargetRef.current;
+
+      const cleanup = () => {
+        setDragState(null);
+        dragStateRef.current = null;
+        setDropTarget(null);
+        dropTargetRef.current = null;
+        (window as any).__isInternalDragging = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        setTimeout(() => {
+          hasDraggedRef.current = false;
+        }, 80);
+      };
+
+      if (!current || !current.isDragging || !drop) {
+        cleanup();
+        return;
+      }
+
+      const fromIndex = current.index;
+      let targetIndex = drop.index;
+      if (drop.position === 'below') {
+        targetIndex = fromIndex < drop.index ? drop.index : drop.index + 1;
+      } else {
+        targetIndex = fromIndex < drop.index ? drop.index - 1 : drop.index;
+      }
+
+      const finalTarget = Math.max(0, Math.min(queue.length - 1, targetIndex));
+      if (fromIndex !== finalTarget) {
+        onMoveQueueTrack(fromIndex, finalTarget);
+      }
+
+      cleanup();
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [dragState, queue.length, onMoveQueueTrack]);
 
   if (!isOpen) return null;
 
@@ -85,7 +230,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
       </div>
 
       {/* Queue items list */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+      <div ref={listContainerRef} className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
         {queue.length === 0 ? (
           <div className="h-48 flex flex-col items-center justify-center text-center text-md3-on-surface-variant text-sm p-4">
             <Music className="w-8 h-8 opacity-40 mb-2" />
@@ -94,61 +239,16 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
         ) : (
           queue.map((track, idx) => {
             const isCurrent = idx === queueIndex;
-            const isBeingDragged = draggedIndex === idx;
+            const isBeingDragged = dragState?.isDragging && dragState.index === idx;
             const isDropAbove = dropTarget?.index === idx && dropTarget.position === 'above';
             const isDropBelow = dropTarget?.index === idx && dropTarget.position === 'below';
 
             return (
               <div
                 key={`${track.id}-${idx}`}
-                draggable={true}
-                onDragStart={(e) => {
-                  setDraggedIndex(idx);
-                  (window as any).__isInternalDragging = true;
-                  e.dataTransfer.setData('text/plain', String(idx));
-                  e.dataTransfer.effectAllowed = 'move';
-                }}
-                onDragEnd={() => {
-                  setDraggedIndex(null);
-                  setDropTarget(null);
-                  (window as any).__isInternalDragging = false;
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-                  if (draggedIndex === null || draggedIndex === idx) {
-                    setDropTarget(null);
-                    return;
-                  }
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const position = e.clientY < rect.top + rect.height / 2 ? 'above' : 'below';
-                  setDropTarget({ index: idx, position });
-                }}
-                onDragLeave={(e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                    setDropTarget(null);
-                  }
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  (window as any).__isInternalDragging = false;
-                  if (draggedIndex === null || draggedIndex === idx) {
-                    setDraggedIndex(null);
-                    setDropTarget(null);
-                    return;
-                  }
-                  let target = idx;
-                  if (dropTarget?.position === 'below') {
-                    target = draggedIndex < idx ? idx : idx + 1;
-                  } else {
-                    target = draggedIndex < idx ? idx - 1 : idx;
-                  }
-                  const finalTarget = Math.max(0, Math.min(queue.length - 1, target));
-                  onMoveQueueTrack(draggedIndex, finalTarget);
-                  setDraggedIndex(null);
-                  setDropTarget(null);
-                }}
-                className={`relative group flex items-center justify-between p-2 rounded-2xl transition-all ${
+                data-queue-row-index={idx}
+                onPointerDown={(e) => handlePointerDown(e, idx)}
+                className={`relative group flex items-center justify-between p-2 rounded-2xl transition-all select-none ${
                   isBeingDragged
                     ? 'opacity-30 bg-md3-primary/10 border-dashed border border-md3-primary/40'
                     : isCurrent
@@ -179,7 +279,10 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                 </div>
 
                 <div 
-                  onClick={() => onPlayQueueTrack(idx)}
+                  onClick={() => {
+                    if (hasDraggedRef.current) return;
+                    onPlayQueueTrack(idx);
+                  }}
                   className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer pr-2"
                 >
                   <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-md3-surface-container-highest shadow-sm relative">
@@ -234,6 +337,29 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
           })
         )}
       </div>
+
+      {/* Floating Drag Preview */}
+      {dragState?.isDragging && queue[dragState.index] && (
+        <div
+          style={{
+            position: 'fixed',
+            left: `${dragState.currentX + 12}px`,
+            top: `${dragState.currentY + 12}px`,
+            pointerEvents: 'none',
+            zIndex: 9999,
+          }}
+          className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-md3-surface-container-highest/95 backdrop-blur-md border border-md3-primary/40 shadow-2xl text-xs font-semibold text-md3-on-surface max-w-[240px] ring-1 ring-black/10 animate-in fade-in zoom-in-95 duration-100"
+        >
+          <div className="w-6 h-6 rounded-lg overflow-hidden shrink-0 bg-md3-surface-container-high flex items-center justify-center">
+            {queue[dragState.index].coverArt ? (
+              <img src={queue[dragState.index].coverArt} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <Music className="w-3.5 h-3.5 text-md3-primary" />
+            )}
+          </div>
+          <span className="truncate">{queue[dragState.index].title}</span>
+        </div>
+      )}
     </aside>
   );
 };

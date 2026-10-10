@@ -472,7 +472,16 @@ export const App: React.FC = () => {
         return list.length > 0 ? list.includes(selectedGenre) : selectedGenre === 'Без жанра';
       });
     } else if (currentView === 'favorites') {
-      result = result.filter(t => t.isFavorite);
+      const plFav = playlists.find(p => p.id === 'pl_favorites');
+      const trackMap = new Map(tracks.map(t => [t.id, t]));
+      if (plFav && plFav.trackIds.length > 0) {
+        const ordered = plFav.trackIds.map(id => trackMap.get(id)).filter((t): t is Track => Boolean(t && t.isFavorite));
+        const orderedSet = new Set(ordered.map(t => t.id));
+        const remaining = tracks.filter(t => t.isFavorite && !orderedSet.has(t.id));
+        result = [...ordered, ...remaining];
+      } else {
+        result = result.filter(t => t.isFavorite);
+      }
     }
 
     if (searchQuery.trim()) {
@@ -579,7 +588,21 @@ export const App: React.FC = () => {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 
-      if (e.code === 'Space' || e.code === 'MediaPlayPause' || e.key === 'MediaPlayPause') {
+      if (e.code === 'Tab' || e.key === 'Tab') {
+        e.preventDefault();
+        const ALL_TABS: MainViewType[] = ['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'];
+        const activeTabs = ALL_TABS.filter(tabId => visibleTabs[tabId] ?? true);
+        if (activeTabs.length > 0) {
+          const currentIdx = activeTabs.indexOf(currentView);
+          let nextIdx: number;
+          if (e.shiftKey) {
+            nextIdx = currentIdx <= 0 ? activeTabs.length - 1 : currentIdx - 1;
+          } else {
+            nextIdx = (currentIdx + 1) % activeTabs.length;
+          }
+          handleSelectView(activeTabs[nextIdx]);
+        }
+      } else if (e.code === 'Space' || e.code === 'MediaPlayPause' || e.key === 'MediaPlayPause') {
         e.preventDefault();
         handlePlayPause();
       } else if (e.code === 'MediaStop' || e.key === 'MediaStop') {
@@ -782,6 +805,8 @@ export const App: React.FC = () => {
     contextMenu,
     playlistContextMenu,
     folderContextMenu,
+    currentView,
+    visibleTabs,
   ]);
 
   // Synchronous, robust track processor and playlist assigner
@@ -1312,6 +1337,17 @@ export const App: React.FC = () => {
     setSortOrder('asc');
   };
 
+  const handleReorderFavoriteTracks = (reorderedTrackIds: string[]) => {
+    setPlaylists(prev => prev.map(p => {
+      if (p.id === 'pl_favorites') {
+        return { ...p, trackIds: reorderedTrackIds };
+      }
+      return p;
+    }));
+    setSortBy('custom');
+    setSortOrder('asc');
+  };
+
   const handleOpenCreateFolder = (parentId?: string | null, groupId?: string | null) => {
     setFolderCreationTarget({ parentId, groupId });
     setIsCreateFolderOpen(true);
@@ -1686,7 +1722,6 @@ export const App: React.FC = () => {
         onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
         showDiscordButton={showDiscordButton}
         visibleTabs={visibleTabs}
-        onAddTracksToFavorites={handleAddTracksToFavorites}
       />
 
       {/* Main Content Area (Full width, No sidebar) */}
@@ -1857,8 +1892,8 @@ export const App: React.FC = () => {
             sortOrder={sortOrder}
             onSortChange={handleSortChange}
             onDropFiles={importFiles}
-            onAddTracksToFavorites={handleAddTracksToFavorites}
-            currentView={currentView}
+            isReorderable={currentView === 'favorites' && !searchQuery.trim()}
+            onReorderTracks={currentView === 'favorites' ? handleReorderFavoriteTracks : undefined}
           />
         )}
       </main>
