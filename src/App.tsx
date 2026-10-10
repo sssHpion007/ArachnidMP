@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Track, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode, FadeMode } from './types/music';
+import { TitleBar } from './components/TitleBar';
 import { TopBar, MainViewType } from './components/TopBar';
 import { TrackTable } from './components/TrackTable';
 import { NowPlayingBar } from './components/NowPlayingBar';
@@ -1757,6 +1758,9 @@ export const App: React.FC = () => {
 
       {/* Drag & Drop Visual Overlay */}
       <DragDropOverlay isDragging={isDraggingFile} />
+
+      {/* Custom Window Title Bar (Frameless Desktop Window Controls) */}
+      <TitleBar />
 
       {/* Top Header Bar with App Logo, Navigation Pills, Search & Quick Actions */}
       <TopBar

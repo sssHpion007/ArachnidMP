@@ -369,6 +369,33 @@ fn get_system_accent_color() -> Result<String, String> {
     Ok("#0078d4".to_string())
 }
 
+#[tauri::command]
+fn minimize_window(window: tauri::Window) -> Result<(), String> {
+    window.minimize().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn toggle_maximize_window(window: tauri::Window) -> Result<bool, String> {
+    let is_max = window.is_maximized().map_err(|e| e.to_string())?;
+    if is_max {
+        window.unmaximize().map_err(|e| e.to_string())?;
+        Ok(false)
+    } else {
+        window.maximize().map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+}
+
+#[tauri::command]
+fn close_window(window: tauri::Window) -> Result<(), String> {
+    window.close().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn is_window_maximized(window: tauri::Window) -> Result<bool, String> {
+    window.is_maximized().map_err(|e| e.to_string())
+}
+
 #[cfg(target_os = "windows")]
 mod windows_process_grouping {
     #[repr(C)]
@@ -475,7 +502,11 @@ pub fn run() {
             batch_update_tags,
             save_portable_data,
             load_portable_data,
-            get_system_accent_color
+            get_system_accent_color,
+            minimize_window,
+            toggle_maximize_window,
+            close_window,
+            is_window_maximized
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arachnid application");

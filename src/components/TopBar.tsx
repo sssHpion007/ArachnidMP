@@ -78,7 +78,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   const isUltraCompact = windowWidth < 650;
 
   return (
-    <header className="relative h-16 px-3 sm:px-6 shrink-0 flex items-center justify-between gap-2 sm:gap-4 bg-md3-surface-container-low border-b border-md3-outline-variant/15 select-none transition-colors duration-300">
+    <header data-tauri-drag-region className="relative h-16 px-3 sm:px-6 shrink-0 flex items-center justify-between gap-2 sm:gap-4 bg-md3-surface-container-low border-b border-md3-outline-variant/15 select-none transition-colors duration-300">
       {/* Left: Search Bar (Flexible width, never forces overflow) */}
       <div className="z-10 shrink-0 w-28 sm:w-40 md:w-52 lg:w-60 transition-all">
         <div className="relative w-full">
