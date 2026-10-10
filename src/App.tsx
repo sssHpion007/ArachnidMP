@@ -680,14 +680,101 @@ export const App: React.FC = () => {
       } else if ((e.code === 'KeyM' || e.key.toLowerCase() === 'm' || e.key.toLowerCase() === 'ь') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         handleToggleMute();
-      } else if ((e.code === 'ArrowUp' || e.key === 'ArrowUp') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // Volume Up / Down with Ctrl (Ctrl + ArrowUp / ArrowDown)
+      } else if ((e.code === 'ArrowUp' || e.key === 'ArrowUp') && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         const next = Math.min(1, Math.round((volumeRef.current + 0.05) * 100) / 100);
         handleVolumeChange(next);
-      } else if ((e.code === 'ArrowDown' || e.key === 'ArrowDown') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      } else if ((e.code === 'ArrowDown' || e.key === 'ArrowDown') && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         const next = Math.max(0, Math.round((volumeRef.current - 0.05) * 100) / 100);
         handleVolumeChange(next);
+      // Plain Arrow Down / Up: Navigate through track list
+      } else if ((e.code === 'ArrowDown' || e.key === 'ArrowDown') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        if (filteredTracks.length > 0) {
+          e.preventDefault();
+          let nextIdx = 0;
+          if (selectedTrackIds.size > 0) {
+            const lastSelectedId = Array.from(selectedTrackIds).pop();
+            const currIdx = filteredTracks.findIndex(t => t.id === lastSelectedId);
+            if (currIdx !== -1) {
+              nextIdx = Math.min(filteredTracks.length - 1, currIdx + 1);
+            }
+          } else if (currentTrack) {
+            const currIdx = filteredTracks.findIndex(t => t.id === currentTrack.id);
+            if (currIdx !== -1) {
+              nextIdx = Math.min(filteredTracks.length - 1, currIdx + 1);
+            }
+          }
+          const nextTrack = filteredTracks[nextIdx];
+          if (nextTrack) {
+            setSelectedTrackIds(new Set([nextTrack.id]));
+            requestAnimationFrame(() => {
+              const el = document.querySelector(`[data-track-row-id="${nextTrack.id}"]`);
+              el?.scrollIntoView({ block: 'nearest' });
+            });
+          }
+        }
+      } else if ((e.code === 'ArrowUp' || e.key === 'ArrowUp') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        if (filteredTracks.length > 0) {
+          e.preventDefault();
+          let prevIdx = 0;
+          if (selectedTrackIds.size > 0) {
+            const firstSelectedId = Array.from(selectedTrackIds)[0];
+            const currIdx = filteredTracks.findIndex(t => t.id === firstSelectedId);
+            if (currIdx !== -1) {
+              prevIdx = Math.max(0, currIdx - 1);
+            }
+          } else if (currentTrack) {
+            const currIdx = filteredTracks.findIndex(t => t.id === currentTrack.id);
+            if (currIdx !== -1) {
+              prevIdx = Math.max(0, currIdx - 1);
+            }
+          }
+          const prevTrack = filteredTracks[prevIdx];
+          if (prevTrack) {
+            setSelectedTrackIds(new Set([prevTrack.id]));
+            requestAnimationFrame(() => {
+              const el = document.querySelector(`[data-track-row-id="${prevTrack.id}"]`);
+              el?.scrollIntoView({ block: 'nearest' });
+            });
+          }
+        }
+      // Shift + Enter: Edit tags of selected track(s)
+      } else if ((e.code === 'Enter' || e.key === 'Enter') && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const anyModalOpen = isSettingsOpen || isEQOpen || isLyricsOpen || isQueueOpen || isBatchTagEditorOpen ||
+          isCreatePlaylistOpen || isCreateFolderOpen || isCreateGroupOpen || renameItemTarget ||
+          renamePlaylistTarget || deleteFolderTarget || clearPlaylistTarget || deletePlaylistTarget ||
+          deleteTracksTarget || trackDetailsTarget;
+        if (!anyModalOpen) {
+          if (selectedTrackIds.size > 0) {
+            e.preventDefault();
+            setIsBatchTagEditorOpen(true);
+          } else if (currentTrack) {
+            e.preventDefault();
+            setSelectedTrackIds(new Set([currentTrack.id]));
+            setIsBatchTagEditorOpen(true);
+          }
+        }
+      // Plain Enter: Play selected track
+      } else if ((e.code === 'Enter' || e.key === 'Enter') && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const anyModalOpen = isSettingsOpen || isEQOpen || isLyricsOpen || isQueueOpen || isBatchTagEditorOpen ||
+          isCreatePlaylistOpen || isCreateFolderOpen || isCreateGroupOpen || renameItemTarget ||
+          renamePlaylistTarget || deleteFolderTarget || clearPlaylistTarget || deletePlaylistTarget ||
+          deleteTracksTarget || trackDetailsTarget;
+        if (!anyModalOpen) {
+          if (selectedTrackIds.size > 0) {
+            e.preventDefault();
+            const firstId = Array.from(selectedTrackIds)[0];
+            const trackToPlay = filteredTracks.find(t => t.id === firstId) || tracks.find(t => t.id === firstId);
+            if (trackToPlay) {
+              playTrackWithContext(trackToPlay, filteredTracks);
+            }
+          } else if (filteredTracks.length > 0) {
+            e.preventDefault();
+            playTrackWithContext(filteredTracks[0], filteredTracks);
+          }
+        }
       // Plain Arrow Left / Right: Rewind / Fast-forward by 5 seconds (silent while holding, seeks when stopped)
       } else if ((e.code === 'ArrowLeft' || e.key === 'ArrowLeft') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();

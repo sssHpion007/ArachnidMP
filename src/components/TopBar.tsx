@@ -150,7 +150,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           {showDiscordButton && (
             <button
               onClick={onToggleDiscord}
-              title={`Discord RPC: ${discordEnabled ? 'Вкл [D]' : 'Выкл [D]'} (кликните или нажмите D для переключения)`}
+              title={`Discord RPC: ${discordEnabled ? 'Включен [D]' : 'Выключен [D]'} (кликните или нажмите D для переключения)`}
               className={`flex items-center gap-1.5 ${
                 isCompact ? 'px-2 py-1.5' : 'px-3 py-1.5'
               } rounded-full text-xs font-semibold transition-all cursor-pointer ${
@@ -161,7 +161,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             >
               <span className={`w-2 h-2 rounded-full shrink-0 ${discordEnabled ? 'bg-[#5865F2] animate-pulse' : 'bg-gray-400'}`} />
               <span className={isCompact ? 'hidden' : 'inline'}>
-                {discordEnabled ? 'Discord: Вкл' : 'Discord: Выкл'}
+                Discord
               </span>
             </button>
           )}

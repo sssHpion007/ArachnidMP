@@ -199,7 +199,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
                   <span className="text-md3-on-surface-variant">Громкость (±5%)</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    Ctrl + ↑ / ↓
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">Навигация по трекам</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     ↑ / ↓
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">Воспроизвести выбранный</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    Enter
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">Редактировать теги</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    Shift + Enter
                   </kbd>
                 </div>
 
@@ -255,7 +276,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">Очистить очередь и стоп</span>
+                  <span className="text-md3-on-surface-variant">Очистить очередь</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     X
                   </kbd>
@@ -648,7 +669,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="p-4 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/15 text-xs text-md3-on-surface-variant space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-md3-on-surface text-xs">Arachnid Music Player</span>
-                <span className="text-[11px] font-mono opacity-70">v0.3.38</span>
+                <span className="text-[11px] font-mono opacity-70">v0.3.39</span>
               </div>
               <p className="text-[11px] leading-relaxed text-md3-on-surface-variant/90">
                 Лёгкий и быстрый аудиоплеер для Windows с поддержкой gapless-воспроизведения, встроенным редактором тегов, текстами песен и интерфейсом Material Design 3.
