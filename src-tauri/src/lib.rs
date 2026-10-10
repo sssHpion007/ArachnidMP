@@ -432,7 +432,7 @@ mod windows_process_grouping {
     }
 
     const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x00002000;
-    const JobObjectExtendedLimitInformation: i32 = 9;
+    const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: i32 = 9;
 
     extern "system" {
         fn SetCurrentProcessExplicitAppUserModelID(AppID: *const u16) -> i32;
@@ -463,12 +463,11 @@ mod windows_process_grouping {
                 info.basic_limit_information.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
                 let _ = SetInformationJobObject(
                     job,
-                    JobObjectExtendedLimitInformation,
+                    JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
                     &info as *const _ as *const std::ffi::c_void,
                     std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
                 );
                 let _ = AssignProcessToJobObject(job, GetCurrentProcess());
-                std::mem::forget(job);
             }
         }
     }
