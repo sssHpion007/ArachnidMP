@@ -560,6 +560,13 @@ fn get_system_accent_color() -> Result<String, String> {
 }
 
 #[tauri::command]
+fn show_window(window: tauri::Window) -> Result<(), String> {
+    window.show().map_err(|e| e.to_string())?;
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
 fn minimize_window(window: tauri::Window) -> Result<(), String> {
     window.minimize().map_err(|e| e.to_string())
 }
@@ -700,6 +707,7 @@ pub fn run() {
             minimize_window,
             toggle_maximize_window,
             close_window,
+            show_window,
             is_window_maximized,
             open_app_folder,
             list_custom_themes,

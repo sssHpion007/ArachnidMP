@@ -5,7 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 export const TitleBar: React.FC = () => {
   const [isMaximized, setIsMaximized] = useState(false);
 
-  // Check window maximized state and set up resize listener
+  // Check window maximized state, reveal window cleanly and set up resize listener
   useEffect(() => {
     if (!isTauri()) return;
 
@@ -23,6 +23,16 @@ export const TitleBar: React.FC = () => {
         }
         if (isMounted) setIsMaximized(true);
 
+        // Reveal window without white flash/box now that it is sized and rendered
+        try {
+          await win.show();
+          await win.setFocus();
+        } catch (_) {
+          try {
+            await invoke('show_window');
+          } catch (_) {}
+        }
+
         unlisten = await win.onResized(async () => {
           try {
             const max = await win.isMaximized();
@@ -33,6 +43,7 @@ export const TitleBar: React.FC = () => {
         try {
           const max = await invoke<boolean>('is_window_maximized');
           if (isMounted) setIsMaximized(max);
+          await invoke('show_window');
         } catch (_) {}
       }
     };

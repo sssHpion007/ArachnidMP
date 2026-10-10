@@ -1,15 +1,39 @@
 <!DOCTYPE html>
-<html lang="ru" class="dark">
+<html lang="ru" class="dark" style="background-color: #141218;">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Arachnid Music Player</title>
     <link rel="icon" type="image/png" href="/app-logo.png" />
+    <style>
+      html, body, #root {
+        background-color: #141218 !important;
+        color: #e6e1e5;
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+    </style>
+    <script>
+      try {
+        const cache = JSON.parse(localStorage.getItem('arachnid_theme_cache') || '{}');
+        if (cache.themeMode === 'light') {
+          document.documentElement.classList.remove('dark');
+        } else {
+          document.documentElement.classList.add('dark');
+        }
+        if (cache.language) {
+          document.documentElement.lang = cache.language;
+        }
+      } catch(e) {}
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   </head>
-  <body class="bg-[#121316] text-[#e2e2e6] select-none overflow-hidden m-0 p-0 font-sans antialiased">
+  <body class="bg-[#141218] text-[#e6e1e5] select-none overflow-hidden m-0 p-0 font-sans antialiased" style="background-color: #141218;">
     <div id="root" class="h-screen w-screen flex flex-col"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

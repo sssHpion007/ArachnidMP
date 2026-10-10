@@ -1113,19 +1113,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {/* Шторка trigger card */}
               <div className="rounded-2xl border border-md3-outline-variant/20 bg-md3-surface overflow-hidden transition-all shadow-xs">
                 <button
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => setIsLangCurtainOpen(!isLangCurtainOpen)}
-                  className="w-full p-3.5 flex items-center justify-between text-left cursor-pointer hover:bg-md3-surface-container-high/60 transition-colors"
+                  className="w-full p-3.5 flex items-center justify-between text-left cursor-pointer hover:bg-md3-surface-container-high/60 transition-colors outline-none focus:outline-none"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl shrink-0">
-                      {language === 'ru' ? '🇷🇺' : '🇬🇧'}
-                    </span>
+                    <div className="w-8 h-8 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center shrink-0">
+                      <Globe className="w-4 h-4" />
+                    </div>
                     <div>
                       <div className="text-xs font-bold text-md3-on-surface">
                         {language === 'ru' ? 'Русский' : 'English'}
-                      </div>
-                      <div className="text-[10px] text-md3-on-surface-variant opacity-80">
-                        {language === 'ru' ? 'По умолчанию для RU/CIS' : 'International'}
                       </div>
                     </div>
                   </div>
@@ -1139,44 +1138,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       
                       {/* Русский */}
                       <button
+                        tabIndex={-1}
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={() => {
                           onSetLanguage('ru');
                           setIsLangCurtainOpen(false);
                         }}
-                        className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
+                        className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left outline-none focus:outline-none ${
                           language === 'ru'
                             ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
                             : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
                         }`}
                       >
-                        <div className="flex items-center gap-3">
-                          <span className="text-xl shrink-0">🇷🇺</span>
-                          <div>
-                            <div className="text-xs font-bold text-md3-on-surface">Русский</div>
-                            <div className="text-[10px] text-md3-on-surface-variant">По умолчанию для RU/CIS</div>
-                          </div>
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-xs font-bold text-md3-on-surface">Русский</span>
                         </div>
                         {language === 'ru' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
                       </button>
 
                       {/* English */}
                       <button
+                        tabIndex={-1}
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={() => {
                           onSetLanguage('en');
                           setIsLangCurtainOpen(false);
                         }}
-                        className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
+                        className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left outline-none focus:outline-none ${
                           language === 'en'
                             ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
                             : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
                         }`}
                       >
-                        <div className="flex items-center gap-3">
-                          <span className="text-xl shrink-0">🇬🇧</span>
-                          <div>
-                            <div className="text-xs font-bold text-md3-on-surface">English</div>
-                            <div className="text-[10px] text-md3-on-surface-variant">International</div>
-                          </div>
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-xs font-bold text-md3-on-surface">English</span>
                         </div>
                         {language === 'en' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
                       </button>

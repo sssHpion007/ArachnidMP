@@ -60,6 +60,25 @@ const DEFAULT_VISIBLE_TABS: Record<MainViewType, boolean> = {
   genres: true,
 };
 
+interface StoredThemeCache {
+  themeMode?: ThemeMode;
+  colorSchemeMode?: ColorSchemeMode;
+  seedColor?: string;
+  secondarySeedColor?: string;
+  appTheme?: string;
+  language?: AppLanguage;
+}
+
+const getStoredThemeCache = (): StoredThemeCache => {
+  try {
+    const raw = localStorage.getItem('arachnid_theme_cache');
+    if (raw) return JSON.parse(raw);
+  } catch (_) {}
+  return {};
+};
+
+const initialThemeCache = getStoredThemeCache();
+
 export const App: React.FC = () => {
   // Library & Content State (No dummy stubs)
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -105,14 +124,14 @@ export const App: React.FC = () => {
   const [fadeDuration, setFadeDuration] = useState<number>(2.0);
 
   // Theming & M3 State
-  const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
-  const [colorSchemeMode, setColorSchemeMode] = useState<ColorSchemeMode>('dynamic');
-  const [seedColor, setSeedColor] = useState<string>(DEFAULT_SEED_COLOR);
-  const [secondarySeedColor, setSecondarySeedColor] = useState<string>('#f72585');
-  const [appTheme, setAppTheme] = useState<string>('default');
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => initialThemeCache.themeMode || 'dark');
+  const [colorSchemeMode, setColorSchemeMode] = useState<ColorSchemeMode>(() => initialThemeCache.colorSchemeMode || 'dynamic');
+  const [seedColor, setSeedColor] = useState<string>(() => initialThemeCache.seedColor || DEFAULT_SEED_COLOR);
+  const [secondarySeedColor, setSecondarySeedColor] = useState<string>(() => initialThemeCache.secondarySeedColor || '#f72585');
+  const [appTheme, setAppTheme] = useState<string>(() => initialThemeCache.appTheme || 'default');
 
   // Language & Localization (auto-detects system language on first launch)
-  const [language, setLanguage] = useState<AppLanguage>(() => detectSystemLanguage());
+  const [language, setLanguage] = useState<AppLanguage>(() => initialThemeCache.language || detectSystemLanguage());
 
   // Modals & Menus
   const [isEQOpen, setIsEQOpen] = useState<boolean>(false);
@@ -287,6 +306,17 @@ export const App: React.FC = () => {
 
     const jsonString = JSON.stringify(dataToSave);
 
+    try {
+      localStorage.setItem('arachnid_theme_cache', JSON.stringify({
+        themeMode,
+        seedColor,
+        secondarySeedColor,
+        appTheme,
+        language,
+        colorSchemeMode,
+      }));
+    } catch (_) {}
+
     if (isTauri()) {
       invoke('save_portable_data', { data: jsonString }).catch((e) => {
         console.warn('Failed to save to portable folder:', e);
@@ -295,6 +325,24 @@ export const App: React.FC = () => {
       localStorage.setItem('arachnid_portable_data', jsonString);
     }
   }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, visibleTabs, colorSchemeMode, fadeMode, fadeDuration]);
+
+  // Safety fallback: reveal window in case TitleBar unmounted or delayed
+  useEffect(() => {
+    if (isTauri()) {
+      const timer = setTimeout(async () => {
+        try {
+          const win = getCurrentWebviewWindow();
+          await win.show();
+          await win.setFocus();
+        } catch (_) {
+          try {
+            await invoke('show_window');
+          } catch (_) {}
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, []);
 
   // Prevent default browser right-click menu
   useEffect(() => {
