@@ -710,6 +710,7 @@ pub fn run() {
             show_window,
             is_window_maximized,
             open_app_folder,
+            open_url,
             list_custom_themes,
             read_custom_theme,
             load_locale_file
@@ -747,6 +748,26 @@ fn open_app_folder(subfolder: Option<String>) -> Result<(), String> {
     #[cfg(not(target_os = "windows"))]
     {
         let _ = open::that(&target);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        Command::new("cmd")
+            .args(&["/c", "start", "", &url])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = open::that(&url);
     }
     Ok(())
 }

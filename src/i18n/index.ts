@@ -108,6 +108,16 @@ export interface Translations {
     aboutDesc: string;
     done: string;
     back: string;
+    updates: string;
+    checkUpdates: string;
+    checkingUpdates: string;
+    latestVersionInstalled: string;
+    updateAvailable: string;
+    downloadUpdate: string;
+    downloadAsset: string;
+    failedCheckUpdates: string;
+    retryCheck: string;
+    releaseNotes: string;
   };
   shortcuts: {
     playbackAndSound: string;
@@ -174,7 +184,7 @@ export const RU_TRANSLATIONS: Translations = {
   },
   settings: {
     title: 'Настройки',
-    subtitle: 'Внешний вид, затухание, язык и Discord RPC',
+    subtitle: 'Внешний вид, функции, язык',
     appearance: 'Внешний вид',
     themeMode: 'Режим темы',
     dark: 'Тёмная',
@@ -241,6 +251,16 @@ export const RU_TRANSLATIONS: Translations = {
     aboutDesc: 'Модульный аудиоплеер с поддержкой gapless loop, Discord RPC и тем оформления',
     done: 'Готово',
     back: 'Назад к настройкам',
+    updates: 'Обновления',
+    checkUpdates: 'Проверить обновления',
+    checkingUpdates: 'Проверка обновлений...',
+    latestVersionInstalled: 'У вас установлена актуальная версия',
+    updateAvailable: 'Доступна новая версия',
+    downloadUpdate: 'Скачать обновление',
+    downloadAsset: 'Скачать установщик (.exe)',
+    failedCheckUpdates: 'Не удалось проверить обновления',
+    retryCheck: 'Повторить попытку',
+    releaseNotes: 'Что нового',
   },
   shortcuts: {
     playbackAndSound: 'Воспроизведение и звук',
@@ -307,7 +327,7 @@ export const EN_TRANSLATIONS: Translations = {
   },
   settings: {
     title: 'Settings',
-    subtitle: 'Appearance, crossfade, language, and Discord RPC',
+    subtitle: 'Appearance, features, language',
     appearance: 'Appearance',
     themeMode: 'Theme Mode',
     dark: 'Dark',
@@ -374,6 +394,16 @@ export const EN_TRANSLATIONS: Translations = {
     aboutDesc: 'Modular audio player with gapless looping, Discord RPC, and customizable themes',
     done: 'Done',
     back: 'Back to settings',
+    updates: 'Updates',
+    checkUpdates: 'Check for Updates',
+    checkingUpdates: 'Checking for updates...',
+    latestVersionInstalled: 'You have the latest version installed',
+    updateAvailable: 'New version available',
+    downloadUpdate: 'Download Update',
+    downloadAsset: 'Download Installer (.exe)',
+    failedCheckUpdates: 'Failed to check for updates',
+    retryCheck: 'Retry',
+    releaseNotes: 'Release notes',
   },
   shortcuts: {
     playbackAndSound: 'Playback and Sound',

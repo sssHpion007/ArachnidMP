@@ -26,7 +26,11 @@ import {
   RefreshCw,
   Layers,
   FileCode,
-  Radio
+  Radio,
+  Download,
+  CheckCircle2,
+  AlertCircle,
+  ExternalLink
 } from 'lucide-react';
 import { ThemeMode, Track, FadeMode } from '../types/music';
 import { MainViewType } from './TopBar';
@@ -136,7 +140,99 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isThemeCurtainOpen, setIsThemeCurtainOpen] = useState<boolean>(false);
   const [isLangCurtainOpen, setIsLangCurtainOpen] = useState<boolean>(false);
 
+  // App version & Update checker state
+  const [appVersion, setAppVersion] = useState<string>('0.3.50');
+  const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available' | 'error'>('idle');
+  const [latestRelease, setLatestRelease] = useState<{
+    tagName: string;
+    name: string;
+    body: string;
+    publishedAt?: string;
+    htmlUrl: string;
+    downloadUrl?: string;
+    assetName?: string;
+  } | null>(null);
+
   const t = getTranslations(language);
+
+  const isNewerVersion = (current: string, latest: string): boolean => {
+    const c = current.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+    const l = latest.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(c.length, l.length); i++) {
+      const cv = c[i] || 0;
+      const lv = l[i] || 0;
+      if (lv > cv) return true;
+      if (lv < cv) return false;
+    }
+    return false;
+  };
+
+  const handleCheckUpdates = async () => {
+    setUpdateStatus('checking');
+    try {
+      let res: Response;
+      try {
+        res = await fetch('https://api.github.com/repos/sssHpion007/arachnid/releases/latest', {
+          headers: {
+            'Accept': 'application/vnd.github.v3+json',
+            'Authorization': 'token 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',
+          },
+        });
+      } catch (_) {
+        res = await fetch('https://api.github.com/repos/sssHpion007/arachnid/releases/latest');
+      }
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      const tagName = data.tag_name || '';
+      const cleanCurrent = appVersion.replace(/^v/, '');
+      const cleanLatest = tagName.replace(/^v/, '');
+
+      const assets = Array.isArray(data.assets) ? data.assets : [];
+      const exeAsset = assets.find((a: any) => a.name?.toLowerCase().endsWith('.exe')) || assets[0];
+
+      setLatestRelease({
+        tagName,
+        name: data.name || tagName,
+        body: data.body || '',
+        publishedAt: data.published_at,
+        htmlUrl: data.html_url || `https://github.com/sssHpion007/arachnid/releases/tag/${tagName}`,
+        downloadUrl: exeAsset?.browser_download_url || data.html_url,
+        assetName: exeAsset?.name || 'Arachnid-Portable.exe',
+      });
+
+      if (isNewerVersion(cleanCurrent, cleanLatest)) {
+        setUpdateStatus('available');
+      } else {
+        setUpdateStatus('upToDate');
+      }
+    } catch (err) {
+      console.warn('Update check failed:', err);
+      setUpdateStatus('error');
+    }
+  };
+
+  const handleDownloadUpdate = async (url: string) => {
+    if (isTauri()) {
+      try {
+        await invoke('open_url', { url });
+        return;
+      } catch (_) {}
+    }
+    window.open(url, '_blank');
+  };
+
+  // Fetch Tauri app version if available
+  useEffect(() => {
+    if (isTauri()) {
+      invoke<string>('get_app_version').then(v => {
+        if (v) setAppVersion(v);
+      }).catch(() => {});
+    }
+  }, []);
 
   // Load custom themes from themes/ folder
   const refreshCustomThemes = async () => {
@@ -1205,38 +1301,127 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
             </div>
 
-            {/* 7. About Application Card */}
+            {/* 7. About Application & Updates Card */}
             <div className="pt-2">
-              <div className="p-4 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex items-center gap-4">
-                <img
-                  src="/app-logo.png"
-                  alt="Arachnid Logo"
-                  className="w-12 h-12 rounded-xl object-contain drop-shadow-md"
-                />
-                <div className="space-y-0.5 min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-sm text-md3-on-surface">{t.settings.about}</span>
-                    <span className="text-[11px] font-mono opacity-70">v0.3.45</span>
+              <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col gap-3.5">
+                <div className="flex items-center gap-4">
+                  <img
+                    src="/app-logo.png"
+                    alt="Arachnid Logo"
+                    className="w-12 h-12 rounded-2xl object-contain drop-shadow-md shrink-0"
+                  />
+                  <div className="space-y-0.5 min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm text-md3-on-surface">{t.settings.about}</span>
+                      <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full bg-md3-primary/10 text-md3-primary">
+                        v{appVersion}
+                      </span>
+                    </div>
+                    <p className="text-xs text-md3-on-surface-variant">
+                      {t.settings.aboutDesc}
+                    </p>
                   </div>
-                  <p className="text-xs text-md3-on-surface-variant">
-                    {t.settings.aboutDesc}
-                  </p>
+                </div>
+
+                {/* Updates Checker Row */}
+                <div className="pt-2.5 border-t border-md3-outline-variant/15 flex flex-col gap-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs font-semibold text-md3-on-surface flex items-center gap-2">
+                      <RefreshCw className={`w-3.5 h-3.5 text-md3-primary ${updateStatus === 'checking' ? 'animate-spin' : ''}`} />
+                      <span>{t.settings.updates}</span>
+                    </div>
+
+                    <button
+                      tabIndex={-1}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={handleCheckUpdates}
+                      disabled={updateStatus === 'checking'}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold shadow-xs hover:scale-102 active:scale-95 disabled:opacity-50 disabled:scale-100 transition-all cursor-pointer outline-none focus:outline-none"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${updateStatus === 'checking' ? 'animate-spin' : ''}`} />
+                      <span>{updateStatus === 'checking' ? t.settings.checkingUpdates : t.settings.checkUpdates}</span>
+                    </button>
+                  </div>
+
+                  {/* Status: Up to date */}
+                  {updateStatus === 'upToDate' && (
+                    <div className="flex items-center gap-2 p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium animate-in fade-in">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span>{t.settings.latestVersionInstalled} (v{appVersion})</span>
+                    </div>
+                  )}
+
+                  {/* Status: Error */}
+                  {updateStatus === 'error' && (
+                    <div className="flex items-center justify-between p-2.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs animate-in fade-in">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span>{t.settings.failedCheckUpdates}</span>
+                      </div>
+                      <button
+                        tabIndex={-1}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={handleCheckUpdates}
+                        className="text-[11px] underline font-bold cursor-pointer hover:text-red-300"
+                      >
+                        {t.settings.retryCheck}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Status: Update Available */}
+                  {updateStatus === 'available' && latestRelease && (
+                    <div className="p-3.5 rounded-2xl bg-md3-primary/10 border border-md3-primary/30 space-y-2.5 animate-in fade-in duration-200">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                          <span className="text-xs font-bold text-md3-primary">
+                            {t.settings.updateAvailable}: {latestRelease.tagName}
+                          </span>
+                        </div>
+                        {latestRelease.publishedAt && (
+                          <span className="text-[10px] text-md3-on-surface-variant font-mono">
+                            {new Date(latestRelease.publishedAt).toLocaleDateString(language === 'ru' ? 'ru-RU' : 'en-US')}
+                          </span>
+                        )}
+                      </div>
+
+                      {latestRelease.body && (
+                        <div className="text-[11px] text-md3-on-surface-variant max-h-24 overflow-y-auto custom-scrollbar whitespace-pre-wrap bg-md3-surface/60 p-2.5 rounded-xl border border-md3-outline-variant/15">
+                          {latestRelease.body}
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2 pt-1 flex-wrap">
+                        {latestRelease.downloadUrl && (
+                          <button
+                            tabIndex={-1}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => handleDownloadUpdate(latestRelease.downloadUrl!)}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md hover:scale-102 active:scale-95 transition-all cursor-pointer outline-none focus:outline-none"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>{t.settings.downloadAsset}</span>
+                          </button>
+                        )}
+                        <button
+                          tabIndex={-1}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => handleDownloadUpdate(latestRelease.htmlUrl)}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-md3-surface-container hover:bg-md3-surface-container-high text-md3-on-surface text-xs font-medium border border-md3-outline-variant/20 transition-all cursor-pointer outline-none focus:outline-none"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 text-md3-primary" />
+                          <span>GitHub Release</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
 
           </div>
         )}
-
-        {/* Footer */}
-        <div className="flex items-center justify-end p-4 border-t border-md3-outline-variant/20 bg-md3-surface/50">
-          <button
-            onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-md3-primary text-md3-on-primary font-semibold text-xs shadow-md hover:opacity-90 active:scale-98 transition-all cursor-pointer"
-          >
-            {t.settings.done}
-          </button>
-        </div>
       </div>
     </div>
   );
