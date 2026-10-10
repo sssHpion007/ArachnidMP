@@ -31,12 +31,36 @@ Arachnid Custom CSS Themes
 ==========================
 Place your custom .css files in this folder to apply custom styles to Arachnid Music Player.
 You can override Material Design 3 variables:
-  --md3-primary: #a8c7fa;
-  --md3-background: #111318;
-  --md3-surface: #1e1f25;
-  --md3-surface-container: #282a30;
+  --md-sys-color-primary: #a8c7fa;
+  --md-sys-color-primary-rgb: 168 199 250;
+  --md-sys-color-background: #111318;
+  --md-sys-color-background-rgb: 17 19 24;
+  --md-sys-color-surface: #1e1f25;
+  --md-sys-color-surface-rgb: 30 31 37;
+  --md-sys-color-surface-container: #282a30;
+  --md-sys-color-surface-container-rgb: 40 42 48;
 ";
         let _ = fs::write(themes_readme, readme_content);
+    }
+
+    let example_theme = themes_dir.join("emerald-forest.css");
+    if !example_theme.exists() {
+        let example_content = "\
+/* Emerald Forest Theme */
+:root {
+  --md-sys-color-primary: #10b981;
+  --md-sys-color-primary-rgb: 16 185 129;
+  --md-sys-color-background: #09130e;
+  --md-sys-color-background-rgb: 9 19 14;
+  --md-sys-color-surface: #102219;
+  --md-sys-color-surface-rgb: 16 34 25;
+  --md-sys-color-surface-container: #173225;
+  --md-sys-color-surface-container-rgb: 23 50 37;
+  --md-sys-color-surface-container-high: #1e4231;
+  --md-sys-color-surface-container-high-rgb: 30 66 49;
+}
+";
+        let _ = fs::write(example_theme, example_content);
     }
 
     // Create default locale files in locales/

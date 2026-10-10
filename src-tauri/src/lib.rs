@@ -700,8 +700,100 @@ pub fn run() {
             minimize_window,
             toggle_maximize_window,
             close_window,
-            is_window_maximized
+            is_window_maximized,
+            open_app_folder,
+            list_custom_themes,
+            read_custom_theme,
+            load_locale_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arachnid application");
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CustomThemeInfo {
+    pub name: String,
+    pub filename: String,
+}
+
+#[tauri::command]
+fn open_app_folder(subfolder: Option<String>) -> Result<(), String> {
+    let base_dir = storage::get_portable_base_dir();
+    let target = match subfolder {
+        Some(sub) if !sub.is_empty() => base_dir.join(sub),
+        _ => base_dir,
+    };
+    let _ = std::fs::create_dir_all(&target);
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        Command::new("explorer")
+            .arg(&target)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = open::that(&target);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn list_custom_themes() -> Result<Vec<CustomThemeInfo>, String> {
+    let base_dir = storage::get_portable_base_dir();
+    let themes_dir = base_dir.join("themes");
+    let mut list = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(themes_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if ext.eq_ignore_ascii_case("css") {
+                        let filename = entry.file_name().to_string_lossy().to_string();
+                        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or(&filename).to_string();
+                        list.push(CustomThemeInfo {
+                            name: stem,
+                            filename,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    Ok(list)
+}
+
+#[tauri::command]
+fn read_custom_theme(filename: String) -> Result<String, String> {
+    let base_dir = storage::get_portable_base_dir();
+    let themes_dir = base_dir.join("themes");
+    let safe_filename = Path::new(&filename)
+        .file_name()
+        .and_then(|f| f.to_str())
+        .ok_or_else(|| "Invalid filename".to_string())?;
+    let path = themes_dir.join(safe_filename);
+    if path.is_file() {
+        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read theme file: {}", e))
+    } else {
+        Err("Theme file not found".to_string())
+    }
+}
+
+#[tauri::command]
+fn load_locale_file(language: String) -> Result<Option<String>, String> {
+    let base_dir = storage::get_portable_base_dir();
+    let locales_dir = base_dir.join("locales");
+    let safe_lang = language.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').collect::<String>();
+    let file_path = locales_dir.join(format!("{}.json", safe_lang));
+    if file_path.is_file() {
+        let content = std::fs::read_to_string(&file_path).map_err(|e| e.to_string())?;
+        Ok(Some(content))
+    } else {
+        Ok(None)
+    }
 }

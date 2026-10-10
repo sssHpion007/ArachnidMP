@@ -15,6 +15,7 @@ import {
   Tag
 } from 'lucide-react';
 import { ThemeMode } from '../types/music';
+import { AppLanguage, getTranslations } from '../i18n';
 
 export type MainViewType = 'tracks' | 'playlists' | 'albums' | 'artists' | 'favorites' | 'genres';
 
@@ -34,6 +35,7 @@ interface TopBarProps {
   onToggleDiscord: () => void;
   showDiscordButton?: boolean;
   visibleTabs?: Record<MainViewType, boolean>;
+  language?: AppLanguage;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -52,8 +54,11 @@ export const TopBar: React.FC<TopBarProps> = ({
   onToggleDiscord,
   showDiscordButton = true,
   visibleTabs,
+  language = 'ru',
 }) => {
   const [windowWidth, setWindowWidth] = useState<number>(window.innerWidth);
+
+  const t = getTranslations(language);
 
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
@@ -62,12 +67,12 @@ export const TopBar: React.FC<TopBarProps> = ({
   }, []);
 
   const allNavTabs = [
-    { id: 'tracks' as const, label: 'Все треки', icon: Music },
-    { id: 'playlists' as const, label: 'Плейлисты', icon: ListMusic },
-    { id: 'albums' as const, label: 'Альбомы', icon: Disc },
-    { id: 'artists' as const, label: 'Исполнители', icon: Mic2 },
-    { id: 'favorites' as const, label: 'Избранное', icon: Heart },
-    { id: 'genres' as const, label: 'Жанры', icon: Tag },
+    { id: 'tracks' as const, label: t.nav.tracks, icon: Music },
+    { id: 'playlists' as const, label: t.nav.playlists, icon: ListMusic },
+    { id: 'albums' as const, label: t.nav.albums, icon: Disc },
+    { id: 'artists' as const, label: t.nav.artists, icon: Mic2 },
+    { id: 'favorites' as const, label: t.nav.favorites, icon: Heart },
+    { id: 'genres' as const, label: t.nav.genres, icon: Tag },
   ];
 
   const navTabs = allNavTabs.filter(tab => (visibleTabs ? visibleTabs[tab.id] ?? true : true));
@@ -89,7 +94,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder={searchPlaceholder || (isSuperCompact ? 'Поиск...' : `Поиск (${totalTracksCount})...`)}
+            placeholder={searchPlaceholder || (isSuperCompact ? (language === 'ru' ? 'Поиск...' : 'Search...') : `${language === 'ru' ? 'Поиск' : 'Search'} (${totalTracksCount})...`)}
             className="w-full pl-7 sm:pl-8 pr-6 sm:pr-7 py-1.5 rounded-full bg-md3-surface-container text-xs text-md3-on-surface placeholder-md3-on-surface-variant/50 border border-transparent focus:border-md3-primary focus:bg-md3-surface-container-high outline-none transition-all truncate"
           />
           {searchQuery && (

@@ -339,3 +339,125 @@ export async function extractDominantColor(imageSrc: string): Promise<string> {
     };
   });
 }
+
+export type ThemeStyle = 'default' | 'discord' | 'telegram' | 'cyberpunk' | string;
+
+export function generateCustomOrBuiltinPalette(
+  style: ThemeStyle,
+  seedHex: string,
+  secondarySeedHex: string = '#f72585',
+  mode: ThemeMode = 'dark'
+): M3ThemeColors {
+  if (style === 'discord') {
+    const primary = colord(seedHex).isValid() ? colord(seedHex).toHex() : '#5865f2';
+    return {
+      primary,
+      onPrimary: '#ffffff',
+      primaryContainer: colord(primary).darken(0.35).toHex(),
+      onPrimaryContainer: '#f2f3f5',
+      secondary: '#5865f2',
+      onSecondary: '#ffffff',
+      secondaryContainer: '#2b2d31',
+      onSecondaryContainer: '#dbdee1',
+      tertiary: '#57f287',
+      onTertiary: '#000000',
+      tertiaryContainer: '#1e382b',
+      onTertiaryContainer: '#e6f9ed',
+      background: mode === 'amoled' ? '#000000' : '#1e1f22',
+      onBackground: '#f2f3f5',
+      surface: mode === 'amoled' ? '#0a0a0c' : '#2b2d31',
+      onSurface: '#f2f3f5',
+      surfaceVariant: '#383a40',
+      onSurfaceVariant: '#949ba4',
+      surfaceContainerLowest: mode === 'amoled' ? '#000000' : '#111214',
+      surfaceContainerLow: mode === 'amoled' ? '#08080a' : '#1e1f22',
+      surfaceContainer: mode === 'amoled' ? '#121215' : '#2b2d31',
+      surfaceContainerHigh: mode === 'amoled' ? '#1a1a1f' : '#313338',
+      surfaceContainerHighest: mode === 'amoled' ? '#222228' : '#383a40',
+      outline: '#4e5058',
+      outlineVariant: '#3f4147',
+    };
+  }
+
+  if (style === 'telegram') {
+    const primary = colord(seedHex).isValid() ? colord(seedHex).toHex() : '#5288c1';
+    return {
+      primary,
+      onPrimary: '#ffffff',
+      primaryContainer: colord(primary).darken(0.4).toHex(),
+      onPrimaryContainer: '#ffffff',
+      secondary: '#4fae84',
+      onSecondary: '#ffffff',
+      secondaryContainer: '#1f382b',
+      onSecondaryContainer: '#d5f5e3',
+      tertiary: '#e5803a',
+      onTertiary: '#ffffff',
+      tertiaryContainer: '#402412',
+      onTertiaryContainer: '#fdebd0',
+      background: mode === 'amoled' ? '#000000' : '#0e1621',
+      onBackground: '#f5f5f5',
+      surface: mode === 'amoled' ? '#0a0d12' : '#17212b',
+      onSurface: '#f5f5f5',
+      surfaceVariant: '#202b36',
+      onSurfaceVariant: '#708499',
+      surfaceContainerLowest: mode === 'amoled' ? '#000000' : '#090e15',
+      surfaceContainerLow: mode === 'amoled' ? '#090e15' : '#0f1722',
+      surfaceContainer: mode === 'amoled' ? '#121922' : '#17212b',
+      surfaceContainerHigh: mode === 'amoled' ? '#1a222c' : '#202b36',
+      surfaceContainerHighest: mode === 'amoled' ? '#222c38' : '#242f3d',
+      outline: '#2e3b4a',
+      outlineVariant: '#283442',
+    };
+  }
+
+  if (style === 'cyberpunk') {
+    const primary = colord(seedHex).isValid() ? colord(seedHex).toHex() : '#00f5d4';
+    const secondary = colord(secondarySeedHex).isValid() ? colord(secondarySeedHex).toHex() : '#f72585';
+    return {
+      primary,
+      onPrimary: '#000000',
+      primaryContainer: colord(primary).darken(0.5).toHex(),
+      onPrimaryContainer: '#d0fff8',
+      secondary,
+      onSecondary: '#ffffff',
+      secondaryContainer: colord(secondary).darken(0.45).toHex(),
+      onSecondaryContainer: '#ffd8eb',
+      tertiary: '#fee440',
+      onTertiary: '#000000',
+      tertiaryContainer: '#3d3408',
+      onTertiaryContainer: '#fff9cc',
+      background: mode === 'amoled' ? '#000000' : '#0a0a10',
+      onBackground: '#f0f0ff',
+      surface: mode === 'amoled' ? '#08080e' : '#12121c',
+      onSurface: '#f0f0ff',
+      surfaceVariant: '#222234',
+      onSurfaceVariant: '#a0a0c0',
+      surfaceContainerLowest: mode === 'amoled' ? '#000000' : '#06060a',
+      surfaceContainerLow: mode === 'amoled' ? '#08080d' : '#0e0e16',
+      surfaceContainer: mode === 'amoled' ? '#101018' : '#161622',
+      surfaceContainerHigh: mode === 'amoled' ? '#181824' : '#1e1e2e',
+      surfaceContainerHighest: mode === 'amoled' ? '#202030' : '#28283c',
+      outline: '#444460',
+      outlineVariant: '#303046',
+    };
+  }
+
+  // Standard Material 3 theme fallback
+  return generateM3Palette(seedHex, mode);
+}
+
+export function injectCustomThemeCss(css: string | null) {
+  let styleEl = document.getElementById('arachnid-custom-theme-style') as HTMLStyleElement | null;
+  if (!css) {
+    if (styleEl) {
+      styleEl.remove();
+    }
+    return;
+  }
+  if (!styleEl) {
+    styleEl = document.createElement('style');
+    styleEl.id = 'arachnid-custom-theme-style';
+    document.head.appendChild(styleEl);
+  }
+  styleEl.textContent = css;
+}

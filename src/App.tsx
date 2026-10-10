@@ -30,10 +30,13 @@ import { parseAudioFile } from './services/tagEditor';
 import { 
   DEFAULT_SEED_COLOR, 
   generateM3Palette, 
+  generateCustomOrBuiltinPalette,
   applyM3ThemeToDOM, 
   extractDominantColor,
-  getWindowsAccentColor
+  getWindowsAccentColor,
+  injectCustomThemeCss
 } from './theme/material3';
+import { AppLanguage, detectSystemLanguage } from './i18n';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { ArrowLeft, Play, Disc3, Mic2, Tag, Trash2, ListMusic } from 'lucide-react';
@@ -105,6 +108,11 @@ export const App: React.FC = () => {
   const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
   const [colorSchemeMode, setColorSchemeMode] = useState<ColorSchemeMode>('dynamic');
   const [seedColor, setSeedColor] = useState<string>(DEFAULT_SEED_COLOR);
+  const [secondarySeedColor, setSecondarySeedColor] = useState<string>('#f72585');
+  const [appTheme, setAppTheme] = useState<string>('default');
+
+  // Language & Localization (auto-detects system language on first launch)
+  const [language, setLanguage] = useState<AppLanguage>(() => detectSystemLanguage());
 
   // Modals & Menus
   const [isEQOpen, setIsEQOpen] = useState<boolean>(false);
@@ -224,6 +232,13 @@ export const App: React.FC = () => {
           }
           if (parsed.themeMode) setThemeMode(parsed.themeMode);
           if (parsed.seedColor) setSeedColor(parsed.seedColor);
+          if (parsed.secondarySeedColor) setSecondarySeedColor(parsed.secondarySeedColor);
+          if (parsed.appTheme) setAppTheme(parsed.appTheme);
+          if (parsed.language) {
+            setLanguage(parsed.language);
+          } else {
+            setLanguage(detectSystemLanguage());
+          }
           if (typeof parsed.discordEnabled === 'boolean') setDiscordEnabled(parsed.discordEnabled);
           if (typeof parsed.showDiscordButton === 'boolean') setShowDiscordButton(parsed.showDiscordButton);
           if (parsed.visibleTabs && typeof parsed.visibleTabs === 'object') {
@@ -258,6 +273,9 @@ export const App: React.FC = () => {
       playlistGroups,
       themeMode,
       seedColor,
+      secondarySeedColor,
+      appTheme,
+      language,
       discordEnabled,
       showDiscordButton,
       visibleTabs,
@@ -276,7 +294,7 @@ export const App: React.FC = () => {
     } else {
       localStorage.setItem('arachnid_portable_data', jsonString);
     }
-  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, discordEnabled, showDiscordButton, visibleTabs, colorSchemeMode, fadeMode, fadeDuration]);
+  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, visibleTabs, colorSchemeMode, fadeMode, fadeDuration]);
 
   // Prevent default browser right-click menu
   useEffect(() => {
@@ -320,27 +338,48 @@ export const App: React.FC = () => {
     audioEngine.setRepeatMode(repeatMode);
   }, [repeatMode]);
 
-  // Dynamic M3 Theme Palette
+  // Dynamic M3 & Custom CSS Theme Palette
   useEffect(() => {
     const updateTheme = async () => {
-      let activeColor = DEFAULT_SEED_COLOR;
-      if (colorSchemeMode === 'dynamic') {
-        if (currentTrack?.coverArt) {
-          activeColor = await extractDominantColor(currentTrack.coverArt);
-        } else {
-          activeColor = await getWindowsAccentColor();
+      // Handle custom CSS themes loaded from themes/ folder
+      if (appTheme.startsWith('custom:')) {
+        const filename = appTheme.replace('custom:', '');
+        if (isTauri()) {
+          try {
+            const css = await invoke<string>('read_custom_theme', { filename });
+            injectCustomThemeCss(css);
+          } catch (e) {
+            console.warn('Failed to load custom theme CSS, falling back to default:', e);
+            injectCustomThemeCss(null);
+          }
         }
-      } else if (colorSchemeMode === 'system') {
-        activeColor = await getWindowsAccentColor();
-      } else if (colorSchemeMode === 'custom') {
+      } else {
+        injectCustomThemeCss(null);
+      }
+
+      let activeColor = DEFAULT_SEED_COLOR;
+      if (appTheme === 'default') {
+        if (colorSchemeMode === 'dynamic') {
+          if (currentTrack?.coverArt) {
+            activeColor = await extractDominantColor(currentTrack.coverArt);
+          } else {
+            activeColor = await getWindowsAccentColor();
+          }
+        } else if (colorSchemeMode === 'system') {
+          activeColor = await getWindowsAccentColor();
+        } else if (colorSchemeMode === 'custom') {
+          activeColor = seedColor;
+        }
+      } else {
         activeColor = seedColor;
       }
-      const palette = generateM3Palette(activeColor, themeMode);
+
+      const palette = generateCustomOrBuiltinPalette(appTheme, activeColor, secondarySeedColor, themeMode);
       applyM3ThemeToDOM(palette, themeMode);
     };
 
     updateTheme();
-  }, [currentTrack?.coverArt, colorSchemeMode, seedColor, themeMode]);
+  }, [currentTrack?.coverArt, colorSchemeMode, seedColor, secondarySeedColor, appTheme, themeMode]);
 
   // Discord Rich Presence update (only triggers when track changes or play/pause/enabled toggles, NEVER on timeupdate)
   useEffect(() => {
@@ -1978,6 +2017,7 @@ export const App: React.FC = () => {
         onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
         showDiscordButton={showDiscordButton}
         visibleTabs={visibleTabs}
+        language={language}
       />
 
       {/* Main Content Area (Full width, No sidebar) */}
@@ -2258,6 +2298,12 @@ export const App: React.FC = () => {
         onSetColorSchemeMode={setColorSchemeMode}
         seedColor={seedColor}
         onSetSeedColor={setSeedColor}
+        appTheme={appTheme}
+        onSetAppTheme={setAppTheme}
+        secondarySeedColor={secondarySeedColor}
+        onSetSecondarySeedColor={setSecondarySeedColor}
+        language={language}
+        onSetLanguage={setLanguage}
         discordEnabled={discordEnabled}
         onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
         showDiscordButton={showDiscordButton}
