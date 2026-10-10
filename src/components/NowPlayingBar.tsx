@@ -183,7 +183,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
       <div 
         onClick={() => currentTrack && onOpenTrackDetails && onOpenTrackDetails(currentTrack)}
         title={currentTrack ? 'Нажмите, чтобы открыть сведения о треке' : undefined}
-        className={`flex items-center gap-3.5 w-1/4 min-w-[240px] select-none ${currentTrack ? 'cursor-pointer group' : ''}`}
+        className={`flex items-center gap-3.5 w-1/4 min-w-[240px] max-w-xs shrink-0 select-none ${currentTrack ? 'cursor-pointer group' : ''}`}
       >
         {/* Cover Art with subtle glow - strictly constrained to 56x56 */}
         <div 
@@ -340,35 +340,11 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
         </div>
       </div>
 
-      {/* Right: Lyrics, Visualizer, Volume, Queue */}
-      <div className="flex items-center justify-end gap-2.5 w-1/4 min-w-[240px]">
-        {/* Lyrics Button */}
-        {currentTrack && (
-          <button
-            onClick={onOpenLyrics}
-            title={
-              currentTrack.lyrics && currentTrack.lyrics.trim().length > 0
-                ? 'Текст песни [T] (доступен)'
-                : currentTrack.isInstrumental
-                ? 'Инструментальная композиция (без слов) [T]'
-                : 'Текст песни [T] (нажмите, чтобы добавить)'
-            }
-            className={`p-2 rounded-full transition-all cursor-pointer relative ${
-              currentTrack.lyrics && currentTrack.lyrics.trim().length > 0
-                ? 'text-md3-primary bg-md3-primary/10 hover:bg-md3-primary/20 shadow-sm'
-                : 'text-md3-on-surface-variant/40 hover:text-md3-on-surface hover:bg-md3-surface-container'
-            }`}
-          >
-            <Mic2 className="w-4 h-4" />
-            {currentTrack.lyrics && currentTrack.lyrics.trim().length > 0 && (
-              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-md3-primary" />
-            )}
-          </button>
-        )}
-
+      {/* Right: Visualizer, Panels Pill (Lyrics + Queue), Volume */}
+      <div className="flex items-center justify-end gap-3 w-1/4 min-w-[260px] max-w-xs shrink-0">
         {/* Animated Spectrum Visualizer */}
         <div 
-          className="hidden md:flex items-end gap-1 h-5 px-1.5 py-0.5 pointer-events-none"
+          className="hidden xl:flex items-end gap-1 h-5 px-1 py-0.5 pointer-events-none opacity-80 shrink-0"
           title="Спектр воспроизведения"
         >
           {visBars.map((height, i) => (
@@ -380,8 +356,56 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
           ))}
         </div>
 
+        {/* Secondary Panels Pill Frame: Lyrics & Queue (Unified Material You capsule) */}
+        <div className="flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 shadow-xs shrink-0">
+          {/* Lyrics Button [T] - Always rendered to prevent layout shift */}
+          <button
+            onClick={onOpenLyrics}
+            disabled={!currentTrack}
+            title={
+              !currentTrack
+                ? 'Текст песни [T]'
+                : currentTrack.lyrics && currentTrack.lyrics.trim().length > 0
+                ? 'Текст песни [T] (доступен)'
+                : currentTrack.isInstrumental
+                ? 'Инструментальная композиция (без слов) [T]'
+                : 'Текст песни [T] (нажмите, чтобы добавить)'
+            }
+            className={`relative p-2 rounded-full transition-all ${
+              !currentTrack
+                ? 'text-md3-on-surface-variant/30 cursor-not-allowed opacity-40'
+                : currentTrack.lyrics && currentTrack.lyrics.trim().length > 0
+                ? 'text-md3-primary bg-md3-primary/15 hover:bg-md3-primary/25 font-bold shadow-xs cursor-pointer'
+                : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high cursor-pointer'
+            }`}
+          >
+            <Mic2 className="w-4 h-4" />
+            {currentTrack?.lyrics && currentTrack.lyrics.trim().length > 0 && (
+              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-md3-primary shadow-xs" />
+            )}
+          </button>
+
+          {/* Queue Drawer Button [Q] */}
+          <button
+            onClick={onToggleQueue}
+            title="Очередь воспроизведения [Q]"
+            className={`relative p-2 rounded-full transition-all cursor-pointer ${
+              isQueueOpen
+                ? 'bg-md3-primary text-md3-on-primary shadow-xs'
+                : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
+            }`}
+          >
+            <ListMusic className="w-4 h-4" />
+            {queueCount > 0 && (
+              <span className="absolute -top-1 -right-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-md3-tertiary text-md3-on-tertiary shadow-sm">
+                {queueCount}
+              </span>
+            )}
+          </button>
+        </div>
+
         {/* Volume controls with smooth slider */}
-        <div className="flex items-center gap-1.5 group">
+        <div className="flex items-center gap-1.5 group shrink-0">
           <button
             onClick={onToggleMute}
             title={isMuted ? 'Включить звук' : `Громкость: ${Math.round(volume * 100)}% [↑/↓]`}
@@ -404,27 +428,9 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             value={isMuted ? 0 : volume}
             onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
             title={`Громкость: ${Math.round(volume * 100)}% [↑/↓]`}
-            className="w-20 accent-md3-primary h-1.5 rounded-full bg-md3-surface-container-highest cursor-pointer"
+            className="w-20 lg:w-24 accent-md3-primary h-1.5 rounded-full bg-md3-surface-container-highest cursor-pointer"
           />
         </div>
-
-        {/* Queue Drawer Button */}
-        <button
-          onClick={onToggleQueue}
-          title="Очередь воспроизведения [Q]"
-          className={`relative p-2.5 rounded-full transition-colors cursor-pointer ${
-            isQueueOpen
-              ? 'bg-md3-primary text-md3-on-primary'
-              : 'text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface'
-          }`}
-        >
-          <ListMusic className="w-4 h-4" />
-          {queueCount > 0 && (
-            <span className="absolute -top-1 -right-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-md3-tertiary text-md3-on-tertiary shadow-sm">
-              {queueCount}
-            </span>
-          )}
-        </button>
       </div>
     </footer>
   );

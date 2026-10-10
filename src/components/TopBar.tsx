@@ -74,9 +74,9 @@ export const TopBar: React.FC<TopBarProps> = ({
   const navTabs = allNavTabs.filter(tab => (visibleTabs ? visibleTabs[tab.id] ?? true : true));
 
   return (
-    <header className="h-16 px-4 sm:px-6 shrink-0 flex items-center justify-between gap-2 sm:gap-4 bg-md3-surface-container-low border-b border-md3-outline-variant/15 select-none transition-colors duration-300">
+    <header className="relative h-16 px-4 sm:px-6 shrink-0 flex items-center justify-between gap-2 sm:gap-4 bg-md3-surface-container-low border-b border-md3-outline-variant/15 select-none transition-colors duration-300">
       {/* Left: Search Bar (Flexible width, never forces overflow) */}
-      <div className="shrink-0 w-36 sm:w-44 md:w-52 lg:w-60 transition-all">
+      <div className="z-10 shrink-0 w-36 sm:w-44 md:w-52 lg:w-60 transition-all">
         <div className="relative w-full">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-md3-on-surface-variant">
             <Search className="w-3.5 h-3.5" />
@@ -99,9 +99,9 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
       </div>
 
-      {/* Center: Navigation Tabs (Pills) with auto-compactness */}
-      <div className="flex-1 min-w-0 flex justify-center px-1">
-        <nav className="flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 overflow-x-auto custom-scrollbar max-w-full">
+      {/* Center: Navigation Tabs (Pills) - ALWAYS EXACT MATHEMATICAL CENTER */}
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-0 pointer-events-none max-w-[calc(100%-360px)] flex justify-center">
+        <nav className="pointer-events-auto flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 overflow-x-auto custom-scrollbar max-w-full shadow-xs">
           {navTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = currentView === tab.id;
@@ -128,7 +128,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       </div>
 
       {/* Right Controls: Unified pill frame, compact and responsive */}
-      <div className="shrink-0 flex items-center justify-end">
+      <div className="z-10 shrink-0 flex items-center justify-end ml-auto">
         <div className="flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15">
           {/* Add Files Button */}
           <button
