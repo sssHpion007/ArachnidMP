@@ -141,8 +141,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isLangCurtainOpen, setIsLangCurtainOpen] = useState<boolean>(false);
 
   // App version & Update checker state
-  const [appVersion, setAppVersion] = useState<string>('0.3.50');
-  const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available' | 'error'>('idle');
+  const [appVersion, setAppVersion] = useState<string>('0.3.51');
+  const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'installing' | 'error'>('idle');
+  const [downloadProgress, setDownloadProgress] = useState<number>(0);
+  const [downloadStats, setDownloadStats] = useState<{ received: string; total: string }>({ received: '0', total: '0' });
+  const [installError, setInstallError] = useState<string | null>(null);
   const [latestRelease, setLatestRelease] = useState<{
     tagName: string;
     name: string;
@@ -150,6 +153,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     publishedAt?: string;
     htmlUrl: string;
     downloadUrl?: string;
+    assetUrl?: string;
     assetName?: string;
   } | null>(null);
 
@@ -167,8 +171,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     return false;
   };
 
+  const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const dataUrl = reader.result as string;
+        const base64 = dataUrl.split(',')[1] || '';
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
+
   const handleCheckUpdates = async () => {
     setUpdateStatus('checking');
+    setInstallError(null);
     try {
       let res: Response;
       try {
@@ -201,6 +219,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         publishedAt: data.published_at,
         htmlUrl: data.html_url || `https://github.com/sssHpion007/arachnid/releases/tag/${tagName}`,
         downloadUrl: exeAsset?.browser_download_url || data.html_url,
+        assetUrl: exeAsset?.url || exeAsset?.browser_download_url,
         assetName: exeAsset?.name || 'Arachnid-Portable.exe',
       });
 
@@ -209,8 +228,97 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       } else {
         setUpdateStatus('upToDate');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Update check failed:', err);
+      setInstallError(err?.message || null);
+      setUpdateStatus('error');
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    if (!latestRelease?.assetUrl) {
+      if (latestRelease?.downloadUrl) {
+        handleDownloadUpdate(latestRelease.downloadUrl);
+      }
+      return;
+    }
+
+    setUpdateStatus('downloading');
+    setDownloadProgress(0);
+    setInstallError(null);
+
+    try {
+      let dlRes: Response;
+      try {
+        dlRes = await fetch(latestRelease.assetUrl, {
+          headers: {
+            'Authorization': 'token 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',
+            'Accept': 'application/octet-stream',
+          },
+        });
+      } catch (_) {
+        dlRes = await fetch(latestRelease.assetUrl, {
+          headers: {
+            'Accept': 'application/octet-stream',
+          },
+        });
+      }
+
+      if (!dlRes.ok) {
+        throw new Error(`HTTP ${dlRes.status}`);
+      }
+
+      const contentLength = Number(dlRes.headers.get('content-length')) || 11607040;
+      const reader = dlRes.body?.getReader();
+
+      let chunks: Uint8Array[] = [];
+
+      if (!reader) {
+        const blob = await dlRes.blob();
+        setUpdateStatus('installing');
+        const b64 = await blobToBase64(blob);
+        if (isTauri()) {
+          await invoke('apply_in_place_update', { base64Data: b64 });
+        }
+        return;
+      }
+
+      let receivedLength = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          chunks.push(value);
+          receivedLength += value.length;
+          const pct = Math.min(100, Math.round((receivedLength / contentLength) * 100));
+          setDownloadProgress(pct);
+          setDownloadStats({
+            received: (receivedLength / (1024 * 1024)).toFixed(1),
+            total: (contentLength / (1024 * 1024)).toFixed(1),
+          });
+        }
+      }
+
+      setUpdateStatus('installing');
+
+      const blob = new Blob(chunks as any[], { type: 'application/octet-stream' });
+      const b64 = await blobToBase64(blob);
+
+      if (isTauri()) {
+        await invoke('apply_in_place_update', { base64Data: b64 });
+      } else {
+        // Fallback for browser testing
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = latestRelease.assetName || 'Arachnid-Portable.exe';
+        a.click();
+        URL.revokeObjectURL(url);
+        setUpdateStatus('upToDate');
+      }
+    } catch (err: any) {
+      console.error('Install update failed:', err);
+      setInstallError(err?.message || 'Download error');
       setUpdateStatus('error');
     }
   };
@@ -1356,7 +1464,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div className="flex items-center justify-between p-2.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs animate-in fade-in">
                       <div className="flex items-center gap-2">
                         <AlertCircle className="w-4 h-4 shrink-0" />
-                        <span>{t.settings.failedCheckUpdates}</span>
+                        <span>{installError || t.settings.failedCheckUpdates}</span>
                       </div>
                       <button
                         tabIndex={-1}
@@ -1366,6 +1474,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       >
                         {t.settings.retryCheck}
                       </button>
+                    </div>
+                  )}
+
+                  {/* Status: Downloading */}
+                  {updateStatus === 'downloading' && (
+                    <div className="p-3.5 rounded-2xl bg-md3-primary/10 border border-md3-primary/30 space-y-2.5 animate-in fade-in duration-200">
+                      <div className="flex items-center justify-between text-xs font-semibold text-md3-primary">
+                        <div className="flex items-center gap-2">
+                          <Download className="w-4 h-4 animate-bounce" />
+                          <span>{t.settings.downloadingUpdate}</span>
+                        </div>
+                        <span className="font-mono text-[11px]">
+                          {downloadProgress}% {downloadStats.total !== '0' ? `(${downloadStats.received} / ${downloadStats.total} MB)` : ''}
+                        </span>
+                      </div>
+                      <div className="w-full bg-md3-surface-container-high rounded-full h-2.5 overflow-hidden p-0.5">
+                        <div
+                          className="bg-md3-primary h-full rounded-full transition-all duration-150"
+                          style={{ width: `${Math.max(4, downloadProgress)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Status: Installing */}
+                  {updateStatus === 'installing' && (
+                    <div className="flex items-center gap-2.5 p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-xs font-semibold animate-in fade-in">
+                      <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+                      <span>{t.settings.installingUpdate}</span>
                     </div>
                   )}
 
@@ -1393,17 +1530,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       )}
 
                       <div className="flex items-center gap-2 pt-1 flex-wrap">
+                        {/* 1. In-place auto update & restart button */}
+                        <button
+                          tabIndex={-1}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={handleInstallUpdate}
+                          className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md hover:scale-102 active:scale-95 transition-all cursor-pointer outline-none focus:outline-none"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>{t.settings.installUpdate}</span>
+                        </button>
+
+                        {/* 2. Direct browser link to download exe if needed */}
                         {latestRelease.downloadUrl && (
                           <button
                             tabIndex={-1}
                             onMouseDown={(e) => e.preventDefault()}
                             onClick={() => handleDownloadUpdate(latestRelease.downloadUrl!)}
-                            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md hover:scale-102 active:scale-95 transition-all cursor-pointer outline-none focus:outline-none"
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-md3-surface-container hover:bg-md3-surface-container-high text-md3-on-surface text-xs font-medium border border-md3-outline-variant/20 transition-all cursor-pointer outline-none focus:outline-none"
+                            title={t.settings.downloadAsset}
                           >
-                            <Download className="w-3.5 h-3.5" />
+                            <Download className="w-3.5 h-3.5 text-md3-primary" />
                             <span>{t.settings.downloadAsset}</span>
                           </button>
                         )}
+
+                        {/* 3. GitHub Release page link */}
                         <button
                           tabIndex={-1}
                           onMouseDown={(e) => e.preventDefault()}
@@ -1411,7 +1563,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-md3-surface-container hover:bg-md3-surface-container-high text-md3-on-surface text-xs font-medium border border-md3-outline-variant/20 transition-all cursor-pointer outline-none focus:outline-none"
                         >
                           <ExternalLink className="w-3.5 h-3.5 text-md3-primary" />
-                          <span>GitHub Release</span>
+                          <span>GitHub</span>
                         </button>
                       </div>
                     </div>

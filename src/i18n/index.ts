@@ -115,6 +115,9 @@ export interface Translations {
     updateAvailable: string;
     downloadUpdate: string;
     downloadAsset: string;
+    installUpdate: string;
+    installingUpdate: string;
+    downloadingUpdate: string;
     failedCheckUpdates: string;
     retryCheck: string;
     releaseNotes: string;
@@ -257,7 +260,10 @@ export const RU_TRANSLATIONS: Translations = {
     latestVersionInstalled: 'У вас установлена актуальная версия',
     updateAvailable: 'Доступна новая версия',
     downloadUpdate: 'Скачать обновление',
-    downloadAsset: 'Скачать установщик (.exe)',
+    downloadAsset: 'Скачать файл (.exe)',
+    installUpdate: 'Установить и перезапустить',
+    installingUpdate: 'Установка обновления и перезапуск...',
+    downloadingUpdate: 'Загрузка обновления...',
     failedCheckUpdates: 'Не удалось проверить обновления',
     retryCheck: 'Повторить попытку',
     releaseNotes: 'Что нового',
@@ -400,7 +406,10 @@ export const EN_TRANSLATIONS: Translations = {
     latestVersionInstalled: 'You have the latest version installed',
     updateAvailable: 'New version available',
     downloadUpdate: 'Download Update',
-    downloadAsset: 'Download Installer (.exe)',
+    downloadAsset: 'Download file (.exe)',
+    installUpdate: 'Install & Restart',
+    installingUpdate: 'Installing update & restarting...',
+    downloadingUpdate: 'Downloading update...',
     failedCheckUpdates: 'Failed to check for updates',
     retryCheck: 'Retry',
     releaseNotes: 'Release notes',

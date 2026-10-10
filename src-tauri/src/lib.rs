@@ -589,6 +589,68 @@ fn close_window(window: tauri::Window) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn apply_in_place_update(base64_data: String) -> Result<(), String> {
+    let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_dir = current_exe
+        .parent()
+        .ok_or_else(|| "Cannot get executable directory".to_string())?;
+    let current_exe_name = current_exe
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("Arachnid-Portable.exe");
+    let new_exe = exe_dir.join("Arachnid-Update.new.exe");
+
+    let bytes = BASE64_STANDARD
+        .decode(base64_data.trim())
+        .map_err(|e| format!("Failed to decode base64 update data: {}", e))?;
+
+    std::fs::write(&new_exe, &bytes)
+        .map_err(|e| format!("Failed to write update binary: {}", e))?;
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let script_path = exe_dir.join("apply_update.bat");
+        let script_content = format!(
+            "@echo off\r\n\
+            chcp 65001 >nul\r\n\
+            timeout /t 1 /nobreak >nul\r\n\
+            :retry\r\n\
+            move /y \"%~dp0Arachnid-Update.new.exe\" \"%~dp0{}\" >nul 2>&1\r\n\
+            if errorlevel 1 (\r\n\
+                timeout /t 1 /nobreak >nul\r\n\
+                goto retry\r\n\
+            )\r\n\
+            start \"\" \"%~dp0{}\"\r\n\
+            del \"%~f0\"\r\n",
+            current_exe_name,
+            current_exe_name
+        );
+
+        std::fs::write(&script_path, script_content)
+            .map_err(|e| format!("Failed to write update batch script: {}", e))?;
+
+        Command::new("cmd")
+            .current_dir(exe_dir)
+            .args(&["/c", "apply_update.bat"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| format!("Failed to launch update batch script: {}", e))?;
+
+        std::process::exit(0);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = std::fs::rename(&new_exe, &current_exe);
+        Ok(())
+    }
+}
+
+#[tauri::command]
 fn is_window_maximized(window: tauri::Window) -> Result<bool, String> {
     window.is_maximized().map_err(|e| e.to_string())
 }
@@ -708,6 +770,7 @@ pub fn run() {
             toggle_maximize_window,
             close_window,
             show_window,
+            apply_in_place_update,
             is_window_maximized,
             open_app_folder,
             open_url,
