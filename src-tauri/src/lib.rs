@@ -2,7 +2,7 @@ mod discord;
 mod storage;
 
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tauri::State;
 use base64::prelude::*;
 use lofty::config::WriteOptions;
