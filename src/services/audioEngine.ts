@@ -186,9 +186,11 @@ class AudioEngine {
   public setVolume(vol: number): void {
     const clamped = Math.max(0, Math.min(1, vol));
     this.targetVolume = clamped;
-    if (this.fadeAnimFrame === null) {
-      this.setVolumeInstantly(this.getEffectiveVolume());
+    if (clamped > 0) {
+      this.isMuted = false;
     }
+    this.cancelFade();
+    this.setVolumeInstantly(this.getEffectiveVolume());
   }
 
   public setMuted(muted: boolean): void {

@@ -381,7 +381,8 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             step="0.01"
             value={isMuted ? 0 : volume}
             onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-            title={`Громкость: ${Math.round(volume * 100)}% [↑/↓]`}
+            onInput={(e) => onVolumeChange(parseFloat((e.target as HTMLInputElement).value))}
+            title={`Громкость: ${Math.round((isMuted ? 0 : volume) * 100)}% [↑/↓]`}
             className="w-16 sm:w-20 lg:w-24 accent-md3-primary h-1.5 rounded-full bg-md3-surface-container-highest cursor-pointer"
           />
         </div>

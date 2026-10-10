@@ -82,6 +82,9 @@ export const App: React.FC = () => {
   const [duration, setDuration] = useState<number>(0);
   const [volume, setVolume] = useState<number>(0.85);
   const [isMuted, setIsMuted] = useState<boolean>(false);
+  const volumeRef = useRef<number>(0.85);
+  const isMutedRef = useRef<boolean>(false);
+  const lastNonZeroVolumeRef = useRef<number>(0.85);
   const [repeatMode, setRepeatMode] = useState<'off' | 'all' | 'one'>('all');
   const [isShuffled, setIsShuffled] = useState<boolean>(false);
   const [queue, setQueue] = useState<Track[]>([]);
@@ -678,20 +681,12 @@ export const App: React.FC = () => {
         handleToggleMute();
       } else if ((e.code === 'ArrowUp' || e.key === 'ArrowUp') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
-        setVolume(prev => {
-          const next = Math.min(1, Math.round((prev + 0.05) * 100) / 100);
-          setIsMuted(false);
-          audioEngine.setVolume(next);
-          return next;
-        });
+        const next = Math.min(1, Math.round((volumeRef.current + 0.05) * 100) / 100);
+        handleVolumeChange(next);
       } else if ((e.code === 'ArrowDown' || e.key === 'ArrowDown') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
-        setVolume(prev => {
-          const next = Math.max(0, Math.round((prev - 0.05) * 100) / 100);
-          setIsMuted(false);
-          audioEngine.setVolume(next);
-          return next;
-        });
+        const next = Math.max(0, Math.round((volumeRef.current - 0.05) * 100) / 100);
+        handleVolumeChange(next);
       // Plain Arrow Left / Right: Rewind / Fast-forward by 5 seconds (silent while holding, seeks when stopped)
       } else if ((e.code === 'ArrowLeft' || e.key === 'ArrowLeft') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
@@ -1153,33 +1148,37 @@ export const App: React.FC = () => {
     audioEngine.seek(time);
   };
 
-  const lastNonZeroVolumeRef = useRef<number>(volume > 0 ? volume : 0.85);
-
   const handleVolumeChange = (vol: number) => {
+    volumeRef.current = vol;
     setVolume(vol);
     if (vol > 0) {
       lastNonZeroVolumeRef.current = vol;
+      isMutedRef.current = false;
       setIsMuted(false);
       audioEngine.setMuted(false);
       audioEngine.setVolume(vol);
     } else {
+      isMutedRef.current = true;
       setIsMuted(true);
       audioEngine.setMuted(true);
-      audioEngine.setVolume(0);
     }
   };
 
   const handleToggleMute = () => {
-    if (isMuted || volume === 0) {
+    const currentlyMuted = isMutedRef.current || volumeRef.current === 0;
+    if (currentlyMuted) {
       const restore = lastNonZeroVolumeRef.current > 0.05 ? lastNonZeroVolumeRef.current : 0.85;
+      isMutedRef.current = false;
+      volumeRef.current = restore;
       setIsMuted(false);
       setVolume(restore);
       audioEngine.setMuted(false);
       audioEngine.setVolume(restore);
     } else {
-      if (volume > 0) {
-        lastNonZeroVolumeRef.current = volume;
+      if (volumeRef.current > 0) {
+        lastNonZeroVolumeRef.current = volumeRef.current;
       }
+      isMutedRef.current = true;
       setIsMuted(true);
       audioEngine.setMuted(true);
     }
