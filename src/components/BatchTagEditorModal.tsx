@@ -31,6 +31,7 @@ interface BatchTagEditorModalProps {
     genre?: string;
     year?: number;
     trackNumber?: number;
+    trackTotal?: number;
     composer?: string;
     contentGroup?: string;
     comment?: string;
@@ -50,11 +51,11 @@ interface ExtraFieldDef {
 }
 
 const EXTRA_FIELD_DEFS: ExtraFieldDef[] = [
+  { key: 'lyricist', label: 'Автор текста', icon: PenTool, placeholder: 'Автор слов / поэт...' },
   { key: 'composer', label: 'Композитор', icon: Music, placeholder: 'Имя композитора...' },
   { key: 'contentGroup', label: 'Группа / Коллектив', icon: Users, placeholder: 'Название группы, оркестра или ансамбля...' },
   { key: 'comment', label: 'Комментарий', icon: MessageSquare, placeholder: 'Заметки, описание, источник...' },
   { key: 'conductor', label: 'Дирижер', icon: Radio, placeholder: 'Имя дирижера...' },
-  { key: 'lyricist', label: 'Автор текста', icon: PenTool, placeholder: 'Автор слов / поэт...' },
 ];
 
 export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
@@ -71,28 +72,34 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
   const allSameAlbum = !!firstTrack && selectedTracks.every(t => t.album === firstTrack.album);
   const allSameGenre = !!firstTrack && selectedTracks.every(t => t.genre === firstTrack.genre);
   const allSameYear = !!firstTrack && selectedTracks.every(t => t.year === firstTrack.year);
+  const allSameTrackTotal = !!firstTrack && selectedTracks.every(t => t.trackTotal === firstTrack.trackTotal);
   const allSameCover = !!firstTrack && selectedTracks.every(t => t.coverArt === firstTrack.coverArt);
 
-  // Single track fields
+  // Top fields: Title, Artist, Album
   const [titleValue, setTitleValue] = useState('');
-  const [trackNumValue, setTrackNumValue] = useState('');
+  const [applyTitle, setApplyTitle] = useState(false);
 
-  // Primary batch / single fields
-  const [applyArtist, setApplyArtist] = useState(false);
   const [artistValue, setArtistValue] = useState('');
+  const [applyArtist, setApplyArtist] = useState(false);
 
-  const [applyAlbum, setApplyAlbum] = useState(false);
   const [albumValue, setAlbumValue] = useState('');
+  const [applyAlbum, setApplyAlbum] = useState(false);
 
-  const [applyGenre, setApplyGenre] = useState(false);
+  // Track Numbering (e.g. 1 из 10)
+  const [trackNumValue, setTrackNumValue] = useState('');
+  const [trackTotalValue, setTrackTotalValue] = useState('');
+  const [applyTrackNum, setApplyTrackNum] = useState(false);
+
+  // Genre & Year
   const [genreValue, setGenreValue] = useState('');
+  const [applyGenre, setApplyGenre] = useState(false);
 
-  const [applyYear, setApplyYear] = useState(false);
   const [yearValue, setYearValue] = useState('');
+  const [applyYear, setApplyYear] = useState(false);
 
   // Cover art state
-  const [applyCover, setApplyCover] = useState(false);
   const [coverArtPreview, setCoverArtPreview] = useState<string | null>(null);
+  const [applyCover, setApplyCover] = useState(false);
   const [isDraggingOverCover, setIsDraggingOverCover] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -120,15 +127,24 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
     if (isOpen && firstTrack) {
       if (isSingle) {
         setTitleValue(firstTrack.title || '');
-        setTrackNumValue(firstTrack.trackNumber ? firstTrack.trackNumber.toString() : '');
-        setApplyArtist(true);
+        setApplyTitle(true);
+
         setArtistValue(firstTrack.artist || '');
-        setApplyAlbum(true);
+        setApplyArtist(true);
+
         setAlbumValue(firstTrack.album || '');
-        setApplyGenre(true);
+        setApplyAlbum(true);
+
+        setTrackNumValue(firstTrack.trackNumber ? firstTrack.trackNumber.toString() : '');
+        setTrackTotalValue(firstTrack.trackTotal ? firstTrack.trackTotal.toString() : '');
+        setApplyTrackNum(true);
+
         setGenreValue(firstTrack.genre || '');
-        setApplyYear(true);
+        setApplyGenre(true);
+
         setYearValue(firstTrack.year ? firstTrack.year.toString() : '');
+        setApplyYear(true);
+
         setCoverArtPreview(firstTrack.coverArt || null);
         setApplyCover(false);
 
@@ -149,11 +165,16 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
           lyricist: true,
         };
 
+        // Requirement: "Поле автор текста должно отображаться само, если в файле есть слова."
+        const hasLyrics = !!firstTrack.lyrics && firstTrack.lyrics.trim().length > 0;
+        if (hasLyrics || firstTrack.lyricist) {
+          existingExtras.add('lyricist');
+        }
+
         if (firstTrack.composer) existingExtras.add('composer');
         if (firstTrack.contentGroup) existingExtras.add('contentGroup');
         if (firstTrack.comment) existingExtras.add('comment');
         if (firstTrack.conductor) existingExtras.add('conductor');
-        if (firstTrack.lyricist) existingExtras.add('lyricist');
 
         setActiveExtraFields(existingExtras);
         setExtraFieldValues(newExtraVals);
@@ -161,19 +182,28 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
       } else {
         // Multi-track batch mode
         setTitleValue('');
-        setTrackNumValue('');
-        setApplyArtist(false);
+        setApplyTitle(false);
+
         setArtistValue(allSameArtist ? firstTrack.artist : '');
-        setApplyAlbum(false);
+        setApplyArtist(false);
+
         setAlbumValue(allSameAlbum ? firstTrack.album : '');
-        setApplyGenre(false);
+        setApplyAlbum(false);
+
+        setTrackNumValue('');
+        setTrackTotalValue(allSameTrackTotal && firstTrack.trackTotal ? firstTrack.trackTotal.toString() : '');
+        setApplyTrackNum(false);
+
         setGenreValue(allSameGenre ? (firstTrack.genre || '') : '');
-        setApplyYear(false);
+        setApplyGenre(false);
+
         setYearValue(allSameYear && firstTrack.year ? firstTrack.year.toString() : '');
+        setApplyYear(false);
+
         setCoverArtPreview(allSameCover ? (firstTrack.coverArt || null) : null);
         setApplyCover(false);
 
-        // Check if all tracks share any extra tags
+        // Check if any track has lyrics or shared extra tags
         const existingExtras = new Set<ExtraFieldKey>();
         const newExtraVals: Record<ExtraFieldKey, string> = {
           composer: '',
@@ -189,6 +219,16 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
           conductor: false,
           lyricist: false,
         };
+
+        // If any track has lyrics or if all share lyricist
+        const anyHasLyrics = selectedTracks.some(t => t.lyrics && t.lyrics.trim().length > 0);
+        const allSameLyricist = selectedTracks.every(t => t.lyricist === firstTrack.lyricist);
+        if (anyHasLyrics || firstTrack.lyricist) {
+          existingExtras.add('lyricist');
+          if (allSameLyricist && firstTrack.lyricist) {
+            newExtraVals.lyricist = firstTrack.lyricist;
+          }
+        }
 
         if (selectedTracks.every(t => t.composer && t.composer === firstTrack.composer)) {
           existingExtras.add('composer');
@@ -209,7 +249,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
       }
       setIsPlusMenuOpen(false);
     }
-  }, [isOpen, firstTrack, isSingle, allSameArtist, allSameAlbum, allSameGenre, allSameYear, allSameCover]);
+  }, [isOpen, firstTrack, isSingle, allSameArtist, allSameAlbum, allSameGenre, allSameYear, allSameTrackTotal, allSameCover]);
 
   // Close plus menu when clicking outside
   useEffect(() => {
@@ -292,6 +332,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
       genre?: string;
       year?: number;
       trackNumber?: number;
+      trackTotal?: number;
       composer?: string;
       contentGroup?: string;
       comment?: string;
@@ -306,12 +347,28 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
         const num = parseInt(trackNumValue, 10);
         if (!isNaN(num)) updates.trackNumber = num;
       }
+      if (trackTotalValue.trim()) {
+        const tot = parseInt(trackTotalValue, 10);
+        if (!isNaN(tot)) updates.trackTotal = tot;
+      }
+    } else {
+      if (applyTitle && titleValue.trim()) updates.title = titleValue.trim();
+      if (applyTrackNum) {
+        if (trackNumValue.trim()) {
+          const num = parseInt(trackNumValue, 10);
+          if (!isNaN(num)) updates.trackNumber = num;
+        }
+        if (trackTotalValue.trim()) {
+          const tot = parseInt(trackTotalValue, 10);
+          if (!isNaN(tot)) updates.trackTotal = tot;
+        }
+      }
     }
 
-    if (applyArtist) updates.artist = artistValue.trim();
-    if (applyAlbum) updates.album = albumValue.trim();
-    if (applyGenre) updates.genre = genreValue.trim();
-    if (applyYear && yearValue) {
+    if (applyArtist || isSingle) updates.artist = artistValue.trim();
+    if (applyAlbum || isSingle) updates.album = albumValue.trim();
+    if (applyGenre || isSingle) updates.genre = genreValue.trim();
+    if ((applyYear || isSingle) && yearValue) {
       const parsedYear = parseInt(yearValue, 10);
       if (!isNaN(parsedYear)) updates.year = parsedYear;
     }
@@ -348,7 +405,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
 
     window.addEventListener('keydown', handleGlobalKeyDown, true);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
-  }, [isOpen, applyArtist, applyAlbum, applyGenre, applyYear, applyCover, activeExtraFields, applyExtraFields, artistValue, albumValue, genreValue, yearValue, titleValue, trackNumValue, coverArtPreview, extraFieldValues, onClose]);
+  }, [isOpen, applyArtist, applyAlbum, applyGenre, applyYear, applyCover, activeExtraFields, applyExtraFields, artistValue, albumValue, genreValue, yearValue, titleValue, trackNumValue, trackTotalValue, coverArtPreview, extraFieldValues, onClose]);
 
   if (!isOpen || selectedTracks.length === 0) return null;
 
@@ -361,7 +418,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/30 overflow-hidden flex flex-col max-h-[90vh] cursor-default"
+        className="w-full max-w-2xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/30 overflow-hidden flex flex-col max-h-[90vh] cursor-default"
       >
         {/* Header */}
         <div className="p-5 border-b border-md3-outline-variant/20 flex items-center justify-between bg-md3-surface-container-high/60 shrink-0">
@@ -412,11 +469,12 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
         )}
 
         {/* Scrollable Form Area */}
-        <div className="p-5 space-y-5 overflow-y-auto custom-scrollbar flex-1 min-h-0">
+        <div className="p-5 space-y-4 overflow-y-auto custom-scrollbar flex-1 min-h-0">
           
-          {/* Top Section: Cover Art Uploader & Title/Track# (or Artist/Album) */}
-          <div className="flex flex-col sm:flex-row gap-4 items-start bg-md3-surface-container-low/70 p-4 rounded-2xl border border-md3-outline-variant/15">
-            {/* Cover Art Box */}
+          {/* Main Top Card: Large Cover Preview on left, Title / Artist / Album on right */}
+          <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/15 flex flex-col sm:flex-row gap-5 items-center sm:items-start">
+            
+            {/* Left: Large Cover Art Box */}
             <div className="shrink-0 flex flex-col items-center gap-2">
               <input
                 ref={fileInputRef}
@@ -430,11 +488,11 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                 onDragOver={(e) => { e.preventDefault(); setIsDraggingOverCover(true); }}
                 onDragLeave={() => setIsDraggingOverCover(false)}
                 onDrop={handleCoverDrop}
-                title="Нажмите или перетащите изображение, чтобы загрузить обложку"
-                className={`relative w-28 h-28 rounded-2xl overflow-hidden border-2 cursor-pointer flex items-center justify-center transition-all group shadow-sm ${
+                title="Нажмите или перетащите изображение для загрузки обложки"
+                className={`relative w-40 h-40 rounded-3xl overflow-hidden border-2 cursor-pointer flex items-center justify-center transition-all group shadow-md ${
                   isDraggingOverCover
-                    ? 'border-md3-primary bg-md3-primary/10 scale-105'
-                    : 'border-md3-outline-variant/30 bg-md3-surface-container hover:border-md3-primary/60'
+                    ? 'border-md3-primary bg-md3-primary/10 scale-102'
+                    : 'border-md3-outline-variant/30 bg-md3-surface-container hover:border-md3-primary/70'
                 }`}
               >
                 {coverArtPreview ? (
@@ -444,25 +502,25 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                       alt="Обложка"
                       className="w-full h-full object-cover"
                     />
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1 text-white text-[10px] font-semibold transition-opacity">
-                      <Upload className="w-4 h-4" />
+                    <div className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1.5 text-white text-xs font-semibold transition-opacity">
+                      <Upload className="w-5 h-5" />
                       <span>Заменить</span>
                     </div>
                   </>
                 ) : (
-                  <div className="flex flex-col items-center justify-center p-2 text-center text-md3-on-surface-variant/70 group-hover:text-md3-primary transition-colors">
-                    <ImageIcon className="w-7 h-7 mb-1 stroke-1" />
-                    <span className="text-[10px] font-medium leading-tight">Загрузить обложку</span>
+                  <div className="flex flex-col items-center justify-center p-3 text-center text-md3-on-surface-variant/70 group-hover:text-md3-primary transition-colors">
+                    <ImageIcon className="w-9 h-9 mb-1.5 stroke-1" />
+                    <span className="text-xs font-medium leading-tight">Загрузить обложку</span>
                   </div>
                 )}
               </div>
 
-              {/* Cover Art Controls */}
-              <div className="flex items-center gap-1.5">
+              {/* Cover Art Actions */}
+              <div className="flex items-center gap-2 mt-0.5">
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-2.5 py-1 rounded-full bg-md3-surface-container-high hover:bg-md3-primary hover:text-md3-on-primary text-[11px] font-semibold text-md3-on-surface transition-all cursor-pointer"
+                  className="px-3 py-1 rounded-full bg-md3-surface-container-high hover:bg-md3-primary hover:text-md3-on-primary text-xs font-semibold text-md3-on-surface transition-all cursor-pointer shadow-xs"
                 >
                   Обзор...
                 </button>
@@ -471,15 +529,15 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                     type="button"
                     onClick={handleRemoveCover}
                     title="Удалить обложку"
-                    className="p-1 rounded-full text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                    className="p-1.5 rounded-full text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 )}
               </div>
 
               {!isSingle && (
-                <label className="flex items-center gap-1.5 text-[11px] font-semibold text-md3-on-surface cursor-pointer select-none mt-0.5">
+                <label className="flex items-center gap-1.5 text-[11px] font-semibold text-md3-on-surface cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={applyCover}
@@ -491,197 +549,239 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
               )}
             </div>
 
-            {/* Quick Header Fields (Title & Track # in Single Mode, or info banner) */}
+            {/* Right: Title, Artist, Album Fields (Right Next to Cover) */}
             <div className="flex-1 w-full space-y-3">
-              {isSingle ? (
-                <>
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-md3-on-surface flex items-center gap-1.5">
-                      <Music className="w-3.5 h-3.5 text-md3-primary" />
-                      <span>Название трека (Title)</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={titleValue}
-                      onChange={(e) => setTitleValue(e.target.value)}
-                      placeholder="Название трека..."
-                      className="w-full px-3.5 py-1.5 rounded-xl text-xs bg-md3-surface text-md3-on-surface border border-md3-outline-variant/30 focus:border-md3-primary focus:ring-2 focus:ring-md3-primary/20 outline-none transition-all"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-md3-on-surface flex items-center gap-1.5">
-                      <Hash className="w-3.5 h-3.5 text-md3-primary" />
-                      <span>Номер дорожки (Track #)</span>
-                    </label>
-                    <input
-                      type="number"
-                      value={trackNumValue}
-                      onChange={(e) => setTrackNumValue(e.target.value)}
-                      placeholder="1, 2, 3..."
-                      className="w-full px-3.5 py-1.5 rounded-xl text-xs bg-md3-surface text-md3-on-surface border border-md3-outline-variant/30 focus:border-md3-primary focus:ring-2 focus:ring-md3-primary/20 outline-none transition-all"
-                    />
-                  </div>
-                </>
-              ) : (
-                <div className="h-full flex flex-col justify-center text-xs text-md3-on-surface-variant space-y-1.5">
-                  <span className="font-semibold text-md3-on-surface">Пакетное обновление обложки</span>
-                  <p className="text-[11px] leading-relaxed opacity-80">
-                    Загруженная обложка будет встроена непосредственно в метаданные ID3v2/FLAC/M4A всех выбранных файлов на диске.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Core Metadata Fields */}
-          <div className="space-y-3.5">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-md3-on-surface-variant/70 border-b border-md3-outline-variant/15 pb-1">
-              Основные сведения
-            </div>
-
-            {/* Artist Field */}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-md3-on-surface flex items-center gap-2 cursor-pointer">
-                  {!isSingle && (
-                    <input
-                      type="checkbox"
-                      checked={applyArtist}
-                      onChange={(e) => setApplyArtist(e.target.checked)}
-                      className="rounded text-md3-primary focus:ring-0 w-3.5 h-3.5 cursor-pointer"
-                    />
-                  )}
-                  <User className="w-3.5 h-3.5 text-md3-primary" />
-                  <span>Исполнитель (Artist)</span>
-                </label>
-                {!isSingle && !allSameArtist && (
-                  <span className="text-[10px] text-amber-400">Различные значения</span>
-                )}
-              </div>
-              <input
-                type="text"
-                disabled={!isSingle && !applyArtist}
-                value={artistValue}
-                onChange={(e) => {
-                  setArtistValue(e.target.value);
-                  if (!isSingle) setApplyArtist(true);
-                }}
-                placeholder="Имя исполнителя..."
-                className={`w-full px-3.5 py-2 rounded-xl text-xs border outline-none transition-all ${
-                  isSingle || applyArtist
-                    ? 'bg-md3-surface text-md3-on-surface border-md3-outline-variant/40 focus:border-md3-primary focus:ring-2 focus:ring-md3-primary/20'
-                    : 'bg-md3-surface-container-high/40 text-md3-on-surface-variant/50 border-transparent cursor-not-allowed'
-                }`}
-              />
-            </div>
-
-            {/* Album Field */}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-md3-on-surface flex items-center gap-2 cursor-pointer">
-                  {!isSingle && (
-                    <input
-                      type="checkbox"
-                      checked={applyAlbum}
-                      onChange={(e) => setApplyAlbum(e.target.checked)}
-                      className="rounded text-md3-primary focus:ring-0 w-3.5 h-3.5 cursor-pointer"
-                    />
-                  )}
-                  <Disc className="w-3.5 h-3.5 text-md3-primary" />
-                  <span>Альбом (Album)</span>
-                </label>
-                {!isSingle && !allSameAlbum && (
-                  <span className="text-[10px] text-amber-400">Различные значения</span>
-                )}
-              </div>
-              <input
-                type="text"
-                disabled={!isSingle && !applyAlbum}
-                value={albumValue}
-                onChange={(e) => {
-                  setAlbumValue(e.target.value);
-                  if (!isSingle) setApplyAlbum(true);
-                }}
-                placeholder="Название альбома..."
-                className={`w-full px-3.5 py-2 rounded-xl text-xs border outline-none transition-all ${
-                  isSingle || applyAlbum
-                    ? 'bg-md3-surface text-md3-on-surface border-md3-outline-variant/40 focus:border-md3-primary focus:ring-2 focus:ring-md3-primary/20'
-                    : 'bg-md3-surface-container-high/40 text-md3-on-surface-variant/50 border-transparent cursor-not-allowed'
-                }`}
-              />
-            </div>
-
-            {/* Genre & Year Row */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Genre Field */}
+              
+              {/* Title Field */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-md3-on-surface flex items-center gap-2 cursor-pointer">
+                  <label className="text-xs font-semibold text-md3-on-surface flex items-center gap-1.5 cursor-pointer">
                     {!isSingle && (
                       <input
                         type="checkbox"
-                        checked={applyGenre}
-                        onChange={(e) => setApplyGenre(e.target.checked)}
+                        checked={applyTitle}
+                        onChange={(e) => setApplyTitle(e.target.checked)}
                         className="rounded text-md3-primary focus:ring-0 w-3.5 h-3.5 cursor-pointer"
                       />
                     )}
-                    <Tag className="w-3.5 h-3.5 text-md3-primary" />
-                    <span>Жанр (Genre)</span>
+                    <Music className="w-3.5 h-3.5 text-md3-primary" />
+                    <span>Название трека (Title)</span>
                   </label>
-                  {!isSingle && !allSameGenre && (
-                    <span className="text-[10px] text-amber-400">Разные</span>
+                </div>
+                <input
+                  type="text"
+                  disabled={!isSingle && !applyTitle}
+                  value={titleValue}
+                  onChange={(e) => {
+                    setTitleValue(e.target.value);
+                    if (!isSingle) setApplyTitle(true);
+                  }}
+                  placeholder={isSingle ? 'Название трека...' : 'Введите общее название для всех...'}
+                  className={`w-full px-3.5 py-1.5 rounded-xl text-xs border outline-none transition-all ${
+                    isSingle || applyTitle
+                      ? 'bg-md3-surface text-md3-on-surface border-md3-outline-variant/30 focus:border-md3-primary focus:ring-2 focus:ring-md3-primary/20'
+                      : 'bg-md3-surface-container-high/40 text-md3-on-surface-variant/50 border-transparent cursor-not-allowed'
+                  }`}
+                />
+              </div>
+
+              {/* Artist Field */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-md3-on-surface flex items-center gap-1.5 cursor-pointer">
+                    {!isSingle && (
+                      <input
+                        type="checkbox"
+                        checked={applyArtist}
+                        onChange={(e) => setApplyArtist(e.target.checked)}
+                        className="rounded text-md3-primary focus:ring-0 w-3.5 h-3.5 cursor-pointer"
+                      />
+                    )}
+                    <User className="w-3.5 h-3.5 text-md3-primary" />
+                    <span>Исполнитель (Artist)</span>
+                  </label>
+                  {!isSingle && !allSameArtist && (
+                    <span className="text-[10px] text-amber-400">Различные значения</span>
                   )}
                 </div>
                 <input
                   type="text"
-                  disabled={!isSingle && !applyGenre}
-                  value={genreValue}
+                  disabled={!isSingle && !applyArtist}
+                  value={artistValue}
                   onChange={(e) => {
-                    setGenreValue(e.target.value);
-                    if (!isSingle) setApplyGenre(true);
+                    setArtistValue(e.target.value);
+                    if (!isSingle) setApplyArtist(true);
                   }}
-                  placeholder="Rock, Pop, Electronic..."
-                  className={`w-full px-3.5 py-2 rounded-xl text-xs border outline-none transition-all ${
-                    isSingle || applyGenre
-                      ? 'bg-md3-surface text-md3-on-surface border-md3-outline-variant/40 focus:border-md3-primary focus:ring-2 focus:ring-md3-primary/20'
+                  placeholder="Имя исполнителя..."
+                  className={`w-full px-3.5 py-1.5 rounded-xl text-xs border outline-none transition-all ${
+                    isSingle || applyArtist
+                      ? 'bg-md3-surface text-md3-on-surface border-md3-outline-variant/30 focus:border-md3-primary focus:ring-2 focus:ring-md3-primary/20'
                       : 'bg-md3-surface-container-high/40 text-md3-on-surface-variant/50 border-transparent cursor-not-allowed'
                   }`}
                 />
               </div>
 
-              {/* Year Field */}
+              {/* Album Field */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-md3-on-surface flex items-center gap-2 cursor-pointer">
+                  <label className="text-xs font-semibold text-md3-on-surface flex items-center gap-1.5 cursor-pointer">
                     {!isSingle && (
                       <input
                         type="checkbox"
-                        checked={applyYear}
-                        onChange={(e) => setApplyYear(e.target.checked)}
+                        checked={applyAlbum}
+                        onChange={(e) => setApplyAlbum(e.target.checked)}
                         className="rounded text-md3-primary focus:ring-0 w-3.5 h-3.5 cursor-pointer"
                       />
                     )}
-                    <Calendar className="w-3.5 h-3.5 text-md3-primary" />
-                    <span>Год (Year)</span>
+                    <Disc className="w-3.5 h-3.5 text-md3-primary" />
+                    <span>Альбом (Album)</span>
                   </label>
+                  {!isSingle && !allSameAlbum && (
+                    <span className="text-[10px] text-amber-400">Различные значения</span>
+                  )}
                 </div>
                 <input
-                  type="number"
-                  disabled={!isSingle && !applyYear}
-                  value={yearValue}
+                  type="text"
+                  disabled={!isSingle && !applyAlbum}
+                  value={albumValue}
                   onChange={(e) => {
-                    setYearValue(e.target.value);
-                    if (!isSingle) setApplyYear(true);
+                    setAlbumValue(e.target.value);
+                    if (!isSingle) setApplyAlbum(true);
                   }}
-                  placeholder="2026"
-                  className={`w-full px-3.5 py-2 rounded-xl text-xs border outline-none transition-all ${
-                    isSingle || applyYear
-                      ? 'bg-md3-surface text-md3-on-surface border-md3-outline-variant/40 focus:border-md3-primary focus:ring-2 focus:ring-md3-primary/20'
+                  placeholder="Название альбома..."
+                  className={`w-full px-3.5 py-1.5 rounded-xl text-xs border outline-none transition-all ${
+                    isSingle || applyAlbum
+                      ? 'bg-md3-surface text-md3-on-surface border-md3-outline-variant/30 focus:border-md3-primary focus:ring-2 focus:ring-md3-primary/20'
                       : 'bg-md3-surface-container-high/40 text-md3-on-surface-variant/50 border-transparent cursor-not-allowed'
                   }`}
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Secondary Row: Track Number (1 из 10), Genre, Year */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-md3-surface-container-low/70 p-3.5 rounded-2xl border border-md3-outline-variant/15">
+            
+            {/* Track Numbering: "1 из 10" */}
+            <div className="space-y-1 sm:col-span-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-md3-on-surface flex items-center gap-1.5 cursor-pointer">
+                  {!isSingle && (
+                    <input
+                      type="checkbox"
+                      checked={applyTrackNum}
+                      onChange={(e) => setApplyTrackNum(e.target.checked)}
+                      className="rounded text-md3-primary focus:ring-0 w-3.5 h-3.5 cursor-pointer"
+                    />
+                  )}
+                  <Hash className="w-3.5 h-3.5 text-md3-primary" />
+                  <span>Номер дорожки</span>
+                </label>
+              </div>
+
+              {/* 2 small fields: e.g. [ 1 ] из [ 10 ] */}
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  disabled={!isSingle && !applyTrackNum}
+                  value={trackNumValue}
+                  onChange={(e) => {
+                    setTrackNumValue(e.target.value);
+                    if (!isSingle) setApplyTrackNum(true);
+                  }}
+                  placeholder="№"
+                  className={`w-16 px-2.5 py-1.5 rounded-xl text-xs text-center border outline-none transition-all ${
+                    isSingle || applyTrackNum
+                      ? 'bg-md3-surface text-md3-on-surface border-md3-outline-variant/30 focus:border-md3-primary'
+                      : 'bg-md3-surface-container-high/40 text-md3-on-surface-variant/50 border-transparent cursor-not-allowed'
+                  }`}
+                />
+                <span className="text-xs text-md3-on-surface-variant/80 font-medium">из</span>
+                <input
+                  type="number"
+                  disabled={!isSingle && !applyTrackNum}
+                  value={trackTotalValue}
+                  onChange={(e) => {
+                    setTrackTotalValue(e.target.value);
+                    if (!isSingle) setApplyTrackNum(true);
+                  }}
+                  placeholder="Всего"
+                  className={`w-16 px-2.5 py-1.5 rounded-xl text-xs text-center border outline-none transition-all ${
+                    isSingle || applyTrackNum
+                      ? 'bg-md3-surface text-md3-on-surface border-md3-outline-variant/30 focus:border-md3-primary'
+                      : 'bg-md3-surface-container-high/40 text-md3-on-surface-variant/50 border-transparent cursor-not-allowed'
+                  }`}
+                />
+              </div>
+            </div>
+
+            {/* Genre Field */}
+            <div className="space-y-1 sm:col-span-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-md3-on-surface flex items-center gap-1.5 cursor-pointer">
+                  {!isSingle && (
+                    <input
+                      type="checkbox"
+                      checked={applyGenre}
+                      onChange={(e) => setApplyGenre(e.target.checked)}
+                      className="rounded text-md3-primary focus:ring-0 w-3.5 h-3.5 cursor-pointer"
+                    />
+                  )}
+                  <Tag className="w-3.5 h-3.5 text-md3-primary" />
+                  <span>Жанр</span>
+                </label>
+                {!isSingle && !allSameGenre && (
+                  <span className="text-[10px] text-amber-400">Разные</span>
+                )}
+              </div>
+              <input
+                type="text"
+                disabled={!isSingle && !applyGenre}
+                value={genreValue}
+                onChange={(e) => {
+                  setGenreValue(e.target.value);
+                  if (!isSingle) setApplyGenre(true);
+                }}
+                placeholder="Rock, Pop, EDM..."
+                className={`w-full px-3 py-1.5 rounded-xl text-xs border outline-none transition-all ${
+                  isSingle || applyGenre
+                    ? 'bg-md3-surface text-md3-on-surface border-md3-outline-variant/30 focus:border-md3-primary'
+                    : 'bg-md3-surface-container-high/40 text-md3-on-surface-variant/50 border-transparent cursor-not-allowed'
+                }`}
+              />
+            </div>
+
+            {/* Year Field */}
+            <div className="space-y-1 sm:col-span-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-md3-on-surface flex items-center gap-1.5 cursor-pointer">
+                  {!isSingle && (
+                    <input
+                      type="checkbox"
+                      checked={applyYear}
+                      onChange={(e) => setApplyYear(e.target.checked)}
+                      className="rounded text-md3-primary focus:ring-0 w-3.5 h-3.5 cursor-pointer"
+                    />
+                  )}
+                  <Calendar className="w-3.5 h-3.5 text-md3-primary" />
+                  <span>Год</span>
+                </label>
+              </div>
+              <input
+                type="number"
+                disabled={!isSingle && !applyYear}
+                value={yearValue}
+                onChange={(e) => {
+                  setYearValue(e.target.value);
+                  if (!isSingle) setApplyYear(true);
+                }}
+                placeholder="2026"
+                className={`w-full px-3 py-1.5 rounded-xl text-xs border outline-none transition-all ${
+                  isSingle || applyYear
+                    ? 'bg-md3-surface text-md3-on-surface border-md3-outline-variant/30 focus:border-md3-primary'
+                    : 'bg-md3-surface-container-high/40 text-md3-on-surface-variant/50 border-transparent cursor-not-allowed'
+                }`}
+              />
             </div>
           </div>
 
@@ -733,7 +833,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
             {/* Render Active Extra Fields */}
             {activeExtraFields.size === 0 ? (
               <div className="text-center py-4 px-3 rounded-2xl bg-md3-surface-container-low/50 border border-dashed border-md3-outline-variant/20 text-xs text-md3-on-surface-variant/70">
-                Нажмите кнопку <strong className="text-md3-primary font-semibold">+ Добавить поле</strong>, чтобы указать композитора, группу, комментарий или дирижера.
+                Нажмите кнопку <strong className="text-md3-primary font-semibold">+ Добавить поле</strong>, чтобы указать автора текста, композитора, группу, комментарий или дирижера.
               </div>
             ) : (
               <div className="space-y-3">

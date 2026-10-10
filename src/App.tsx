@@ -921,6 +921,7 @@ export const App: React.FC = () => {
         genre: t.genre || undefined,
         year: t.year || undefined,
         trackNumber: t.track_number || undefined,
+        trackTotal: t.track_total || undefined,
         format: t.format,
         fileSize: t.file_size,
         lyrics: t.lyrics || undefined,
@@ -1649,6 +1650,7 @@ export const App: React.FC = () => {
     year?: number;
     title?: string;
     trackNumber?: number;
+    trackTotal?: number;
     composer?: string;
     contentGroup?: string;
     comment?: string;
@@ -1666,6 +1668,7 @@ export const App: React.FC = () => {
           genre: updates.genre !== undefined ? updates.genre : t.genre,
           year: updates.year !== undefined ? updates.year : t.year,
           trackNumber: updates.trackNumber !== undefined ? updates.trackNumber : t.trackNumber,
+          trackTotal: updates.trackTotal !== undefined ? updates.trackTotal : t.trackTotal,
           composer: updates.composer !== undefined ? updates.composer : t.composer,
           contentGroup: updates.contentGroup !== undefined ? updates.contentGroup : t.contentGroup,
           comment: updates.comment !== undefined ? updates.comment : t.comment,
@@ -1686,6 +1689,7 @@ export const App: React.FC = () => {
         genre: updates.genre !== undefined ? updates.genre : prev.genre,
         year: updates.year !== undefined ? updates.year : prev.year,
         trackNumber: updates.trackNumber !== undefined ? updates.trackNumber : prev.trackNumber,
+        trackTotal: updates.trackTotal !== undefined ? updates.trackTotal : prev.trackTotal,
         composer: updates.composer !== undefined ? updates.composer : prev.composer,
         contentGroup: updates.contentGroup !== undefined ? updates.contentGroup : prev.contentGroup,
         comment: updates.comment !== undefined ? updates.comment : prev.comment,
@@ -1710,6 +1714,7 @@ export const App: React.FC = () => {
               genre: updates.genre,
               year: updates.year,
               track_number: updates.trackNumber,
+              track_total: updates.trackTotal,
               composer: updates.composer,
               content_group: updates.contentGroup,
               comment: updates.comment,
@@ -1725,24 +1730,35 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleSaveLyrics = async (trackId: string, lyrics: string, isInstrumental: boolean) => {
+  const handleSaveLyrics = async (trackId: string, lyrics: string, isInstrumental: boolean, lyricist?: string) => {
     setTracks(prev => prev.map(t => {
       if (t.id === trackId) {
-        return { ...t, lyrics, isInstrumental };
+        return { 
+          ...t, 
+          lyrics, 
+          isInstrumental,
+          lyricist: lyricist !== undefined ? lyricist : t.lyricist
+        };
       }
       return t;
     }));
     if (currentTrack?.id === trackId) {
-      setCurrentTrack(prev => prev ? { ...prev, lyrics, isInstrumental } : null);
+      setCurrentTrack(prev => prev ? { 
+        ...prev, 
+        lyrics, 
+        isInstrumental,
+        lyricist: lyricist !== undefined ? lyricist : prev.lyricist
+      } : null);
     }
 
-    // Embed lyrics directly into the audio file tags on disk!
+    // Embed lyrics and lyricist directly into the audio file tags on disk!
     const targetTrack = tracksRef.current.find(t => t.id === trackId);
     if (isTauri() && targetTrack?.path) {
       try {
         await invoke('save_track_lyrics', { 
           path: targetTrack.path, 
-          lyrics: isInstrumental ? '' : lyrics 
+          lyrics: isInstrumental ? '' : lyrics,
+          lyricist: lyricist !== undefined ? lyricist : undefined
         });
       } catch (err) {
         console.warn('Failed to embed lyrics into audio file on disk:', err);

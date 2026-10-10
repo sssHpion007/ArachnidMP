@@ -10,6 +10,7 @@ export interface Track {
   genre?: string;
   year?: number;
   trackNumber?: number;
+  trackTotal?: number;
   bitrate?: number;
   format?: string;
   fileSize?: number;

@@ -20,6 +20,7 @@ pub struct TrackMetadata {
     pub genre: Option<String>,
     pub year: Option<u32>,
     pub track_number: Option<u32>,
+    pub track_total: Option<u32>,
     pub duration_seconds: f64,
     pub cover_art: Option<String>,
     pub format: String,
@@ -40,6 +41,7 @@ pub struct TagUpdates {
     pub genre: Option<String>,
     pub year: Option<u32>,
     pub track_number: Option<u32>,
+    pub track_total: Option<u32>,
     pub composer: Option<String>,
     pub content_group: Option<String>,
     pub comment: Option<String>,
@@ -114,6 +116,7 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
     let mut genre = None;
     let mut year = None;
     let mut track_number = None;
+    let mut track_total = None;
     let mut duration_seconds = 0.0;
     let mut cover_art = None;
     let mut lyrics = None;
@@ -166,6 +169,11 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
             if track_number.is_none() {
                 if let Some(tn) = tag.track() {
                     track_number = Some(tn);
+                }
+            }
+            if track_total.is_none() {
+                if let Some(tt) = tag.track_total() {
+                    track_total = Some(tt);
                 }
             }
             if lyrics.is_none() {
@@ -224,6 +232,7 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
         genre,
         year,
         track_number,
+        track_total,
         duration_seconds,
         cover_art,
         format: ext.to_uppercase(),
@@ -343,7 +352,18 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
         tag.set_year(year);
     }
     if let Some(track_num) = updates.track_number {
-        tag.set_track(track_num);
+        if track_num == 0 {
+            tag.remove_track();
+        } else {
+            tag.set_track(track_num);
+        }
+    }
+    if let Some(track_tot) = updates.track_total {
+        if track_tot == 0 {
+            tag.remove_track_total();
+        } else {
+            tag.set_track_total(track_tot);
+        }
     }
 
     if let Some(ref comp) = updates.composer {
@@ -451,7 +471,7 @@ fn show_in_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn save_track_lyrics(path: String, lyrics: String) -> Result<bool, String> {
+fn save_track_lyrics(path: String, lyrics: String, lyricist: Option<String>) -> Result<bool, String> {
     let file_path = Path::new(&path);
     if !file_path.is_file() {
         return Err("File not found".to_string());
@@ -477,6 +497,14 @@ fn save_track_lyrics(path: String, lyrics: String) -> Result<bool, String> {
         tag.remove_key(&ItemKey::Lyrics);
     } else {
         tag.insert_text(ItemKey::Lyrics, lyrics);
+    }
+
+    if let Some(lyr) = lyricist {
+        if lyr.trim().is_empty() {
+            tag.remove_key(&ItemKey::Lyricist);
+        } else {
+            tag.insert_text(ItemKey::Lyricist, lyr);
+        }
     }
 
     tag.save_to_path(file_path, WriteOptions::default()).map_err(|e| e.to_string())?;

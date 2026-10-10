@@ -8,7 +8,9 @@ import {
   Sparkles, 
   Save, 
   FileText,
-  Clock
+  Clock,
+  Copy,
+  PenTool
 } from 'lucide-react';
 import { Track } from '../types/music';
 
@@ -18,7 +20,7 @@ interface LyricsModalProps {
   currentTime: number;
   isPlaying: boolean;
   onSeek?: (time: number) => void;
-  onSaveLyrics: (trackId: string, lyrics: string, isInstrumental: boolean) => void;
+  onSaveLyrics: (trackId: string, lyrics: string, isInstrumental: boolean, lyricist?: string) => void;
   onClose: () => void;
 }
 
@@ -38,15 +40,19 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedText, setEditedText] = useState('');
+  const [editedLyricist, setEditedLyricist] = useState('');
   const [isInstrumental, setIsInstrumental] = useState(false);
+  const [copiedLyrics, setCopiedLyrics] = useState(false);
   const activeLineRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (track) {
       setEditedText(track.lyrics || '');
+      setEditedLyricist(track.lyricist || '');
       setIsInstrumental(!!track.isInstrumental);
       setIsEditing(false);
+      setCopiedLyrics(false);
     }
   }, [track, isOpen]);
 
@@ -139,16 +145,33 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
   if (!isOpen || !track) return null;
 
   const handleSave = () => {
-    onSaveLyrics(track.id, editedText.trim(), isInstrumental);
+    onSaveLyrics(track.id, editedText.trim(), isInstrumental, editedLyricist.trim());
     setIsEditing(false);
   };
 
   const handleMarkInstrumental = () => {
     setIsInstrumental(true);
     setEditedText('');
-    onSaveLyrics(track.id, '', true);
+    onSaveLyrics(track.id, '', true, editedLyricist.trim());
     setIsEditing(false);
   };
+
+  const handleCopyLyrics = () => {
+    if (!track.lyrics) return;
+
+    // If lyrics are in LRC format, strip timestamp tags for clean readable text
+    const cleanText = track.lyrics
+      .split('\n')
+      .map(line => line.replace(/\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]/g, '').trim())
+      .filter(line => line.length > 0)
+      .join('\n');
+
+    navigator.clipboard.writeText(cleanText || track.lyrics);
+    setCopiedLyrics(true);
+    setTimeout(() => setCopiedLyrics(false), 2000);
+  };
+
+  const hasLyricsText = !!track.lyrics && track.lyrics.trim().length > 0 && !track.isInstrumental;
 
   return (
     <div
@@ -169,13 +192,44 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
               <h2 className="text-base font-bold text-md3-on-surface leading-tight truncate">
                 {track.title}
               </h2>
-              <p className="text-xs text-md3-on-surface-variant mt-0.5 truncate font-medium">
-                {track.artist} {isSynced ? '• Синхронизированный текст (LRC)' : ''}
-              </p>
+              <div className="flex items-center gap-2 mt-0.5 text-xs text-md3-on-surface-variant truncate font-medium">
+                <span className="truncate">{track.artist}</span>
+                {track.lyricist && (
+                  <span className="text-[11px] text-md3-primary/90 font-semibold bg-md3-primary/10 px-2 py-0.5 rounded-full shrink-0">
+                    Слова: {track.lyricist}
+                  </span>
+                )}
+                {isSynced && (
+                  <span className="text-[11px] opacity-75 shrink-0">
+                    • Синхронизированный (LRC)
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {/* Small Copy Lyrics Button (if lyrics exist) */}
+            {hasLyricsText && (
+              <button
+                onClick={handleCopyLyrics}
+                title={copiedLyrics ? 'Текст скопирован!' : 'Скопировать текст песни'}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-md3-surface-container text-md3-on-surface hover:bg-md3-surface-container-high border border-md3-outline-variant/20 transition-all cursor-pointer hover:scale-102 active:scale-95"
+              >
+                {copiedLyrics ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                    <span className="text-emerald-500 font-bold">Скопировано</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5 text-md3-primary" />
+                    <span>Копировать</span>
+                  </>
+                )}
+              </button>
+            )}
+
             {/* Edit / View Toggle */}
             <button
               onClick={() => setIsEditing(!isEditing)}
@@ -191,6 +245,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
 
             <button
               onClick={onClose}
+              title="Закрыть [Esc]"
               className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer"
             >
               <X className="w-4 h-4" />
@@ -198,35 +253,39 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
           </div>
         </div>
 
-        {/* Body */}
+        {/* Content Body */}
         <div 
           ref={scrollContainerRef}
-          className="flex-1 overflow-y-auto custom-scrollbar p-6 relative flex flex-col"
+          className="flex-1 overflow-y-auto p-6 custom-scrollbar relative"
         >
           {isEditing ? (
             /* Edit Mode */
-            <div className="flex-1 flex flex-col space-y-4">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-md3-on-surface-variant">
-                  Текст песни (поддерживается как обычный текст, так и формат LRC с таймкодами [01:23.45]):
-                </label>
-                <button
-                  type="button"
-                  onClick={handleMarkInstrumental}
-                  className="text-xs text-md3-primary hover:underline cursor-pointer"
-                >
-                  Пометить как «Без слов»
-                </button>
+            <div className="flex flex-col h-full space-y-3 animate-in fade-in duration-150">
+              <div className="flex items-center justify-between text-xs text-md3-on-surface-variant">
+                <span>Редактирование текста песни (поддерживается стандартный LRC с метками времени [mm:ss.xx])</span>
+              </div>
+
+              {/* Author / Lyricist Field */}
+              <div className="flex items-center gap-2 p-2 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/15">
+                <PenTool className="w-4 h-4 text-md3-primary ml-1.5 shrink-0" />
+                <span className="text-xs font-semibold text-md3-on-surface shrink-0">Автор текста:</span>
+                <input
+                  type="text"
+                  value={editedLyricist}
+                  onChange={(e) => setEditedLyricist(e.target.value)}
+                  placeholder="Имя автора текста / поэта..."
+                  className="flex-1 px-3 py-1 rounded-xl text-xs bg-md3-surface text-md3-on-surface border border-md3-outline-variant/20 focus:border-md3-primary outline-none transition-all"
+                />
               </div>
 
               <textarea
                 value={editedText}
                 onChange={(e) => setEditedText(e.target.value)}
                 placeholder="Вставьте или введите текст песни сюда..."
-                className="flex-1 w-full p-4 rounded-2xl bg-md3-surface text-sm text-md3-on-surface placeholder-md3-on-surface-variant/40 border border-md3-outline-variant/20 focus:border-md3-primary outline-none transition-all resize-none font-sans leading-relaxed custom-scrollbar shadow-inner"
+                className="flex-1 w-full p-4 rounded-2xl bg-md3-surface text-sm text-md3-on-surface placeholder-md3-on-surface-variant/40 border border-md3-outline-variant/20 focus:border-md3-primary outline-none transition-all resize-none font-sans leading-relaxed custom-scrollbar shadow-inner min-h-[220px]"
               />
 
-              <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center justify-between pt-1">
                 <label className="flex items-center gap-2 cursor-pointer text-xs text-md3-on-surface-variant">
                   <input
                     type="checkbox"
