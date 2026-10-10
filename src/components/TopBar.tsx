@@ -31,6 +31,7 @@ interface TopBarProps {
   onOpenSettings: () => void;
   discordEnabled: boolean;
   onToggleDiscord: () => void;
+  showDiscordButton?: boolean;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -46,6 +47,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenSettings,
   discordEnabled,
   onToggleDiscord,
+  showDiscordButton = true,
 }) => {
   const navTabs = [
     { id: 'tracks' as const, label: 'Все треки', icon: Music },
@@ -106,63 +108,67 @@ export const TopBar: React.FC<TopBarProps> = ({
         </nav>
       </div>
 
-      {/* Right Controls: Add Files, Discord RPC, Theme, EQ, Settings */}
-      <div className="w-1/4 min-w-[280px] flex items-center justify-end gap-1.5 shrink-0">
-        {/* Add Files Button (placed right before Discord) */}
-        <button
-          onClick={onOpenFiles}
-          title="Добавить аудиофайлы с диска"
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold shadow-sm hover:scale-[1.02] active:scale-95 transition-all cursor-pointer shrink-0 mr-1"
-        >
-          <FolderPlus className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Добавить файлы</span>
-        </button>
+      {/* Right Controls: Unified pill frame like the navigation bar */}
+      <div className="w-1/4 min-w-[280px] flex items-center justify-end shrink-0">
+        <div className="flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15">
+          {/* Add Files Button */}
+          <button
+            onClick={onOpenFiles}
+            title="Добавить аудиофайлы с диска"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold shadow-sm hover:scale-[1.02] active:scale-95 transition-all cursor-pointer shrink-0"
+          >
+            <FolderPlus className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Добавить файлы</span>
+          </button>
 
-        {/* Discord RPC switch */}
-        <button
-          onClick={onToggleDiscord}
-          title={discordEnabled ? 'Discord RPC активен (кликните для отключения)' : 'Discord RPC отключен (кликните для включения)'}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
-            discordEnabled
-              ? 'bg-[#5865F2]/15 border-[#5865F2]/30 text-[#5865F2] hover:bg-[#5865F2]/25'
-              : 'bg-md3-surface-container border-md3-outline-variant/20 text-md3-on-surface-variant/50 hover:bg-md3-surface-container-high'
-          }`}
-        >
-          <span className={`w-2 h-2 rounded-full ${discordEnabled ? 'bg-[#5865F2] animate-pulse' : 'bg-gray-500'}`} />
-          <span className="hidden xl:inline">Discord:</span>
-          <span>{discordEnabled ? 'Вкл' : 'Выкл'}</span>
-        </button>
-
-        {/* Theme mode toggle */}
-        <button
-          onClick={onToggleTheme}
-          title={`Тема: ${themeMode === 'dark' ? 'Темная' : themeMode === 'amoled' ? 'AMOLED' : 'Светлая'}`}
-          className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer"
-        >
-          {themeMode === 'light' ? (
-            <Sun className="w-4 h-4 text-amber-500" />
-          ) : (
-            <Moon className="w-4 h-4 text-md3-primary" />
+          {/* Discord RPC switch (optional via settings) */}
+          {showDiscordButton && (
+            <button
+              onClick={onToggleDiscord}
+              title={`Discord RPC: ${discordEnabled ? 'Вкл [D]' : 'Выкл [D]'} (кликните или нажмите D для переключения)`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                discordEnabled
+                  ? 'bg-[#5865F2]/20 text-[#5865F2] font-bold shadow-sm'
+                  : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${discordEnabled ? 'bg-[#5865F2] animate-pulse' : 'bg-gray-400'}`} />
+              <span className="hidden xl:inline">Discord:</span>
+              <span>{discordEnabled ? 'Вкл' : 'Выкл'}</span>
+            </button>
           )}
-        </button>
 
-        {/* EQ Modal button */}
-        <button
-          onClick={onOpenEQ}
-          title="Эквалайзер"
-          className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer"
-        >
-          <SlidersHorizontal className="w-4 h-4" />
-        </button>
+          {/* Theme mode toggle */}
+          <button
+            onClick={onToggleTheme}
+            title={`Тема: ${themeMode === 'dark' ? 'Темная' : themeMode === 'amoled' ? 'AMOLED' : 'Светлая'}`}
+            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer"
+          >
+            {themeMode === 'light' ? (
+              <Sun className="w-4 h-4 text-amber-500" />
+            ) : (
+              <Moon className="w-4 h-4 text-md3-primary" />
+            )}
+          </button>
 
-        {/* Settings button */}
-        <button
-          onClick={onOpenSettings}
-          title="Настройки"
-          className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer"
-        >
-          <Settings className="w-4 h-4" />
-        </button>
+          {/* EQ Modal button */}
+          <button
+            onClick={onOpenEQ}
+            title="Эквалайзер"
+            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer"
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+          </button>
+
+          {/* Settings button */}
+          <button
+            onClick={onOpenSettings}
+            title="Настройки"
+            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </header>
   );

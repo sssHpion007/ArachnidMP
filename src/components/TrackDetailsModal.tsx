@@ -134,7 +134,7 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
                 {track.artist}
               </p>
               <p className="text-xs text-md3-on-surface-variant truncate mt-1">
-                {track.album || 'Без альбома'} {track.year ? `(${track.year})` : ''}
+                {track.album || 'Без альбома'}
               </p>
             </div>
           </div>

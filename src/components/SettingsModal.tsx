@@ -25,6 +25,8 @@ interface SettingsModalProps {
   onSetSeedColor: (color: string) => void;
   discordEnabled: boolean;
   onToggleDiscord: () => void;
+  showDiscordButton: boolean;
+  onToggleShowDiscordButton: () => void;
   currentTrack: Track | null;
   isPlaying: boolean;
   currentTime: number;
@@ -54,6 +56,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSetSeedColor,
   discordEnabled,
   onToggleDiscord,
+  showDiscordButton,
+  onToggleShowDiscordButton,
   currentTrack,
   isPlaying,
   currentTime,
@@ -385,6 +389,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Show Discord Quick Switch in TopBar toggle */}
+            <div className="flex items-center justify-between p-3 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/15">
+              <div className="space-y-0.5">
+                <div className="text-xs font-semibold text-md3-on-surface">
+                  Кнопка в верхней панели
+                </div>
+                <div className="text-[11px] text-md3-on-surface-variant">
+                  Отображать быстрый переключатель Discord в правом верхнем углу (активность также можно переключать клавишей D)
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={showDiscordButton}
+                onChange={onToggleShowDiscordButton}
+                className="w-4 h-4 rounded accent-md3-primary cursor-pointer"
+              />
+            </div>
           </div>
 
           {/* About Section */}
@@ -398,7 +420,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 пакетный редактор тегов, десктопный Drag-and-Drop, работу с плейлистами и нативный Discord RPC.
               </p>
               <p className="text-[11px] opacity-75">
-                Горячие клавиши: <b>Пробел</b> — пауза/старт, <b>R</b> — переключение режима повтора, <b>Ctrl + Стрелки</b> — следующий/предыдущий трек.
+                Горячие клавиши: <b>Пробел</b> — пауза/старт, <b>D</b> — активность Discord, <b>R</b> — режим повтора, <b>E</b> — перемешивание, <b>T</b> — текст песни, <b>Ctrl + Стрелки</b> — следующий/предыдущий трек.
               </p>
             </div>
           </div>

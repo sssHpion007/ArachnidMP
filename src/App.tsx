@@ -114,6 +114,7 @@ export const App: React.FC = () => {
   const [folderContextMenu, setFolderContextMenu] = useState<{ x: number; y: number; folder: PlaylistFolder } | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
   const [discordEnabled, setDiscordEnabled] = useState<boolean>(true);
+  const [showDiscordButton, setShowDiscordButton] = useState<boolean>(true);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef<number>(0);
@@ -203,6 +204,7 @@ export const App: React.FC = () => {
           if (parsed.themeMode) setThemeMode(parsed.themeMode);
           if (parsed.seedColor) setSeedColor(parsed.seedColor);
           if (typeof parsed.discordEnabled === 'boolean') setDiscordEnabled(parsed.discordEnabled);
+          if (typeof parsed.showDiscordButton === 'boolean') setShowDiscordButton(parsed.showDiscordButton);
           if (typeof parsed.isDynamicColor === 'boolean') setIsDynamicColor(parsed.isDynamicColor);
           if (parsed.fadeMode) setFadeMode(parsed.fadeMode);
           if (typeof parsed.fadeDuration === 'number') setFadeDuration(parsed.fadeDuration);
@@ -229,6 +231,7 @@ export const App: React.FC = () => {
       themeMode,
       seedColor,
       discordEnabled,
+      showDiscordButton,
       isDynamicColor,
       fadeMode,
       fadeDuration,
@@ -243,7 +246,7 @@ export const App: React.FC = () => {
     } else {
       localStorage.setItem('arachnid_portable_data', jsonString);
     }
-  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, discordEnabled, isDynamicColor, fadeMode, fadeDuration]);
+  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, discordEnabled, showDiscordButton, isDynamicColor, fadeMode, fadeDuration]);
 
   // Prevent default browser right-click menu
   useEffect(() => {
@@ -577,6 +580,9 @@ export const App: React.FC = () => {
       } else if (e.code === 'MediaTrackPrevious' || e.key === 'MediaTrackPrevious') {
         e.preventDefault();
         handlePrev();
+      } else if ((e.code === 'KeyD' || e.key.toLowerCase() === 'd' || e.key.toLowerCase() === 'в') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setDiscordEnabled(prev => !prev);
       } else if ((e.code === 'KeyR' || e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'к') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         handleToggleRepeat();
@@ -1606,6 +1612,7 @@ export const App: React.FC = () => {
         onOpenSettings={() => setIsSettingsOpen(true)}
         discordEnabled={discordEnabled}
         onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
+        showDiscordButton={showDiscordButton}
       />
 
       {/* Main Content Area (Full width, No sidebar) */}
@@ -1859,6 +1866,8 @@ export const App: React.FC = () => {
         onSetSeedColor={setSeedColor}
         discordEnabled={discordEnabled}
         onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
+        showDiscordButton={showDiscordButton}
+        onToggleShowDiscordButton={() => setShowDiscordButton(prev => !prev)}
         currentTrack={currentTrack}
         isPlaying={isPlaying}
         currentTime={currentTime}
