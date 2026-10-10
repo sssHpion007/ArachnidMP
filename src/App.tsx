@@ -169,6 +169,7 @@ export const App: React.FC = () => {
   const isLoadedRef = useRef<boolean>(false);
   const selectedPlaylistIdRef = useRef<string | null>(null);
   const tracksRef = useRef<Track[]>(tracks);
+  const currentTrackRef = useRef<Track | null>(currentTrack);
   const lastPrevPressRef = useRef<number>(0);
   const pendingSeekTimeRef = useRef<number | null>(null);
   const seekDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -180,6 +181,17 @@ export const App: React.FC = () => {
   useEffect(() => {
     tracksRef.current = tracks;
   }, [tracks]);
+
+  useEffect(() => {
+    currentTrackRef.current = currentTrack;
+  }, [currentTrack]);
+
+  // If active track is cleared or stopped, close lyrics modal so it doesn't pop up on next track
+  useEffect(() => {
+    if (!currentTrack && isLyricsOpen) {
+      setIsLyricsOpen(false);
+    }
+  }, [currentTrack, isLyricsOpen]);
 
   // Load Portable Data on Startup (strictly from arachnid_data.json next to exe in Tauri)
   useEffect(() => {
@@ -801,7 +813,9 @@ export const App: React.FC = () => {
         handleToggleRepeat();
       } else if ((e.code === 'KeyT' || e.key.toLowerCase() === 't' || e.key.toLowerCase() === 'е') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
-        setIsLyricsOpen(prev => !prev);
+        if (currentTrackRef.current) {
+          setIsLyricsOpen(prev => !prev);
+        }
       } else if ((e.code === 'KeyE' || e.key.toLowerCase() === 'e' || e.key.toLowerCase() === 'у') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         setIsShuffled(prev => !prev);
@@ -1313,6 +1327,7 @@ export const App: React.FC = () => {
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
+    setIsLyricsOpen(false);
     audioEngine.stop();
   };
 
@@ -2307,7 +2322,9 @@ export const App: React.FC = () => {
         onToggleQueue={() => setIsQueueOpen(!isQueueOpen)}
         onToggleFavorite={handleToggleFavorite}
         onOpenTrackDetails={(t) => setTrackDetailsTarget(t)}
-        onOpenLyrics={() => setIsLyricsOpen(true)}
+        onOpenLyrics={() => {
+          if (currentTrack) setIsLyricsOpen(true);
+        }}
       />
 
       {/* Queue Drawer */}
