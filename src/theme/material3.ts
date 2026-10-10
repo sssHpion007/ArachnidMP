@@ -2,11 +2,50 @@ import { colord, extend } from 'colord';
 import harmoniesPlugin from 'colord/plugins/harmonies';
 import a11yPlugin from 'colord/plugins/a11y';
 import { M3ThemeColors, ThemeMode } from '../types/music';
+import { isTauri, invoke } from '@tauri-apps/api/core';
 
 extend([harmoniesPlugin, a11yPlugin]);
 
 // Default Arachnid Brand Color (Material 3 Deep Violet)
 export const DEFAULT_SEED_COLOR = '#8b5cf6';
+
+/**
+ * Reads the user's actual Windows accent color from the OS (via Tauri registry command, with CSS fallback)
+ */
+export async function getWindowsAccentColor(): Promise<string> {
+  if (isTauri()) {
+    try {
+      const color = await invoke<string>('get_system_accent_color');
+      if (color && color.startsWith('#') && color.length === 7) {
+        return color;
+      }
+    } catch (e) {
+      console.warn('Failed to get system accent color from Tauri:', e);
+    }
+  }
+
+  // Web browser fallback: CSS AccentColor keyword
+  try {
+    const el = document.createElement('div');
+    el.style.display = 'none';
+    el.style.color = 'AccentColor';
+    document.body.appendChild(el);
+    const computed = window.getComputedStyle(el).color;
+    document.body.removeChild(el);
+
+    if (computed && computed.startsWith('rgb')) {
+      const match = computed.match(/\d+/g);
+      if (match && match.length >= 3) {
+        const r = parseInt(match[0], 10).toString(16).padStart(2, '0');
+        const g = parseInt(match[1], 10).toString(16).padStart(2, '0');
+        const b = parseInt(match[2], 10).toString(16).padStart(2, '0');
+        return `#${r}${g}${b}`;
+      }
+    }
+  } catch (_) {}
+
+  return '#0078d4'; // Standard Windows Blue default
+}
 
 export function generateM3Palette(seedHex: string, mode: ThemeMode = 'dark'): M3ThemeColors {
   const seed = colord(seedHex).isValid() ? colord(seedHex) : colord(DEFAULT_SEED_COLOR);

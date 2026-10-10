@@ -4,6 +4,7 @@ import {
   Settings, 
   Sparkles, 
   Palette,
+  Monitor,
   Check, 
   Moon, 
   Sun,
@@ -217,7 +218,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">Режим повтора</span>
+                  <span className="text-md3-on-surface-variant">Режим зацикливания</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     R
                   </kbd>
@@ -352,9 +353,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
                     }`}
                   >
-                    <Palette className="w-4 h-4" />
+                    <Monitor className="w-4 h-4" />
                     <span className="text-xs">Система</span>
-                    <span className="text-[10px] opacity-70">Фирменный стиль</span>
+                    <span className="text-[10px] opacity-70">Акцент Windows</span>
                   </button>
 
                   <button
@@ -365,11 +366,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
                     }`}
                   >
-                    <div className="w-4 h-4 rounded-full border border-current flex items-center justify-center text-[10px]">
-                      🎨
-                    </div>
+                    <Palette className="w-4 h-4" />
                     <span className="text-xs">Пользовательская</span>
-                    <span className="text-[10px] opacity-70">Выбор цвета</span>
+                    <span className="text-[10px] opacity-70">Свой цвет</span>
                   </button>
                 </div>
 
@@ -649,7 +648,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="p-4 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/15 text-xs text-md3-on-surface-variant space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-md3-on-surface text-xs">Arachnid Music Player</span>
-                <span className="text-[11px] font-mono opacity-70">v0.3.30</span>
+                <span className="text-[11px] font-mono opacity-70">v0.3.31</span>
               </div>
               <p className="text-[11px] leading-relaxed text-md3-on-surface-variant/90">
                 Лёгкий и быстрый аудиоплеер для Windows с поддержкой gapless-воспроизведения, встроенным редактором тегов, текстами песен и интерфейсом Material Design 3.

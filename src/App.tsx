@@ -30,7 +30,8 @@ import {
   DEFAULT_SEED_COLOR, 
   generateM3Palette, 
   applyM3ThemeToDOM, 
-  extractDominantColor 
+  extractDominantColor,
+  getWindowsAccentColor
 } from './theme/material3';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -317,10 +318,10 @@ export const App: React.FC = () => {
         if (currentTrack?.coverArt) {
           activeColor = await extractDominantColor(currentTrack.coverArt);
         } else {
-          activeColor = DEFAULT_SEED_COLOR;
+          activeColor = await getWindowsAccentColor();
         }
       } else if (colorSchemeMode === 'system') {
-        activeColor = DEFAULT_SEED_COLOR;
+        activeColor = await getWindowsAccentColor();
       } else if (colorSchemeMode === 'custom') {
         activeColor = seedColor;
       }
@@ -672,6 +673,9 @@ export const App: React.FC = () => {
       } else if ((e.code === 'KeyE' || e.key.toLowerCase() === 'e' || e.key.toLowerCase() === 'у') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         setIsShuffled(prev => !prev);
+      } else if ((e.code === 'KeyM' || e.key.toLowerCase() === 'm' || e.key.toLowerCase() === 'ь') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        handleToggleMute();
       } else if ((e.code === 'ArrowUp' || e.key === 'ArrowUp') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         setVolume(prev => {
@@ -1149,19 +1153,35 @@ export const App: React.FC = () => {
     audioEngine.seek(time);
   };
 
+  const lastNonZeroVolumeRef = useRef<number>(volume > 0 ? volume : 0.85);
+
   const handleVolumeChange = (vol: number) => {
     setVolume(vol);
-    setIsMuted(false);
-    audioEngine.setVolume(vol);
+    if (vol > 0) {
+      lastNonZeroVolumeRef.current = vol;
+      setIsMuted(false);
+      audioEngine.setMuted(false);
+      audioEngine.setVolume(vol);
+    } else {
+      setIsMuted(true);
+      audioEngine.setMuted(true);
+      audioEngine.setVolume(0);
+    }
   };
 
   const handleToggleMute = () => {
-    if (isMuted) {
+    if (isMuted || volume === 0) {
+      const restore = lastNonZeroVolumeRef.current > 0.05 ? lastNonZeroVolumeRef.current : 0.85;
       setIsMuted(false);
-      audioEngine.setVolume(volume);
+      setVolume(restore);
+      audioEngine.setMuted(false);
+      audioEngine.setVolume(restore);
     } else {
+      if (volume > 0) {
+        lastNonZeroVolumeRef.current = volume;
+      }
       setIsMuted(true);
-      audioEngine.setVolume(0);
+      audioEngine.setMuted(true);
     }
   };
 

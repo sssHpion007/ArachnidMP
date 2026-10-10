@@ -311,6 +311,64 @@ fn read_audio_binary(path: String) -> Result<Vec<u8>, String> {
     std::fs::read(&path).map_err(|e| format!("Failed to read audio file: {}", e))
 }
 
+#[tauri::command]
+fn get_system_accent_color() -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        // Try reading DWM AccentColor from registry (0xAABBGGRR)
+        let output = Command::new("reg")
+            .args(&["query", "HKCU\\Software\\Microsoft\\Windows\\DWM", "/v", "AccentColor"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        if let Ok(out) = output {
+            let text = String::from_utf8_lossy(&out.stdout);
+            for line in text.lines() {
+                if line.contains("AccentColor") && line.contains("REG_DWORD") {
+                    if let Some(val_str) = line.split_whitespace().last() {
+                        let clean_hex = val_str.trim_start_matches("0x").trim_start_matches("0X");
+                        if let Ok(dword) = u32::from_str_radix(clean_hex, 16) {
+                            let r = (dword & 0xFF) as u8;
+                            let g = ((dword >> 8) & 0xFF) as u8;
+                            let b = ((dword >> 16) & 0xFF) as u8;
+                            return Ok(format!("#{:02x}{:02x}{:02x}", r, g, b));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback to ColorizationColor (0xAARRGGBB)
+        let output2 = Command::new("reg")
+            .args(&["query", "HKCU\\Software\\Microsoft\\Windows\\DWM", "/v", "ColorizationColor"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        if let Ok(out) = output2 {
+            let text = String::from_utf8_lossy(&out.stdout);
+            for line in text.lines() {
+                if line.contains("ColorizationColor") && line.contains("REG_DWORD") {
+                    if let Some(val_str) = line.split_whitespace().last() {
+                        let clean_hex = val_str.trim_start_matches("0x").trim_start_matches("0X");
+                        if let Ok(dword) = u32::from_str_radix(clean_hex, 16) {
+                            let r = ((dword >> 16) & 0xFF) as u8;
+                            let g = ((dword >> 8) & 0xFF) as u8;
+                            let b = (dword & 0xFF) as u8;
+                            return Ok(format!("#{:02x}{:02x}{:02x}", r, g, b));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok("#0078d4".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "windows")]
@@ -336,7 +394,8 @@ pub fn run() {
             scan_folder,
             batch_update_tags,
             save_portable_data,
-            load_portable_data
+            load_portable_data,
+            get_system_accent_color
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arachnid application");

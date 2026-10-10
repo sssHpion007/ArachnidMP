@@ -193,9 +193,8 @@ class AudioEngine {
 
   public setMuted(muted: boolean): void {
     this.isMuted = muted;
-    if (this.fadeAnimFrame === null) {
-      this.setVolumeInstantly(this.getEffectiveVolume());
-    }
+    this.cancelFade();
+    this.setVolumeInstantly(this.getEffectiveVolume());
   }
 
   /**
