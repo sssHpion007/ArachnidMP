@@ -1,4 +1,5 @@
 mod discord;
+mod storage;
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -65,34 +66,18 @@ pub struct AppState {
     pub discord: discord::DiscordService,
 }
 
-fn get_portable_base_dir() -> PathBuf {
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(parent) = exe_path.parent() {
-            return parent.to_path_buf();
-        }
-    }
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-}
-
 #[tauri::command]
 fn save_portable_data(data: String) -> Result<bool, String> {
-    let base_dir = get_portable_base_dir();
-    let file_path = base_dir.join("arachnid_data.json");
-    std::fs::write(&file_path, data).map_err(|e| format!("Failed to save portable data to {:?}: {}", file_path, e))?;
-    Ok(true)
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&data) {
+        storage::save_modular_data(&val)
+    } else {
+        Err("Invalid JSON data format".to_string())
+    }
 }
 
 #[tauri::command]
 fn load_portable_data() -> Result<Option<String>, String> {
-    let base_dir = get_portable_base_dir();
-    let file_path = base_dir.join("arachnid_data.json");
-    if file_path.exists() {
-        let content = std::fs::read_to_string(&file_path)
-            .map_err(|e| format!("Failed to read portable data from {:?}: {}", file_path, e))?;
-        Ok(Some(content))
-    } else {
-        Ok(None)
-    }
+    storage::load_modular_data()
 }
 
 fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
@@ -680,6 +665,9 @@ mod windows_process_grouping {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let base_dir = storage::get_portable_base_dir();
+    storage::init_storage_structure(&base_dir);
+
     #[cfg(target_os = "windows")]
     {
         windows_process_grouping::setup_process_grouping();

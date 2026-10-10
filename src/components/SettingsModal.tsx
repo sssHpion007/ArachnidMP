@@ -672,7 +672,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <img src="/app-logo.png" alt="Arachnid Logo" className="w-6 h-6 rounded-lg object-contain shadow-xs" />
                   <span className="font-bold text-md3-on-surface text-xs">Arachnid Music Player</span>
                 </div>
-                <span className="text-[11px] font-mono opacity-70">v0.3.41</span>
+                <span className="text-[11px] font-mono opacity-70">v0.3.42</span>
               </div>
               <p className="text-[11px] leading-relaxed text-md3-on-surface-variant/90">
                 Лёгкий и быстрый аудиоплеер для Windows с поддержкой gapless-воспроизведения, встроенным редактором тегов, текстами песен и интерфейсом Material Design 3.
