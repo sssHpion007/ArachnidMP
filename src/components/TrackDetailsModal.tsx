@@ -21,16 +21,19 @@ import {
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 import { isTauri, invoke } from '@tauri-apps/api/core';
+import { AppLanguage } from '../i18n';
 
 interface TrackDetailsModalProps {
   isOpen: boolean;
   track: Track | null;
+  language?: AppLanguage;
   onClose: () => void;
 }
 
 export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
   isOpen,
   track,
+  language = 'ru',
   onClose,
 }) => {
   const [copiedPath, setCopiedPath] = useState<boolean>(false);
@@ -87,11 +90,11 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
   };
 
   const formattedSize = track.fileSize 
-    ? `${(track.fileSize / (1024 * 1024)).toFixed(2)} МБ` 
+    ? `${(track.fileSize / (1024 * 1024)).toFixed(2)} ${language === 'ru' ? 'МБ' : 'MB'}` 
     : '—';
 
   const formattedDate = track.dateAdded 
-    ? new Date(track.dateAdded).toLocaleDateString('ru-RU', { 
+    ? new Date(track.dateAdded).toLocaleDateString(language === 'ru' ? 'ru-RU' : 'en-US', { 
         year: 'numeric', 
         month: 'long', 
         day: 'numeric' 
@@ -115,10 +118,10 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-md3-on-surface leading-tight">
-                Сведения о треке
+                {language === 'ru' ? 'Сведения о треке' : 'Track Details'}
               </h2>
               <p className="text-xs text-md3-on-surface-variant mt-0.5">
-                Техническая информация и метаданные
+                {language === 'ru' ? 'Техническая информация и метаданные' : 'Technical information and metadata'}
               </p>
             </div>
           </div>
@@ -142,7 +145,9 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center bg-md3-primary/10 text-md3-primary gap-2">
                   <Disc3 className="w-12 h-12" />
-                  <span className="text-[11px] font-semibold opacity-70">Нет обложки</span>
+                  <span className="text-[11px] font-semibold opacity-70">
+                    {language === 'ru' ? 'Нет обложки' : 'No Cover'}
+                  </span>
                 </div>
               )}
             </div>
@@ -150,23 +155,29 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
             {/* Metadata Beside Cover */}
             <div className="min-w-0 flex-1 flex flex-col justify-center space-y-2 text-center sm:text-left">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-md3-primary/80">Название</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-md3-primary/80">
+                  {language === 'ru' ? 'Название' : 'Title'}
+                </span>
                 <h3 className="text-lg sm:text-xl font-black text-md3-on-surface line-clamp-2 leading-tight mt-0.5">
                   {track.title}
                 </h3>
               </div>
 
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-md3-on-surface-variant/70">Исполнитель</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-md3-on-surface-variant/70">
+                  {language === 'ru' ? 'Исполнитель' : 'Artist'}
+                </span>
                 <p className="text-sm sm:text-base font-bold text-md3-primary truncate mt-0.5">
-                  {track.artist || 'Неизвестный исполнитель'}
+                  {track.artist || (language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist')}
                 </p>
               </div>
 
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-md3-on-surface-variant/70">Альбом</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-md3-on-surface-variant/70">
+                  {language === 'ru' ? 'Альбом' : 'Album'}
+                </span>
                 <p className="text-xs sm:text-sm text-md3-on-surface-variant truncate font-medium mt-0.5">
-                  {track.album || 'Без альбома'}
+                  {track.album || (language === 'ru' ? 'Без альбома' : 'No Album')}
                 </p>
               </div>
             </div>
@@ -180,9 +191,11 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
                 <FileAudio className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <span className="text-[11px] text-md3-on-surface-variant/70 block">Формат файла</span>
+                <span className="text-[11px] text-md3-on-surface-variant/70 block">
+                  {language === 'ru' ? 'Формат файла' : 'File Format'}
+                </span>
                 <span className="font-bold text-md3-on-surface truncate font-mono">
-                  {track.format || 'Аудио'}
+                  {track.format || (language === 'ru' ? 'Аудио' : 'Audio')}
                 </span>
               </div>
             </div>
@@ -193,7 +206,9 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
                 <Clock className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <span className="text-[11px] text-md3-on-surface-variant/70 block">Длительность</span>
+                <span className="text-[11px] text-md3-on-surface-variant/70 block">
+                  {language === 'ru' ? 'Длительность' : 'Duration'}
+                </span>
                 <span className="font-bold text-md3-on-surface truncate font-mono">
                   {formatTime(track.duration)}
                 </span>
@@ -206,22 +221,26 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
                 <HardDrive className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <span className="text-[11px] text-md3-on-surface-variant/70 block">Размер файла</span>
+                <span className="text-[11px] text-md3-on-surface-variant/70 block">
+                  {language === 'ru' ? 'Размер файла' : 'File Size'}
+                </span>
                 <span className="font-bold text-md3-on-surface truncate font-mono">
                   {formattedSize}
                 </span>
               </div>
             </div>
 
-            {/* Release Date / Year (placed where genre was) */}
+            {/* Release Date / Year */}
             <div className="p-3 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/10 flex items-center gap-3">
               <div className="w-8 h-8 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center shrink-0">
                 <Disc3 className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <span className="text-[11px] text-md3-on-surface-variant/70 block">Дата выпуска</span>
+                <span className="text-[11px] text-md3-on-surface-variant/70 block">
+                  {language === 'ru' ? 'Дата выпуска' : 'Release Year'}
+                </span>
                 <span className="font-bold text-md3-on-surface truncate">
-                  {track.year ? `${track.year} год` : 'Не указана'}
+                  {track.year ? (language === 'ru' ? `${track.year} год` : `${track.year}`) : (language === 'ru' ? 'Не указана' : 'Not specified')}
                 </span>
               </div>
             </div>
@@ -232,7 +251,9 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
                 <Hash className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <span className="text-[11px] text-md3-on-surface-variant/70 block">Номер дорожки</span>
+                <span className="text-[11px] text-md3-on-surface-variant/70 block">
+                  {language === 'ru' ? 'Номер дорожки' : 'Track Number'}
+                </span>
                 <span className="font-bold text-md3-on-surface truncate">
                   {track.trackNumber ? `#${track.trackNumber}` : '—'}
                 </span>
@@ -245,7 +266,9 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
                 <PlayCircle className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <span className="text-[11px] text-md3-on-surface-variant/70 block">Воспроизведений</span>
+                <span className="text-[11px] text-md3-on-surface-variant/70 block">
+                  {language === 'ru' ? 'Воспроизведений' : 'Play Count'}
+                </span>
                 <span className="font-bold text-md3-on-surface truncate">
                   {track.playCount || 0}
                 </span>
@@ -258,7 +281,9 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
                 <Calendar className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <span className="text-[11px] text-md3-on-surface-variant/70 block">Дата добавления</span>
+                <span className="text-[11px] text-md3-on-surface-variant/70 block">
+                  {language === 'ru' ? 'Дата добавления' : 'Date Added'}
+                </span>
                 <span className="font-bold text-md3-on-surface truncate">
                   {formattedDate}
                 </span>
@@ -272,7 +297,9 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
                   <Music className="w-4 h-4" />
                 </div>
                 <div className="min-w-0">
-                  <span className="text-[11px] text-md3-on-surface-variant/70 block">Композитор</span>
+                  <span className="text-[11px] text-md3-on-surface-variant/70 block">
+                    {language === 'ru' ? 'Композитор' : 'Composer'}
+                  </span>
                   <span className="font-bold text-md3-on-surface truncate">
                     {track.composer}
                   </span>
@@ -287,7 +314,9 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
                   <Users className="w-4 h-4" />
                 </div>
                 <div className="min-w-0">
-                  <span className="text-[11px] text-md3-on-surface-variant/70 block">Группа / Коллектив</span>
+                  <span className="text-[11px] text-md3-on-surface-variant/70 block">
+                    {language === 'ru' ? 'Группа / Коллектив' : 'Band / Ensemble'}
+                  </span>
                   <span className="font-bold text-md3-on-surface truncate">
                     {track.contentGroup}
                   </span>
@@ -302,7 +331,9 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
                   <MessageSquare className="w-4 h-4" />
                 </div>
                 <div className="min-w-0">
-                  <span className="text-[11px] text-md3-on-surface-variant/70 block">Комментарий</span>
+                  <span className="text-[11px] text-md3-on-surface-variant/70 block">
+                    {language === 'ru' ? 'Комментарий' : 'Comment'}
+                  </span>
                   <span className="font-bold text-md3-on-surface line-clamp-2">
                     {track.comment}
                   </span>
@@ -314,7 +345,9 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
             <div className="col-span-2 p-3.5 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/10 space-y-2">
               <div className="flex items-center gap-2 text-[11px] text-md3-on-surface-variant/70">
                 <Tag className="w-3.5 h-3.5 text-md3-primary" />
-                <span className="font-semibold">Жанры</span>
+                <span className="font-semibold">
+                  {language === 'ru' ? 'Жанры' : 'Genres'}
+                </span>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {genresList.length > 0 ? (
@@ -328,7 +361,7 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
                   ))
                 ) : (
                   <span className="text-xs text-md3-on-surface-variant/60 italic">
-                    Жанр не указан
+                    {language === 'ru' ? 'Жанр не указан' : 'No genre specified'}
                   </span>
                 )}
               </div>
@@ -341,22 +374,25 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-1.5 text-xs font-semibold text-md3-on-surface-variant select-none">
                   <Folder className="w-3.5 h-3.5 text-md3-primary" />
-                  Путь к файлу на диске
+                  {language === 'ru' ? 'Путь к файлу на диске' : 'File path on disk'}
                 </span>
                 <button
                   onClick={handleOpenLocation}
-                  title="Открыть содержащую папку в проводнике"
+                  title={language === 'ru' ? 'Открыть содержащую папку в проводнике' : 'Open containing folder in file explorer'}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-surface-container hover:bg-md3-surface-container-high text-xs font-semibold text-md3-primary border border-md3-outline-variant/20 shadow-xs hover:scale-102 active:scale-95 transition-all cursor-pointer select-none"
                 >
                   <FolderOpen className="w-3.5 h-3.5" />
-                  <span>Открыть в папке</span>
+                  <span>{language === 'ru' ? 'Открыть в папке' : 'Open in folder'}</span>
                 </button>
               </div>
 
               {/* Clickable Path Row (acts 100% as a button, no blue selection, no redundant "Скопировать" text) */}
               <div
                 onClick={handleCopyPath}
-                title={copiedPath ? 'Путь скопирован!' : 'Нажмите, чтобы скопировать путь'}
+                title={copiedPath 
+                  ? (language === 'ru' ? 'Путь скопирован!' : 'Path copied!') 
+                  : (language === 'ru' ? 'Нажмите, чтобы скопировать путь' : 'Click to copy path')
+                }
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {
@@ -389,7 +425,9 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
                   {copiedPath ? (
                     <>
                       <Check className="w-4 h-4 text-emerald-500 stroke-[2.5]" />
-                      <span className="text-[11px] font-bold">Скопировано</span>
+                      <span className="text-[11px] font-bold">
+                        {language === 'ru' ? 'Скопировано' : 'Copied'}
+                      </span>
                     </>
                   ) : (
                     <Copy className="w-4 h-4 transition-transform group-hover:scale-110" />

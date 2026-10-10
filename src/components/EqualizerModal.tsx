@@ -1,13 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { X, SlidersHorizontal, RotateCcw } from 'lucide-react';
 import { EQ_FREQUENCIES, EQ_PRESETS, audioEngine } from '../services/audioEngine';
+import { AppLanguage } from '../i18n';
 
 interface EqualizerModalProps {
   isOpen: boolean;
+  language?: AppLanguage;
   onClose: () => void;
 }
 
-export const EqualizerModal: React.FC<EqualizerModalProps> = ({ isOpen, onClose }) => {
+export const EqualizerModal: React.FC<EqualizerModalProps> = ({ 
+  isOpen, 
+  language = 'ru',
+  onClose 
+}) => {
   const [eqValues, setEqValues] = useState<number[]>([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   const [activePreset, setActivePreset] = useState<string>('Flat');
 
@@ -31,7 +37,7 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ isOpen, onClose 
   const handleBandChange = (index: number, val: number) => {
     const updated = [...eqValues];
     updated[index] = val;
-    setActivePreset('Пользовательский');
+    setActivePreset(language === 'ru' ? 'Пользовательский' : 'Custom');
     audioEngine.setEqGain(index, val);
   };
 
@@ -61,13 +67,20 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ isOpen, onClose 
               <SlidersHorizontal className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-base text-md3-on-surface">10-Полосный Эквалайзер</h3>
-              <p className="text-xs text-md3-on-surface-variant">Точная настройка звучания под вашу акустику</p>
+              <h3 className="font-bold text-base text-md3-on-surface">
+                {language === 'ru' ? '10-Полосный Эквалайзер' : '10-Band Equalizer'}
+              </h3>
+              <p className="text-xs text-md3-on-surface-variant">
+                {language === 'ru' 
+                  ? 'Точная настройка звучания под вашу акустику' 
+                  : 'Fine-tune sound for your speakers or headphones'}
+              </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface"
+            title={language === 'ru' ? 'Закрыть [Esc]' : 'Close [Esc]'}
+            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -75,12 +88,14 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ isOpen, onClose 
 
         {/* Preset Chips */}
         <div className="px-6 py-3 border-b border-md3-outline-variant/10 flex items-center gap-2 overflow-x-auto custom-scrollbar">
-          <span className="text-xs font-semibold text-md3-on-surface-variant/70 uppercase mr-1">Пресеты:</span>
+          <span className="text-xs font-semibold text-md3-on-surface-variant/70 uppercase mr-1">
+            {language === 'ru' ? 'Пресеты:' : 'Presets:'}
+          </span>
           {EQ_PRESETS.map((p) => (
             <button
               key={p.name}
               onClick={() => applyPreset(p.name, p.values)}
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer ${
                 activePreset === p.name
                   ? 'bg-md3-primary text-md3-on-primary font-semibold shadow-sm'
                   : 'bg-md3-surface-container-high text-md3-on-surface-variant hover:bg-md3-surface-container-highest'
@@ -91,8 +106,8 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ isOpen, onClose 
           ))}
           <button
             onClick={handleReset}
-            title="Сбросить в 0 dB"
-            className="ml-auto p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors"
+            title={language === 'ru' ? 'Сбросить в 0 dB' : 'Reset to 0 dB'}
+            className="ml-auto p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer"
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
@@ -131,9 +146,9 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ isOpen, onClose 
           </div>
 
           <div className="flex justify-between items-center text-[11px] text-md3-on-surface-variant/60 pt-4 border-t border-md3-outline-variant/10 px-2 font-mono">
-            <span>Низкие (Bass)</span>
-            <span>Средние (Mids)</span>
-            <span>Высокие (Treble)</span>
+            <span>{language === 'ru' ? 'Низкие (Bass)' : 'Bass'}</span>
+            <span>{language === 'ru' ? 'Средние (Mids)' : 'Mids'}</span>
+            <span>{language === 'ru' ? 'Высокие (Treble)' : 'Treble'}</span>
           </div>
         </div>
       </div>

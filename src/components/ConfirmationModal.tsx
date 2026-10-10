@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
+import { AppLanguage } from '../i18n';
 
 interface ConfirmationModalProps {
   isOpen: boolean;
@@ -8,6 +9,7 @@ interface ConfirmationModalProps {
   confirmLabel?: string;
   cancelLabel?: string;
   isDestructive?: boolean;
+  language?: AppLanguage;
   onConfirm: () => void;
   onClose: () => void;
 }
@@ -16,12 +18,16 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   isOpen,
   title,
   message,
-  confirmLabel = 'Подтвердить',
-  cancelLabel = 'Отмена',
+  confirmLabel,
+  cancelLabel,
   isDestructive = false,
+  language = 'ru',
   onConfirm,
   onClose,
 }) => {
+  const effectiveConfirmLabel = confirmLabel || (language === 'ru' ? 'Подтвердить' : 'Confirm');
+  const effectiveCancelLabel = cancelLabel || (language === 'ru' ? 'Отмена' : 'Cancel');
+
   useEffect(() => {
     if (!isOpen) return;
 
@@ -92,7 +98,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             onClick={onClose}
             className="px-4 py-2 rounded-full text-xs font-semibold text-md3-on-surface-variant hover:bg-md3-surface-container-high transition-colors cursor-pointer"
           >
-            {cancelLabel}
+            {effectiveCancelLabel}
           </button>
           <button
             type="button"
@@ -106,7 +112,7 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
                 : 'bg-md3-primary text-md3-on-primary'
             }`}
           >
-            {confirmLabel}
+            {effectiveConfirmLabel}
           </button>
         </div>
       </div>

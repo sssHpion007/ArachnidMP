@@ -1,12 +1,14 @@
 import React, { useEffect, useRef } from 'react';
 import { Play, ListPlus, Edit3, Trash2, FolderOpen, Layers, Palette } from 'lucide-react';
 import { PlaylistFolder, PlaylistGroup } from '../types/music';
+import { AppLanguage } from '../i18n';
 
 interface FolderContextMenuProps {
   x: number;
   y: number;
   folder: PlaylistFolder;
   groups: PlaylistGroup[];
+  language?: AppLanguage;
   onClose: () => void;
   onOpen: (folder: PlaylistFolder) => void;
   onPlayAll: (folder: PlaylistFolder) => void;
@@ -22,6 +24,7 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
   y,
   folder,
   groups,
+  language = 'ru',
   onClose,
   onOpen,
   onPlayAll,
@@ -63,7 +66,7 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
       className="fixed z-50 w-56 bg-md3-surface-container-highest rounded-2xl shadow-2xl border border-md3-outline-variant/40 py-1.5 text-xs select-none animate-in fade-in zoom-in-95 duration-100"
     >
       <div className="px-3 py-1.5 text-[11px] font-bold text-md3-on-surface-variant/80 border-b border-md3-outline-variant/20 truncate">
-        Папка: {folder.name}
+        {language === 'ru' ? 'Папка:' : 'Folder:'} {folder.name}
       </div>
 
       <button
@@ -71,10 +74,10 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
           onOpen(folder);
           onClose();
         }}
-        className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-primary hover:text-md3-on-primary transition-colors text-left font-medium"
+        className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-primary hover:text-md3-on-primary transition-colors text-left font-medium cursor-pointer"
       >
         <FolderOpen className="w-3.5 h-3.5" />
-        <span>Открыть папку</span>
+        <span>{language === 'ru' ? 'Открыть папку' : 'Open Folder'}</span>
       </button>
 
       <button
@@ -82,10 +85,10 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
           onPlayAll(folder);
           onClose();
         }}
-        className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left"
+        className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left cursor-pointer"
       >
         <Play className="w-3.5 h-3.5 fill-current" />
-        <span>Воспроизвести всё</span>
+        <span>{language === 'ru' ? 'Воспроизвести всё' : 'Play All'}</span>
       </button>
 
       <button
@@ -93,10 +96,10 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
           onAddToQueue(folder);
           onClose();
         }}
-        className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left"
+        className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left cursor-pointer"
       >
         <ListPlus className="w-3.5 h-3.5 text-md3-primary" />
-        <span>Добавить всё в очередь</span>
+        <span>{language === 'ru' ? 'Добавить всё в очередь' : 'Add All to Queue'}</span>
       </button>
 
       <button
@@ -104,10 +107,10 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
           onRename(folder);
           onClose();
         }}
-        className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left"
+        className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left cursor-pointer"
       >
         <Edit3 className="w-3.5 h-3.5 text-md3-primary" />
-        <span>Переименовать</span>
+        <span>{language === 'ru' ? 'Переименовать' : 'Rename'}</span>
       </button>
 
       {onEditFolder && (
@@ -116,10 +119,10 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
             onEditFolder(folder);
             onClose();
           }}
-          className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left"
+          className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left cursor-pointer"
         >
           <Palette className="w-3.5 h-3.5 text-md3-primary" />
-          <span>Значок и цвет...</span>
+          <span>{language === 'ru' ? 'Значок и цвет...' : 'Icon & Color...'}</span>
         </button>
       )}
 
@@ -127,7 +130,7 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
         <div className="border-t border-md3-outline-variant/20 my-1 py-1">
           <div className="px-3 py-1 text-[10px] uppercase font-bold text-md3-on-surface-variant/60 flex items-center gap-1.5">
             <Layers className="w-3 h-3" />
-            <span>Группа:</span>
+            <span>{language === 'ru' ? 'Группа:' : 'Group:'}</span>
           </div>
           {folder.groupId && (
             <button
@@ -135,9 +138,9 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
                 onMoveToGroup(folder.id, null);
                 onClose();
               }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container text-left italic truncate"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container text-left italic truncate cursor-pointer"
             >
-              <span>(Без группы)</span>
+              <span>{language === 'ru' ? '(Без группы)' : '(No Group)'}</span>
             </button>
           )}
           {groups.map((grp) => (
@@ -147,7 +150,7 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
                 onMoveToGroup(folder.id, grp.id);
                 onClose();
               }}
-              className={`w-full flex items-center justify-between px-3 py-1.5 text-left truncate hover:bg-md3-surface-container ${
+              className={`w-full flex items-center justify-between px-3 py-1.5 text-left truncate hover:bg-md3-surface-container cursor-pointer ${
                 folder.groupId === grp.id ? 'text-md3-primary font-bold' : 'text-md3-on-surface'
               }`}
             >
@@ -164,10 +167,10 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
             onDelete(folder);
             onClose();
           }}
-          className="w-full flex items-center gap-2.5 px-3 py-2 text-red-400 hover:bg-red-500/10 transition-colors text-left"
+          className="w-full flex items-center gap-2.5 px-3 py-2 text-red-400 hover:bg-red-500/10 transition-colors text-left cursor-pointer"
         >
           <Trash2 className="w-3.5 h-3.5" />
-          <span>Удалить папку</span>
+          <span>{language === 'ru' ? 'Удалить папку' : 'Delete Folder'}</span>
         </button>
       </div>
     </div>

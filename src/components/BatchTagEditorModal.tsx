@@ -19,11 +19,13 @@ import {
   Radio
 } from 'lucide-react';
 import { Track } from '../types/music';
+import { AppLanguage } from '../i18n';
 
 interface BatchTagEditorModalProps {
   isOpen: boolean;
   onClose: () => void;
   selectedTracks: Track[];
+  language?: AppLanguage;
   onSaveTags: (updatedFields: {
     title?: string;
     artist?: string;
@@ -50,18 +52,19 @@ interface ExtraFieldDef {
   placeholder: string;
 }
 
-const EXTRA_FIELD_DEFS: ExtraFieldDef[] = [
-  { key: 'lyricist', label: 'Автор текста', icon: PenTool, placeholder: 'Автор слов / поэт...' },
-  { key: 'composer', label: 'Композитор', icon: Music, placeholder: 'Имя композитора...' },
-  { key: 'contentGroup', label: 'Группа / Коллектив', icon: Users, placeholder: 'Название группы, оркестра или ансамбля...' },
-  { key: 'comment', label: 'Комментарий', icon: MessageSquare, placeholder: 'Заметки, описание, источник...' },
-  { key: 'conductor', label: 'Дирижер', icon: Radio, placeholder: 'Имя дирижера...' },
+const getExtraFieldDefs = (lang: AppLanguage): ExtraFieldDef[] => [
+  { key: 'lyricist', label: lang === 'ru' ? 'Автор текста' : 'Lyricist', icon: PenTool, placeholder: lang === 'ru' ? 'Автор слов / поэт...' : 'Lyricist / poet name...' },
+  { key: 'composer', label: lang === 'ru' ? 'Композитор' : 'Composer', icon: Music, placeholder: lang === 'ru' ? 'Имя композитора...' : 'Composer name...' },
+  { key: 'contentGroup', label: lang === 'ru' ? 'Группа / Коллектив' : 'Band / Ensemble', icon: Users, placeholder: lang === 'ru' ? 'Название группы, оркестра или ансамбля...' : 'Band, orchestra or ensemble name...' },
+  { key: 'comment', label: lang === 'ru' ? 'Комментарий' : 'Comment', icon: MessageSquare, placeholder: lang === 'ru' ? 'Заметки, описание, источник...' : 'Notes, description, source...' },
+  { key: 'conductor', label: lang === 'ru' ? 'Дирижер' : 'Conductor', icon: Radio, placeholder: lang === 'ru' ? 'Имя дирижера...' : 'Conductor name...' },
 ];
 
 export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
   isOpen,
   onClose,
   selectedTracks,
+  language = 'ru',
   onSaveTags,
 }) => {
   const isSingle = selectedTracks.length === 1;
@@ -85,7 +88,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
   const [albumValue, setAlbumValue] = useState('');
   const [applyAlbum, setApplyAlbum] = useState(false);
 
-  // Track Numbering (e.g. 1 из 10)
+  // Track Numbering (e.g. 1 of 10)
   const [trackNumValue, setTrackNumValue] = useState('');
   const [trackTotalValue, setTrackTotalValue] = useState('');
   const [applyTrackNum, setApplyTrackNum] = useState(false);
@@ -103,7 +106,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
   const [isDraggingOverCover, setIsDraggingOverCover] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Extra / unusual tags state
+  // Extra metadata fields
   const [activeExtraFields, setActiveExtraFields] = useState<Set<ExtraFieldKey>>(new Set());
   const [extraFieldValues, setExtraFieldValues] = useState<Record<ExtraFieldKey, string>>({
     composer: '',
@@ -122,170 +125,139 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
   const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
   const plusMenuRef = useRef<HTMLDivElement>(null);
 
-  // Reset and initialize when modal opens
+  const extraFieldDefs = getExtraFieldDefs(language);
+
+  // Initialize form when opened or selection changes
   useEffect(() => {
-    if (isOpen && firstTrack) {
-      if (isSingle) {
-        setTitleValue(firstTrack.title || '');
-        setApplyTitle(true);
+    if (!isOpen || selectedTracks.length === 0) return;
 
-        setArtistValue(firstTrack.artist || '');
-        setApplyArtist(true);
+    if (isSingle && firstTrack) {
+      setTitleValue(firstTrack.title || '');
+      setArtistValue(firstTrack.artist || '');
+      setAlbumValue(firstTrack.album || '');
+      setTrackNumValue(firstTrack.trackNumber ? String(firstTrack.trackNumber) : '');
+      setTrackTotalValue(firstTrack.trackTotal ? String(firstTrack.trackTotal) : '');
+      setGenreValue(firstTrack.genre || '');
+      setYearValue(firstTrack.year ? String(firstTrack.year) : '');
+      setCoverArtPreview(firstTrack.coverArt || null);
 
-        setAlbumValue(firstTrack.album || '');
-        setApplyAlbum(true);
+      const activeExtras = new Set<ExtraFieldKey>();
+      const initialValues: Record<ExtraFieldKey, string> = {
+        composer: firstTrack.composer || '',
+        contentGroup: firstTrack.contentGroup || '',
+        comment: firstTrack.comment || '',
+        conductor: firstTrack.conductor || '',
+        lyricist: firstTrack.lyricist || '',
+      };
 
-        setTrackNumValue(firstTrack.trackNumber ? firstTrack.trackNumber.toString() : '');
-        setTrackTotalValue(firstTrack.trackTotal ? firstTrack.trackTotal.toString() : '');
-        setApplyTrackNum(true);
-
-        setGenreValue(firstTrack.genre || '');
-        setApplyGenre(true);
-
-        setYearValue(firstTrack.year ? firstTrack.year.toString() : '');
-        setApplyYear(true);
-
-        setCoverArtPreview(firstTrack.coverArt || null);
-        setApplyCover(false);
-
-        // Detect any existing extra tags in the track
-        const existingExtras = new Set<ExtraFieldKey>();
-        const newExtraVals: Record<ExtraFieldKey, string> = {
-          composer: firstTrack.composer || '',
-          contentGroup: firstTrack.contentGroup || '',
-          comment: firstTrack.comment || '',
-          conductor: firstTrack.conductor || '',
-          lyricist: firstTrack.lyricist || '',
-        };
-        const newApplyExtras: Record<ExtraFieldKey, boolean> = {
-          composer: true,
-          contentGroup: true,
-          comment: true,
-          conductor: true,
-          lyricist: true,
-        };
-
-        // Requirement: "Поле автор текста должно отображаться само, если в файле есть слова."
-        const hasLyrics = !!firstTrack.lyrics && firstTrack.lyrics.trim().length > 0;
-        if (hasLyrics || firstTrack.lyricist) {
-          existingExtras.add('lyricist');
-        }
-
-        if (firstTrack.composer) existingExtras.add('composer');
-        if (firstTrack.contentGroup) existingExtras.add('contentGroup');
-        if (firstTrack.comment) existingExtras.add('comment');
-        if (firstTrack.conductor) existingExtras.add('conductor');
-
-        setActiveExtraFields(existingExtras);
-        setExtraFieldValues(newExtraVals);
-        setApplyExtraFields(newApplyExtras);
-      } else {
-        // Multi-track batch mode
-        setTitleValue('');
-        setApplyTitle(false);
-
-        setArtistValue(allSameArtist ? firstTrack.artist : '');
-        setApplyArtist(false);
-
-        setAlbumValue(allSameAlbum ? firstTrack.album : '');
-        setApplyAlbum(false);
-
-        setTrackNumValue('');
-        setTrackTotalValue(allSameTrackTotal && firstTrack.trackTotal ? firstTrack.trackTotal.toString() : '');
-        setApplyTrackNum(false);
-
-        setGenreValue(allSameGenre ? (firstTrack.genre || '') : '');
-        setApplyGenre(false);
-
-        setYearValue(allSameYear && firstTrack.year ? firstTrack.year.toString() : '');
-        setApplyYear(false);
-
-        setCoverArtPreview(allSameCover ? (firstTrack.coverArt || null) : null);
-        setApplyCover(false);
-
-        // Check if any track has lyrics or shared extra tags
-        const existingExtras = new Set<ExtraFieldKey>();
-        const newExtraVals: Record<ExtraFieldKey, string> = {
-          composer: '',
-          contentGroup: '',
-          comment: '',
-          conductor: '',
-          lyricist: '',
-        };
-        const newApplyExtras: Record<ExtraFieldKey, boolean> = {
-          composer: false,
-          contentGroup: false,
-          comment: false,
-          conductor: false,
-          lyricist: false,
-        };
-
-        // If any track has lyrics or if all share lyricist
-        const anyHasLyrics = selectedTracks.some(t => t.lyrics && t.lyrics.trim().length > 0);
-        const allSameLyricist = selectedTracks.every(t => t.lyricist === firstTrack.lyricist);
-        if (anyHasLyrics || firstTrack.lyricist) {
-          existingExtras.add('lyricist');
-          if (allSameLyricist && firstTrack.lyricist) {
-            newExtraVals.lyricist = firstTrack.lyricist;
-          }
-        }
-
-        if (selectedTracks.every(t => t.composer && t.composer === firstTrack.composer)) {
-          existingExtras.add('composer');
-          newExtraVals.composer = firstTrack.composer || '';
-        }
-        if (selectedTracks.every(t => t.contentGroup && t.contentGroup === firstTrack.contentGroup)) {
-          existingExtras.add('contentGroup');
-          newExtraVals.contentGroup = firstTrack.contentGroup || '';
-        }
-        if (selectedTracks.every(t => t.comment && t.comment === firstTrack.comment)) {
-          existingExtras.add('comment');
-          newExtraVals.comment = firstTrack.comment || '';
-        }
-
-        setActiveExtraFields(existingExtras);
-        setExtraFieldValues(newExtraVals);
-        setApplyExtraFields(newApplyExtras);
+      if (firstTrack.composer) activeExtras.add('composer');
+      if (firstTrack.contentGroup) activeExtras.add('contentGroup');
+      if (firstTrack.comment) activeExtras.add('comment');
+      if (firstTrack.conductor) activeExtras.add('conductor');
+      if (firstTrack.lyricist || (firstTrack.lyrics && firstTrack.lyrics.trim().length > 0)) {
+        activeExtras.add('lyricist');
       }
-      setIsPlusMenuOpen(false);
-    }
-  }, [isOpen, firstTrack, isSingle, allSameArtist, allSameAlbum, allSameGenre, allSameYear, allSameTrackTotal, allSameCover]);
 
-  // Close plus menu when clicking outside
+      setActiveExtraFields(activeExtras);
+      setExtraFieldValues(initialValues);
+      setApplyTitle(true);
+      setApplyArtist(true);
+      setApplyAlbum(true);
+      setApplyTrackNum(true);
+      setApplyGenre(true);
+      setApplyYear(true);
+      setApplyCover(false);
+    } else {
+      // Multi-track batch edit
+      setTitleValue('');
+      setApplyTitle(false);
+
+      setArtistValue(allSameArtist && firstTrack ? firstTrack.artist : '');
+      setApplyArtist(false);
+
+      setAlbumValue(allSameAlbum && firstTrack ? firstTrack.album : '');
+      setApplyAlbum(false);
+
+      setTrackNumValue('');
+      setTrackTotalValue(allSameTrackTotal && firstTrack?.trackTotal ? String(firstTrack.trackTotal) : '');
+      setApplyTrackNum(false);
+
+      setGenreValue(allSameGenre && firstTrack ? (firstTrack.genre || '') : '');
+      setApplyGenre(false);
+
+      setYearValue(allSameYear && firstTrack?.year ? String(firstTrack.year) : '');
+      setApplyYear(false);
+
+      setCoverArtPreview(allSameCover && firstTrack ? (firstTrack.coverArt || null) : null);
+      setApplyCover(false);
+
+      // Check common extra fields
+      const activeExtras = new Set<ExtraFieldKey>();
+      const initialValues: Record<ExtraFieldKey, string> = {
+        composer: '',
+        contentGroup: '',
+        comment: '',
+        conductor: '',
+        lyricist: '',
+      };
+
+      const keys: ExtraFieldKey[] = ['composer', 'contentGroup', 'comment', 'conductor', 'lyricist'];
+      for (const k of keys) {
+        const firstVal = firstTrack ? (firstTrack[k] || '') : '';
+        const allMatch = selectedTracks.every(t => (t[k] || '') === firstVal);
+        if (firstVal && allMatch) {
+          activeExtras.add(k);
+          initialValues[k] = firstVal;
+        }
+      }
+
+      setActiveExtraFields(activeExtras);
+      setExtraFieldValues(initialValues);
+      setApplyExtraFields({
+        composer: false,
+        contentGroup: false,
+        comment: false,
+        conductor: false,
+        lyricist: false,
+      });
+    }
+    setIsPlusMenuOpen(false);
+  }, [isOpen, selectedTracks, isSingle]);
+
+  // Handle outside click for Plus menu
   useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
+    const handleClickOutside = (e: MouseEvent) => {
       if (plusMenuRef.current && !plusMenuRef.current.contains(e.target as Node)) {
         setIsPlusMenuOpen(false);
       }
     };
     if (isPlusMenuOpen) {
-      window.addEventListener('mousedown', handleOutsideClick);
+      document.addEventListener('mousedown', handleClickOutside);
     }
-    return () => window.removeEventListener('mousedown', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, [isPlusMenuOpen]);
 
-  // Handle Cover Art file selection
   const handleCoverFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      alert('Пожалуйста, выберите файл изображения (JPEG, PNG, WebP).');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setCoverArtPreview(reader.result);
-        setApplyCover(true);
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        alert(language === 'ru' 
+          ? 'Пожалуйста, выберите файл изображения (JPEG, PNG, WebP).' 
+          : 'Please choose an image file (JPEG, PNG, WebP).'
+        );
+        return;
       }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+      const reader = new FileReader();
+      reader.onload = () => {
+        setCoverArtPreview(reader.result as string);
+        setApplyCover(true);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
-  // Handle drag and drop image directly onto cover preview box
   const handleCoverDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDraggingOverCover(false);
@@ -293,10 +265,8 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
     if (file && file.type.startsWith('image/')) {
       const reader = new FileReader();
       reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          setCoverArtPreview(reader.result);
-          setApplyCover(true);
-        }
+        setCoverArtPreview(reader.result as string);
+        setApplyCover(true);
       };
       reader.readAsDataURL(file);
     }
@@ -409,7 +379,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
 
   if (!isOpen || selectedTracks.length === 0) return null;
 
-  const availableExtraDefs = EXTRA_FIELD_DEFS.filter(d => !activeExtraFields.has(d.key));
+  const availableExtraDefs = extraFieldDefs.filter(d => !activeExtraFields.has(d.key));
 
   return (
     <div
@@ -428,19 +398,21 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-base text-md3-on-surface">
-                {isSingle ? 'Редактор тегов' : 'Пакетная правка тегов'}
+                {isSingle 
+                  ? (language === 'ru' ? 'Редактор тегов' : 'Tag Editor') 
+                  : (language === 'ru' ? 'Пакетная правка тегов' : 'Batch Tag Editor')}
               </h3>
               <p className="text-xs text-md3-on-surface-variant">
                 {isSingle 
-                  ? (firstTrack?.title ? `${firstTrack.artist} — ${firstTrack.title}` : 'Редактирование метаданных')
-                  : `Изменение тегов для ${selectedTracks.length} ${selectedTracks.length < 5 ? 'треков' : 'треков'}`
+                  ? (firstTrack?.title ? `${firstTrack.artist} — ${firstTrack.title}` : (language === 'ru' ? 'Редактирование метаданных' : 'Editing metadata'))
+                  : (language === 'ru' ? `Изменение тегов для ${selectedTracks.length} треков` : `Editing tags for ${selectedTracks.length} tracks`)
                 }
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            title="Закрыть [Esc]"
+            title={language === 'ru' ? 'Закрыть [Esc]' : 'Close [Esc]'}
             className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-highest hover:text-md3-on-surface transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -451,7 +423,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
         {!isSingle && (
           <div className="px-5 py-2.5 bg-md3-surface-container-lowest/50 border-b border-md3-outline-variant/10 max-h-24 overflow-y-auto custom-scrollbar shrink-0">
             <div className="text-[10px] font-bold uppercase tracking-wider text-md3-on-surface-variant/70 mb-1">
-              Выбранные треки ({selectedTracks.length}):
+              {language === 'ru' ? `Выбранные треки (${selectedTracks.length}):` : `Selected tracks (${selectedTracks.length}):`}
             </div>
             <div className="space-y-1">
               {selectedTracks.map((t, idx) => (
@@ -488,7 +460,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                 onDragOver={(e) => { e.preventDefault(); setIsDraggingOverCover(true); }}
                 onDragLeave={() => setIsDraggingOverCover(false)}
                 onDrop={handleCoverDrop}
-                title="Нажмите или перетащите изображение для загрузки обложки"
+                title={language === 'ru' ? 'Нажмите или перетащите изображение для загрузки обложки' : 'Click or drop image to upload cover'}
                 className={`relative w-40 h-40 rounded-3xl overflow-hidden border-2 cursor-pointer flex items-center justify-center transition-all group shadow-md ${
                   isDraggingOverCover
                     ? 'border-md3-primary bg-md3-primary/10 scale-102'
@@ -499,18 +471,20 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                   <>
                     <img
                       src={coverArtPreview}
-                      alt="Обложка"
+                      alt={language === 'ru' ? 'Обложка' : 'Cover'}
                       className="w-full h-full object-cover"
                     />
                     <div className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1.5 text-white text-xs font-semibold transition-opacity">
                       <Upload className="w-5 h-5" />
-                      <span>Заменить</span>
+                      <span>{language === 'ru' ? 'Заменить' : 'Replace'}</span>
                     </div>
                   </>
                 ) : (
                   <div className="flex flex-col items-center justify-center p-3 text-center text-md3-on-surface-variant/70 group-hover:text-md3-primary transition-colors">
                     <ImageIcon className="w-9 h-9 mb-1.5 stroke-1" />
-                    <span className="text-xs font-medium leading-tight">Загрузить обложку</span>
+                    <span className="text-xs font-medium leading-tight">
+                      {language === 'ru' ? 'Загрузить обложку' : 'Upload Cover'}
+                    </span>
                   </div>
                 )}
               </div>
@@ -522,13 +496,13 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                   onClick={() => fileInputRef.current?.click()}
                   className="px-3 py-1 rounded-full bg-md3-surface-container-high hover:bg-md3-primary hover:text-md3-on-primary text-xs font-semibold text-md3-on-surface transition-all cursor-pointer shadow-xs"
                 >
-                  Обзор...
+                  {language === 'ru' ? 'Обзор...' : 'Browse...'}
                 </button>
                 {coverArtPreview && (
                   <button
                     type="button"
                     onClick={handleRemoveCover}
-                    title="Удалить обложку"
+                    title={language === 'ru' ? 'Удалить обложку' : 'Remove Cover'}
                     className="p-1.5 rounded-full text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -544,7 +518,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                     onChange={(e) => setApplyCover(e.target.checked)}
                     className="rounded text-md3-primary focus:ring-0 w-3.5 h-3.5 cursor-pointer"
                   />
-                  <span>Применить обложку</span>
+                  <span>{language === 'ru' ? 'Применить обложку' : 'Apply cover'}</span>
                 </label>
               )}
             </div>
@@ -565,7 +539,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                       />
                     )}
                     <Music className="w-3.5 h-3.5 text-md3-primary" />
-                    <span>Название трека (Title)</span>
+                    <span>{language === 'ru' ? 'Название трека (Title)' : 'Track Title'}</span>
                   </label>
                 </div>
                 <input
@@ -576,7 +550,10 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                     setTitleValue(e.target.value);
                     if (!isSingle) setApplyTitle(true);
                   }}
-                  placeholder={isSingle ? 'Название трека...' : 'Введите общее название для всех...'}
+                  placeholder={isSingle 
+                    ? (language === 'ru' ? 'Название трека...' : 'Track title...') 
+                    : (language === 'ru' ? 'Введите общее название для всех...' : 'Enter common title for all...')
+                  }
                   className={`w-full px-3.5 py-1.5 rounded-xl text-xs border outline-none transition-all ${
                     isSingle || applyTitle
                       ? 'bg-md3-surface text-md3-on-surface border-md3-outline-variant/30 focus:border-md3-primary focus:ring-2 focus:ring-md3-primary/20'
@@ -598,10 +575,12 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                       />
                     )}
                     <User className="w-3.5 h-3.5 text-md3-primary" />
-                    <span>Исполнитель (Artist)</span>
+                    <span>{language === 'ru' ? 'Исполнитель (Artist)' : 'Artist'}</span>
                   </label>
                   {!isSingle && !allSameArtist && (
-                    <span className="text-[10px] text-amber-400">Различные значения</span>
+                    <span className="text-[10px] text-amber-400">
+                      {language === 'ru' ? 'Различные значения' : 'Different values'}
+                    </span>
                   )}
                 </div>
                 <input
@@ -612,7 +591,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                     setArtistValue(e.target.value);
                     if (!isSingle) setApplyArtist(true);
                   }}
-                  placeholder="Имя исполнителя..."
+                  placeholder={language === 'ru' ? 'Имя исполнителя...' : 'Artist name...'}
                   className={`w-full px-3.5 py-1.5 rounded-xl text-xs border outline-none transition-all ${
                     isSingle || applyArtist
                       ? 'bg-md3-surface text-md3-on-surface border-md3-outline-variant/30 focus:border-md3-primary focus:ring-2 focus:ring-md3-primary/20'
@@ -634,10 +613,12 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                       />
                     )}
                     <Disc className="w-3.5 h-3.5 text-md3-primary" />
-                    <span>Альбом (Album)</span>
+                    <span>{language === 'ru' ? 'Альбом (Album)' : 'Album'}</span>
                   </label>
                   {!isSingle && !allSameAlbum && (
-                    <span className="text-[10px] text-amber-400">Различные значения</span>
+                    <span className="text-[10px] text-amber-400">
+                      {language === 'ru' ? 'Различные значения' : 'Different values'}
+                    </span>
                   )}
                 </div>
                 <input
@@ -648,7 +629,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                     setAlbumValue(e.target.value);
                     if (!isSingle) setApplyAlbum(true);
                   }}
-                  placeholder="Название альбома..."
+                  placeholder={language === 'ru' ? 'Название альбома...' : 'Album name...'}
                   className={`w-full px-3.5 py-1.5 rounded-xl text-xs border outline-none transition-all ${
                     isSingle || applyAlbum
                       ? 'bg-md3-surface text-md3-on-surface border-md3-outline-variant/30 focus:border-md3-primary focus:ring-2 focus:ring-md3-primary/20'
@@ -659,10 +640,10 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
             </div>
           </div>
 
-          {/* Secondary Row: Track Number (1 из 10), Genre, Year */}
+          {/* Secondary Row: Track Number (1 of 10), Genre, Year */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-md3-surface-container-low/70 p-3.5 rounded-2xl border border-md3-outline-variant/15">
             
-            {/* Track Numbering: "1 из 10" */}
+            {/* Track Numbering: "1 of 10" */}
             <div className="space-y-1 sm:col-span-1">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-semibold text-md3-on-surface flex items-center gap-1.5 cursor-pointer">
@@ -675,11 +656,11 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                     />
                   )}
                   <Hash className="w-3.5 h-3.5 text-md3-primary" />
-                  <span>Номер дорожки</span>
+                  <span>{language === 'ru' ? 'Номер дорожки' : 'Track Number'}</span>
                 </label>
               </div>
 
-              {/* 2 small fields: e.g. [ 1 ] из [ 10 ] */}
+              {/* 2 small fields: e.g. [ 1 ] of [ 10 ] */}
               <div className="flex items-center gap-1.5">
                 <input
                   type="number"
@@ -696,7 +677,9 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                       : 'bg-md3-surface-container-high/40 text-md3-on-surface-variant/50 border-transparent cursor-not-allowed'
                   }`}
                 />
-                <span className="text-xs text-md3-on-surface-variant/80 font-medium">из</span>
+                <span className="text-xs text-md3-on-surface-variant/80 font-medium">
+                  {language === 'ru' ? 'из' : 'of'}
+                </span>
                 <input
                   type="number"
                   disabled={!isSingle && !applyTrackNum}
@@ -705,7 +688,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                     setTrackTotalValue(e.target.value);
                     if (!isSingle) setApplyTrackNum(true);
                   }}
-                  placeholder="Всего"
+                  placeholder={language === 'ru' ? 'Всего' : 'Total'}
                   className={`w-16 px-2.5 py-1.5 rounded-xl text-xs text-center border outline-none transition-all ${
                     isSingle || applyTrackNum
                       ? 'bg-md3-surface text-md3-on-surface border-md3-outline-variant/30 focus:border-md3-primary'
@@ -728,10 +711,12 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                     />
                   )}
                   <Tag className="w-3.5 h-3.5 text-md3-primary" />
-                  <span>Жанр</span>
+                  <span>{language === 'ru' ? 'Жанр' : 'Genre'}</span>
                 </label>
                 {!isSingle && !allSameGenre && (
-                  <span className="text-[10px] text-amber-400">Разные</span>
+                  <span className="text-[10px] text-amber-400">
+                    {language === 'ru' ? 'Разные' : 'Different'}
+                  </span>
                 )}
               </div>
               <input
@@ -764,7 +749,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                     />
                   )}
                   <Calendar className="w-3.5 h-3.5 text-md3-primary" />
-                  <span>Год</span>
+                  <span>{language === 'ru' ? 'Год' : 'Year'}</span>
                 </label>
               </div>
               <input
@@ -789,7 +774,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
           <div className="space-y-3 pt-1">
             <div className="flex items-center justify-between border-b border-md3-outline-variant/15 pb-1.5">
               <span className="text-[11px] font-bold uppercase tracking-wider text-md3-on-surface-variant/70">
-                Дополнительные теги {activeExtraFields.size > 0 && `(${activeExtraFields.size})`}
+                {language === 'ru' ? 'Дополнительные теги' : 'Additional Tags'} {activeExtraFields.size > 0 && `(${activeExtraFields.size})`}
               </span>
 
               {/* Plus Button with Dropdown */}
@@ -798,18 +783,18 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                   type="button"
                   onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
                   disabled={availableExtraDefs.length === 0}
-                  title="Добавить дополнительный тег (композитор, группа, комментарий и др.)"
+                  title={language === 'ru' ? 'Добавить дополнительный тег (композитор, группа, комментарий и др.)' : 'Add extra tag (composer, band, comment, etc.)'}
                   className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-md3-primary/10 hover:bg-md3-primary/20 text-md3-primary border border-md3-primary/30 text-xs font-semibold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-95"
                 >
                   <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                  <span>Добавить поле</span>
+                  <span>{language === 'ru' ? 'Добавить поле' : 'Add Field'}</span>
                 </button>
 
                 {/* Dropdown Menu */}
                 {isPlusMenuOpen && availableExtraDefs.length > 0 && (
                   <div className="absolute right-0 top-full mt-1.5 w-60 bg-md3-surface-container-highest rounded-2xl shadow-2xl border border-md3-outline-variant/30 py-1 z-30 animate-in fade-in zoom-in-95 duration-100">
                     <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-md3-on-surface-variant/70">
-                      Выберите поле:
+                      {language === 'ru' ? 'Выберите поле:' : 'Select field:'}
                     </div>
                     {availableExtraDefs.map(def => {
                       const Icon = def.icon;
@@ -833,12 +818,20 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
             {/* Render Active Extra Fields */}
             {activeExtraFields.size === 0 ? (
               <div className="text-center py-4 px-3 rounded-2xl bg-md3-surface-container-low/50 border border-dashed border-md3-outline-variant/20 text-xs text-md3-on-surface-variant/70">
-                Нажмите кнопку <strong className="text-md3-primary font-semibold">+ Добавить поле</strong>, чтобы указать автора текста, композитора, группу, комментарий или дирижера.
+                {language === 'ru' ? (
+                  <>
+                    Нажмите кнопку <strong className="text-md3-primary font-semibold">+ Добавить поле</strong>, чтобы указать автора текста, композитора, группу, комментарий или дирижера.
+                  </>
+                ) : (
+                  <>
+                    Click the <strong className="text-md3-primary font-semibold">+ Add Field</strong> button to specify lyricist, composer, band, comment, or conductor.
+                  </>
+                )}
               </div>
             ) : (
               <div className="space-y-3">
                 {Array.from(activeExtraFields).map(key => {
-                  const def = EXTRA_FIELD_DEFS.find(d => d.key === key);
+                  const def = extraFieldDefs.find(d => d.key === key);
                   if (!def) return null;
                   const Icon = def.icon;
                   const isChecked = applyExtraFields[key];
@@ -862,7 +855,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                         <button
                           type="button"
                           onClick={() => handleRemoveExtraField(key)}
-                          title="Удалить это поле"
+                          title={language === 'ru' ? 'Удалить это поле' : 'Remove this field'}
                           className="p-1 rounded-full text-md3-on-surface-variant hover:text-red-400 hover:bg-md3-surface-container-high transition-colors cursor-pointer"
                         >
                           <X className="w-3.5 h-3.5" />
@@ -896,7 +889,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
         {/* Footer Actions */}
         <div className="p-4 bg-md3-surface-container-high/80 border-t border-md3-outline-variant/20 flex items-center justify-between gap-3 shrink-0">
           <span className="text-[11px] text-md3-on-surface-variant hidden sm:inline">
-            Ctrl+Enter для сохранения
+            {language === 'ru' ? 'Ctrl+Enter для сохранения' : 'Ctrl+Enter to save'}
           </span>
 
           <div className="flex items-center gap-2 ml-auto">
@@ -904,14 +897,18 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 rounded-full text-xs font-semibold text-md3-on-surface-variant hover:bg-md3-surface-container transition-colors cursor-pointer"
             >
-              Отмена
+              {language === 'ru' ? 'Отмена' : 'Cancel'}
             </button>
             <button
               onClick={handleSave}
               className="flex items-center gap-2 px-5 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-bold hover:scale-[1.02] active:scale-95 shadow-md transition-all cursor-pointer"
             >
               <Check className="w-4 h-4 stroke-[2.5]" />
-              <span>{isSingle ? 'Сохранить изменения' : `Применить к ${selectedTracks.length} трекам`}</span>
+              <span>
+                {isSingle 
+                  ? (language === 'ru' ? 'Сохранить изменения' : 'Save Changes') 
+                  : (language === 'ru' ? `Применить к ${selectedTracks.length} трекам` : `Apply to ${selectedTracks.length} tracks`)}
+              </span>
             </button>
           </div>
         </div>

@@ -1998,7 +1998,7 @@ export const App: React.FC = () => {
       />
 
       {/* Drag & Drop Visual Overlay */}
-      <DragDropOverlay isDragging={isDraggingFile} />
+      <DragDropOverlay isDragging={isDraggingFile} language={language} />
 
       {/* Custom Window Title Bar (Frameless Desktop Window Controls) */}
       <TitleBar />
@@ -2294,12 +2294,14 @@ export const App: React.FC = () => {
         isOpen={isBatchTagEditorOpen}
         onClose={() => setIsBatchTagEditorOpen(false)}
         selectedTracks={selectedTracksList}
+        language={language}
         onSaveTags={handleSaveBatchTags}
       />
 
       {/* 10-Band Equalizer Modal */}
       <EqualizerModal
         isOpen={isEQOpen}
+        language={language}
         onClose={() => setIsEQOpen(false)}
       />
 
@@ -2342,6 +2344,7 @@ export const App: React.FC = () => {
           track={contextMenu.track}
           selectedTrackIds={selectedTrackIds}
           playlists={playlists}
+          language={language}
           onClose={() => setContextMenu(null)}
           onPlay={(t) => playTrackWithContext(t, filteredTracks)}
           onAddToQueue={(t) => setQueue(prev => [...prev, ...t])}
@@ -2373,6 +2376,7 @@ export const App: React.FC = () => {
           playlist={playlistContextMenu.playlist}
           folders={playlistFolders}
           groups={playlistGroups}
+          language={language}
           onClose={() => setPlaylistContextMenu(null)}
           onPlay={handlePlayPlaylist}
           onAddToQueue={handleAddPlaylistToQueue}
@@ -2391,6 +2395,7 @@ export const App: React.FC = () => {
           y={folderContextMenu.y}
           folder={folderContextMenu.folder}
           groups={playlistGroups}
+          language={language}
           onClose={() => setFolderContextMenu(null)}
           onOpen={() => {}}
           onPlayAll={handlePlayFolder}
@@ -2417,6 +2422,7 @@ export const App: React.FC = () => {
       {/* Material 3 Create / Edit Folder Modal */}
       <CreateFolderModal
         isOpen={isCreateFolderOpen || !!editingFolderTarget}
+        language={language}
         onClose={() => {
           setIsCreateFolderOpen(false);
           setFolderCreationTarget(null);
@@ -2436,6 +2442,7 @@ export const App: React.FC = () => {
       {/* Material 3 Create Group Modal */}
       <CreateGroupModal
         isOpen={isCreateGroupOpen}
+        language={language}
         onClose={() => setIsCreateGroupOpen(false)}
         onCreate={handleCreateGroupSubmit}
       />
@@ -2445,6 +2452,7 @@ export const App: React.FC = () => {
         isOpen={!!renameItemTarget?.isOpen}
         type={renameItemTarget?.type || 'playlist'}
         initialName={renameItemTarget?.item?.name || ''}
+        language={language}
         onClose={() => setRenameItemTarget(null)}
         onRename={handleRenameItem}
       />
@@ -2524,6 +2532,7 @@ export const App: React.FC = () => {
       <TrackDetailsModal
         isOpen={!!trackDetailsTarget}
         track={trackDetailsTarget}
+        language={language}
         onClose={() => setTrackDetailsTarget(null)}
       />
 

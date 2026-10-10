@@ -199,12 +199,12 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                 <span className="truncate">{track.artist}</span>
                 {track.lyricist && (
                   <span className="text-[11px] text-md3-primary/90 font-semibold bg-md3-primary/10 px-2 py-0.5 rounded-full shrink-0">
-                    Слова: {track.lyricist}
+                    {language === 'ru' ? `Слова: ${track.lyricist}` : `Lyrics: ${track.lyricist}`}
                   </span>
                 )}
                 {isSynced && (
                   <span className="text-[11px] opacity-75 shrink-0">
-                    • Синхронизированный (LRC)
+                    {language === 'ru' ? '• Синхронизированный (LRC)' : '• Synchronized (LRC)'}
                   </span>
                 )}
               </div>
@@ -265,18 +265,24 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
             /* Edit Mode */
             <div className="flex flex-col h-full space-y-3 animate-in fade-in duration-150">
               <div className="flex items-center justify-between text-xs text-md3-on-surface-variant">
-                <span>Редактирование текста песни (поддерживается стандартный LRC с метками времени [mm:ss.xx])</span>
+                <span>
+                  {language === 'ru' 
+                    ? 'Редактирование текста песни (поддерживается стандартный LRC с метками времени [mm:ss.xx])' 
+                    : 'Editing lyrics (standard LRC timestamp tags [mm:ss.xx] supported)'}
+                </span>
               </div>
 
               {/* Author / Lyricist Field */}
               <div className="flex items-center gap-2 p-2 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/15">
                 <PenTool className="w-4 h-4 text-md3-primary ml-1.5 shrink-0" />
-                <span className="text-xs font-semibold text-md3-on-surface shrink-0">Автор текста:</span>
+                <span className="text-xs font-semibold text-md3-on-surface shrink-0">
+                  {language === 'ru' ? 'Автор текста:' : 'Lyricist:'}
+                </span>
                 <input
                   type="text"
                   value={editedLyricist}
                   onChange={(e) => setEditedLyricist(e.target.value)}
-                  placeholder="Имя автора текста / поэта..."
+                  placeholder={language === 'ru' ? 'Имя автора текста / поэта...' : 'Lyricist / poet name...'}
                   className="flex-1 px-3 py-1 rounded-xl text-xs bg-md3-surface text-md3-on-surface border border-md3-outline-variant/20 focus:border-md3-primary outline-none transition-all"
                 />
               </div>
@@ -284,7 +290,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
               <textarea
                 value={editedText}
                 onChange={(e) => setEditedText(e.target.value)}
-                placeholder="Вставьте или введите текст песни сюда..."
+                placeholder={language === 'ru' ? 'Вставьте или введите текст песни сюда...' : 'Paste or type lyrics here...'}
                 className="flex-1 w-full p-4 rounded-2xl bg-md3-surface text-sm text-md3-on-surface placeholder-md3-on-surface-variant/40 border border-md3-outline-variant/20 focus:border-md3-primary outline-none transition-all resize-none font-sans leading-relaxed custom-scrollbar shadow-inner min-h-[220px]"
               />
 
@@ -296,7 +302,9 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                     onChange={(e) => setIsInstrumental(e.target.checked)}
                     className="w-4 h-4 accent-md3-primary rounded cursor-pointer"
                   />
-                  <span>Инструментальная композиция (без слов)</span>
+                  <span>
+                    {language === 'ru' ? 'Инструментальная композиция (без слов)' : 'Instrumental track (no lyrics)'}
+                  </span>
                 </label>
 
                 <div className="flex items-center gap-2">
@@ -305,7 +313,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                     onClick={() => setIsEditing(false)}
                     className="px-4 py-2 rounded-full text-xs font-semibold text-md3-on-surface-variant hover:bg-md3-surface-container-high transition-colors cursor-pointer"
                   >
-                    Отмена
+                    {language === 'ru' ? 'Отмена' : 'Cancel'}
                   </button>
                   <button
                     type="button"
@@ -313,7 +321,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                     className="flex items-center gap-1.5 px-5 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer"
                   >
                     <Save className="w-3.5 h-3.5" />
-                    <span>Сохранить</span>
+                    <span>{language === 'ru' ? 'Сохранить' : 'Save'}</span>
                   </button>
                 </div>
               </div>
@@ -325,17 +333,17 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                 <Music2 className="w-10 h-10 animate-pulse" />
               </div>
               <h3 className="text-lg font-bold text-md3-on-surface mb-1">
-                Инструментальный трек
+                {language === 'ru' ? 'Инструментальный трек' : 'Instrumental Track'}
               </h3>
               <p className="text-xs text-md3-on-surface-variant max-w-sm mb-4">
-                Эта композиция отмечена как трек без слов.
+                {language === 'ru' ? 'Эта композиция отмечена как трек без слов.' : 'This track is marked as instrumental.'}
               </p>
               <button
                 onClick={() => setIsEditing(true)}
                 className="flex items-center gap-2 px-4 py-2 rounded-full bg-md3-surface-container-high hover:bg-md3-primary hover:text-md3-on-primary text-xs font-semibold text-md3-on-surface transition-all cursor-pointer border border-md3-outline-variant/20"
               >
                 <Edit3 className="w-3.5 h-3.5" />
-                <span>Добавить слова к треку</span>
+                <span>{language === 'ru' ? 'Добавить слова к треку' : 'Add lyrics to track'}</span>
               </button>
             </div>
           ) : !track.lyrics || track.lyrics.trim().length === 0 ? (
@@ -345,10 +353,12 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                 <FileText className="w-10 h-10 opacity-60" />
               </div>
               <h3 className="text-lg font-bold text-md3-on-surface mb-1">
-                Текст песни пока отсутствует
+                {language === 'ru' ? 'Текст песни пока отсутствует' : 'No lyrics available yet'}
               </h3>
               <p className="text-xs text-md3-on-surface-variant max-w-sm mb-5">
-                Вы можете добавить текст песни вручную или пометить композицию как инструментал.
+                {language === 'ru' 
+                  ? 'Вы можете добавить текст песни вручную или пометить композицию как инструментал.' 
+                  : 'You can add lyrics manually or mark this track as instrumental.'}
               </p>
               <div className="flex items-center gap-3">
                 <button
@@ -356,13 +366,13 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                   className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-md3-primary text-md3-on-primary text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer"
                 >
                   <Edit3 className="w-3.5 h-3.5" />
-                  <span>Добавить текст</span>
+                  <span>{language === 'ru' ? 'Добавить текст' : 'Add Lyrics'}</span>
                 </button>
                 <button
                   onClick={handleMarkInstrumental}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-md3-surface-container text-xs font-semibold text-md3-on-surface hover:bg-md3-surface-container-high border border-md3-outline-variant/20 transition-all cursor-pointer"
                 >
-                  <span>Без слов</span>
+                  <span>{language === 'ru' ? 'Без слов' : 'Instrumental'}</span>
                 </button>
               </div>
             </div>

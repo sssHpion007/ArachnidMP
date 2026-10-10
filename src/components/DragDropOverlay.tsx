@@ -1,11 +1,13 @@
 import React from 'react';
-import { UploadCloud, Music, Sparkles } from 'lucide-react';
+import { UploadCloud, Sparkles } from 'lucide-react';
+import { AppLanguage } from '../i18n';
 
 interface DragDropOverlayProps {
   isDragging: boolean;
+  language?: AppLanguage;
 }
 
-export const DragDropOverlay: React.FC<DragDropOverlayProps> = ({ isDragging }) => {
+export const DragDropOverlay: React.FC<DragDropOverlayProps> = ({ isDragging, language = 'ru' }) => {
   if (!isDragging) return null;
 
   return (
@@ -15,10 +17,12 @@ export const DragDropOverlay: React.FC<DragDropOverlayProps> = ({ isDragging }) 
       </div>
       <h2 className="text-2xl font-extrabold text-md3-on-surface mb-2 flex items-center gap-2">
         <Sparkles className="w-6 h-6 text-md3-primary" />
-        Отпустите файлы сюда
+        {language === 'ru' ? 'Отпустите файлы сюда' : 'Drop audio files here'}
       </h2>
       <p className="text-sm text-md3-on-surface-variant max-w-md text-center">
-        Файлы мгновенно добавятся в библиотеку Arachnid с авточтением ID3-тегов и обложек.
+        {language === 'ru' 
+          ? 'Файлы мгновенно добавятся в библиотеку Arachnid с авточтением ID3-тегов и обложек.' 
+          : 'Files will be instantly added to your Arachnid library with ID3 tags and cover art parsed.'}
       </p>
       <div className="flex items-center gap-2 mt-4 text-xs font-mono px-3 py-1.5 rounded-full bg-md3-surface-container-highest text-md3-primary font-semibold">
         <span>MP3</span> • <span>FLAC</span> • <span>WAV</span> • <span>OGG</span> • <span>M4A</span> • <span>OPUS</span>

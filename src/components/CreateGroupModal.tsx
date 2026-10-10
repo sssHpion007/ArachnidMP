@@ -1,16 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Layers, X, Check } from 'lucide-react';
+import { AppLanguage } from '../i18n';
 
 interface CreateGroupModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreate: (name: string) => void;
+  language?: AppLanguage;
 }
 
 export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   isOpen,
   onClose,
   onCreate,
+  language = 'ru',
 }) => {
   const [name, setName] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -65,17 +68,17 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-md3-on-surface leading-tight">
-                Новая группа плейлистов
+                {language === 'ru' ? 'Новая группа плейлистов' : 'New Playlist Group'}
               </h2>
               <p className="text-xs text-md3-on-surface-variant mt-0.5">
-                Группы можно сворачивать и разворачивать
+                {language === 'ru' ? 'Группы можно сворачивать и разворачивать' : 'Groups can be collapsed and expanded'}
               </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-highest transition-colors"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-highest transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -85,14 +88,14 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
         <form onSubmit={handleSubmit} className="p-5 flex flex-col gap-4">
           <div>
             <label className="block text-xs font-semibold text-md3-on-surface-variant mb-1.5">
-              Название группы <span className="text-md3-error">*</span>
+              {language === 'ru' ? 'Название группы' : 'Group Name'} <span className="text-md3-error">*</span>
             </label>
             <input
               ref={inputRef}
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Например: Избранные разделы, Настроение, Игры..."
+              placeholder={language === 'ru' ? 'Например: Избранные разделы, Настроение, Игры...' : 'E.g.: Favorites, Mood, Gaming, Study...'}
               maxLength={60}
               className="w-full px-3.5 py-2.5 rounded-2xl bg-md3-surface-container-highest border border-md3-outline-variant/30 text-md3-on-surface placeholder:text-md3-on-surface-variant/50 text-sm focus:outline-none focus:border-md3-primary transition-colors"
             />
@@ -103,17 +106,17 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-full text-xs font-medium text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-highest transition-colors"
+              className="px-4 py-2 rounded-full text-xs font-medium text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-highest transition-colors cursor-pointer"
             >
-              Отмена
+              {language === 'ru' ? 'Отмена' : 'Cancel'}
             </button>
             <button
               type="submit"
               disabled={!name.trim()}
-              className="flex items-center gap-2 px-5 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 active:scale-95 disabled:opacity-40 disabled:pointer-events-none shadow-md transition-all"
+              className="flex items-center gap-2 px-5 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 active:scale-95 disabled:opacity-40 disabled:pointer-events-none shadow-md transition-all cursor-pointer"
             >
               <Check className="w-3.5 h-3.5" />
-              <span>Создать группу</span>
+              <span>{language === 'ru' ? 'Создать группу' : 'Create Group'}</span>
             </button>
           </div>
         </form>

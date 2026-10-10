@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Edit3, X, Check } from 'lucide-react';
+import { AppLanguage } from '../i18n';
 
 interface RenameItemModalProps {
   isOpen: boolean;
   type: 'playlist' | 'folder' | 'group';
   initialName: string;
+  language?: AppLanguage;
   onClose: () => void;
   onRename: (newName: string) => void;
 }
@@ -13,6 +15,7 @@ export const RenameItemModal: React.FC<RenameItemModalProps> = ({
   isOpen,
   type,
   initialName,
+  language = 'ru',
   onClose,
   onRename,
 }) => {
@@ -47,9 +50,18 @@ export const RenameItemModal: React.FC<RenameItemModalProps> = ({
   if (!isOpen) return null;
 
   const typeLabels = {
-    playlist: { title: 'Переименовать плейлист', desc: 'Введите новое имя для плейлиста' },
-    folder: { title: 'Переименовать папку', desc: 'Введите новое имя для папки' },
-    group: { title: 'Переименовать группу', desc: 'Введите новое имя для группы' },
+    playlist: { 
+      title: language === 'ru' ? 'Переименовать плейлист' : 'Rename Playlist', 
+      desc: language === 'ru' ? 'Введите новое имя для плейлиста' : 'Enter a new name for the playlist' 
+    },
+    folder: { 
+      title: language === 'ru' ? 'Переименовать папку' : 'Rename Folder', 
+      desc: language === 'ru' ? 'Введите новое имя для папки' : 'Enter a new name for the folder' 
+    },
+    group: { 
+      title: language === 'ru' ? 'Переименовать группу' : 'Rename Group', 
+      desc: language === 'ru' ? 'Введите новое имя для группы' : 'Enter a new name for the group' 
+    },
   };
 
   const currentLabel = typeLabels[type] || typeLabels.playlist;
@@ -88,7 +100,7 @@ export const RenameItemModal: React.FC<RenameItemModalProps> = ({
 
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-highest transition-colors"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-highest transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -98,14 +110,14 @@ export const RenameItemModal: React.FC<RenameItemModalProps> = ({
         <form onSubmit={handleSubmit} className="p-5 flex flex-col gap-4">
           <div>
             <label className="block text-xs font-semibold text-md3-on-surface-variant mb-1.5">
-              Новое название <span className="text-md3-error">*</span>
+              {language === 'ru' ? 'Новое название' : 'New Name'} <span className="text-md3-error">*</span>
             </label>
             <input
               ref={inputRef}
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Название..."
+              placeholder={language === 'ru' ? 'Название...' : 'Name...'}
               maxLength={60}
               className="w-full px-3.5 py-2.5 rounded-2xl bg-md3-surface-container-highest border border-md3-outline-variant/30 text-md3-on-surface placeholder:text-md3-on-surface-variant/50 text-sm focus:outline-none focus:border-md3-primary transition-colors"
             />
@@ -116,17 +128,17 @@ export const RenameItemModal: React.FC<RenameItemModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-full text-xs font-medium text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-highest transition-colors"
+              className="px-4 py-2 rounded-full text-xs font-medium text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-highest transition-colors cursor-pointer"
             >
-              Отмена
+              {language === 'ru' ? 'Отмена' : 'Cancel'}
             </button>
             <button
               type="submit"
               disabled={!name.trim()}
-              className="flex items-center gap-2 px-5 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 active:scale-95 disabled:opacity-40 disabled:pointer-events-none shadow-md transition-all"
+              className="flex items-center gap-2 px-5 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 active:scale-95 disabled:opacity-40 disabled:pointer-events-none shadow-md transition-all cursor-pointer"
             >
               <Check className="w-3.5 h-3.5" />
-              <span>Сохранить</span>
+              <span>{language === 'ru' ? 'Сохранить' : 'Save'}</span>
             </button>
           </div>
         </form>
