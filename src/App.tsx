@@ -984,21 +984,21 @@ export const App: React.FC = () => {
     playTrack(queue[nextIdx]);
   };
 
-  const handlePrev = () => {
+  const handlePrev = (forcePrevious: boolean = false) => {
     if (queue.length === 0) return;
 
     const now = performance.now();
-    const isDoublePress = (now - lastPrevPressRef.current) < 900;
+    const isDoublePress = (now - lastPrevPressRef.current) < 2500;
     lastPrevPressRef.current = now;
 
-    // If played more than 3 seconds and this is a single press: restart current track from 0:00
-    if (currentTime > 3 && !isDoublePress) {
+    // If played more than 4 seconds and this is a single press (and not explicitly forced via media button): restart from 0:00
+    if (currentTime > 4 && !isDoublePress && !forcePrevious) {
       audioEngine.seek(0);
       setCurrentTime(0);
       return;
     }
 
-    // Double press within 900ms OR track at start (<= 3s): switch to previous track in queue
+    // Double press within 2.5s OR forcePrevious OR at track start (<= 4s): switch to previous track in queue
     const prevIdx = (queueIndex - 1 + queue.length) % queue.length;
     setQueueIndex(prevIdx);
     playTrack(queue[prevIdx]);
@@ -1050,7 +1050,65 @@ export const App: React.FC = () => {
     setIsShuffled(!isShuffled);
   };
 
+  // Persistent refs for MediaSession action handlers so they never get dropped or desynchronized
+  const handlePlayPauseRef = useRef(handlePlayPause);
+  handlePlayPauseRef.current = handlePlayPause;
+
+  const handleNextRef = useRef(handleNext);
+  handleNextRef.current = handleNext;
+
+  const handlePrevRef = useRef(handlePrev);
+  handlePrevRef.current = handlePrev;
+
+  const handleSeekRef = useRef(handleSeek);
+  handleSeekRef.current = handleSeek;
+
+  const isPlayingRef = useRef(isPlaying);
+  isPlayingRef.current = isPlaying;
+
   // System Media Transport Controls (SMTC) & Bluetooth Headphone Media Buttons
+  // Registered ONCE on mount so Windows SMTC never loses registration during playback state changes!
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+
+    try {
+      navigator.mediaSession.setActionHandler('play', () => {
+        handlePlayPauseRef.current();
+      });
+      navigator.mediaSession.setActionHandler('pause', () => {
+        handlePlayPauseRef.current();
+      });
+      navigator.mediaSession.setActionHandler('stop', () => {
+        audioEngine.pause();
+      });
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        handleNextRef.current();
+      });
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        // Triple-click on bluetooth headphones sends previoustrack -> force switch to previous track!
+        handlePrevRef.current(true);
+      });
+      navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+        const offset = details.seekOffset || 10;
+        const cur = audioEngine.getCurrentTime();
+        handleSeekRef.current(Math.max(0, cur - offset));
+      });
+      navigator.mediaSession.setActionHandler('seekforward', (details) => {
+        const offset = details.seekOffset || 10;
+        const cur = audioEngine.getCurrentTime();
+        handleSeekRef.current(cur + offset);
+      });
+      navigator.mediaSession.setActionHandler('seekto', (details) => {
+        if (details.seekTime !== undefined && !isNaN(details.seekTime)) {
+          handleSeekRef.current(details.seekTime);
+        }
+      });
+    } catch (e) {
+      console.warn('MediaSession setActionHandler error:', e);
+    }
+  }, []);
+
+  // Update MediaSession metadata and playbackState dynamically
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
 
@@ -1070,58 +1128,7 @@ export const App: React.FC = () => {
     }
 
     navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
-
-    const handleMediaPlay = () => {
-      setIsPlaying(true);
-      audioEngine.resume();
-    };
-
-    const handleMediaPause = () => {
-      setIsPlaying(false);
-      audioEngine.pause();
-    };
-
-    const handleMediaStop = () => {
-      setIsPlaying(false);
-      audioEngine.pause();
-    };
-
-    const handleMediaNext = () => {
-      handleNext();
-    };
-
-    const handleMediaPrev = () => {
-      handlePrev();
-    };
-
-    const handleMediaSeek = (details: MediaSessionActionDetails) => {
-      if (details.seekTime !== undefined && !isNaN(details.seekTime)) {
-        handleSeek(details.seekTime);
-      }
-    };
-
-    try {
-      navigator.mediaSession.setActionHandler('play', handleMediaPlay);
-      navigator.mediaSession.setActionHandler('pause', handleMediaPause);
-      navigator.mediaSession.setActionHandler('stop', handleMediaStop);
-      navigator.mediaSession.setActionHandler('nexttrack', handleMediaNext);
-      navigator.mediaSession.setActionHandler('previoustrack', handleMediaPrev);
-      navigator.mediaSession.setActionHandler('seekto', handleMediaSeek);
-    } catch (e) {
-      console.warn('MediaSession setActionHandler error:', e);
-    }
-
-    return () => {
-      try {
-        navigator.mediaSession.setActionHandler('play', null);
-        navigator.mediaSession.setActionHandler('pause', null);
-        navigator.mediaSession.setActionHandler('stop', null);
-        navigator.mediaSession.setActionHandler('nexttrack', null);
-        navigator.mediaSession.setActionHandler('previoustrack', null);
-        navigator.mediaSession.setActionHandler('seekto', null);
-      } catch (_) {}
-    };
-  }, [currentTrack, isPlaying, queue, queueIndex, isShuffled]);
+  }, [currentTrack, isPlaying]);
 
   const handleToggleRepeat = () => {
     setRepeatMode(prev => {

@@ -313,6 +313,14 @@ fn read_audio_binary(path: String) -> Result<Vec<u8>, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "windows")]
+    {
+        std::env::set_var(
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+            "--enable-features=HardwareMediaKeyHandling,MediaSessionService --autoplay-policy=no-user-gesture-required",
+        );
+    }
+
     tauri::Builder::default()
         .manage(AppState {
             discord: discord::DiscordService::new(),

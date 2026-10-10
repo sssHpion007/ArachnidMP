@@ -77,6 +77,10 @@ class AudioEngine {
     this.audio.addEventListener('ended', () => {
       if (!this.isUsingWebAudio) {
         this.handleTrackEnded();
+      } else if (this.repeatMode === 'one') {
+        // Keep HTMLAudio playing silently in loop to maintain Windows SMTC & Bluetooth headphone controls!
+        this.audio.currentTime = 0;
+        this.audio.play().catch(() => {});
       }
     });
 
@@ -137,11 +141,8 @@ class AudioEngine {
         this.bufferSource.loop = (mode === 'one' && this.fadeMode !== 'always');
       }
     } else if (mode === 'one' && prevMode !== 'one' && this.isPlaying && this.currentBuffer && this.audioCtx && this.fadeMode !== 'always') {
-      // Seamlessly transition to sample-accurate Web Audio loop if repeat 'one' was activated while playing HTMLAudio
+      // Seamlessly transition to sample-accurate Web Audio loop WITHOUT stutter
       const curPos = this.getCurrentTime();
-      try {
-        this.audio.pause();
-      } catch (_) {}
       this.startBufferPlayback(curPos);
     }
   }
@@ -332,12 +333,17 @@ class AudioEngine {
       this.gainNode!.gain.setValueAtTime(effVol, now);
     } catch (_) {}
 
+    // Start buffer FIRST to ensure gapless transition, then mute background element
+    source.start(0, offset);
+
+    // Keep HTMLAudioElement playing in the background at volume 0 to preserve Windows SMTC & Bluetooth headphone controls!
     try {
-      this.audio.pause();
       this.audio.volume = 0;
+      if (this.audio.paused) {
+        this.audio.play().catch(() => {});
+      }
     } catch (_) {}
 
-    source.start(0, offset);
     this.bufferSource = source;
     this.bufferGainNode = sourceGain;
     this.isUsingWebAudio = true;
@@ -510,6 +516,12 @@ class AudioEngine {
     this.audio.currentTime = 0;
     this.audio.load();
 
+    // Warm up AudioContext immediately on user playback gesture
+    const ctx = this.getOrCreateAudioContext();
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+
     // Start background PCM decode in parallel via Rust
     const loadPromise = this.preloadBuffer(src, nativePath, reqId);
 
@@ -536,7 +548,6 @@ class AudioEngine {
       // If repeating single track and still playing this track, seamlessly switch to Web Audio loop
       if (this.playRequestId === reqId && this.currentTrackSrc === src && this.repeatMode === 'one' && this.fadeMode !== 'always' && this.isPlaying) {
         const cur = this.getCurrentTime();
-        this.audio.pause();
         this.startBufferPlayback(cur);
       }
     });
