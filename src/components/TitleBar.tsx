@@ -25,7 +25,6 @@ export const TitleBar: React.FC = () => {
           } catch (_) {}
         });
       } catch (err) {
-        // Fallback to direct invoke command
         try {
           const max = await invoke<boolean>('is_window_maximized');
           if (isMounted) setIsMaximized(max);
@@ -86,36 +85,44 @@ export const TitleBar: React.FC = () => {
 
   return (
     <div
-      data-tauri-drag-region
       onDoubleClick={handleToggleMaximize}
-      className="h-7 w-full bg-md3-surface-container-low border-b border-md3-outline-variant/15 flex items-center justify-between select-none z-50 shrink-0 text-md3-on-surface-variant transition-colors duration-300"
+      className="h-7 w-full bg-md3-surface-container-low border-b border-md3-outline-variant/15 flex items-center justify-between select-none z-50 shrink-0 text-md3-on-surface-variant relative"
     >
       {/* Left: App Logo & Title (Draggable) */}
       <div
         data-tauri-drag-region
-        className="flex items-center gap-2 pl-3 h-full pointer-events-none"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        className="flex items-center gap-2 pl-3 h-full cursor-default select-none pointer-events-auto"
       >
-        <div className="w-3.5 h-3.5 rounded-full bg-md3-primary flex items-center justify-center text-[8px] font-black text-md3-on-primary shadow-xs">
+        <div className="w-3.5 h-3.5 rounded-full bg-md3-primary flex items-center justify-center text-[8px] font-black text-md3-on-primary shadow-xs pointer-events-none">
           A
         </div>
-        <span className="text-[10px] font-bold tracking-wider text-md3-on-surface-variant/90">
+        <span className="text-[10px] font-bold tracking-wider text-md3-on-surface-variant/90 pointer-events-none">
           ARACHNID
         </span>
       </div>
 
       {/* Center Draggable Spacer */}
-      <div data-tauri-drag-region className="flex-1 h-full cursor-default" />
+      <div
+        data-tauri-drag-region
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        className="flex-1 h-full cursor-default"
+      />
 
-      {/* Right: Window Controls */}
-      <div className="flex items-center h-full pointer-events-auto shrink-0">
+      {/* Right: Window Controls (Strictly NO-DRAG region to prevent mouse hit-test flicker) */}
+      <div
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        className="flex items-center h-full shrink-0 select-none pointer-events-auto"
+      >
         {/* Minimize Button */}
         <button
           onClick={handleMinimize}
           title="Свернуть"
           aria-label="Свернуть"
-          className="w-10 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-md3-primary/30 transition-colors cursor-pointer"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          className="w-10 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-md3-primary/30 cursor-pointer"
         >
-          <svg className="w-2.5 h-2.5" viewBox="0 0 10 1" fill="currentColor">
+          <svg className="w-2.5 h-2.5 pointer-events-none" viewBox="0 0 10 1" fill="currentColor">
             <rect width="10" height="1" rx="0.5" />
           </svg>
         </button>
@@ -125,17 +132,18 @@ export const TitleBar: React.FC = () => {
           onClick={handleToggleMaximize}
           title={isMaximized ? 'Восстановить' : 'Развернуть'}
           aria-label={isMaximized ? 'Восстановить' : 'Развернуть'}
-          className="w-10 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-md3-primary/30 transition-colors cursor-pointer"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          className="w-10 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-md3-primary/30 cursor-pointer"
         >
           {isMaximized ? (
             /* Restore icon (overlapping squares) */
-            <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2">
+            <svg className="w-2.5 h-2.5 pointer-events-none" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2">
               <path d="M2.5 2V1.4C2.5 0.9 2.9 0.6 3.4 0.6H8.6C9.1 0.6 9.4 0.9 9.4 1.4V6.6C9.4 7.1 9.1 7.4 8.6 7.4H8" />
               <rect x="0.6" y="2.5" width="6.9" height="6.9" rx="1" />
             </svg>
           ) : (
             /* Maximize icon (single square) */
-            <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2">
+            <svg className="w-2.5 h-2.5 pointer-events-none" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2">
               <rect x="0.6" y="0.6" width="8.8" height="8.8" rx="1" />
             </svg>
           )}
@@ -146,9 +154,10 @@ export const TitleBar: React.FC = () => {
           onClick={handleClose}
           title="Закрыть"
           aria-label="Закрыть"
-          className="w-11 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-red-500 active:text-white transition-colors cursor-pointer"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          className="w-11 h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-red-500 active:text-white cursor-pointer"
         >
-          <svg className="w-2.5 h-2.5" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+          <svg className="w-2.5 h-2.5 pointer-events-none" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
             <line x1="1" y1="1" x2="9" y2="9" />
             <line x1="9" y1="1" x2="1" y2="9" />
           </svg>

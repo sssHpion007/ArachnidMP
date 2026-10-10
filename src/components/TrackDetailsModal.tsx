@@ -13,7 +13,10 @@ import {
   Tag, 
   Folder,
   Copy,
-  Check
+  Check,
+  Users,
+  Music,
+  MessageSquare
 } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
@@ -261,6 +264,51 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
                 </span>
               </div>
             </div>
+
+            {/* Composer (if present) */}
+            {track.composer && (
+              <div className="col-span-2 sm:col-span-1 p-3 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/10 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center shrink-0">
+                  <Music className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-[11px] text-md3-on-surface-variant/70 block">Композитор</span>
+                  <span className="font-bold text-md3-on-surface truncate">
+                    {track.composer}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Content Group / Band (if present) */}
+            {track.contentGroup && (
+              <div className="col-span-2 sm:col-span-1 p-3 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/10 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center shrink-0">
+                  <Users className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-[11px] text-md3-on-surface-variant/70 block">Группа / Коллектив</span>
+                  <span className="font-bold text-md3-on-surface truncate">
+                    {track.contentGroup}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Comment (if present) */}
+            {track.comment && (
+              <div className="col-span-2 p-3 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/10 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center shrink-0">
+                  <MessageSquare className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-[11px] text-md3-on-surface-variant/70 block">Комментарий</span>
+                  <span className="font-bold text-md3-on-surface line-clamp-2">
+                    {track.comment}
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Expandable Genres (Full width, tags) */}
             <div className="col-span-2 p-3.5 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/10 space-y-2">

@@ -171,7 +171,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
           className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left font-medium text-md3-primary"
         >
           <Edit3 className="w-3.5 h-3.5" />
-          <span>Пакетная правка тегов</span>
+          <span>{selectedTrackIds.size > 1 ? `Пакетная правка тегов (${selectedTrackIds.size})` : 'Редактировать теги'}</span>
         </button>
 
         {/* Favorite */}

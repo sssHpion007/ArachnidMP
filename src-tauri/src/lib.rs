@@ -6,6 +6,7 @@ use tauri::State;
 use base64::prelude::*;
 use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
+use lofty::picture::{Picture, PictureType};
 use lofty::probe::Probe;
 use lofty::tag::{Accessor, ItemKey, Tag, TagExt};
 
@@ -24,6 +25,27 @@ pub struct TrackMetadata {
     pub format: String,
     pub file_size: u64,
     pub lyrics: Option<String>,
+    pub composer: Option<String>,
+    pub content_group: Option<String>,
+    pub comment: Option<String>,
+    pub conductor: Option<String>,
+    pub lyricist: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TagUpdates {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub genre: Option<String>,
+    pub year: Option<u32>,
+    pub track_number: Option<u32>,
+    pub composer: Option<String>,
+    pub content_group: Option<String>,
+    pub comment: Option<String>,
+    pub conductor: Option<String>,
+    pub lyricist: Option<String>,
+    pub cover_art: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -95,6 +117,11 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
     let mut duration_seconds = 0.0;
     let mut cover_art = None;
     let mut lyrics = None;
+    let mut composer = None;
+    let mut content_group = None;
+    let mut comment = None;
+    let mut conductor = None;
+    let mut lyricist = None;
 
     if let Ok(tagged_file) = Probe::open(path).and_then(|p| p.read()) {
         let properties = tagged_file.properties();
@@ -146,6 +173,33 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
                     lyrics = Some(l.to_string());
                 }
             }
+            if composer.is_none() {
+                if let Some(c) = tag.get_string(&ItemKey::Composer) {
+                    composer = Some(c.to_string());
+                }
+            }
+            if content_group.is_none() {
+                if let Some(cg) = tag.get_string(&ItemKey::ContentGroup) {
+                    content_group = Some(cg.to_string());
+                }
+            }
+            if comment.is_none() {
+                if let Some(com) = tag.comment() {
+                    comment = Some(com.to_string());
+                } else if let Some(com) = tag.get_string(&ItemKey::Comment) {
+                    comment = Some(com.to_string());
+                }
+            }
+            if conductor.is_none() {
+                if let Some(con) = tag.get_string(&ItemKey::Conductor) {
+                    conductor = Some(con.to_string());
+                }
+            }
+            if lyricist.is_none() {
+                if let Some(lyr) = tag.get_string(&ItemKey::Lyricist) {
+                    lyricist = Some(lyr.to_string());
+                }
+            }
             if cover_art.is_none() {
                 if let Some(pic) = tag.pictures().first() {
                     let mime = match pic.mime_type() {
@@ -175,6 +229,11 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
         format: ext.to_uppercase(),
         file_size,
         lyrics,
+        composer,
+        content_group,
+        comment,
+        conductor,
+        lyricist,
     })
 }
 
@@ -244,6 +303,124 @@ fn open_file_dialog() -> Result<Vec<TrackMetadata>, String> {
 #[tauri::command]
 fn scan_folder(folder_path: String) -> Result<Vec<TrackMetadata>, String> {
     read_audio_files(vec![folder_path])
+}
+
+fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(), String> {
+    let file_path = Path::new(path_str);
+    if !file_path.is_file() {
+        return Err(format!("File not found: {}", path_str));
+    }
+
+    let mut tagged_file = lofty::read_from_path(file_path).map_err(|e| e.to_string())?;
+
+    let tag = match tagged_file.primary_tag_mut() {
+        Some(t) => t,
+        None => {
+            tagged_file.insert_tag(Tag::new(tagged_file.primary_tag_type()));
+            match tagged_file.primary_tag_mut() {
+                Some(t) => t,
+                None => match tagged_file.first_tag_mut() {
+                    Some(t) => t,
+                    None => return Err("Failed to access or create audio tags".to_string()),
+                },
+            }
+        }
+    };
+
+    if let Some(ref title) = updates.title {
+        tag.set_title(title.clone());
+    }
+    if let Some(ref artist) = updates.artist {
+        tag.set_artist(artist.clone());
+    }
+    if let Some(ref album) = updates.album {
+        tag.set_album(album.clone());
+    }
+    if let Some(ref genre) = updates.genre {
+        tag.set_genre(genre.clone());
+    }
+    if let Some(year) = updates.year {
+        tag.set_year(year);
+    }
+    if let Some(track_num) = updates.track_number {
+        tag.set_track(track_num);
+    }
+
+    if let Some(ref comp) = updates.composer {
+        if comp.trim().is_empty() {
+            tag.remove_key(&ItemKey::Composer);
+        } else {
+            tag.insert_text(ItemKey::Composer, comp.clone());
+        }
+    }
+    if let Some(ref cg) = updates.content_group {
+        if cg.trim().is_empty() {
+            tag.remove_key(&ItemKey::ContentGroup);
+        } else {
+            tag.insert_text(ItemKey::ContentGroup, cg.clone());
+        }
+    }
+    if let Some(ref com) = updates.comment {
+        if com.trim().is_empty() {
+            tag.remove_comment();
+            tag.remove_key(&ItemKey::Comment);
+        } else {
+            tag.set_comment(com.clone());
+        }
+    }
+    if let Some(ref cond) = updates.conductor {
+        if cond.trim().is_empty() {
+            tag.remove_key(&ItemKey::Conductor);
+        } else {
+            tag.insert_text(ItemKey::Conductor, cond.clone());
+        }
+    }
+    if let Some(ref lyr) = updates.lyricist {
+        if lyr.trim().is_empty() {
+            tag.remove_key(&ItemKey::Lyricist);
+        } else {
+            tag.insert_text(ItemKey::Lyricist, lyr.clone());
+        }
+    }
+
+    // Cover art update
+    if let Some(ref cover_art_data) = updates.cover_art {
+        tag.remove_picture_type(PictureType::CoverFront);
+        let trimmed = cover_art_data.trim();
+        if !trimmed.is_empty() {
+            let b64_clean = if let Some(idx) = trimmed.find(";base64,") {
+                &trimmed[idx + 8..]
+            } else {
+                trimmed
+            };
+            if let Ok(bytes) = BASE64_STANDARD.decode(b64_clean.as_bytes()) {
+                if let Ok(mut pic) = Picture::from_reader(&mut std::io::Cursor::new(bytes)) {
+                    pic.set_pic_type(PictureType::CoverFront);
+                    tag.push_picture(pic);
+                }
+            }
+        }
+    }
+
+    tag.save_to_path(file_path, WriteOptions::default()).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn save_track_file_tags(path: String, updates: TagUpdates) -> Result<Option<TrackMetadata>, String> {
+    apply_tag_updates_to_file(&path, &updates)?;
+    Ok(parse_single_file(&path))
+}
+
+#[tauri::command]
+fn batch_save_track_file_tags(paths: Vec<String>, updates: TagUpdates) -> Result<usize, String> {
+    let mut updated_count = 0;
+    for path in &paths {
+        if apply_tag_updates_to_file(path, &updates).is_ok() {
+            updated_count += 1;
+        }
+    }
+    Ok(updated_count)
 }
 
 #[tauri::command]
@@ -498,6 +675,8 @@ pub fn run() {
             show_in_folder,
             save_track_lyrics,
             scan_folder,
+            save_track_file_tags,
+            batch_save_track_file_tags,
             batch_update_tags,
             save_portable_data,
             load_portable_data,

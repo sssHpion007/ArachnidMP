@@ -19,6 +19,12 @@ export interface Track {
   lyrics?: string;
   isInstrumental?: boolean;
   localFile?: File;
+  composer?: string;
+  contentGroup?: string; // Группа / Коллектив
+  comment?: string;
+  conductor?: string;
+  lyricist?: string;
+  customTags?: Record<string, string>;
 }
 
 export interface PlaylistFolder {

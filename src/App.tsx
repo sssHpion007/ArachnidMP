@@ -924,6 +924,11 @@ export const App: React.FC = () => {
         format: t.format,
         fileSize: t.file_size,
         lyrics: t.lyrics || undefined,
+        composer: t.composer || undefined,
+        contentGroup: t.content_group || undefined,
+        comment: t.comment || undefined,
+        conductor: t.conductor || undefined,
+        lyricist: t.lyricist || undefined,
         dateAdded: Date.now(),
         playCount: 0,
         isFavorite: false,
@@ -1637,32 +1642,86 @@ export const App: React.FC = () => {
     setDeletePlaylistTarget(null);
   };
 
-  const handleSaveBatchTags = (updates: {
+  const handleSaveBatchTags = async (updates: {
     artist?: string;
     album?: string;
     genre?: string;
     year?: number;
+    title?: string;
+    trackNumber?: number;
+    composer?: string;
+    contentGroup?: string;
+    comment?: string;
+    conductor?: string;
+    lyricist?: string;
+    coverArt?: string | null;
   }) => {
     setTracks(prev => prev.map(t => {
       if (selectedTrackIds.has(t.id)) {
         return {
           ...t,
+          title: updates.title !== undefined ? updates.title : t.title,
           artist: updates.artist !== undefined ? updates.artist : t.artist,
           album: updates.album !== undefined ? updates.album : t.album,
           genre: updates.genre !== undefined ? updates.genre : t.genre,
           year: updates.year !== undefined ? updates.year : t.year,
+          trackNumber: updates.trackNumber !== undefined ? updates.trackNumber : t.trackNumber,
+          composer: updates.composer !== undefined ? updates.composer : t.composer,
+          contentGroup: updates.contentGroup !== undefined ? updates.contentGroup : t.contentGroup,
+          comment: updates.comment !== undefined ? updates.comment : t.comment,
+          conductor: updates.conductor !== undefined ? updates.conductor : t.conductor,
+          lyricist: updates.lyricist !== undefined ? updates.lyricist : t.lyricist,
+          coverArt: updates.coverArt !== undefined ? (updates.coverArt || undefined) : t.coverArt,
         };
       }
       return t;
     }));
+
     if (currentTrack && selectedTrackIds.has(currentTrack.id)) {
       setCurrentTrack(prev => prev ? {
         ...prev,
+        title: updates.title !== undefined ? updates.title : prev.title,
         artist: updates.artist !== undefined ? updates.artist : prev.artist,
         album: updates.album !== undefined ? updates.album : prev.album,
         genre: updates.genre !== undefined ? updates.genre : prev.genre,
         year: updates.year !== undefined ? updates.year : prev.year,
+        trackNumber: updates.trackNumber !== undefined ? updates.trackNumber : prev.trackNumber,
+        composer: updates.composer !== undefined ? updates.composer : prev.composer,
+        contentGroup: updates.contentGroup !== undefined ? updates.contentGroup : prev.contentGroup,
+        comment: updates.comment !== undefined ? updates.comment : prev.comment,
+        conductor: updates.conductor !== undefined ? updates.conductor : prev.conductor,
+        lyricist: updates.lyricist !== undefined ? updates.lyricist : prev.lyricist,
+        coverArt: updates.coverArt !== undefined ? (updates.coverArt || undefined) : prev.coverArt,
       } : null);
+    }
+
+    // Persist tags and cover art to audio files on disk if running in Tauri
+    if (isTauri()) {
+      const selectedTracks = tracks.filter(t => selectedTrackIds.has(t.id) && t.path);
+      const paths = selectedTracks.map(t => t.path as string);
+      if (paths.length > 0) {
+        try {
+          await invoke('batch_save_track_file_tags', {
+            paths,
+            updates: {
+              title: updates.title,
+              artist: updates.artist,
+              album: updates.album,
+              genre: updates.genre,
+              year: updates.year,
+              track_number: updates.trackNumber,
+              composer: updates.composer,
+              content_group: updates.contentGroup,
+              comment: updates.comment,
+              conductor: updates.conductor,
+              lyricist: updates.lyricist,
+              cover_art: updates.coverArt !== undefined ? (updates.coverArt || '') : undefined,
+            }
+          });
+        } catch (e) {
+          console.error('Failed to save tags to files:', e);
+        }
+      }
     }
   };
 
