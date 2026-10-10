@@ -42,10 +42,12 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts
+          $ver = "${{ github.ref_name }}"
+          if (-not $ver) { $ver = "v0.1.0" }
           if (Test-Path "src-tauri/target/release/arachnid.exe") {
             Copy-Item "src-tauri/target/release/arachnid.exe" -Destination "artifacts/Arachnid-Portable.exe"
-            Compress-Archive -Path "src-tauri/target/release/arachnid.exe" -DestinationPath "artifacts/Arachnid-v0.1.0-Windows-Portable.zip"
-            Write-Host "Created Arachnid-Portable.exe and zip!"
+            Compress-Archive -Path "src-tauri/target/release/arachnid.exe" -DestinationPath "artifacts/Arachnid-$ver-Windows-Portable.zip"
+            Write-Host "Created Arachnid-Portable.exe and zip for $ver!"
           } else {
             Write-Error "arachnid.exe was not found in release target!"
           }
@@ -57,25 +59,18 @@ jobs:
         with:
           files: artifacts/*
           tag_name: ${{ github.ref_name || 'v0.1.0' }}
-          name: Arachnid Music Player v0.1.0 (Windows Portable)
+          name: Arachnid Music Player ${{ github.ref_name || 'v0.1.0' }} [Windows]
           draft: false
           prerelease: false
+          generate_release_notes: true
           body: |
-            ## Arachnid Music Player v0.1.0 🎵 (Portable for Windows)
+            ## Arachnid Music Player ${{ github.ref_name || 'v0.1.0' }} [Windows] 🎵
 
             ### 🚀 Скачать портативную версию:
-            * **Arachnid-v0.1.0-Windows-Portable.zip** — Скачайте архив, распакуйте в любую папку и запустите `arachnid.exe`. Установка не требуется!
-            * **Arachnid-Portable.exe** — Одиночный запускаемый файл плеера.
+            * **Arachnid-Portable.exe** — Одиночный запускаемый файл плеера (рекомендуется для бесшовного обновления на месте).
+            * **Arachnid-${{ github.ref_name || 'v0.1.0' }}-Windows-Portable.zip** — Архив с исполняемым файлом. Установка не требуется!
 
-            ### ✨ Возможности:
-            * **Material You 3 Динамическая Темизация:** интерфейс адаптирует палитру под обложку текущего трека (Dark / AMOLED / Light).
-            * **Десктопный UX в стиле MusicBee:**
-              * Drag-and-Drop аудиофайлов прямо в окно из проводника.
-              * Честное множественное выделение (`Shift+Click`, `Ctrl+Click`, `Ctrl+A`).
-              * Перетаскивание треков прямо на плейлисты в сайдбаре.
-              * Пакетный редактор ID3-тегов нескольких треков сразу.
-            * **Встроенный Discord RPC:** статус трека, исполнителя и таймер в вашем профиле Discord.
-            * **10-полосный эквалайзер** с пресетами и спектральным визуализатором.
-            * **Легковесность и скорость:** ядро на Rust (Tauri 2.0).
+            ---
+            **Платформа:** Windows | **Теги:** `#windows` `#portable` `#music-player`
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
