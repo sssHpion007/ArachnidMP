@@ -75,6 +75,12 @@ export const App: React.FC = () => {
   // Multi-Selection State
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set());
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
+  const selectedTrackIdsRef = useRef<Set<string>>(selectedTrackIds);
+  useEffect(() => {
+    selectedTrackIdsRef.current = selectedTrackIds;
+  }, [selectedTrackIds]);
+
+  const filteredTracksRef = useRef<Track[]>([]);
 
   // Player & Queue State
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
@@ -531,6 +537,10 @@ export const App: React.FC = () => {
     return result;
   }, [tracks, selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, currentView, searchQuery, sortBy, sortOrder, playlists]);
 
+  useEffect(() => {
+    filteredTracksRef.current = filteredTracks;
+  }, [filteredTracks]);
+
   // Information about current active detail view (if drilling into Album, Artist, Genre, or Playlist)
   const currentDetail = useMemo(() => {
     if (selectedPlaylistId) {
@@ -691,24 +701,30 @@ export const App: React.FC = () => {
         handleVolumeChange(next);
       // Plain Arrow Down / Up: Navigate through track list
       } else if ((e.code === 'ArrowDown' || e.key === 'ArrowDown') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-        if (filteredTracks.length > 0) {
+        const currentList = filteredTracksRef.current;
+        if (currentList.length > 0) {
           e.preventDefault();
+          const currentSelection = selectedTrackIdsRef.current;
           let nextIdx = 0;
-          if (selectedTrackIds.size > 0) {
-            const lastSelectedId = Array.from(selectedTrackIds).pop();
-            const currIdx = filteredTracks.findIndex(t => t.id === lastSelectedId);
+          if (currentSelection.size > 0) {
+            const selectedArray = Array.from(currentSelection);
+            const lastSelectedId = selectedArray[selectedArray.length - 1];
+            const currIdx = currentList.findIndex(t => t.id === lastSelectedId);
             if (currIdx !== -1) {
-              nextIdx = Math.min(filteredTracks.length - 1, currIdx + 1);
+              nextIdx = Math.min(currentList.length - 1, currIdx + 1);
             }
           } else if (currentTrack) {
-            const currIdx = filteredTracks.findIndex(t => t.id === currentTrack.id);
+            const currIdx = currentList.findIndex(t => t.id === currentTrack.id);
             if (currIdx !== -1) {
-              nextIdx = Math.min(filteredTracks.length - 1, currIdx + 1);
+              nextIdx = Math.min(currentList.length - 1, currIdx + 1);
             }
           }
-          const nextTrack = filteredTracks[nextIdx];
+          const nextTrack = currentList[nextIdx];
           if (nextTrack) {
-            setSelectedTrackIds(new Set([nextTrack.id]));
+            const newSet = new Set([nextTrack.id]);
+            selectedTrackIdsRef.current = newSet;
+            setSelectedTrackIds(newSet);
+            setLastSelectedIndex(nextIdx);
             requestAnimationFrame(() => {
               const el = document.querySelector(`[data-track-row-id="${nextTrack.id}"]`);
               el?.scrollIntoView({ block: 'nearest' });
@@ -716,24 +732,30 @@ export const App: React.FC = () => {
           }
         }
       } else if ((e.code === 'ArrowUp' || e.key === 'ArrowUp') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-        if (filteredTracks.length > 0) {
+        const currentList = filteredTracksRef.current;
+        if (currentList.length > 0) {
           e.preventDefault();
+          const currentSelection = selectedTrackIdsRef.current;
           let prevIdx = 0;
-          if (selectedTrackIds.size > 0) {
-            const firstSelectedId = Array.from(selectedTrackIds)[0];
-            const currIdx = filteredTracks.findIndex(t => t.id === firstSelectedId);
+          if (currentSelection.size > 0) {
+            const selectedArray = Array.from(currentSelection);
+            const firstSelectedId = selectedArray[0];
+            const currIdx = currentList.findIndex(t => t.id === firstSelectedId);
             if (currIdx !== -1) {
               prevIdx = Math.max(0, currIdx - 1);
             }
           } else if (currentTrack) {
-            const currIdx = filteredTracks.findIndex(t => t.id === currentTrack.id);
+            const currIdx = currentList.findIndex(t => t.id === currentTrack.id);
             if (currIdx !== -1) {
               prevIdx = Math.max(0, currIdx - 1);
             }
           }
-          const prevTrack = filteredTracks[prevIdx];
+          const prevTrack = currentList[prevIdx];
           if (prevTrack) {
-            setSelectedTrackIds(new Set([prevTrack.id]));
+            const newSet = new Set([prevTrack.id]);
+            selectedTrackIdsRef.current = newSet;
+            setSelectedTrackIds(newSet);
+            setLastSelectedIndex(prevIdx);
             requestAnimationFrame(() => {
               const el = document.querySelector(`[data-track-row-id="${prevTrack.id}"]`);
               el?.scrollIntoView({ block: 'nearest' });
@@ -747,12 +769,15 @@ export const App: React.FC = () => {
           renamePlaylistTarget || deleteFolderTarget || clearPlaylistTarget || deletePlaylistTarget ||
           deleteTracksTarget || trackDetailsTarget;
         if (!anyModalOpen) {
-          if (selectedTrackIds.size > 0) {
+          const currentSelection = selectedTrackIdsRef.current;
+          if (currentSelection.size > 0) {
             e.preventDefault();
             setIsBatchTagEditorOpen(true);
           } else if (currentTrack) {
             e.preventDefault();
-            setSelectedTrackIds(new Set([currentTrack.id]));
+            const newSet = new Set([currentTrack.id]);
+            selectedTrackIdsRef.current = newSet;
+            setSelectedTrackIds(newSet);
             setIsBatchTagEditorOpen(true);
           }
         }
@@ -763,16 +788,18 @@ export const App: React.FC = () => {
           renamePlaylistTarget || deleteFolderTarget || clearPlaylistTarget || deletePlaylistTarget ||
           deleteTracksTarget || trackDetailsTarget;
         if (!anyModalOpen) {
-          if (selectedTrackIds.size > 0) {
+          const currentList = filteredTracksRef.current;
+          const currentSelection = selectedTrackIdsRef.current;
+          if (currentSelection.size > 0) {
             e.preventDefault();
-            const firstId = Array.from(selectedTrackIds)[0];
-            const trackToPlay = filteredTracks.find(t => t.id === firstId) || tracks.find(t => t.id === firstId);
+            const firstId = Array.from(currentSelection)[0];
+            const trackToPlay = currentList.find(t => t.id === firstId) || tracks.find(t => t.id === firstId);
             if (trackToPlay) {
-              playTrackWithContext(trackToPlay, filteredTracks);
+              playTrackWithContext(trackToPlay, currentList);
             }
-          } else if (filteredTracks.length > 0) {
+          } else if (currentList.length > 0) {
             e.preventDefault();
-            playTrackWithContext(filteredTracks[0], filteredTracks);
+            playTrackWithContext(currentList[0], currentList);
           }
         }
       // Plain Arrow Left / Right: Rewind / Fast-forward by 5 seconds (silent while holding, seeks when stopped)
@@ -910,6 +937,7 @@ export const App: React.FC = () => {
     queue,
     queueIndex,
     filteredTracks,
+    selectedTrackIds,
     repeatMode,
     isLyricsOpen,
     trackDetailsTarget,
@@ -1109,18 +1137,23 @@ export const App: React.FC = () => {
       const start = Math.min(lastSelectedIndex, index);
       const end = Math.max(lastSelectedIndex, index);
       const rangeIds = filteredTracks.slice(start, end + 1).map(t => t.id);
-      setSelectedTrackIds(new Set(rangeIds));
+      const newSet = new Set(rangeIds);
+      selectedTrackIdsRef.current = newSet;
+      setSelectedTrackIds(newSet);
     } else if (e.ctrlKey || e.metaKey) {
-      const updated = new Set(selectedTrackIds);
+      const updated = new Set(selectedTrackIdsRef.current);
       if (updated.has(trackId)) {
         updated.delete(trackId);
       } else {
         updated.add(trackId);
       }
+      selectedTrackIdsRef.current = updated;
       setSelectedTrackIds(updated);
       setLastSelectedIndex(index);
     } else {
-      setSelectedTrackIds(new Set([trackId]));
+      const newSet = new Set([trackId]);
+      selectedTrackIdsRef.current = newSet;
+      setSelectedTrackIds(newSet);
       setLastSelectedIndex(index);
     }
   };
