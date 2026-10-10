@@ -61,9 +61,6 @@ export const TopBar: React.FC<TopBarProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const isCompact = windowWidth < 1200;
-  const isSuperCompact = windowWidth < 850;
-
   const allNavTabs = [
     { id: 'tracks' as const, label: 'Все треки', icon: Music },
     { id: 'playlists' as const, label: 'Плейлисты', icon: ListMusic },
@@ -75,12 +72,17 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   const navTabs = allNavTabs.filter(tab => (visibleTabs ? visibleTabs[tab.id] ?? true : true));
 
+  // Instantly collapse to miniature (icon-only) as soon as tabs might crowd controls
+  const isCompact = windowWidth < 1320 || (navTabs.length * 105 + 460 > windowWidth);
+  const isSuperCompact = windowWidth < 850;
+  const isUltraCompact = windowWidth < 650;
+
   return (
-    <header className="relative h-16 px-4 sm:px-6 shrink-0 flex items-center justify-between gap-2 sm:gap-4 bg-md3-surface-container-low border-b border-md3-outline-variant/15 select-none transition-colors duration-300">
+    <header className="relative h-16 px-3 sm:px-6 shrink-0 flex items-center justify-between gap-2 sm:gap-4 bg-md3-surface-container-low border-b border-md3-outline-variant/15 select-none transition-colors duration-300">
       {/* Left: Search Bar (Flexible width, never forces overflow) */}
-      <div className="z-10 shrink-0 w-36 sm:w-44 md:w-52 lg:w-60 transition-all">
+      <div className="z-10 shrink-0 w-28 sm:w-40 md:w-52 lg:w-60 transition-all">
         <div className="relative w-full">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-md3-on-surface-variant">
+          <div className="absolute inset-y-0 left-0 pl-2.5 sm:pl-3 flex items-center pointer-events-none text-md3-on-surface-variant">
             <Search className="w-3.5 h-3.5" />
           </div>
           <input
@@ -88,12 +90,12 @@ export const TopBar: React.FC<TopBarProps> = ({
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={searchPlaceholder || (isSuperCompact ? 'Поиск...' : `Поиск (${totalTracksCount})...`)}
-            className="w-full pl-8 pr-7 py-1.5 rounded-full bg-md3-surface-container text-xs text-md3-on-surface placeholder-md3-on-surface-variant/50 border border-transparent focus:border-md3-primary focus:bg-md3-surface-container-high outline-none transition-all truncate"
+            className="w-full pl-7 sm:pl-8 pr-6 sm:pr-7 py-1.5 rounded-full bg-md3-surface-container text-xs text-md3-on-surface placeholder-md3-on-surface-variant/50 border border-transparent focus:border-md3-primary focus:bg-md3-surface-container-high outline-none transition-all truncate"
           />
           {searchQuery && (
             <button
               onClick={() => onSearchChange('')}
-              className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
+              className="absolute inset-y-0 right-0 pr-2 sm:pr-2.5 flex items-center text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -102,8 +104,8 @@ export const TopBar: React.FC<TopBarProps> = ({
       </div>
 
       {/* Center: Navigation Tabs (Pills) - ALWAYS EXACT MATHEMATICAL CENTER */}
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-0 pointer-events-none max-w-[calc(100%-360px)] flex justify-center">
-        <nav className="pointer-events-auto flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 overflow-x-auto custom-scrollbar max-w-full shadow-xs">
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-0 pointer-events-none flex justify-center">
+        <nav className="pointer-events-auto flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 overflow-hidden shadow-xs">
           {navTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = currentView === tab.id;
@@ -114,7 +116,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 onClick={() => onSelectView(tab.id)}
                 title={tab.label}
                 className={`flex items-center gap-1.5 ${
-                  isCompact ? 'px-2.5 py-1.5' : 'px-3.5 py-1.5'
+                  isUltraCompact ? 'px-2 py-1' : isCompact ? 'px-2.5 py-1.5' : 'px-3.5 py-1.5'
                 } rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer ${
                   isActive
                     ? 'bg-md3-primary text-md3-on-primary font-bold shadow-sm'

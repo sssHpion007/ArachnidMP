@@ -178,12 +178,12 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   };
 
   return (
-    <footer className="h-24 max-h-24 w-full shrink-0 bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-6 flex items-center justify-between select-none relative z-30 transition-colors duration-300">
+    <footer className="relative h-24 max-h-24 w-full shrink-0 bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-4 sm:px-6 flex items-center justify-between select-none z-30 transition-colors duration-300">
       {/* Left: Cover Art & Track Metadata (Clickable to open Track Details) */}
       <div 
         onClick={() => currentTrack && onOpenTrackDetails && onOpenTrackDetails(currentTrack)}
         title={currentTrack ? 'Нажмите, чтобы открыть сведения о треке' : undefined}
-        className={`flex items-center gap-3.5 w-1/4 min-w-[240px] max-w-xs shrink-0 select-none ${currentTrack ? 'cursor-pointer group' : ''}`}
+        className={`z-20 relative flex items-center gap-3 max-w-[28%] md:max-w-[32%] shrink-0 select-none ${currentTrack ? 'cursor-pointer group' : ''}`}
       >
         {/* Cover Art with subtle glow - strictly constrained to 56x56 */}
         <div 
@@ -235,113 +235,115 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
         )}
       </div>
 
-      {/* Center: Playback Controls & Timeline (Dedicated row for buttons + dedicated row for scrubber) */}
-      <div className="flex flex-col items-center justify-center w-2/4 max-w-xl px-4">
-        {/* Main Controls Row */}
-        <div className="flex items-center gap-4 mb-1.5">
-          {/* Shuffle */}
-          <button
-            onClick={onToggleShuffle}
-            title={isShuffled ? 'Случайный порядок включен [E]' : 'Перемешать треки [E]'}
-            className={`p-2 rounded-full transition-colors relative cursor-pointer ${
-              isShuffled ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
-            }`}
-          >
-            <Shuffle className="w-4 h-4" />
-            {isShuffled && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-md3-primary" />}
-          </button>
-
-          {/* Previous */}
-          <button
-            onClick={onPrev}
-            title="Предыдущий трек (Ctrl + Стрелка влево)"
-            className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer"
-          >
-            <SkipBack className="w-4 h-4 fill-current" />
-          </button>
-
-          {/* Play / Pause Primary Button */}
-          <button
-            onClick={onPlayPause}
-            title={isPlaying ? 'Пауза (Пробел)' : 'Воспроизведение (Пробел)'}
-            className="w-10 h-10 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-transform duration-150 cursor-pointer"
-          >
-            {isPlaying ? (
-              <Pause className="w-5 h-5 fill-current" />
-            ) : (
-              <Play className="w-5 h-5 fill-current ml-0.5" />
-            )}
-          </button>
-
-          {/* Next */}
-          <button
-            onClick={onNext}
-            title="Следующий трек (Ctrl + Стрелка вправо)"
-            className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer"
-          >
-            <SkipForward className="w-4 h-4 fill-current" />
-          </button>
-
-          {/* Repeat */}
-          <button
-            onClick={onToggleRepeat}
-            title={`Повтор [R]: ${repeatMode === 'off' ? 'Откл' : repeatMode === 'all' ? 'Все' : 'Один'}`}
-            className={`p-2 rounded-full transition-colors relative cursor-pointer ${
-              repeatMode !== 'off' ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
-            }`}
-          >
-            {repeatMode === 'one' ? <Repeat1 className="w-4 h-4" /> : <Repeat className="w-4 h-4" />}
-            {repeatMode !== 'off' && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-md3-primary" />}
-          </button>
-        </div>
-
-        {/* Timeline Row: time progress scrubber */}
-        <div className="w-full flex items-center gap-2">
-          {/* Current Time (Left) */}
-          <span className="text-[11px] font-mono text-md3-on-surface-variant/80 shrink-0 w-11 text-right">
-            {formatTime(effectiveDisplayTime)}
-          </span>
-
-          {/* Timeline Scrubber Bar (Middle) */}
-          <div 
-            ref={progressBarRef}
-            onPointerDown={handleProgressBarPointerDown}
-            onPointerMove={handleProgressBarPointerMove}
-            onPointerUp={handleProgressBarPointerUp}
-            onPointerCancel={handleProgressBarPointerCancel}
-            onMouseLeave={() => { if (!isScrubbingRef.current) setHoverSeekTime(null); }}
-            title="Перемотка [← / → на 5 сек]"
-            className={`flex-1 ${isScrubbing ? 'h-2.5' : 'h-1.5 hover:h-2.5'} rounded-full bg-md3-surface-container-highest cursor-pointer transition-all duration-150 relative group touch-none`}
-          >
-            {/* Progress Fill */}
-            <div 
-              className="h-full bg-md3-primary rounded-full relative"
-              style={{ width: `${progressPercent}%`, maxWidth: '100%' }}
+      {/* Center: Playback Controls & Timeline - ALWAYS EXACT MATHEMATICAL CENTER */}
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-full max-w-[380px] sm:max-w-[480px] md:max-w-xl px-2 pointer-events-none flex flex-col items-center justify-center">
+        <div className="pointer-events-auto flex flex-col items-center justify-center w-full">
+          {/* Main Controls Row */}
+          <div className="flex items-center gap-3 sm:gap-4 mb-1.5">
+            {/* Shuffle */}
+            <button
+              onClick={onToggleShuffle}
+              title={isShuffled ? 'Случайный порядок включен [E]' : 'Перемешать треки [E]'}
+              className={`p-2 rounded-full transition-colors relative cursor-pointer ${
+                isShuffled ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
+              }`}
             >
-              {/* Scrubber Thumb */}
-              <div className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 rounded-full bg-md3-primary shadow-md ring-2 ring-md3-on-primary ${isScrubbing ? 'opacity-100 scale-125' : 'opacity-0 group-hover:opacity-100'} transition-all`} />
-            </div>
+              <Shuffle className="w-4 h-4" />
+              {isShuffled && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-md3-primary" />}
+            </button>
 
-            {/* Hover preview tooltip */}
-            {hoverSeekTime !== null && (
-              <div 
-                className="absolute -top-7 -translate-x-1/2 px-2 py-0.5 rounded-lg bg-md3-surface-container-highest text-md3-on-surface text-[11px] font-mono shadow-xl border border-md3-outline-variant/20 pointer-events-none"
-                style={{ left: `${hoverSeekPos}px` }}
-              >
-                {formatTime(hoverSeekTime)}
-              </div>
-            )}
+            {/* Previous */}
+            <button
+              onClick={onPrev}
+              title="Предыдущий трек (Ctrl + Стрелка влево)"
+              className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer"
+            >
+              <SkipBack className="w-4 h-4 fill-current" />
+            </button>
+
+            {/* Play / Pause Primary Button */}
+            <button
+              onClick={onPlayPause}
+              title={isPlaying ? 'Пауза (Пробел)' : 'Воспроизведение (Пробел)'}
+              className="w-10 h-10 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-transform duration-150 cursor-pointer"
+            >
+              {isPlaying ? (
+                <Pause className="w-5 h-5 fill-current" />
+              ) : (
+                <Play className="w-5 h-5 fill-current ml-0.5" />
+              )}
+            </button>
+
+            {/* Next */}
+            <button
+              onClick={onNext}
+              title="Следующий трек (Ctrl + Стрелка вправо)"
+              className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer"
+            >
+              <SkipForward className="w-4 h-4 fill-current" />
+            </button>
+
+            {/* Repeat */}
+            <button
+              onClick={onToggleRepeat}
+              title={`Повтор [R]: ${repeatMode === 'off' ? 'Откл' : repeatMode === 'all' ? 'Все' : 'Один'}`}
+              className={`p-2 rounded-full transition-colors relative cursor-pointer ${
+                repeatMode !== 'off' ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
+              }`}
+            >
+              {repeatMode === 'one' ? <Repeat1 className="w-4 h-4" /> : <Repeat className="w-4 h-4" />}
+              {repeatMode !== 'off' && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-md3-primary" />}
+            </button>
           </div>
 
-          {/* Remaining Negative Time (Right) */}
-          <span className="text-[11px] font-mono text-md3-on-surface-variant/80 shrink-0 w-12 text-left">
-            -{formatTime(remainingTime)}
-          </span>
+          {/* Timeline Row: time progress scrubber */}
+          <div className="w-full flex items-center gap-2">
+            {/* Current Time (Left) */}
+            <span className="text-[11px] font-mono text-md3-on-surface-variant/80 shrink-0 w-11 text-right">
+              {formatTime(effectiveDisplayTime)}
+            </span>
+
+            {/* Timeline Scrubber Bar (Middle) */}
+            <div 
+              ref={progressBarRef}
+              onPointerDown={handleProgressBarPointerDown}
+              onPointerMove={handleProgressBarPointerMove}
+              onPointerUp={handleProgressBarPointerUp}
+              onPointerCancel={handleProgressBarPointerCancel}
+              onMouseLeave={() => { if (!isScrubbingRef.current) setHoverSeekTime(null); }}
+              title="Перемотка [← / → на 5 сек]"
+              className={`flex-1 ${isScrubbing ? 'h-2.5' : 'h-1.5 hover:h-2.5'} rounded-full bg-md3-surface-container-highest cursor-pointer transition-all duration-150 relative group touch-none`}
+            >
+              {/* Progress Fill */}
+              <div 
+                className="h-full bg-md3-primary rounded-full relative"
+                style={{ width: `${progressPercent}%`, maxWidth: '100%' }}
+              >
+                {/* Scrubber Thumb */}
+                <div className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 rounded-full bg-md3-primary shadow-md ring-2 ring-md3-on-primary ${isScrubbing ? 'opacity-100 scale-125' : 'opacity-0 group-hover:opacity-100'} transition-all`} />
+              </div>
+
+              {/* Hover preview tooltip */}
+              {hoverSeekTime !== null && (
+                <div 
+                  className="absolute -top-7 -translate-x-1/2 px-2 py-0.5 rounded-lg bg-md3-surface-container-highest text-md3-on-surface text-[11px] font-mono shadow-xl border border-md3-outline-variant/20 pointer-events-none"
+                  style={{ left: `${hoverSeekPos}px` }}
+                >
+                  {formatTime(hoverSeekTime)}
+                </div>
+              )}
+            </div>
+
+            {/* Remaining Negative Time (Right) */}
+            <span className="text-[11px] font-mono text-md3-on-surface-variant/80 shrink-0 w-12 text-left">
+              -{formatTime(remainingTime)}
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Right: Visualizer, Volume, Panels Pill (Lyrics + Queue) */}
-      <div className="flex items-center justify-end gap-3 w-1/4 min-w-[260px] max-w-xs shrink-0">
+      <div className="z-20 relative flex items-center justify-end gap-2 sm:gap-3 shrink-0 ml-auto">
         {/* Animated Spectrum Visualizer */}
         <div 
           className="hidden xl:flex items-end gap-1 h-5 px-1 py-0.5 pointer-events-none opacity-80 shrink-0"
@@ -380,7 +382,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             value={isMuted ? 0 : volume}
             onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
             title={`Громкость: ${Math.round(volume * 100)}% [↑/↓]`}
-            className="w-20 lg:w-24 accent-md3-primary h-1.5 rounded-full bg-md3-surface-container-highest cursor-pointer"
+            className="w-16 sm:w-20 lg:w-24 accent-md3-primary h-1.5 rounded-full bg-md3-surface-container-highest cursor-pointer"
           />
         </div>
 

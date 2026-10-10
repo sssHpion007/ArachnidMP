@@ -101,7 +101,7 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-150 select-none cursor-pointer"
     >
       <div
-        className="w-full max-w-lg bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 cursor-default"
+        className="w-full max-w-xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 cursor-default"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -130,28 +130,42 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
 
         {/* Content Body */}
         <div className="p-6 overflow-y-auto custom-scrollbar space-y-4">
-          {/* Top Banner: Cover & Titles */}
-          <div className="flex items-center gap-4 p-4 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/15">
-            <div className="w-24 h-24 rounded-2xl overflow-hidden bg-md3-surface-container-high shadow-md shrink-0 border border-md3-outline-variant/15 relative">
+          {/* Top Banner: Large Cover & Metadata Beside It */}
+          <div className="flex flex-col sm:flex-row items-center sm:items-stretch gap-5 p-5 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/15">
+            {/* Large Cover Art */}
+            <div className="w-36 h-36 sm:w-44 sm:h-44 rounded-2xl overflow-hidden bg-md3-surface-container-high shadow-lg shrink-0 border border-md3-outline-variant/15 relative">
               {track.coverArt ? (
                 <img src={track.coverArt} alt={track.title} className="w-full h-full object-cover" />
               ) : (
-                <div className="w-full h-full flex items-center justify-center bg-md3-primary/10 text-md3-primary">
-                  <Disc3 className="w-10 h-10" />
+                <div className="w-full h-full flex flex-col items-center justify-center bg-md3-primary/10 text-md3-primary gap-2">
+                  <Disc3 className="w-12 h-12" />
+                  <span className="text-[11px] font-semibold opacity-70">Нет обложки</span>
                 </div>
               )}
             </div>
 
-            <div className="min-w-0 flex-1">
-              <h3 className="text-base font-extrabold text-md3-on-surface truncate">
-                {track.title}
-              </h3>
-              <p className="text-sm font-semibold text-md3-primary truncate mt-0.5">
-                {track.artist}
-              </p>
-              <p className="text-xs text-md3-on-surface-variant truncate mt-1">
-                {track.album || 'Без альбома'}
-              </p>
+            {/* Metadata Beside Cover */}
+            <div className="min-w-0 flex-1 flex flex-col justify-center space-y-2 text-center sm:text-left">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-md3-primary/80">Название</span>
+                <h3 className="text-lg sm:text-xl font-black text-md3-on-surface line-clamp-2 leading-tight mt-0.5">
+                  {track.title}
+                </h3>
+              </div>
+
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-md3-on-surface-variant/70">Исполнитель</span>
+                <p className="text-sm sm:text-base font-bold text-md3-primary truncate mt-0.5">
+                  {track.artist || 'Неизвестный исполнитель'}
+                </p>
+              </div>
+
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-md3-on-surface-variant/70">Альбом</span>
+                <p className="text-xs sm:text-sm text-md3-on-surface-variant truncate font-medium mt-0.5">
+                  {track.album || 'Без альбома'}
+                </p>
+              </div>
             </div>
           </div>
 
@@ -277,44 +291,60 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
           {track.path && (
             <div className="p-3.5 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/10 space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-xs font-semibold text-md3-on-surface-variant">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-md3-on-surface-variant select-none">
                   <Folder className="w-3.5 h-3.5 text-md3-primary" />
                   Путь к файлу на диске
                 </span>
                 <button
                   onClick={handleOpenLocation}
                   title="Открыть содержащую папку в проводнике"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-surface-container hover:bg-md3-surface-container-high text-xs font-semibold text-md3-primary border border-md3-outline-variant/20 shadow-xs hover:scale-102 active:scale-95 transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-surface-container hover:bg-md3-surface-container-high text-xs font-semibold text-md3-primary border border-md3-outline-variant/20 shadow-xs hover:scale-102 active:scale-95 transition-all cursor-pointer select-none"
                 >
                   <FolderOpen className="w-3.5 h-3.5" />
                   <span>Открыть в папке</span>
                 </button>
               </div>
 
-              {/* Clickable Path Row with automatic copy and visual feedback */}
+              {/* Clickable Path Row (acts 100% as a button, no blue selection, no redundant "Скопировать" text) */}
               <div
                 onClick={handleCopyPath}
-                title={copiedPath ? 'Путь скопирован!' : 'Нажмите, чтобы скопировать путь в буфер обмена'}
-                className="group relative flex items-center justify-between gap-2.5 p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15 hover:border-md3-primary/40 hover:bg-md3-surface-container/60 transition-all cursor-pointer"
+                title={copiedPath ? 'Путь скопирован!' : 'Нажмите, чтобы скопировать путь'}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleCopyPath();
+                  }
+                }}
+                className={`group relative flex items-center justify-between gap-3 p-3 rounded-xl bg-md3-surface border transition-all cursor-pointer select-none ${
+                  copiedPath
+                    ? 'border-emerald-500/40 bg-emerald-500/5 ring-1 ring-emerald-500/30'
+                    : 'border-md3-outline-variant/15 hover:border-md3-primary/40 hover:bg-md3-surface-container/60'
+                }`}
+                style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
               >
-                <p className="text-xs font-mono text-md3-on-surface break-all min-w-0 select-all group-hover:text-md3-primary transition-colors">
+                <p 
+                  className="text-xs font-mono text-md3-on-surface break-all min-w-0 select-none group-hover:text-md3-primary transition-colors pointer-events-none"
+                  style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
+                >
                   {track.path}
                 </p>
-                <div className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-all ${
-                  copiedPath 
-                    ? 'bg-emerald-500/15 text-emerald-500' 
-                    : 'bg-md3-surface-container text-md3-on-surface-variant group-hover:text-md3-primary group-hover:bg-md3-primary/10'
-                }`}>
+                <div 
+                  className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-all select-none ${
+                    copiedPath 
+                      ? 'bg-emerald-500/15 text-emerald-500 font-semibold' 
+                      : 'text-md3-on-surface-variant/40 group-hover:text-md3-primary'
+                  }`}
+                  style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
+                >
                   {copiedPath ? (
                     <>
-                      <Check className="w-3.5 h-3.5 text-emerald-500 stroke-[2.5]" />
-                      <span className="text-[10px]">Скопировано</span>
+                      <Check className="w-4 h-4 text-emerald-500 stroke-[2.5]" />
+                      <span className="text-[11px] font-bold">Скопировано</span>
                     </>
                   ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span className="text-[10px] hidden sm:inline">Скопировать</span>
-                    </>
+                    <Copy className="w-4 h-4 transition-transform group-hover:scale-110" />
                   )}
                 </div>
               </div>
