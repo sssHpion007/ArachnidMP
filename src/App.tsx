@@ -491,7 +491,13 @@ export const App: React.FC = () => {
     };
 
     const timer = setTimeout(checkUpdates, 2000);
-    return () => clearTimeout(timer);
+    const ONE_HOUR = 60 * 60 * 1000;
+    const interval = setInterval(checkUpdates, ONE_HOUR);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
   }, []);
 
   // Native Tauri Desktop Drag-and-Drop
@@ -787,6 +793,19 @@ export const App: React.FC = () => {
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // 1. Universal Search Hotkey: Ctrl + F (or Cmd + F)
+      // Disables native browser search dialog and activates player search bar
+      if ((e.code === 'KeyF' || e.key.toLowerCase() === 'f' || e.key.toLowerCase() === 'а') && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        const searchInput = document.querySelector('input[data-search-input="true"]') as HTMLInputElement;
+        if (searchInput) {
+          searchInput.focus();
+          searchInput.select();
+        }
+        return;
+      }
+
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 

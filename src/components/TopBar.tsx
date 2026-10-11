@@ -93,10 +93,11 @@ export const TopBar: React.FC<TopBarProps> = ({
             <Search className="w-3.5 h-3.5" />
           </div>
           <input
+            data-search-input="true"
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder={searchPlaceholder || (isSuperCompact ? (language === 'ru' ? 'Поиск...' : 'Search...') : `${language === 'ru' ? 'Поиск' : 'Search'} (${totalTracksCount})...`)}
+            placeholder={searchPlaceholder || (isSuperCompact ? (language === 'ru' ? 'Поиск (Ctrl+F)...' : 'Search (Ctrl+F)...') : `${language === 'ru' ? 'Поиск' : 'Search'} (${totalTracksCount})...`)}
             className="w-full h-full bg-transparent text-xs text-md3-on-surface placeholder-md3-on-surface-variant/50 border-none outline-none transition-all truncate pr-5"
           />
           {searchQuery && (

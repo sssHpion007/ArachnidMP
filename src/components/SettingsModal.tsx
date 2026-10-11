@@ -149,7 +149,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isLangCurtainOpen, setIsLangCurtainOpen] = useState<boolean>(false);
 
   // App version & Update checker state
-  const [appVersion, setAppVersion] = useState<string>('0.3.53');
+  const [appVersion, setAppVersion] = useState<string>('0.3.54');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'installing' | 'error'>('idle');
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [downloadStats, setDownloadStats] = useState<{ received: string; total: string }>({ received: '0', total: '0' });
@@ -580,7 +580,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
                   <span className="text-md3-on-surface-variant">{t.shortcuts.search}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    F / Ctrl + F
+                    Ctrl + F
                   </kbd>
                 </div>
 
