@@ -539,46 +539,47 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
         // Read existing metadata to preserve fields not modified in updates
         let parse_opts = ParseOptions::new().parsing_mode(ParsingMode::Relaxed);
         let existing_tagged = Probe::open(file_path).and_then(|p| p.options(parse_opts).read()).ok();
+        let existing_tag = existing_tagged.as_ref().and_then(|tf| tf.primary_tag().or_else(|| tf.first_tag()));
 
         let title = updates.title.clone()
-            .or_else(|| existing_tagged.as_ref().and_then(|t| t.title().map(|s| s.to_string())))
+            .or_else(|| existing_tag.and_then(|t| t.title().map(|s| s.to_string())))
             .or_else(|| file_path.file_stem().and_then(|s| s.to_str()).map(|s| s.to_string()));
 
         let artist = updates.artist.clone()
-            .or_else(|| existing_tagged.as_ref().and_then(|t| t.artist().map(|s| s.to_string())));
+            .or_else(|| existing_tag.and_then(|t| t.artist().map(|s| s.to_string())));
 
         let album = updates.album.clone()
-            .or_else(|| existing_tagged.as_ref().and_then(|t| t.album().map(|s| s.to_string())));
+            .or_else(|| existing_tag.and_then(|t| t.album().map(|s| s.to_string())));
 
         let genre = updates.genre.clone()
-            .or_else(|| existing_tagged.as_ref().and_then(|t| t.genre().map(|s| s.to_string())));
+            .or_else(|| existing_tag.and_then(|t| t.genre().map(|s| s.to_string())));
 
         let year = updates.year
-            .or_else(|| existing_tagged.as_ref().and_then(|t| t.year()));
+            .or_else(|| existing_tag.and_then(|t| t.year()));
 
         let track_number = updates.track_number
-            .or_else(|| existing_tagged.as_ref().and_then(|t| t.track()));
+            .or_else(|| existing_tag.and_then(|t| t.track()));
 
         let track_total = updates.track_total
-            .or_else(|| existing_tagged.as_ref().and_then(|t| t.track_total()));
+            .or_else(|| existing_tag.and_then(|t| t.track_total()));
 
         let composer = updates.composer.clone()
-            .or_else(|| existing_tagged.as_ref().and_then(|t| t.get_string(&ItemKey::Composer).map(|s| s.to_string())));
+            .or_else(|| existing_tag.and_then(|t| t.get_string(&ItemKey::Composer).map(|s| s.to_string())));
 
         let content_group = updates.content_group.clone()
-            .or_else(|| existing_tagged.as_ref().and_then(|t| t.get_string(&ItemKey::ContentGroup).map(|s| s.to_string())));
+            .or_else(|| existing_tag.and_then(|t| t.get_string(&ItemKey::ContentGroup).map(|s| s.to_string())));
 
         let comment = updates.comment.clone()
-            .or_else(|| existing_tagged.as_ref().and_then(|t| t.comment().map(|s| s.to_string())));
+            .or_else(|| existing_tag.and_then(|t| t.comment().map(|s| s.to_string())));
 
         let conductor = updates.conductor.clone()
-            .or_else(|| existing_tagged.as_ref().and_then(|t| t.get_string(&ItemKey::Conductor).map(|s| s.to_string())));
+            .or_else(|| existing_tag.and_then(|t| t.get_string(&ItemKey::Conductor).map(|s| s.to_string())));
 
         let lyricist = updates.lyricist.clone()
-            .or_else(|| existing_tagged.as_ref().and_then(|t| t.get_string(&ItemKey::Lyricist).map(|s| s.to_string())));
+            .or_else(|| existing_tag.and_then(|t| t.get_string(&ItemKey::Lyricist).map(|s| s.to_string())));
 
         let lyrics = updates.lyrics.clone()
-            .or_else(|| existing_tagged.as_ref().and_then(|t| t.get_string(&ItemKey::Lyrics).map(|s| s.to_string())));
+            .or_else(|| existing_tag.and_then(|t| t.get_string(&ItemKey::Lyrics).map(|s| s.to_string())));
 
         // Determine cover art
         let (cover_bytes, cover_mime): (Option<Vec<u8>>, String) = if let Some(ref cover_art_data) = updates.cover_art {
@@ -619,7 +620,7 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
             }
         } else {
             // Cover not modified: keep existing picture if any
-            if let Some(pic) = existing_tagged.as_ref().and_then(|t| t.pictures().first()) {
+            if let Some(pic) = existing_tag.and_then(|t| t.pictures().first()) {
                 let mime = pic.mime_type().as_deref().unwrap_or("image/jpeg").to_string();
                 (Some(pic.data().to_vec()), mime)
             } else {

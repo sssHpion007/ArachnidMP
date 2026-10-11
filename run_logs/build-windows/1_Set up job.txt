@@ -1,0 +1,35 @@
+﻿2026-10-11T09:13:20.6954185Z Current runner version: '2.337.0'
+2026-10-11T09:13:20.7024147Z ##[group]Runner Image Provisioner
+2026-10-11T09:13:20.7025219Z Hosted Compute Agent
+2026-10-11T09:13:20.7025925Z Version: 20260901.588
+2026-10-11T09:13:20.7026610Z Commit: f88ec8081b781fac6c440065ac7ff9e710ce3d0b
+2026-10-11T09:13:20.7027413Z Build Date: 2026-09-01T19:56:44Z
+2026-10-11T09:13:20.7028870Z Worker ID: {d2660c40-ad03-423b-a80f-14256f67270c}
+2026-10-11T09:13:20.7030071Z Azure Region: centralus
+2026-10-11T09:13:20.7030749Z ##[endgroup]
+2026-10-11T09:13:20.7032445Z ##[group]Operating System
+2026-10-11T09:13:20.7033864Z Microsoft Windows Server 2025
+2026-10-11T09:13:20.7034776Z 10.0.26100
+2026-10-11T09:13:20.7035359Z Datacenter
+2026-10-11T09:13:20.7035938Z ##[endgroup]
+2026-10-11T09:13:20.7036591Z ##[group]Runner Image
+2026-10-11T09:13:20.7037264Z Image: windows-2025-vs2026
+2026-10-11T09:13:20.7037885Z Version: 20260925.250.1
+2026-10-11T09:13:20.7039895Z Included Software: https://github.com/actions/runner-images/blob/win25-vs2026/20260925.250/images/windows/Windows2025-VS2026-Readme.md
+2026-10-11T09:13:20.7042785Z Image Release: https://github.com/actions/runner-images/releases/tag/win25-vs2026%2F20260925.250
+2026-10-11T09:13:20.7043935Z ##[endgroup]
+2026-10-11T09:13:20.7045844Z ##[group]GITHUB_TOKEN Permissions
+2026-10-11T09:13:20.7048281Z Contents: write
+2026-10-11T09:13:20.7048979Z Metadata: read
+2026-10-11T09:13:20.7049654Z ##[endgroup]
+2026-10-11T09:13:20.7051997Z Secret source: Actions
+2026-10-11T09:13:20.7053916Z Cache mode: write
+2026-10-11T09:13:20.7054859Z Prepare workflow directory
+2026-10-11T09:13:20.7478230Z Prepare all required actions
+2026-10-11T09:13:20.7545495Z Getting action download info
+2026-10-11T09:13:20.9760731Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-10-11T09:13:21.0833723Z Download action repository 'actions/setup-node@v4' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+2026-10-11T09:13:21.2146336Z Download action repository 'dtolnay/rust-toolchain@stable' (SHA:686976e191b89faba57d3206551f0f330d8cb249)
+2026-10-11T09:13:21.3744590Z Download action repository 'swatinem/rust-cache@v2' (SHA:6323deb102c322ba6fcbdcafc7e3dddab59af2b6)
+2026-10-11T09:13:21.7890137Z Download action repository 'softprops/action-gh-release@v2' (SHA:3bb12739c298aeb8a4eeaf626c5b8d85266b0e65)
+2026-10-11T09:13:22.2643875Z Complete job name: build-windows

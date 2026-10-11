@@ -1,0 +1,28 @@
+﻿2026-10-11T09:14:10.4437582Z ##[group]Run npm run build
+2026-10-11T09:14:10.4438096Z [36;1mnpm run build[0m
+2026-10-11T09:14:10.4497007Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-10-11T09:14:10.4497394Z env:
+2026-10-11T09:14:10.4497627Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2026-10-11T09:14:10.4497890Z   CARGO_INCREMENTAL: 0
+2026-10-11T09:14:10.4498172Z   CARGO_TERM_COLOR: always
+2026-10-11T09:14:10.4498399Z   CACHE_ON_FAILURE: false
+2026-10-11T09:14:10.4498598Z ##[endgroup]
+2026-10-11T09:14:10.9826298Z 
+2026-10-11T09:14:10.9826984Z > arachnid@0.3.74 build
+2026-10-11T09:14:10.9827287Z > tsc && vite build
+2026-10-11T09:14:10.9827422Z 
+2026-10-11T09:14:15.3524330Z [36mvite v5.4.21 [32mbuilding for production...[36m[39m
+2026-10-11T09:14:15.7367817Z transforming...
+2026-10-11T09:14:19.8320936Z [32m✓[39m 2307 modules transformed.
+2026-10-11T09:14:19.9318613Z node_modules/file-type/core.js (1419:16): Use of eval in "node_modules/file-type/core.js" is strongly discouraged as it poses security risks and may cause issues with minification.
+2026-10-11T09:14:20.2140734Z rendering chunks...
+2026-10-11T09:14:20.2262260Z computing gzip size...
+2026-10-11T09:14:20.2488677Z [2mdist/[22m[32mindex.html                 [39m[1m[2m    1.69 kB[22m[1m[22m[2m │ gzip:   0.81 kB[22m
+2026-10-11T09:14:20.2490103Z [2mdist/[22m[35massets/index-CKMLaGV3.css  [39m[1m[2m   58.24 kB[22m[1m[22m[2m │ gzip:   9.58 kB[22m
+2026-10-11T09:14:20.2491135Z [33m
+2026-10-11T09:14:20.2491464Z (!) Some chunks are larger than 500 kB after minification. Consider:
+2026-10-11T09:14:20.2491848Z - Using dynamic import() to code-split the application
+2026-10-11T09:14:20.2492473Z - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+2026-10-11T09:14:20.2493183Z - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+2026-10-11T09:14:20.2493907Z [2mdist/[22m[36massets/index-BuZCYmKT.js   [39m[1m[33m1,012.99 kB[39m[22m[2m │ gzip: 256.65 kB[22m
+2026-10-11T09:14:20.2495000Z [32m✓ built in 4.87s[39m

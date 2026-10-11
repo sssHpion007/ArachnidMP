@@ -1,0 +1,49 @@
+﻿2026-10-11T09:13:59.3487064Z ##[group]Run swatinem/rust-cache@v2
+2026-10-11T09:13:59.3487561Z with:
+2026-10-11T09:13:59.3487818Z   workspaces: ./src-tauri -> target
+2026-10-11T09:13:59.3488102Z   prefix-key: v0-rust
+2026-10-11T09:13:59.3488381Z   add-job-id-key: true
+2026-10-11T09:13:59.3488664Z   add-rust-environment-hash-key: true
+2026-10-11T09:13:59.3488999Z   cache-targets: true
+2026-10-11T09:13:59.3489258Z   cache-all-crates: false
+2026-10-11T09:13:59.3489523Z   cache-workspace-crates: false
+2026-10-11T09:13:59.3490073Z   save-if: true
+2026-10-11T09:13:59.3490432Z   cache-provider: github
+2026-10-11T09:13:59.3490860Z   cache-bin: true
+2026-10-11T09:13:59.3491103Z   lookup-only: false
+2026-10-11T09:13:59.3491337Z   cmd-format: {0}
+2026-10-11T09:13:59.3491589Z env:
+2026-10-11T09:13:59.3491838Z   CARGO_HOME: C:\Users\runneradmin\.cargo
+2026-10-11T09:13:59.3492132Z   CARGO_INCREMENTAL: 0
+2026-10-11T09:13:59.3492398Z   CARGO_TERM_COLOR: always
+2026-10-11T09:13:59.3492656Z ##[endgroup]
+2026-10-11T09:14:00.4674990Z ##[group]Cache Configuration
+2026-10-11T09:14:00.4676159Z Cache Provider:
+2026-10-11T09:14:00.4676560Z     github
+2026-10-11T09:14:00.4676958Z Workspaces:
+2026-10-11T09:14:00.4677402Z     D:\a\ArachnidMP\ArachnidMP\src-tauri
+2026-10-11T09:14:00.4677819Z Cache Paths:
+2026-10-11T09:14:00.4678634Z     C:\Users\runneradmin\.cargo\bin
+2026-10-11T09:14:00.4679204Z     C:\Users\runneradmin\.cargo\.crates.toml
+2026-10-11T09:14:00.4680072Z     C:\Users\runneradmin\.cargo\.crates2.json
+2026-10-11T09:14:00.4680730Z     C:\Users\runneradmin\.cargo\registry
+2026-10-11T09:14:00.4681298Z     C:\Users\runneradmin\.cargo\git
+2026-10-11T09:14:00.4681751Z     D:\a\ArachnidMP\ArachnidMP\src-tauri\target
+2026-10-11T09:14:00.4682271Z Restore Key:
+2026-10-11T09:14:00.4682741Z     v0-rust-build-windows-Windows_NT-x64-63f58d45
+2026-10-11T09:14:00.4683198Z Cache Key:
+2026-10-11T09:14:00.4683624Z     v0-rust-build-windows-Windows_NT-x64-63f58d45-2d984f52
+2026-10-11T09:14:00.4684103Z .. Prefix:
+2026-10-11T09:14:00.4684507Z   - v0-rust-build-windows-Windows_NT-x64
+2026-10-11T09:14:00.4685007Z .. Environment considered:
+2026-10-11T09:14:00.4685456Z   - Rust Versions:
+2026-10-11T09:14:00.4685984Z     - 1.99.0 x86_64-pc-windows-msvc b940084d7eb6a299eb4bfeb8e34901bc051e7ac4
+2026-10-11T09:14:00.4686551Z   - CARGO_HOME
+2026-10-11T09:14:00.4687333Z   - CARGO_INCREMENTAL
+2026-10-11T09:14:00.4687705Z   - CARGO_TERM_COLOR
+2026-10-11T09:14:00.4688157Z .. Lockfiles considered:
+2026-10-11T09:14:00.4688640Z   - D:\a\ArachnidMP\ArachnidMP\src-tauri\Cargo.toml
+2026-10-11T09:14:00.4689379Z ##[endgroup]
+2026-10-11T09:14:00.4689618Z 
+2026-10-11T09:14:00.4689832Z ... Restoring cache ...
+2026-10-11T09:14:00.6938982Z No cache found.
