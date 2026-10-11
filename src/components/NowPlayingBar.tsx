@@ -227,7 +227,8 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             onMouseDown={(e) => e.preventDefault()}
             onClick={onOpenFiles}
             title={language === 'ru' ? 'Добавить файлы' : 'Add Files'}
-            className="absolute -top-16 right-3 sm:right-4 w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-md3-primary text-md3-on-primary shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center cursor-pointer z-30 border border-white/15"
+            style={{ width: '56px', height: '56px', minWidth: '56px', minHeight: '56px', maxWidth: '56px', maxHeight: '56px' }}
+            className="absolute -top-16 right-3 sm:right-4 w-14 h-14 min-w-[56px] min-h-[56px] max-w-[56px] max-h-[56px] rounded-2xl bg-md3-primary text-md3-on-primary shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center cursor-pointer z-30 border border-white/15 shrink-0"
           >
             <FolderPlus className="w-6 h-6 stroke-[2.2]" />
           </button>
