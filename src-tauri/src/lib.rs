@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tauri::State;
 use base64::prelude::*;
-use lofty::config::WriteOptions;
+use lofty::config::{ParseOptions, ParsingMode, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::probe::Probe;
@@ -111,7 +111,8 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
     let mut conductor = None;
     let mut lyricist = None;
 
-    if let Ok(tagged_file) = Probe::open(path).and_then(|p| p.read()) {
+    let parse_opts = ParseOptions::new().parsing_mode(ParsingMode::Relaxed);
+    if let Ok(tagged_file) = Probe::open(path).and_then(|p| p.options(parse_opts).read()) {
         let properties = tagged_file.properties();
         duration_seconds = properties.duration().as_secs_f64();
 
@@ -316,34 +317,46 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
 
     let is_mp3 = file_path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("mp3"));
 
-    let mut tagged_file = lofty::read_from_path(file_path).map_err(|e| format!("Failed to read {}: {}", path_str, e))?;
-
-    // For MP3 files, ensure an ID3v2 tag is used/created so cover art (APIC) and full metadata are saved
-    let tag = if is_mp3 {
-        if tagged_file.tag(TagType::Id3v2).is_none() {
-            let mut new_id3v2 = Tag::new(TagType::Id3v2);
-            if let Some(existing) = tagged_file.first_tag() {
-                for item in existing.items() {
-                    new_id3v2.insert(item.clone());
+    // Attempt to read existing tags using Relaxed parsing mode to ignore minor errors.
+    // If existing tags are corrupted (e.g. invalid UTF-16 BOM from buggy external software),
+    // fallback gracefully to a clean tag instead of failing the entire write!
+    let parse_opts = ParseOptions::new().parsing_mode(ParsingMode::Relaxed);
+    let mut tag = match Probe::open(file_path).and_then(|p| p.options(parse_opts).read()) {
+        Ok(mut tagged_file) => {
+            if is_mp3 {
+                if tagged_file.tag(TagType::Id3v2).is_none() {
+                    let mut new_id3v2 = Tag::new(TagType::Id3v2);
+                    if let Some(existing) = tagged_file.first_tag() {
+                        for item in existing.items() {
+                            new_id3v2.insert(item.clone());
+                        }
+                    }
+                    tagged_file.insert_tag(new_id3v2);
                 }
-            }
-            tagged_file.insert_tag(new_id3v2);
-        }
-        tagged_file.tag_mut(TagType::Id3v2).ok_or_else(|| "Failed to access ID3v2 tag".to_string())?
-    } else {
-        match tagged_file.primary_tag_mut() {
-            Some(t) => t,
-            None => {
-                let ptype = tagged_file.primary_tag_type();
-                tagged_file.insert_tag(Tag::new(ptype));
+                tagged_file.tag_mut(TagType::Id3v2)
+                    .map(|t| t.clone())
+                    .unwrap_or_else(|| Tag::new(TagType::Id3v2))
+            } else {
                 match tagged_file.primary_tag_mut() {
-                    Some(t) => t,
-                    None => match tagged_file.first_tag_mut() {
-                        Some(t) => t,
-                        None => return Err("Failed to access or create audio tags".to_string()),
-                    },
+                    Some(t) => t.clone(),
+                    None => {
+                        let ptype = tagged_file.primary_tag_type();
+                        tagged_file.insert_tag(Tag::new(ptype));
+                        tagged_file.primary_tag_mut()
+                            .map(|t| t.clone())
+                            .unwrap_or_else(|| Tag::new(ptype))
+                    }
                 }
             }
+        }
+        Err(e) => {
+            eprintln!("Warning: existing tags in {} are corrupted ({}). Re-initializing with clean tag.", path_str, e);
+            let default_tag_type = if is_mp3 { TagType::Id3v2 } else { TagType::VorbisComments };
+            let mut fresh = Tag::new(default_tag_type);
+            if let Some(stem) = file_path.file_stem().and_then(|s| s.to_str()) {
+                fresh.set_title(stem.to_string());
+            }
+            fresh
         }
     };
 
@@ -610,19 +623,42 @@ fn save_track_lyrics(path: String, lyrics: String, lyricist: Option<String>) -> 
         return Err("File not found".to_string());
     }
 
-    let mut tagged_file = lofty::read_from_path(file_path).map_err(|e| e.to_string())?;
+    if let Ok(meta) = std::fs::metadata(file_path) {
+        let mut perms = meta.permissions();
+        if perms.readonly() {
+            perms.set_readonly(false);
+            let _ = std::fs::set_permissions(file_path, perms);
+        }
+    }
 
-    let tag = match tagged_file.primary_tag_mut() {
-        Some(t) => t,
-        None => {
-            tagged_file.insert_tag(Tag::new(tagged_file.primary_tag_type()));
-            match tagged_file.primary_tag_mut() {
-                Some(t) => t,
-                None => match tagged_file.first_tag_mut() {
-                    Some(t) => t,
-                    None => return Err("Failed to access or create audio tags".to_string()),
-                },
+    let is_mp3 = file_path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("mp3"));
+
+    let parse_opts = ParseOptions::new().parsing_mode(ParsingMode::Relaxed);
+    let mut tag = match Probe::open(file_path).and_then(|p| p.options(parse_opts).read()) {
+        Ok(mut tagged_file) => {
+            if is_mp3 {
+                if tagged_file.tag(TagType::Id3v2).is_none() {
+                    tagged_file.insert_tag(Tag::new(TagType::Id3v2));
+                }
+                tagged_file.tag_mut(TagType::Id3v2)
+                    .map(|t| t.clone())
+                    .unwrap_or_else(|| Tag::new(TagType::Id3v2))
+            } else {
+                match tagged_file.primary_tag_mut() {
+                    Some(t) => t.clone(),
+                    None => {
+                        let ptype = tagged_file.primary_tag_type();
+                        tagged_file.insert_tag(Tag::new(ptype));
+                        tagged_file.primary_tag_mut()
+                            .map(|t| t.clone())
+                            .unwrap_or_else(|| Tag::new(ptype))
+                    }
+                }
             }
+        }
+        Err(_) => {
+            let default_tag_type = if is_mp3 { TagType::Id3v2 } else { TagType::VorbisComments };
+            Tag::new(default_tag_type)
         }
     };
 
@@ -639,16 +675,6 @@ fn save_track_lyrics(path: String, lyrics: String, lyricist: Option<String>) -> 
             tag.insert_text(ItemKey::Lyricist, lyr);
         }
     }
-
-    if let Ok(meta) = std::fs::metadata(file_path) {
-        let mut perms = meta.permissions();
-        if perms.readonly() {
-            perms.set_readonly(false);
-            let _ = std::fs::set_permissions(file_path, perms);
-        }
-    }
-
-    let is_mp3 = file_path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("mp3"));
 
     let mut write_options = WriteOptions::default();
     if is_mp3 || tag.tag_type() == TagType::Id3v2 {
