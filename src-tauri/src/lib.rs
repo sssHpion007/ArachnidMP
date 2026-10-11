@@ -456,6 +456,64 @@ fn show_in_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn save_cover_image(data_url: String, default_filename: Option<String>) -> Result<Option<String>, String> {
+    let trimmed = data_url.trim();
+    let (mime, b64_clean) = if let Some(idx) = trimmed.find(";base64,") {
+        let prefix = &trimmed[..idx];
+        let mime = if prefix.starts_with("data:") {
+            &prefix[5..]
+        } else {
+            "image/jpeg"
+        };
+        (mime, &trimmed[idx + 8..])
+    } else {
+        ("image/jpeg", trimmed)
+    };
+
+    let bytes = BASE64_STANDARD
+        .decode(b64_clean.as_bytes())
+        .map_err(|e| format!("Base64 decode error: {}", e))?;
+
+    let ext = match mime {
+        "image/png" => "png",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        _ => "jpg",
+    };
+
+    let filename = match default_filename {
+        Some(name) if !name.trim().is_empty() => {
+            let clean = name.trim().replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], "_");
+            if clean.ends_with(&format!(".{}", ext)) {
+                clean
+            } else {
+                format!("{}.{}", clean, ext)
+            }
+        }
+        _ => format!("cover.{}", ext),
+    };
+
+    let mut dialog = rfd::FileDialog::new().set_file_name(&filename);
+    if ext == "png" {
+        dialog = dialog.add_filter("PNG Image (*.png)", &["png"]);
+    } else if ext == "webp" {
+        dialog = dialog.add_filter("WebP Image (*.webp)", &["webp"]);
+    } else if ext == "gif" {
+        dialog = dialog.add_filter("GIF Image (*.gif)", &["gif"]);
+    } else {
+        dialog = dialog.add_filter("JPEG Image (*.jpg;*.jpeg)", &["jpg", "jpeg"]);
+    }
+    dialog = dialog.add_filter("All Files (*.*)", &["*"]);
+
+    if let Some(dest) = dialog.save_file() {
+        std::fs::write(&dest, &bytes).map_err(|e| format!("Failed to write file: {}", e))?;
+        Ok(Some(dest.to_string_lossy().to_string()))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
 fn save_track_lyrics(path: String, lyrics: String, lyricist: Option<String>) -> Result<bool, String> {
     let file_path = Path::new(&path);
     if !file_path.is_file() {
@@ -926,7 +984,8 @@ pub fn run() {
             list_custom_themes,
             read_custom_theme,
             delete_custom_theme,
-            load_locale_file
+            load_locale_file,
+            save_cover_image
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arachnid application");

@@ -16,10 +16,12 @@ import {
   Users, 
   MessageSquare, 
   PenTool, 
-  Radio
+  Radio,
+  Download
 } from 'lucide-react';
 import { Track } from '../types/music';
 import { AppLanguage } from '../i18n';
+import { downloadCoverImage } from '../services/tagEditor';
 
 interface BatchTagEditorModalProps {
   isOpen: boolean;
@@ -278,6 +280,15 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
     setApplyCover(true);
   };
 
+  const handleDownloadCover = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!coverArtPreview) return;
+    const defaultName = firstTrack
+      ? `${firstTrack.artist || 'Artist'} - ${firstTrack.album || firstTrack.title || 'Cover'}`
+      : 'cover';
+    downloadCoverImage(coverArtPreview, defaultName);
+  };
+
   const handleAddExtraField = (key: ExtraFieldKey) => {
     setActiveExtraFields(prev => new Set([...prev, key]));
     setApplyExtraFields(prev => ({ ...prev, [key]: true }));
@@ -490,7 +501,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
               </div>
 
               {/* Cover Art Actions */}
-              <div className="flex items-center gap-2 mt-0.5">
+              <div className="flex items-center gap-1.5 mt-0.5">
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
@@ -499,14 +510,24 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                   {language === 'ru' ? 'Обзор...' : 'Browse...'}
                 </button>
                 {coverArtPreview && (
-                  <button
-                    type="button"
-                    onClick={handleRemoveCover}
-                    title={language === 'ru' ? 'Удалить обложку' : 'Remove Cover'}
-                    className="p-1.5 rounded-full text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleDownloadCover}
+                      title={language === 'ru' ? 'Скачать обложку в файл' : 'Download cover art to file'}
+                      className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-primary hover:bg-md3-surface-container-highest transition-colors cursor-pointer"
+                    >
+                      <Download className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRemoveCover}
+                      title={language === 'ru' ? 'Удалить обложку' : 'Remove Cover'}
+                      className="p-1.5 rounded-full text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </>
                 )}
               </div>
 

@@ -1,5 +1,6 @@
 import * as mm from 'music-metadata-browser';
 import { Track } from '../types/music';
+import { isTauri, invoke } from '@tauri-apps/api/core';
 
 export async function parseAudioFile(file: File): Promise<Track> {
   const fileUrl = URL.createObjectURL(file);
@@ -110,4 +111,57 @@ export function formatFileSize(bytes?: number): string {
   if (!bytes) return '--';
   const mb = bytes / (1024 * 1024);
   return `${mb.toFixed(1)} MB`;
+}
+
+export async function downloadCoverImage(coverUrl: string, defaultName?: string): Promise<boolean> {
+  if (!coverUrl) return false;
+
+  let finalDataUrl = coverUrl;
+  if (coverUrl.startsWith('blob:') || coverUrl.startsWith('http')) {
+    try {
+      const resp = await fetch(coverUrl);
+      const blob = await resp.blob();
+      finalDataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (e) {
+      console.warn('Failed to convert cover URL to data URL:', e);
+    }
+  }
+
+  const cleanName = defaultName
+    ? defaultName.replace(/[\\/:*?"<>|]/g, '_').trim()
+    : 'cover';
+
+  if (isTauri() && finalDataUrl.startsWith('data:')) {
+    try {
+      const savedPath = await invoke<string | null>('save_cover_image', {
+        dataUrl: finalDataUrl,
+        defaultFilename: cleanName,
+      });
+      if (savedPath) {
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.warn('Native save_cover_image failed, falling back to browser download:', e);
+    }
+  }
+
+  // Web fallback: <a download>
+  let ext = 'jpg';
+  if (finalDataUrl.startsWith('data:image/png')) ext = 'png';
+  else if (finalDataUrl.startsWith('data:image/webp')) ext = 'webp';
+  else if (finalDataUrl.startsWith('data:image/gif')) ext = 'gif';
+
+  const link = document.createElement('a');
+  link.href = finalDataUrl;
+  link.download = `${cleanName}.${ext}`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  return true;
 }
