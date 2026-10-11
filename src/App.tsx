@@ -468,8 +468,44 @@ export const App: React.FC = () => {
     }
   }, [currentTrack?.id, isPlaying, discordEnabled]);
 
-  // Check for updates on startup
+  // Auto-update checker preferences
+  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('arachnid_auto_update_enabled');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const [autoUpdateInterval, setAutoUpdateInterval] = useState<'startup' | '30m' | '1h'>(() => {
+    try {
+      const saved = localStorage.getItem('arachnid_auto_update_interval');
+      if (saved === 'startup' || saved === '30m' || saved === '1h') return saved;
+      return '1h';
+    } catch {
+      return '1h';
+    }
+  });
+
+  const handleSetAutoUpdateEnabled = (enabled: boolean) => {
+    setAutoUpdateEnabled(enabled);
+    try {
+      localStorage.setItem('arachnid_auto_update_enabled', String(enabled));
+    } catch {}
+  };
+
+  const handleSetAutoUpdateInterval = (interval: 'startup' | '30m' | '1h') => {
+    setAutoUpdateInterval(interval);
+    try {
+      localStorage.setItem('arachnid_auto_update_interval', interval);
+    } catch {}
+  };
+
+  // Check for updates (startup & periodic based on user settings)
   useEffect(() => {
+    if (!autoUpdateEnabled) return;
+
     const checkUpdates = async () => {
       try {
         const res = await fetch('https://api.github.com/repos/sssHpion007/ArachnidMP/releases/latest');
@@ -491,14 +527,19 @@ export const App: React.FC = () => {
     };
 
     const timer = setTimeout(checkUpdates, 2000);
-    const ONE_HOUR = 60 * 60 * 1000;
-    const interval = setInterval(checkUpdates, ONE_HOUR);
+
+    let intervalId: any = null;
+    if (autoUpdateInterval === '30m') {
+      intervalId = setInterval(checkUpdates, 30 * 60 * 1000);
+    } else if (autoUpdateInterval === '1h') {
+      intervalId = setInterval(checkUpdates, 60 * 60 * 1000);
+    }
 
     return () => {
       clearTimeout(timer);
-      clearInterval(interval);
+      if (intervalId) clearInterval(intervalId);
     };
-  }, []);
+  }, [autoUpdateEnabled, autoUpdateInterval]);
 
   // Native Tauri Desktop Drag-and-Drop
   useEffect(() => {
@@ -2484,6 +2525,10 @@ export const App: React.FC = () => {
         onSetFadeDuration={setFadeDuration}
         hasUpdate={hasUpdate}
         onUpdateFound={() => setHasUpdate(true)}
+        autoUpdateEnabled={autoUpdateEnabled}
+        onSetAutoUpdateEnabled={handleSetAutoUpdateEnabled}
+        autoUpdateInterval={autoUpdateInterval}
+        onSetAutoUpdateInterval={handleSetAutoUpdateInterval}
       />
 
       {/* Track Context Menu */}

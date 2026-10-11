@@ -601,11 +601,7 @@ async fn download_and_install_update(
         let exe_dir = current_exe
             .parent()
             .ok_or_else(|| "Cannot get executable directory".to_string())?;
-        let current_exe_name = current_exe
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("Arachnid-Portable.exe");
-        let new_exe = exe_dir.join("Arachnid-Update.new.exe");
+        let temp_update_file = exe_dir.join(".update_temp.tmp");
 
         // 1. Download via ureq with auto-redirects (bypasses browser CORS completely)
         let download_result = (|| -> Result<(), String> {
@@ -620,7 +616,7 @@ async fn download_and_install_update(
                 .unwrap_or(11_650_000);
 
             let mut reader = response.into_reader();
-            let mut file = std::fs::File::create(&new_exe)
+            let mut file = std::fs::File::create(&temp_update_file)
                 .map_err(|e| format!("Failed to create update file: {}", e))?;
 
             let mut buffer = [0u8; 65536];
@@ -661,7 +657,7 @@ async fn download_and_install_update(
             {
                 use std::process::Command;
                 let status = Command::new("curl.exe")
-                    .args(&["-L", "-f", "-s", "-S", "-o", &new_exe.to_string_lossy(), &url])
+                    .args(&["-L", "-f", "-s", "-S", "-o", &temp_update_file.to_string_lossy(), &url])
                     .status();
 
                 if status.is_err() || !status.unwrap().success() {
@@ -675,52 +671,65 @@ async fn download_and_install_update(
         }
 
         // 3. Verify downloaded file integrity
-        let meta = std::fs::metadata(&new_exe).map_err(|e| e.to_string())?;
+        let meta = std::fs::metadata(&temp_update_file).map_err(|e| e.to_string())?;
         if meta.len() < 1_000_000 {
-            let _ = std::fs::remove_file(&new_exe);
+            let _ = std::fs::remove_file(&temp_update_file);
             return Err("Downloaded update file is too small or incomplete".to_string());
         }
 
-        // 4. In-place replacement via batch script and restart
+        // 4. In-place replacement via detached PowerShell and restart
         #[cfg(target_os = "windows")]
         {
             use std::process::Command;
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
+            const DETACHED_PROCESS: u32 = 0x00000008;
 
-            let script_path = exe_dir.join("apply_update.bat");
-            let script_content = format!(
-                "@echo off\r\n\
-                chcp 65001 >nul\r\n\
-                timeout /t 1 /nobreak >nul\r\n\
-                :retry\r\n\
-                move /y \"%~dp0Arachnid-Update.new.exe\" \"%~dp0{}\" >nul 2>&1\r\n\
-                if errorlevel 1 (\r\n\
-                    timeout /t 1 /nobreak >nul\r\n\
-                    goto retry\r\n\
-                )\r\n\
-                start \"\" \"%~dp0{}\"\r\n\
-                del \"%~f0\"\r\n",
-                current_exe_name,
-                current_exe_name
+            let pid = std::process::id();
+            let target_str = current_exe.to_string_lossy().to_string();
+            let source_str = temp_update_file.to_string_lossy().to_string();
+
+            let ps_script = format!(
+                "$p = Get-Process -Id {pid} -ErrorAction SilentlyContinue; \
+                if ($p) {{ $p.WaitForExit(15000); }} \
+                Start-Sleep -Milliseconds 1000; \
+                $copied = $false; \
+                for ($i = 0; $i -lt 40; $i++) {{ \
+                    try {{ \
+                        [System.IO.File]::Copy('{source}', '{target}', $true); \
+                        $copied = $true; \
+                        break; \
+                    }} catch {{ \
+                        try {{ \
+                            Remove-Item -Path '{target}' -Force -ErrorAction Stop; \
+                            [System.IO.File]::Copy('{source}', '{target}', $true); \
+                            $copied = $true; \
+                            break; \
+                        }} catch {{ \
+                            Start-Sleep -Milliseconds 500; \
+                        }} \
+                    }} \
+                }} \
+                Remove-Item -Path '{source}' -Force -ErrorAction SilentlyContinue; \
+                if ($copied) {{ \
+                    Start-Process -FilePath '{target}'; \
+                }}",
+                pid = pid,
+                source = source_str.replace("'", "''"),
+                target = target_str.replace("'", "''")
             );
 
-            std::fs::write(&script_path, script_content)
-                .map_err(|e| format!("Failed to write update batch script: {}", e))?;
-
-            Command::new("cmd")
-                .current_dir(exe_dir)
-                .args(&["/c", "apply_update.bat"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .spawn()
-                .map_err(|e| format!("Failed to launch update batch script: {}", e))?;
+            let _ = Command::new("powershell.exe")
+                .args(&["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &ps_script])
+                .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
+                .spawn();
 
             std::process::exit(0);
         }
 
         #[cfg(not(target_os = "windows"))]
         {
-            let _ = std::fs::rename(&new_exe, &current_exe);
+            let _ = std::fs::rename(&temp_update_file, &current_exe);
             Ok(())
         }
     })
@@ -734,17 +743,13 @@ fn apply_in_place_update(base64_data: String) -> Result<(), String> {
     let exe_dir = current_exe
         .parent()
         .ok_or_else(|| "Cannot get executable directory".to_string())?;
-    let current_exe_name = current_exe
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("Arachnid-Portable.exe");
-    let new_exe = exe_dir.join("Arachnid-Update.new.exe");
+    let temp_update_file = exe_dir.join(".update_temp.tmp");
 
     let bytes = BASE64_STANDARD
         .decode(base64_data.trim())
         .map_err(|e| format!("Failed to decode base64 update data: {}", e))?;
 
-    std::fs::write(&new_exe, &bytes)
+    std::fs::write(&temp_update_file, &bytes)
         .map_err(|e| format!("Failed to write update binary: {}", e))?;
 
     #[cfg(target_os = "windows")]
@@ -752,40 +757,53 @@ fn apply_in_place_update(base64_data: String) -> Result<(), String> {
         use std::process::Command;
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
+        const DETACHED_PROCESS: u32 = 0x00000008;
 
-        let script_path = exe_dir.join("apply_update.bat");
-        let script_content = format!(
-            "@echo off\r\n\
-            chcp 65001 >nul\r\n\
-            timeout /t 1 /nobreak >nul\r\n\
-            :retry\r\n\
-            move /y \"%~dp0Arachnid-Update.new.exe\" \"%~dp0{}\" >nul 2>&1\r\n\
-            if errorlevel 1 (\r\n\
-                timeout /t 1 /nobreak >nul\r\n\
-                goto retry\r\n\
-            )\r\n\
-            start \"\" \"%~dp0{}\"\r\n\
-            del \"%~f0\"\r\n",
-            current_exe_name,
-            current_exe_name
+        let pid = std::process::id();
+        let target_str = current_exe.to_string_lossy().to_string();
+        let source_str = temp_update_file.to_string_lossy().to_string();
+
+        let ps_script = format!(
+            "$p = Get-Process -Id {pid} -ErrorAction SilentlyContinue; \
+            if ($p) {{ $p.WaitForExit(15000); }} \
+            Start-Sleep -Milliseconds 1000; \
+            $copied = $false; \
+            for ($i = 0; $i -lt 40; $i++) {{ \
+                try {{ \
+                    [System.IO.File]::Copy('{source}', '{target}', $true); \
+                    $copied = $true; \
+                    break; \
+                }} catch {{ \
+                    try {{ \
+                        Remove-Item -Path '{target}' -Force -ErrorAction Stop; \
+                        [System.IO.File]::Copy('{source}', '{target}', $true); \
+                        $copied = $true; \
+                        break; \
+                    }} catch {{ \
+                        Start-Sleep -Milliseconds 500; \
+                    }} \
+                }} \
+            }} \
+            Remove-Item -Path '{source}' -Force -ErrorAction SilentlyContinue; \
+            if ($copied) {{ \
+                Start-Process -FilePath '{target}'; \
+            }}",
+            pid = pid,
+            source = source_str.replace("'", "''"),
+            target = target_str.replace("'", "''")
         );
 
-        std::fs::write(&script_path, script_content)
-            .map_err(|e| format!("Failed to write update batch script: {}", e))?;
-
-        Command::new("cmd")
-            .current_dir(exe_dir)
-            .args(&["/c", "apply_update.bat"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-            .map_err(|e| format!("Failed to launch update batch script: {}", e))?;
+        let _ = Command::new("powershell.exe")
+            .args(&["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &ps_script])
+            .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
+            .spawn();
 
         std::process::exit(0);
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = std::fs::rename(&new_exe, &current_exe);
+        let _ = std::fs::rename(&temp_update_file, &current_exe);
         Ok(())
     }
 }

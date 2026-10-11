@@ -121,6 +121,14 @@ export interface Translations {
     failedCheckUpdates: string;
     retryCheck: string;
     releaseNotes: string;
+    autoUpdateSettings: string;
+    autoUpdateCheck: string;
+    autoUpdateEnabled: string;
+    autoUpdateDisabled: string;
+    autoUpdateInterval: string;
+    intervalStartup: string;
+    interval30m: string;
+    interval1h: string;
   };
   shortcuts: {
     playbackAndSound: string;
@@ -267,6 +275,14 @@ export const RU_TRANSLATIONS: Translations = {
     failedCheckUpdates: 'Не удалось проверить обновления',
     retryCheck: 'Повторить попытку',
     releaseNotes: 'Что нового',
+    autoUpdateSettings: 'Настройка обновлений',
+    autoUpdateCheck: 'Автопроверка обновлений',
+    autoUpdateEnabled: 'Включено',
+    autoUpdateDisabled: 'Выключено',
+    autoUpdateInterval: 'Частота проверки:',
+    intervalStartup: 'При запуске',
+    interval30m: '30 минут',
+    interval1h: '1 час',
   },
   shortcuts: {
     playbackAndSound: 'Воспроизведение и звук',
@@ -413,6 +429,14 @@ export const EN_TRANSLATIONS: Translations = {
     failedCheckUpdates: 'Failed to check for updates',
     retryCheck: 'Retry',
     releaseNotes: 'Release notes',
+    autoUpdateSettings: 'Update Settings',
+    autoUpdateCheck: 'Automatic update check',
+    autoUpdateEnabled: 'Enabled',
+    autoUpdateDisabled: 'Disabled',
+    autoUpdateInterval: 'Check frequency:',
+    intervalStartup: 'At startup',
+    interval30m: '30 minutes',
+    interval1h: '1 hour',
   },
   shortcuts: {
     playbackAndSound: 'Playback and Sound',

@@ -74,6 +74,10 @@ interface SettingsModalProps {
   onSetFadeDuration: (dur: number) => void;
   hasUpdate?: boolean;
   onUpdateFound?: () => void;
+  autoUpdateEnabled?: boolean;
+  onSetAutoUpdateEnabled?: (enabled: boolean) => void;
+  autoUpdateInterval?: 'startup' | '30m' | '1h';
+  onSetAutoUpdateInterval?: (interval: 'startup' | '30m' | '1h') => void;
 }
 
 const STANDARD_PRESETS = [
@@ -140,6 +144,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSetFadeDuration,
   hasUpdate = false,
   onUpdateFound,
+  autoUpdateEnabled = true,
+  onSetAutoUpdateEnabled,
+  autoUpdateInterval = '1h',
+  onSetAutoUpdateInterval,
 }) => {
   const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes'>('main');
   const [customThemesList, setCustomThemesList] = useState<Array<{ name: string; filename: string }>>([]);
@@ -151,9 +159,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Accordion (шторка) open/closed states
   const [isThemeCurtainOpen, setIsThemeCurtainOpen] = useState<boolean>(false);
   const [isLangCurtainOpen, setIsLangCurtainOpen] = useState<boolean>(false);
+  const [isUpdateSettingsOpen, setIsUpdateSettingsOpen] = useState<boolean>(false);
 
   // App version & Update checker state
-  const [appVersion, setAppVersion] = useState<string>('0.3.56');
+  const [appVersion, setAppVersion] = useState<string>('0.3.57');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'installing' | 'error'>('idle');
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [downloadStats, setDownloadStats] = useState<{ received: string; total: string }>({ received: '0', total: '0' });
@@ -367,6 +376,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setCurrentView('main');
+      setIsUpdateSettingsOpen(false);
       refreshCustomThemes();
     }
   }, [isOpen]);
@@ -1523,179 +1533,309 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {/* 7. About Application & Updates Card */}
             <div ref={updateSectionRef} className="pt-2">
               <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col gap-3.5">
-                <div className="flex items-center gap-4">
-                  <img
-                    src="/app-logo.png"
-                    alt="Arachnid Logo"
-                    className="w-12 h-12 rounded-2xl object-contain drop-shadow-md shrink-0"
-                  />
-                  <div className="space-y-0.5 min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-sm text-md3-on-surface">{t.settings.about}</span>
-                      <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full bg-md3-primary/10 text-md3-primary">
-                        v{appVersion}
-                      </span>
-                    </div>
-                    <p className="text-xs text-md3-on-surface-variant">
-                      {t.settings.aboutDesc}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Updates Checker Row */}
-                <div className="pt-2.5 border-t border-md3-outline-variant/15 flex flex-col gap-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs font-semibold text-md3-on-surface flex items-center gap-2">
-                      <RefreshCw className={`w-3.5 h-3.5 text-md3-primary ${updateStatus === 'checking' ? 'animate-spin' : ''}`} />
-                      <span>{t.settings.updates}</span>
-                    </div>
-
-                    <button
-                      tabIndex={-1}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={handleCheckUpdates}
-                      disabled={updateStatus === 'checking'}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold shadow-xs hover:scale-102 active:scale-95 disabled:opacity-50 disabled:scale-100 transition-all cursor-pointer outline-none focus:outline-none"
-                    >
-                      <RefreshCw className={`w-3 h-3 ${updateStatus === 'checking' ? 'animate-spin' : ''}`} />
-                      <span>{updateStatus === 'checking' ? t.settings.checkingUpdates : t.settings.checkUpdates}</span>
-                    </button>
-                  </div>
-
-                  {/* Status: Up to date */}
-                  {updateStatus === 'upToDate' && (
-                    <div className="flex items-center justify-between p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium animate-in fade-in flex-wrap gap-2">
+                {isUpdateSettingsOpen ? (
+                  /* Auto-Update Settings View inside this container */
+                  <div className="space-y-3.5 animate-in fade-in duration-200">
+                    {/* Header with return button */}
+                    <div className="flex items-center justify-between pb-2 border-b border-md3-outline-variant/15">
                       <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 shrink-0" />
-                        <span>{t.settings.latestVersionInstalled} (v{appVersion})</span>
-                      </div>
-                      <button
-                        tabIndex={-1}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={handleOpenReleaseNotes}
-                        className="flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[11px] font-bold border border-emerald-500/30 transition-all cursor-pointer outline-none focus:outline-none"
-                      >
-                        <FileText className="w-3 h-3" />
-                        <span>{t.settings.releaseNotes}</span>
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Status: Error */}
-                  {updateStatus === 'error' && (
-                    <div className="flex items-center justify-between p-2.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs animate-in fade-in">
-                      <div className="flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 shrink-0" />
-                        <span>{installError || t.settings.failedCheckUpdates}</span>
-                      </div>
-                      <button
-                        tabIndex={-1}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={handleCheckUpdates}
-                        className="text-[11px] underline font-bold cursor-pointer hover:text-red-300"
-                      >
-                        {t.settings.retryCheck}
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Status: Downloading */}
-                  {updateStatus === 'downloading' && (
-                    <div className="p-3.5 rounded-2xl bg-md3-primary/10 border border-md3-primary/30 space-y-2.5 animate-in fade-in duration-200">
-                      <div className="flex items-center justify-between text-xs font-semibold text-md3-primary">
-                        <div className="flex items-center gap-2">
-                          <Download className="w-4 h-4 animate-bounce" />
-                          <span>{t.settings.downloadingUpdate}</span>
-                        </div>
-                        <span className="font-mono text-[11px]">
-                          {downloadProgress}% {downloadStats.total !== '0' ? `(${downloadStats.received} / ${downloadStats.total} MB)` : ''}
-                        </span>
-                      </div>
-                      <div className="w-full bg-md3-surface-container-high rounded-full h-2.5 overflow-hidden p-0.5">
-                        <div
-                          className="bg-md3-primary h-full rounded-full transition-all duration-150"
-                          style={{ width: `${Math.max(4, downloadProgress)}%` }}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Status: Installing */}
-                  {updateStatus === 'installing' && (
-                    <div className="flex items-center gap-2.5 p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-xs font-semibold animate-in fade-in">
-                      <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
-                      <span>{t.settings.installingUpdate}</span>
-                    </div>
-                  )}
-
-                  {/* Status: Update Available */}
-                  {updateStatus === 'available' && latestRelease && (
-                    <div className="p-3.5 rounded-2xl bg-md3-primary/10 border border-md3-primary/30 space-y-2.5 animate-in fade-in duration-200">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                          <span className="text-xs font-bold text-md3-primary">
-                            {t.settings.updateAvailable}: {latestRelease.tagName}
-                          </span>
-                        </div>
-                        {latestRelease.publishedAt && (
-                          <span className="text-[10px] text-md3-on-surface-variant font-mono">
-                            {new Date(latestRelease.publishedAt).toLocaleDateString(language === 'ru' ? 'ru-RU' : 'en-US')}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2 pt-1 flex-wrap">
-                        {/* 1. In-place auto update & restart button */}
                         <button
                           tabIndex={-1}
                           onMouseDown={(e) => e.preventDefault()}
-                          onClick={handleInstallUpdate}
-                          className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md hover:scale-102 active:scale-95 transition-all cursor-pointer outline-none focus:outline-none"
+                          onClick={() => setIsUpdateSettingsOpen(false)}
+                          className="w-7 h-7 rounded-full bg-md3-surface hover:bg-md3-surface-container-high text-md3-primary border border-md3-outline-variant/20 flex items-center justify-center transition-all cursor-pointer outline-none focus:outline-none"
+                          title={t.settings.back}
                         >
-                          <Sparkles className="w-3.5 h-3.5" />
-                          <span>{t.settings.installUpdate}</span>
+                          <ArrowLeft className="w-4 h-4" />
                         </button>
+                        <span className="font-bold text-xs text-md3-on-surface">{t.settings.autoUpdateSettings}</span>
+                      </div>
+                      <button
+                        tabIndex={-1}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => setIsUpdateSettingsOpen(false)}
+                        className="text-[11px] font-semibold text-md3-primary hover:underline cursor-pointer"
+                      >
+                        {language === 'ru' ? 'Назад' : 'Back'}
+                      </button>
+                    </div>
 
-                        {/* 2. Direct browser link to download exe if needed */}
-                        {latestRelease.downloadUrl && (
+                    {/* Enable / Disable Auto-check Toggle Buttons */}
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-semibold text-md3-on-surface">{t.settings.autoUpdateCheck}</span>
+                      <div className="flex items-center p-1 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 gap-1">
+                        <button
+                          tabIndex={-1}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => onSetAutoUpdateEnabled?.(true)}
+                          className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                            autoUpdateEnabled
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'text-md3-on-surface-variant hover:text-md3-on-surface'
+                          }`}
+                        >
+                          {t.settings.autoUpdateEnabled}
+                        </button>
+                        <button
+                          tabIndex={-1}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => onSetAutoUpdateEnabled?.(false)}
+                          className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                            !autoUpdateEnabled
+                              ? 'bg-md3-surface-container-highest text-md3-on-surface shadow-xs'
+                              : 'text-md3-on-surface-variant hover:text-md3-on-surface'
+                          }`}
+                        >
+                          {t.settings.autoUpdateDisabled}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Slider for Auto-check Frequency */}
+                    <div className={`space-y-2 pt-1 transition-opacity ${!autoUpdateEnabled ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-md3-on-surface-variant font-medium">{t.settings.autoUpdateInterval}</span>
+                        <span className="font-bold text-md3-primary">
+                          {autoUpdateInterval === 'startup'
+                            ? t.settings.intervalStartup
+                            : autoUpdateInterval === '30m'
+                            ? t.settings.interval30m
+                            : t.settings.interval1h}
+                        </span>
+                      </div>
+
+                      <div className="px-1 space-y-1.5">
+                        <input
+                          type="range"
+                          min={0}
+                          max={2}
+                          step={1}
+                          disabled={!autoUpdateEnabled}
+                          value={autoUpdateInterval === 'startup' ? 0 : autoUpdateInterval === '30m' ? 1 : 2}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            const map: Record<number, 'startup' | '30m' | '1h'> = {
+                              0: 'startup',
+                              1: '30m',
+                              2: '1h',
+                            };
+                            onSetAutoUpdateInterval?.(map[val] || '1h');
+                          }}
+                          className="w-full h-1.5 bg-md3-surface-container-highest rounded-lg appearance-none cursor-pointer accent-md3-primary"
+                        />
+                        <div className="flex justify-between text-[10px] text-md3-on-surface-variant/70 font-medium select-none">
+                          <span
+                            className={`cursor-pointer ${autoUpdateInterval === 'startup' ? 'text-md3-primary font-bold' : ''}`}
+                            onClick={() => autoUpdateEnabled && onSetAutoUpdateInterval?.('startup')}
+                          >
+                            {t.settings.intervalStartup}
+                          </span>
+                          <span
+                            className={`cursor-pointer ${autoUpdateInterval === '30m' ? 'text-md3-primary font-bold' : ''}`}
+                            onClick={() => autoUpdateEnabled && onSetAutoUpdateInterval?.('30m')}
+                          >
+                            {t.settings.interval30m}
+                          </span>
+                          <span
+                            className={`cursor-pointer ${autoUpdateInterval === '1h' ? 'text-md3-primary font-bold' : ''}`}
+                            onClick={() => autoUpdateEnabled && onSetAutoUpdateInterval?.('1h')}
+                          >
+                            {t.settings.interval1h}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Standard About Application & Updates View */
+                  <>
+                    <div className="flex items-center gap-4">
+                      <img
+                        src="/app-logo.png"
+                        alt="Arachnid Logo"
+                        className="w-12 h-12 rounded-2xl object-contain drop-shadow-md shrink-0"
+                      />
+                      <div className="space-y-0.5 min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-md3-on-surface">{t.settings.about}</span>
+                          <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full bg-md3-primary/10 text-md3-primary">
+                            v{appVersion}
+                          </span>
+                        </div>
+                        <p className="text-xs text-md3-on-surface-variant">
+                          {t.settings.aboutDesc}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Updates Checker Row */}
+                    <div className="pt-2.5 border-t border-md3-outline-variant/15 flex flex-col gap-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-md3-on-surface flex items-center gap-2">
+                          <RefreshCw className={`w-3.5 h-3.5 text-md3-primary ${updateStatus === 'checking' ? 'animate-spin' : ''}`} />
+                          <span>{t.settings.updates}</span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
                           <button
                             tabIndex={-1}
                             onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => handleDownloadUpdate(latestRelease.downloadUrl!)}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-md3-surface-container hover:bg-md3-surface-container-high text-md3-on-surface text-xs font-medium border border-md3-outline-variant/20 transition-all cursor-pointer outline-none focus:outline-none"
-                            title={t.settings.downloadAsset}
+                            onClick={handleCheckUpdates}
+                            disabled={updateStatus === 'checking'}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold shadow-xs hover:scale-102 active:scale-95 disabled:opacity-50 disabled:scale-100 transition-all cursor-pointer outline-none focus:outline-none"
                           >
-                            <Download className="w-3.5 h-3.5 text-md3-primary" />
-                            <span>{t.settings.downloadAsset}</span>
+                            <RefreshCw className={`w-3 h-3 ${updateStatus === 'checking' ? 'animate-spin' : ''}`} />
+                            <span>{updateStatus === 'checking' ? t.settings.checkingUpdates : t.settings.checkUpdates}</span>
                           </button>
-                        )}
 
-                        {/* 3. GitHub Release page link */}
-                        <button
-                          tabIndex={-1}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => handleDownloadUpdate(latestRelease.htmlUrl)}
-                          className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-md3-surface-container hover:bg-md3-surface-container-high text-md3-on-surface text-xs font-medium border border-md3-outline-variant/20 transition-all cursor-pointer outline-none focus:outline-none"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5 text-md3-primary" />
-                          <span>GitHub</span>
-                        </button>
-
-                        {/* 4. Open formatted Release Notes sub-view */}
-                        <button
-                          tabIndex={-1}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={handleOpenReleaseNotes}
-                          className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-md3-primary/15 hover:bg-md3-primary/25 text-md3-primary text-xs font-semibold border border-md3-primary/30 transition-all cursor-pointer outline-none focus:outline-none"
-                        >
-                          <FileText className="w-3.5 h-3.5" />
-                          <span>{t.settings.releaseNotes}</span>
-                        </button>
+                          <button
+                            tabIndex={-1}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => setIsUpdateSettingsOpen(true)}
+                            className="p-1.5 rounded-full bg-md3-surface hover:bg-md3-surface-container-high text-md3-on-surface-variant hover:text-md3-primary border border-md3-outline-variant/20 hover:border-md3-primary/30 transition-all cursor-pointer shadow-xs outline-none focus:outline-none"
+                            title={t.settings.autoUpdateSettings}
+                          >
+                            <Settings className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
+
+                      {/* Status: Up to date */}
+                      {updateStatus === 'upToDate' && (
+                        <div className="flex items-center justify-between p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium animate-in fade-in flex-wrap gap-2">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="w-4 h-4 shrink-0" />
+                            <span>{t.settings.latestVersionInstalled} (v{appVersion})</span>
+                          </div>
+                          <button
+                            tabIndex={-1}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={handleOpenReleaseNotes}
+                            className="flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[11px] font-bold border border-emerald-500/30 transition-all cursor-pointer outline-none focus:outline-none"
+                          >
+                            <FileText className="w-3 h-3" />
+                            <span>{t.settings.releaseNotes}</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Status: Error */}
+                      {updateStatus === 'error' && (
+                        <div className="flex items-center justify-between p-2.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs animate-in fade-in">
+                          <div className="flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4 shrink-0" />
+                            <span>{installError || t.settings.failedCheckUpdates}</span>
+                          </div>
+                          <button
+                            tabIndex={-1}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={handleCheckUpdates}
+                            className="text-[11px] underline font-bold cursor-pointer hover:text-red-300"
+                          >
+                            {t.settings.retryCheck}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Status: Downloading */}
+                      {updateStatus === 'downloading' && (
+                        <div className="p-3.5 rounded-2xl bg-md3-primary/10 border border-md3-primary/30 space-y-2.5 animate-in fade-in duration-200">
+                          <div className="flex items-center justify-between text-xs font-semibold text-md3-primary">
+                            <div className="flex items-center gap-2">
+                              <Download className="w-4 h-4 animate-bounce" />
+                              <span>{t.settings.downloadingUpdate}</span>
+                            </div>
+                            <span className="font-mono text-[11px]">
+                              {downloadProgress}% {downloadStats.total !== '0' ? `(${downloadStats.received} / ${downloadStats.total} MB)` : ''}
+                            </span>
+                          </div>
+                          <div className="w-full bg-md3-surface-container-high rounded-full h-2.5 overflow-hidden p-0.5">
+                            <div
+                              className="bg-md3-primary h-full rounded-full transition-all duration-150"
+                              style={{ width: `${Math.max(4, downloadProgress)}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Status: Installing */}
+                      {updateStatus === 'installing' && (
+                        <div className="flex items-center gap-2.5 p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-xs font-semibold animate-in fade-in">
+                          <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+                          <span>{t.settings.installingUpdate}</span>
+                        </div>
+                      )}
+
+                      {/* Status: Update Available */}
+                      {updateStatus === 'available' && latestRelease && (
+                        <div className="p-3.5 rounded-2xl bg-md3-primary/10 border border-md3-primary/30 space-y-2.5 animate-in fade-in duration-200">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                              <span className="text-xs font-bold text-md3-primary">
+                                {t.settings.updateAvailable}: {latestRelease.tagName}
+                              </span>
+                            </div>
+                            {latestRelease.publishedAt && (
+                              <span className="text-[10px] text-md3-on-surface-variant font-mono">
+                                {new Date(latestRelease.publishedAt).toLocaleDateString(language === 'ru' ? 'ru-RU' : 'en-US')}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 pt-1 flex-wrap">
+                            {/* 1. In-place auto update & restart button */}
+                            <button
+                              tabIndex={-1}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={handleInstallUpdate}
+                              className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md hover:scale-102 active:scale-95 transition-all cursor-pointer outline-none focus:outline-none"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              <span>{t.settings.installUpdate}</span>
+                            </button>
+
+                            {/* 2. Direct browser link to download exe if needed */}
+                            {latestRelease.downloadUrl && (
+                              <button
+                                tabIndex={-1}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => handleDownloadUpdate(latestRelease.downloadUrl!)}
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-md3-surface-container hover:bg-md3-surface-container-high text-md3-on-surface text-xs font-medium border border-md3-outline-variant/20 transition-all cursor-pointer outline-none focus:outline-none"
+                                title={t.settings.downloadAsset}
+                              >
+                                <Download className="w-3.5 h-3.5 text-md3-primary" />
+                                <span>{t.settings.downloadAsset}</span>
+                              </button>
+                            )}
+
+                            {/* 3. GitHub Release page link */}
+                            <button
+                              tabIndex={-1}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => handleDownloadUpdate(latestRelease.htmlUrl)}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-md3-surface-container hover:bg-md3-surface-container-high text-md3-on-surface text-xs font-medium border border-md3-outline-variant/20 transition-all cursor-pointer outline-none focus:outline-none"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5 text-md3-primary" />
+                              <span>GitHub</span>
+                            </button>
+
+                            {/* 4. Open formatted Release Notes sub-view */}
+                            <button
+                              tabIndex={-1}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={handleOpenReleaseNotes}
+                              className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-md3-primary/15 hover:bg-md3-primary/25 text-md3-primary text-xs font-semibold border border-md3-primary/30 transition-all cursor-pointer outline-none focus:outline-none"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>{t.settings.releaseNotes}</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  </>
+                )}
               </div>
             </div>
 
