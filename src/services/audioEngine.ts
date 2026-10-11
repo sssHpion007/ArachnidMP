@@ -457,17 +457,10 @@ class AudioEngine {
         const dur = this.getDuration();
 
         if (this.isUsingWebAudio && this.currentBuffer && this.audioCtx) {
-          const rawElapsed = Math.max(0, this.audioCtx.currentTime - this.playbackStartTime) + this.playbackPosition;
+          const elapsed = Math.max(0, this.audioCtx.currentTime - this.playbackStartTime);
           if (this.bufferSource?.loop && dur > 0) {
-            if (rawElapsed >= dur) {
-              const completedLoops = Math.floor(rawElapsed / dur);
-              this.playbackStartTime += completedLoops * dur;
-              this.playbackPosition = 0;
-            }
-            const currentElapsed = Math.max(0, this.audioCtx.currentTime - this.playbackStartTime);
-            curTime = currentElapsed % dur;
+            curTime = (this.playbackPosition + elapsed) % dur;
           } else {
-            const elapsed = Math.max(0, this.audioCtx.currentTime - this.playbackStartTime);
             curTime = Math.min(dur > 0 ? dur : Infinity, this.playbackPosition + elapsed);
             if (dur > 0 && curTime >= dur && !this.bufferSource?.loop) {
               this.handleTrackEnded();
@@ -763,7 +756,7 @@ class AudioEngine {
   public getCurrentTime(): number {
     if (this.isUsingWebAudio && this.currentBuffer && this.audioCtx) {
       const dur = this.currentBuffer.duration;
-      const elapsed = this.audioCtx.currentTime - this.playbackStartTime;
+      const elapsed = Math.max(0, this.audioCtx.currentTime - this.playbackStartTime);
       if (this.bufferSource?.loop && dur > 0) {
         return Math.max(0, Math.min(dur, (this.playbackPosition + elapsed) % dur));
       }
