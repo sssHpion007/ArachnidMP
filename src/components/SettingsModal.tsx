@@ -144,13 +144,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes'>('main');
   const [customThemesList, setCustomThemesList] = useState<Array<{ name: string; filename: string }>>([]);
   const updateSectionRef = useRef<HTMLDivElement>(null);
-  
+  const releaseNotesContainerRef = useRef<HTMLDivElement>(null);
+  const mainSettingsContainerRef = useRef<HTMLDivElement>(null);
+  const mainScrollTopRef = useRef<number>(0);
+
   // Accordion (шторка) open/closed states
   const [isThemeCurtainOpen, setIsThemeCurtainOpen] = useState<boolean>(false);
   const [isLangCurtainOpen, setIsLangCurtainOpen] = useState<boolean>(false);
 
   // App version & Update checker state
-  const [appVersion, setAppVersion] = useState<string>('0.3.55');
+  const [appVersion, setAppVersion] = useState<string>('0.3.56');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'installing' | 'error'>('idle');
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [downloadStats, setDownloadStats] = useState<{ received: string; total: string }>({ received: '0', total: '0' });
@@ -165,6 +168,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     assetUrl?: string;
     assetName?: string;
   } | null>(null);
+
+  useEffect(() => {
+    if (currentView === 'release_notes') {
+      releaseNotesContainerRef.current?.scrollTo({ top: 0, behavior: 'instant' });
+    } else if (currentView === 'main') {
+      if (mainSettingsContainerRef.current && mainScrollTopRef.current > 0) {
+        mainSettingsContainerRef.current.scrollTo({ top: mainScrollTopRef.current, behavior: 'instant' });
+      }
+    }
+  }, [currentView, latestRelease]);
 
   const t = getTranslations(language);
 
@@ -293,10 +306,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleOpenReleaseNotes = async () => {
+    if (mainSettingsContainerRef.current) {
+      mainScrollTopRef.current = mainSettingsContainerRef.current.scrollTop;
+    }
     if (!latestRelease) {
       handleCheckUpdates();
     }
     setCurrentView('release_notes');
+  };
+
+  const handleOpenShortcuts = () => {
+    if (mainSettingsContainerRef.current) {
+      mainScrollTopRef.current = mainSettingsContainerRef.current.scrollTop;
+    }
+    setCurrentView('shortcuts');
+  };
+
+  const handleBackToMain = () => {
+    setCurrentView('main');
   };
 
   const handleMarkdownClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -402,7 +429,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <button
                 tabIndex={-1}
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setCurrentView('main')}
+                onClick={handleBackToMain}
                 className="w-10 h-10 rounded-2xl bg-md3-primary/10 hover:bg-md3-primary/20 text-md3-primary flex items-center justify-center transition-all cursor-pointer outline-none focus:outline-none"
                 title={t.settings.back}
               >
@@ -414,28 +441,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
             <div>
-              <div className="flex items-center gap-2.5">
-                <h3 className="font-bold text-base text-md3-on-surface">
-                  {currentView === 'shortcuts'
-                    ? t.settings.shortcuts
-                    : currentView === 'release_notes'
-                    ? t.settings.releaseNotes
-                    : t.settings.title}
-                </h3>
-                {/* When an update is available, show an "Обновление" button next to "Настройки" */}
-                {currentView === 'main' && (updateStatus === 'available' || hasUpdate) && (
-                  <button
-                    tabIndex={-1}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={scrollToUpdateSection}
-                    className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-xs font-bold border border-emerald-500/40 animate-pulse transition-all cursor-pointer shadow-xs outline-none focus:outline-none"
-                    title={t.settings.updateAvailable}
-                  >
-                    <Sparkles className="w-3 h-3 text-emerald-400" />
-                    <span>{language === 'ru' ? 'Обновление' : 'Update'}</span>
-                  </button>
-                )}
-              </div>
+              <h3 className="font-bold text-base text-md3-on-surface">
+                {currentView === 'shortcuts'
+                  ? t.settings.shortcuts
+                  : currentView === 'release_notes'
+                  ? t.settings.releaseNotes
+                  : t.settings.title}
+              </h3>
               <p className="text-xs text-md3-on-surface-variant">
                 {currentView === 'shortcuts'
                   ? t.settings.shortcutsDesc
@@ -445,18 +457,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+
+          {/* Right side: Update button (if update is available) + Close button */}
+          <div className="flex items-center gap-3.5 shrink-0">
+            {currentView === 'main' && (updateStatus === 'available' || hasUpdate) && (
+              <button
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={scrollToUpdateSection}
+                className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-xs font-bold border border-emerald-500/40 animate-pulse hover:scale-105 active:scale-95 transition-all cursor-pointer shadow-sm outline-none focus:outline-none"
+                title={t.settings.updateAvailable}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400 animate-spin-slow shrink-0" />
+                <span>{language === 'ru' ? 'Обновление' : 'Update'}</span>
+              </button>
+            )}
+
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface cursor-pointer outline-none focus:outline-none"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
         {currentView === 'shortcuts' ? (
           /* Keyboard Shortcuts View (100% Fully Localized) */
-          <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar">
+          <div key="view-shortcuts" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1">
             {/* Playback & Volume */}
             <div className="space-y-3">
               <div className="text-xs font-bold uppercase tracking-wider text-md3-primary flex items-center gap-2">
@@ -596,7 +625,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         ) : currentView === 'release_notes' ? (
           /* Formatted Markdown Release Notes View */
-          <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar flex-1">
+          <div key="view-release-notes" ref={releaseNotesContainerRef} className="p-6 space-y-4 overflow-y-auto custom-scrollbar flex-1">
             {latestRelease ? (
               <div className="space-y-4 animate-in fade-in duration-200">
                 {/* Meta Header Card */}
@@ -672,7 +701,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         ) : (
           /* Main Settings View */
-          <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar">
+          <div key="view-main-settings" ref={mainSettingsContainerRef} className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1">
             
             {/* 1. Section: Appearance (Внешний вид) */}
             <div className="space-y-4">
@@ -1471,7 +1500,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {/* 6. Button to Open Keyboard Shortcuts Menu */}
             <div className="pt-2">
               <button
-                onClick={() => setCurrentView('shortcuts')}
+                onClick={handleOpenShortcuts}
                 className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-md3-surface-container-high/60 hover:bg-md3-surface-container-high border border-md3-outline-variant/20 hover:border-md3-primary/40 transition-all cursor-pointer group shadow-xs"
               >
                 <div className="flex items-center gap-3">

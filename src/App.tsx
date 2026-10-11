@@ -806,6 +806,17 @@ export const App: React.FC = () => {
         return;
       }
 
+      // 2. Escape: Blur active search bar if focused
+      if (e.key === 'Escape' || e.code === 'Escape') {
+        const searchInput = document.querySelector('input[data-search-input="true"]') as HTMLInputElement;
+        if (searchInput && document.activeElement === searchInput) {
+          e.preventDefault();
+          e.stopPropagation();
+          searchInput.blur();
+          return;
+        }
+      }
+
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 

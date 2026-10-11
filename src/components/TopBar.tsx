@@ -88,7 +88,7 @@ export const TopBar: React.FC<TopBarProps> = ({
     <header data-tauri-drag-region className="relative h-16 px-3 sm:px-6 shrink-0 flex items-center justify-between gap-2 sm:gap-4 bg-md3-surface-container-low border-b border-md3-outline-variant/15 select-none transition-colors duration-300">
       {/* Left: Search Bar Pill Frame (Identical thickness and height to other frames) */}
       <div className="z-10 shrink-0 w-32 sm:w-44 md:w-56 lg:w-64 transition-all flex items-center">
-        <div className="relative w-full h-10 flex items-center p-1 px-3 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 shadow-xs focus-within:border-md3-primary/60 focus-within:bg-md3-surface-container-high transition-all">
+        <div className="relative w-full h-10 flex items-center p-1 px-3 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 shadow-xs focus-within:border-md3-primary/60 focus-within:bg-md3-surface-container-high overflow-hidden transition-colors">
           <div className="flex items-center pointer-events-none text-md3-on-surface-variant shrink-0 mr-2">
             <Search className="w-3.5 h-3.5" />
           </div>
@@ -97,8 +97,16 @@ export const TopBar: React.FC<TopBarProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                (e.target as HTMLInputElement).blur();
+              }
+            }}
             placeholder={searchPlaceholder || (isSuperCompact ? (language === 'ru' ? 'Поиск (Ctrl+F)...' : 'Search (Ctrl+F)...') : `${language === 'ru' ? 'Поиск' : 'Search'} (${totalTracksCount})...`)}
-            className="w-full h-full bg-transparent text-xs text-md3-on-surface placeholder-md3-on-surface-variant/50 border-none outline-none transition-all truncate pr-5"
+            className="w-full h-full bg-transparent text-xs text-md3-on-surface placeholder-md3-on-surface-variant/50 border-0 outline-none focus:outline-none ring-0 focus:ring-0 truncate pr-5 select-text"
+            style={{ outline: 'none', boxShadow: 'none' }}
           />
           {searchQuery && (
             <button
