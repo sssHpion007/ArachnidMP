@@ -2298,8 +2298,10 @@ export const App: React.FC = () => {
 
     // Persist tags and cover art to audio files on disk if running in Tauri
     if (isTauri()) {
-      const targetTrackObjects = tracks.filter(t => targetIds.has(t.id) && t.path);
-      const paths = targetTrackObjects.map(t => t.path as string);
+      const sourceTracks = targetTracks && targetTracks.length > 0
+        ? targetTracks
+        : tracks.filter(t => targetIds.has(t.id));
+      const paths = sourceTracks.map(t => t.path).filter((p): p is string => Boolean(p));
       if (paths.length > 0) {
         try {
           await invoke('batch_save_track_file_tags', {

@@ -300,6 +300,127 @@ fn scan_folder(folder_path: String) -> Result<Vec<TrackMetadata>, String> {
     read_audio_files(vec![folder_path])
 }
 
+fn find_mp3_audio_start(data: &[u8]) -> usize {
+    let mut offset = 0;
+    let file_len = data.len();
+
+    // Consume all consecutive ID3v2 tags (handling duplicate, chained, or junk-prefixed tags)
+    while offset + 10 <= file_len {
+        // Skip null padding before or between ID3 tags
+        if data[offset] == 0 {
+            offset += 1;
+            continue;
+        }
+
+        if &data[offset..offset + 3] == b"ID3" {
+            let flags = data[offset + 5];
+            let s0 = data[offset + 6] as usize;
+            let s1 = data[offset + 7] as usize;
+            let s2 = data[offset + 8] as usize;
+            let s3 = data[offset + 9] as usize;
+
+            // ID3v2 size is a 4-byte synchsafe integer (MSB of each byte is 0)
+            if ((s0 | s1 | s2 | s3) & 0x80) != 0 {
+                break;
+            }
+
+            let tag_size = (s0 << 21) | (s1 << 14) | (s2 << 7) | s3;
+            let has_footer = (flags & 0x10) != 0;
+            let tag_len = 10 + tag_size + if has_footer { 10 } else { 0 };
+
+            if offset + tag_len > file_len {
+                break;
+            }
+
+            offset += tag_len;
+        } else {
+            break;
+        }
+    }
+
+    // Skip any trailing ID3 zero-padding bytes after the tag until the MPEG audio frame sync
+    let mut search_pos = offset;
+    while search_pos < file_len && data[search_pos] == 0 {
+        search_pos += 1;
+    }
+
+    // If an MPEG audio frame sync is found (11 sync bits: 0xFF, upper 3 bits of next byte set to 1)
+    if search_pos + 1 < file_len && data[search_pos] == 0xFF && (data[search_pos + 1] & 0xE0) == 0xE0 {
+        return search_pos;
+    }
+
+    search_pos
+}
+
+fn find_mp3_audio_end(data: &[u8], audio_start: usize) -> (usize, bool) {
+    let mut end = data.len();
+    let mut has_id3v1 = false;
+
+    // 1. Check for ID3v1 tag at the very end (128 bytes starting with "TAG")
+    if end.saturating_sub(audio_start) >= 128 && &data[end - 128..end - 125] == b"TAG" {
+        has_id3v1 = true;
+        end -= 128;
+    }
+
+    // 2. Check for APEv2 footer right before ID3v1 (or at EOF)
+    // APEv2 footer is 32 bytes:
+    // Bytes 0..8: "APETAGEX"
+    // Bytes 12..16: tag size (u32 little-endian, includes footer + items + optional header)
+    if end.saturating_sub(audio_start) >= 32 && &data[end - 32..end - 24] == b"APETAGEX" {
+        let ape_size = u32::from_le_bytes([
+            data[end - 20],
+            data[end - 19],
+            data[end - 18],
+            data[end - 17],
+        ]) as usize;
+
+        if ape_size >= 32 && ape_size <= end.saturating_sub(audio_start) {
+            end -= ape_size;
+        }
+    }
+
+    (end, has_id3v1)
+}
+
+fn write_clean_tags_to_file(file_path: &Path, tag: &Tag, is_mp3: bool) -> Result<(), String> {
+    if is_mp3 {
+        let mut new_tag_bytes = Vec::new();
+        let mut write_options = WriteOptions::default();
+        write_options.use_id3v23(true);
+        tag.dump_to(&mut new_tag_bytes, write_options)
+            .map_err(|e| format!("Failed to serialize ID3v2.3 tag: {}", e))?;
+
+        let file_bytes = std::fs::read(file_path)
+            .map_err(|e| format!("Failed to read {}: {}", file_path.display(), e))?;
+
+        let audio_start = find_mp3_audio_start(&file_bytes);
+        let (audio_end, has_id3v1) = find_mp3_audio_end(&file_bytes, audio_start);
+
+        if audio_start >= file_bytes.len() || audio_end <= audio_start {
+            // Fallback if bounds detection was inconclusive: use Lofty's save_to_path
+            tag.save_to_path(file_path, write_options)
+                .map_err(|e| format!("Failed to save tags to {}: {}", file_path.display(), e))?;
+        } else {
+            let mut new_file_data = Vec::with_capacity(
+                new_tag_bytes.len() + (audio_end - audio_start) + if has_id3v1 { 128 } else { 0 },
+            );
+            new_file_data.extend_from_slice(&new_tag_bytes);
+            new_file_data.extend_from_slice(&file_bytes[audio_start..audio_end]);
+            if has_id3v1 && file_bytes.len() >= 128 {
+                new_file_data.extend_from_slice(&file_bytes[file_bytes.len() - 128..]);
+            }
+
+            std::fs::write(file_path, &new_file_data)
+                .map_err(|e| format!("Failed to write updated MP3 file {}: {}", file_path.display(), e))?;
+        }
+    } else {
+        let write_options = WriteOptions::default();
+        tag.save_to_path(file_path, write_options)
+            .map_err(|e| format!("Failed to save tags to {}: {}", file_path.display(), e))?;
+    }
+    Ok(())
+}
+
 fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(), String> {
     let file_path = Path::new(path_str);
     if !file_path.is_file() {
@@ -330,12 +451,24 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
                         for item in existing.items() {
                             new_id3v2.insert(item.clone());
                         }
+                        for pic in existing.pictures() {
+                            new_id3v2.push_picture(pic.clone());
+                        }
                     }
                     tagged_file.insert_tag(new_id3v2);
                 }
-                tagged_file.tag_mut(TagType::Id3v2)
-                    .map(|t| t.clone())
-                    .unwrap_or_else(|| Tag::new(TagType::Id3v2))
+                let raw_tag = tagged_file.tag(TagType::Id3v2)
+                    .or_else(|| tagged_file.first_tag());
+                let mut clean_tag = Tag::new(TagType::Id3v2);
+                if let Some(existing) = raw_tag {
+                    for item in existing.items() {
+                        clean_tag.insert(item.clone());
+                    }
+                    for pic in existing.pictures() {
+                        clean_tag.push_picture(pic.clone());
+                    }
+                }
+                clean_tag
             } else {
                 match tagged_file.primary_tag_mut() {
                     Some(t) => t.clone(),
@@ -490,11 +623,7 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
         }
     }
 
-    let mut write_options = WriteOptions::default();
-    if is_mp3 || tag.tag_type() == TagType::Id3v2 {
-        write_options.use_id3v23(true);
-    }
-    tag.save_to_path(file_path, write_options).map_err(|e| format!("Failed to save tags to {}: {}", path_str, e))?;
+    write_clean_tags_to_file(file_path, &tag, is_mp3).map_err(|e| format!("Failed to save tags to {}: {}", path_str, e))?;
     Ok(())
 }
 
@@ -676,12 +805,7 @@ fn save_track_lyrics(path: String, lyrics: String, lyricist: Option<String>) -> 
         }
     }
 
-    let mut write_options = WriteOptions::default();
-    if is_mp3 || tag.tag_type() == TagType::Id3v2 {
-        write_options.use_id3v23(true);
-    }
-
-    tag.save_to_path(file_path, write_options).map_err(|e| e.to_string())?;
+    write_clean_tags_to_file(file_path, &tag, is_mp3).map_err(|e| e.to_string())?;
     Ok(true)
 }
 
