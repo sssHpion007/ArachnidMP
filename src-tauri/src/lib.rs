@@ -925,16 +925,78 @@ pub fn run() {
             open_url,
             list_custom_themes,
             read_custom_theme,
+            delete_custom_theme,
             load_locale_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arachnid application");
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ThemePaletteItem {
+    pub id: String,
+    pub label: String,
+    #[serde(rename = "cssVar", alias = "css_var")]
+    pub css_var: String,
+    #[serde(default, alias = "default_color")]
+    pub default: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ThemeToggleItem {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(rename = "cssClass", alias = "css_class", default)]
+    pub css_class: Option<String>,
+    #[serde(rename = "cssVar", alias = "css_var", default)]
+    pub css_var: Option<String>,
+    #[serde(default, alias = "default_value")]
+    pub default: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CustomThemeInfo {
+    pub id: String,
     pub name: String,
-    pub filename: String,
+    pub description: String,
+    #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default)]
+    pub version: Option<String>,
+    pub is_folder: bool,
+    #[serde(default)]
+    pub folder_name: Option<String>,
+    #[serde(default)]
+    pub folder_path: Option<String>,
+    pub css_filename: String,
+    #[serde(default)]
+    pub palette: Vec<ThemePaletteItem>,
+    #[serde(default)]
+    pub toggles: Vec<ThemeToggleItem>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ThemeContent {
+    pub css: String,
+    #[serde(default)]
+    pub base_path: Option<String>,
+}
+
+#[derive(Deserialize, Debug, Default)]
+struct ThemeManifest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub author: Option<String>,
+    pub version: Option<String>,
+    pub css: Option<String>,
+    #[serde(default)]
+    pub palette: Vec<ThemePaletteItem>,
+    #[serde(default)]
+    pub toggles: Vec<ThemeToggleItem>,
 }
 
 #[tauri::command]
@@ -989,40 +1051,221 @@ fn list_custom_themes() -> Result<Vec<CustomThemeInfo>, String> {
     let base_dir = storage::get_portable_base_dir();
     let themes_dir = base_dir.join("themes");
     let mut list = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(themes_dir) {
+
+    if let Ok(entries) = std::fs::read_dir(&themes_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() {
+            if path.is_dir() {
+                // Folder theme: check for theme.json or theme.css / style.css
+                let folder_name = entry.file_name().to_string_lossy().to_string();
+                let manifest_path = path.join("theme.json");
+                let mut manifest = ThemeManifest::default();
+                let mut has_manifest = false;
+
+                if manifest_path.is_file() {
+                    if let Ok(content) = std::fs::read_to_string(&manifest_path) {
+                        if let Ok(parsed) = serde_json::from_str::<ThemeManifest>(&content) {
+                            manifest = parsed;
+                            has_manifest = true;
+                        }
+                    }
+                }
+
+                let css_candidate = manifest.css.clone().unwrap_or_else(|| "theme.css".to_string());
+                let css_path = path.join(&css_candidate);
+                let fallback_css_path = path.join("style.css");
+
+                let final_css_filename = if css_path.is_file() {
+                    css_candidate
+                } else if fallback_css_path.is_file() {
+                    "style.css".to_string()
+                } else if has_manifest {
+                    css_candidate
+                } else {
+                    // Not a theme directory
+                    continue;
+                };
+
+                let name = manifest.name.unwrap_or_else(|| {
+                    folder_name.replace('-', " ").replace('_', " ")
+                });
+
+                let description = manifest.description.unwrap_or_else(|| {
+                    "Пользовательская тема оформления".to_string()
+                });
+
+                list.push(CustomThemeInfo {
+                    id: format!("folder:{}", folder_name),
+                    name,
+                    description,
+                    author: manifest.author,
+                    version: manifest.version,
+                    is_folder: true,
+                    folder_name: Some(folder_name),
+                    folder_path: Some(path.to_string_lossy().to_string()),
+                    css_filename: final_css_filename,
+                    palette: manifest.palette,
+                    toggles: manifest.toggles,
+                });
+            } else if path.is_file() {
+                // Standalone .css file
                 if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                     if ext.eq_ignore_ascii_case("css") {
                         let filename = entry.file_name().to_string_lossy().to_string();
-                        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or(&filename).to_string();
+                        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or(&filename);
+                        let friendly_name = stem.replace('-', " ").replace('_', " ");
+                        let capitalized_name = {
+                            let mut chars = friendly_name.chars();
+                            match chars.next() {
+                                None => String::new(),
+                                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                            }
+                        };
+
                         list.push(CustomThemeInfo {
-                            name: stem,
-                            filename,
+                            id: format!("file:{}", filename),
+                            name: capitalized_name,
+                            description: format!("CSS-файл темы ({})", filename),
+                            author: None,
+                            version: None,
+                            is_folder: false,
+                            folder_name: None,
+                            folder_path: None,
+                            css_filename: filename,
+                            palette: Vec::new(),
+                            toggles: Vec::new(),
                         });
                     }
                 }
             }
         }
     }
+
+    // Sort alphabetically by theme name
+    list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(list)
 }
 
 #[tauri::command]
-fn read_custom_theme(filename: String) -> Result<String, String> {
+fn read_custom_theme(theme_id: String) -> Result<ThemeContent, String> {
     let base_dir = storage::get_portable_base_dir();
     let themes_dir = base_dir.join("themes");
-    let safe_filename = Path::new(&filename)
-        .file_name()
-        .and_then(|f| f.to_str())
-        .ok_or_else(|| "Invalid filename".to_string())?;
-    let path = themes_dir.join(safe_filename);
-    if path.is_file() {
-        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read theme file: {}", e))
-    } else {
-        Err("Theme file not found".to_string())
+
+    // Prevent directory traversal
+    if theme_id.contains("..") {
+        return Err("Invalid theme identifier".to_string());
     }
+
+    if let Some(folder_name) = theme_id.strip_prefix("folder:") {
+        let folder_path = themes_dir.join(folder_name);
+        if !folder_path.is_dir() {
+            return Err("Theme folder not found".to_string());
+        }
+
+        let manifest_path = folder_path.join("theme.json");
+        let mut css_rel = "theme.css".to_string();
+        if manifest_path.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&manifest_path) {
+                if let Ok(manifest) = serde_json::from_str::<ThemeManifest>(&content) {
+                    if let Some(css) = manifest.css {
+                        css_rel = css;
+                    }
+                }
+            }
+        }
+
+        let mut css_file = folder_path.join(&css_rel);
+        if !css_file.is_file() {
+            css_file = folder_path.join("style.css");
+        }
+        if !css_file.is_file() {
+            css_file = folder_path.join("theme.css");
+        }
+
+        if css_file.is_file() {
+            let css_text = std::fs::read_to_string(&css_file)
+                .map_err(|e| format!("Failed to read theme CSS: {}", e))?;
+            Ok(ThemeContent {
+                css: css_text,
+                base_path: Some(folder_path.to_string_lossy().to_string()),
+            })
+        } else {
+            Err("CSS file not found in theme folder".to_string())
+        }
+    } else {
+        // File theme or direct filename
+        let clean_name = theme_id.strip_prefix("file:").unwrap_or(&theme_id);
+        let safe_filename = Path::new(clean_name)
+            .file_name()
+            .and_then(|f| f.to_str())
+            .ok_or_else(|| "Invalid filename".to_string())?;
+
+        // Also check if safe_filename is actually a folder directly in themes_dir
+        let candidate_dir = themes_dir.join(safe_filename);
+        if candidate_dir.is_dir() {
+            return read_custom_theme(format!("folder:{}", safe_filename));
+        }
+
+        let file_path = themes_dir.join(safe_filename);
+        if file_path.is_file() {
+            let css_text = std::fs::read_to_string(&file_path)
+                .map_err(|e| format!("Failed to read theme file: {}", e))?;
+            Ok(ThemeContent {
+                css: css_text,
+                base_path: None,
+            })
+        } else {
+            Err("Theme file not found".to_string())
+        }
+    }
+}
+
+#[tauri::command]
+fn delete_custom_theme(theme_id: String) -> Result<(), String> {
+    if theme_id == "default" {
+        return Err("Cannot delete standard theme".to_string());
+    }
+    if theme_id.contains("..") {
+        return Err("Invalid theme identifier".to_string());
+    }
+
+    let base_dir = storage::get_portable_base_dir();
+    let themes_dir = base_dir.join("themes");
+
+    if let Some(folder_name) = theme_id.strip_prefix("folder:") {
+        let safe_folder = Path::new(folder_name)
+            .file_name()
+            .and_then(|f| f.to_str())
+            .ok_or_else(|| "Invalid folder name".to_string())?;
+        let target = themes_dir.join(safe_folder);
+        if target.is_dir() {
+            std::fs::remove_dir_all(&target)
+                .map_err(|e| format!("Failed to delete theme folder: {}", e))?;
+            return Ok(());
+        }
+    } else {
+        let clean_name = theme_id.strip_prefix("file:").unwrap_or(&theme_id);
+        let safe_name = Path::new(clean_name)
+            .file_name()
+            .and_then(|f| f.to_str())
+            .ok_or_else(|| "Invalid filename".to_string())?;
+
+        let target_dir = themes_dir.join(safe_name);
+        if target_dir.is_dir() {
+            std::fs::remove_dir_all(&target_dir)
+                .map_err(|e| format!("Failed to delete theme directory: {}", e))?;
+            return Ok(());
+        }
+
+        let target_file = themes_dir.join(safe_name);
+        if target_file.is_file() {
+            std::fs::remove_file(&target_file)
+                .map_err(|e| format!("Failed to delete theme file: {}", e))?;
+            return Ok(());
+        }
+    }
+
+    Err("Theme not found".to_string())
 }
 
 #[tauri::command]

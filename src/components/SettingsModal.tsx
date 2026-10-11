@@ -26,6 +26,10 @@ import {
   RefreshCw,
   Layers,
   FileCode,
+  Folder,
+  Trash2,
+  Sliders,
+  SlidersHorizontal,
   Radio,
   Download,
   CheckCircle2,
@@ -36,6 +40,9 @@ import {
 } from 'lucide-react';
 import { marked } from 'marked';
 import { ThemeMode, Track, FadeMode } from '../types/music';
+import { CustomThemeInfo } from '../types/theme';
+import { ThemePaletteModal } from './ThemePaletteModal';
+import { ConfirmationModal } from './ConfirmationModal';
 import { MainViewType } from './TopBar';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage, getTranslations } from '../i18n';
@@ -78,6 +85,14 @@ interface SettingsModalProps {
   onSetAutoUpdateEnabled?: (enabled: boolean) => void;
   autoUpdateInterval?: 'startup' | '30m' | '1h';
   onSetAutoUpdateInterval?: (interval: 'startup' | '30m' | '1h') => void;
+  customThemesList: CustomThemeInfo[];
+  onRefreshCustomThemes: () => Promise<any>;
+  onDeleteCustomTheme: (themeId: string) => Promise<void>;
+  themePaletteColors: Record<string, string>;
+  onUpdateThemePaletteColor: (itemId: string, hex: string) => void;
+  onResetThemePalette: () => void;
+  themeToggles: Record<string, boolean>;
+  onToggleThemeOption: (toggleId: string, val: boolean) => void;
 }
 
 const STANDARD_PRESETS = [
@@ -87,31 +102,6 @@ const STANDARD_PRESETS = [
   { name: 'Sunset Amber', color: '#f59e0b' },
   { name: 'Rose Petal', color: '#f43f5e' },
   { name: 'Cyberpunk Pink', color: '#d946ef' },
-];
-
-const DISCORD_PRESETS = [
-  { name: 'Blurple', color: '#5865F2' },
-  { name: 'Emerald', color: '#57F287' },
-  { name: 'Fuchsia', color: '#EB459E' },
-  { name: 'Sunset Coral', color: '#ED4245' },
-  { name: 'Solar Gold', color: '#FEE75C' },
-  { name: 'Classic Dark', color: '#313338' },
-];
-
-const TELEGRAM_PRESETS = [
-  { name: 'Telegram Blue', color: '#5288c1' },
-  { name: 'Deep Cyan', color: '#2f6ea5' },
-  { name: 'Emerald', color: '#4fae84' },
-  { name: 'Amber', color: '#e5803a' },
-  { name: 'Amethyst', color: '#8e7cf8' },
-  { name: 'Graphite Steel', color: '#242f3d' },
-];
-
-const CYBERPUNK_PAIRS = [
-  { name: 'Neon Cyan & Magenta', primary: '#00f5d4', secondary: '#f72585' },
-  { name: 'Electric Lime & Orange', primary: '#10b981', secondary: '#f97316' },
-  { name: 'Tokyo Purple & Aqua', primary: '#a855f7', secondary: '#38bdf8' },
-  { name: 'Solar Gold & Indigo', primary: '#ffd166', secondary: '#7209b7' },
 ];
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -148,9 +138,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSetAutoUpdateEnabled,
   autoUpdateInterval = '1h',
   onSetAutoUpdateInterval,
+  customThemesList,
+  onRefreshCustomThemes,
+  onDeleteCustomTheme,
+  themePaletteColors,
+  onUpdateThemePaletteColor,
+  onResetThemePalette,
+  themeToggles,
+  onToggleThemeOption,
 }) => {
   const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes'>('main');
-  const [customThemesList, setCustomThemesList] = useState<Array<{ name: string; filename: string }>>([]);
+  const [isPaletteModalOpen, setIsPaletteModalOpen] = useState<boolean>(false);
+  const [themeToDelete, setThemeToDelete] = useState<CustomThemeInfo | null>(null);
   const updateSectionRef = useRef<HTMLDivElement>(null);
   const releaseNotesContainerRef = useRef<HTMLDivElement>(null);
   const mainSettingsContainerRef = useRef<HTMLDivElement>(null);
@@ -170,7 +169,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isUpdateSettingsOpen, setIsUpdateSettingsOpen] = useState<boolean>(false);
 
   // App version & Update checker state
-  const [appVersion, setAppVersion] = useState<string>('0.3.61');
+  const [appVersion, setAppVersion] = useState<string>('0.3.62');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'installing' | 'error'>('idle');
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [downloadStats, setDownloadStats] = useState<{ received: string; total: string }>({ received: '0', total: '0' });
@@ -369,23 +368,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   }, []);
 
-  // Load custom themes from themes/ folder
-  const refreshCustomThemes = async () => {
-    if (isTauri()) {
-      try {
-        const list = await invoke<Array<{ name: string; filename: string }>>('list_custom_themes');
-        setCustomThemesList(list || []);
-      } catch (e) {
-        console.warn('Failed to load custom themes:', e);
-      }
-    }
-  };
-
   useEffect(() => {
     if (isOpen) {
       setCurrentView('main');
       setIsUpdateSettingsOpen(false);
-      refreshCustomThemes();
+      onRefreshCustomThemes();
     }
   }, [isOpen]);
 
@@ -412,26 +399,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     { id: 'genres' as MainViewType, label: t.nav.genres, icon: Tag },
   ];
 
+  // Helper to get active theme object
+  const activeCustomTheme = (() => {
+    if (!appTheme.startsWith('custom:')) return null;
+    const themeId = appTheme.replace('custom:', '');
+    return customThemesList.find(c => c.id === themeId || c.id === `folder:${themeId}` || c.id === `file:${themeId}` || c.css_filename === themeId) || null;
+  })();
+
   // Helper to get active theme display label
   const getActiveThemeLabel = () => {
     if (appTheme === 'default') return t.settings.themeStandard;
-    if (appTheme === 'discord') return t.settings.themeDiscord;
-    if (appTheme === 'telegram') return t.settings.themeTelegram;
-    if (appTheme === 'cyberpunk') return t.settings.themeCyberpunk;
+    if (activeCustomTheme) return activeCustomTheme.name;
     if (appTheme.startsWith('custom:')) {
-      const filename = appTheme.replace('custom:', '');
-      const found = customThemesList.find(c => c.filename === filename);
-      return found ? found.name : filename;
+      return appTheme.replace('custom:', '').replace(/^folder:|^file:/, '');
     }
     return t.settings.themeStandard;
   };
 
   const getActiveThemeBadge = () => {
     if (appTheme === 'default') return 'Material 3';
-    if (appTheme === 'discord') return 'Discord';
-    if (appTheme === 'telegram') return 'Telegram';
-    if (appTheme === 'cyberpunk') return 'Duotone';
-    return '.css';
+    if (activeCustomTheme?.author) return activeCustomTheme.author;
+    if (activeCustomTheme?.is_folder) return language === 'ru' ? 'Папка' : 'Folder';
+    return 'CSS';
   };
 
   return (
@@ -741,49 +730,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
 
-              {/* Theme Mode Buttons (Dark / AMOLED / Light) */}
-              <div className="grid grid-cols-3 gap-3">
-                <button
-                  onClick={() => onSetThemeMode('dark')}
-                  className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all cursor-pointer ${
-                    themeMode === 'dark'
-                      ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-semibold shadow-xs'
-                      : 'border-md3-outline-variant/30 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
-                  }`}
-                >
-                  <Moon className="w-5 h-5" />
-                  <span className="text-xs">{t.settings.dark}</span>
-                </button>
-
-                <button
-                  onClick={() => onSetThemeMode('amoled')}
-                  className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all cursor-pointer ${
-                    themeMode === 'amoled'
-                      ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-semibold shadow-xs'
-                      : 'border-md3-outline-variant/30 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
-                  }`}
-                >
-                  <div className="w-5 h-5 rounded-full bg-black border border-white/40 flex items-center justify-center text-[10px] text-white font-bold">
-                    ●
-                  </div>
-                  <span className="text-xs">{t.settings.amoled}</span>
-                </button>
-
-                <button
-                  onClick={() => onSetThemeMode('light')}
-                  className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all cursor-pointer ${
-                    themeMode === 'light'
-                      ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-semibold shadow-xs'
-                      : 'border-md3-outline-variant/30 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
-                  }`}
-                >
-                  <Sun className="w-5 h-5 text-amber-500" />
-                  <span className="text-xs">{t.settings.light}</span>
-                </button>
-              </div>
-
               {/* Theme Style Selector (ШТОРКА ТЕМЫ ОФОРМЛЕНИЯ) */}
-              <div className="space-y-2 pt-1">
+              <div className="space-y-2">
                 <div className="text-xs font-semibold text-md3-on-surface flex items-center gap-1.5">
                   <Layers className="w-3.5 h-3.5 text-md3-primary" />
                   <span>{t.settings.themeStyle}</span>
@@ -809,404 +757,408 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           </span>
                         </div>
                         <span className="text-[11px] text-md3-on-surface-variant truncate block">
-                          {appTheme === 'default' ? t.settings.themeStandardDesc : t.settings.themeCurtainSelect}
+                          {appTheme === 'default' ? t.settings.themeStandardDesc : (activeCustomTheme?.description || t.settings.themeCurtainSelect)}
                         </span>
                       </div>
                     </div>
                     <ChevronDown className={`w-4 h-4 text-md3-on-surface-variant transition-transform duration-200 shrink-0 ml-2 ${isThemeCurtainOpen ? 'rotate-180 text-md3-primary' : ''}`} />
                   </button>
 
-                  {/* Раскрывающаяся шторка с плавной прокруткой */}
+                  {/* Раскрывающаяся шторка со списком тем: Стандартная первая, далее темы по алфавиту без разделения */}
                   {isThemeCurtainOpen && (
-                    <div className="border-t border-md3-outline-variant/20 p-2.5 bg-md3-surface-container-low/70 space-y-3 animate-in fade-in duration-200">
-                      
-                      {/* Секция: Встроенные темы */}
-                      <div className="space-y-1.5">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-md3-primary px-1">
-                          {t.settings.builtinThemes}
-                        </div>
-                        <div className="max-h-60 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
-                          
-                          {/* 1. Material 3 (Standard) */}
-                          <button
-                            onClick={() => {
-                              onSetAppTheme('default');
-                              setIsThemeCurtainOpen(false);
-                            }}
-                            className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
-                              appTheme === 'default'
-                                ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                                : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <div className="w-3.5 h-3.5 rounded-full bg-[#8b5cf6] shrink-0" />
-                              <div className="min-w-0">
-                                <div className="text-xs font-semibold text-md3-on-surface truncate">{t.settings.themeStandard}</div>
-                                <div className="text-[10px] text-md3-on-surface-variant truncate">{t.settings.themeStandardDesc}</div>
+                    <div className="border-t border-md3-outline-variant/20 p-2.5 bg-md3-surface-container-low/70 space-y-2 animate-in fade-in duration-200">
+                      <div className="max-h-64 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
+                        {/* 1. Стандартная (По умолчанию) - ВСЕГДА ПЕРВАЯ, НЕУДАЛЯЕМАЯ */}
+                        <button
+                          onClick={() => {
+                            onSetAppTheme('default');
+                            setIsThemeCurtainOpen(false);
+                          }}
+                          className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
+                            appTheme === 'default'
+                              ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                              : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-3.5 h-3.5 rounded-full bg-[#8b5cf6] shrink-0 shadow-xs" />
+                            <div className="min-w-0">
+                              <div className="text-xs font-semibold text-md3-on-surface truncate">
+                                {t.settings.themeStandard}
+                              </div>
+                              <div className="text-[10px] text-md3-on-surface-variant truncate">
+                                {t.settings.themeStandardDesc}
                               </div>
                             </div>
-                            {appTheme === 'default' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
-                          </button>
-
-                          {/* 2. Discord */}
-                          <button
-                            onClick={() => {
-                              onSetAppTheme('discord');
-                              setIsThemeCurtainOpen(false);
-                            }}
-                            className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
-                              appTheme === 'discord'
-                                ? 'border-[#5865f2] bg-[#5865f2]/10 text-[#5865f2] font-bold shadow-xs'
-                                : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <div className="w-3.5 h-3.5 rounded-full bg-[#5865f2] shrink-0" />
-                              <div className="min-w-0">
-                                <div className="text-xs font-semibold text-md3-on-surface truncate">{t.settings.themeDiscord}</div>
-                                <div className="text-[10px] text-md3-on-surface-variant truncate">{t.settings.themeDiscordDesc}</div>
-                              </div>
-                            </div>
-                            {appTheme === 'discord' && <Check className="w-4 h-4 text-[#5865f2] shrink-0" />}
-                          </button>
-
-                          {/* 3. Telegram */}
-                          <button
-                            onClick={() => {
-                              onSetAppTheme('telegram');
-                              setIsThemeCurtainOpen(false);
-                            }}
-                            className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
-                              appTheme === 'telegram'
-                                ? 'border-[#5288c1] bg-[#5288c1]/10 text-[#5288c1] font-bold shadow-xs'
-                                : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <div className="w-3.5 h-3.5 rounded-full bg-[#5288c1] shrink-0" />
-                              <div className="min-w-0">
-                                <div className="text-xs font-semibold text-md3-on-surface truncate">{t.settings.themeTelegram}</div>
-                                <div className="text-[10px] text-md3-on-surface-variant truncate">{t.settings.themeTelegramDesc}</div>
-                              </div>
-                            </div>
-                            {appTheme === 'telegram' && <Check className="w-4 h-4 text-[#5288c1] shrink-0" />}
-                          </button>
-
-                          {/* 4. Cyberpunk Duotone (2 цвета) */}
-                          <button
-                            onClick={() => {
-                              onSetAppTheme('cyberpunk');
-                              setIsThemeCurtainOpen(false);
-                            }}
-                            className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
-                              appTheme === 'cyberpunk'
-                                ? 'border-[#00f5d4] bg-[#00f5d4]/10 text-[#00f5d4] font-bold shadow-xs'
-                                : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <div className="flex items-center -space-x-1.5 shrink-0">
-                                <div className="w-3.5 h-3.5 rounded-full bg-[#00f5d4]" />
-                                <div className="w-3.5 h-3.5 rounded-full bg-[#f72585]" />
-                              </div>
-                              <div className="min-w-0">
-                                <div className="text-xs font-semibold text-md3-on-surface truncate">{t.settings.themeCyberpunk}</div>
-                                <div className="text-[10px] text-md3-on-surface-variant truncate">{t.settings.themeCyberpunkDesc}</div>
-                              </div>
-                            </div>
-                            {appTheme === 'cyberpunk' && <Check className="w-4 h-4 text-[#00f5d4] shrink-0" />}
-                          </button>
-
-                          {/* Секция: Пользовательские темы из themes/ */}
-                          <div className="pt-2">
-                            <div className="flex items-center justify-between px-1 pb-1">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-md3-primary">
-                                {t.settings.customThemes}
-                              </span>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  refreshCustomThemes();
-                                }}
-                                title={t.settings.reloadThemes}
-                                className="p-1 rounded text-md3-on-surface-variant hover:text-md3-primary cursor-pointer"
-                              >
-                                <RefreshCw className="w-3 h-3" />
-                              </button>
-                            </div>
-
-                            {customThemesList.length > 0 ? (
-                              customThemesList.map((ct) => (
-                                <button
-                                  key={ct.filename}
-                                  onClick={() => {
-                                    onSetAppTheme(`custom:${ct.filename}`);
-                                    setIsThemeCurtainOpen(false);
-                                  }}
-                                  className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left mb-1.5 ${
-                                    appTheme === `custom:${ct.filename}`
-                                      ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                                      : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-2.5 min-w-0">
-                                    <FileCode className="w-3.5 h-3.5 text-md3-primary shrink-0" />
-                                    <div className="min-w-0">
-                                      <div className="text-xs font-semibold text-md3-on-surface truncate">{ct.name}</div>
-                                      <div className="text-[10px] text-md3-on-surface-variant font-mono truncate">{ct.filename}</div>
-                                    </div>
-                                  </div>
-                                  {appTheme === `custom:${ct.filename}` && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
-                                </button>
-                              ))
-                            ) : (
-                              <div className="p-2.5 rounded-xl bg-md3-surface text-center text-[11px] text-md3-on-surface-variant">
-                                {t.settings.noCustomThemes}
-                              </div>
-                            )}
                           </div>
-                        </div>
+                          {appTheme === 'default' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
+                        </button>
+
+                        {/* 2. Пользовательские темы из themes/ (в алфавитном порядке) */}
+                        {customThemesList.map((ct) => {
+                          const isActive = appTheme === `custom:${ct.id}` || appTheme === `custom:${ct.css_filename}`;
+                          return (
+                            <div
+                              key={ct.id}
+                              onClick={() => {
+                                onSetAppTheme(`custom:${ct.id}`);
+                                setIsThemeCurtainOpen(false);
+                              }}
+                              className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
+                                isActive
+                                  ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                                  : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
+                                {ct.is_folder ? (
+                                  <Folder className="w-3.5 h-3.5 text-md3-primary shrink-0" />
+                                ) : (
+                                  <FileCode className="w-3.5 h-3.5 text-md3-primary shrink-0" />
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-xs font-semibold text-md3-on-surface truncate">
+                                      {ct.name}
+                                    </span>
+                                    {ct.author && (
+                                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-md3-surface-container-high text-md3-on-surface-variant font-mono">
+                                        {ct.author}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[10px] text-md3-on-surface-variant truncate">
+                                    {ct.description}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                {isActive && <Check className="w-4 h-4 text-md3-primary mr-1 shrink-0" />}
+                                <button
+                                  tabIndex={-1}
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setThemeToDelete(ct);
+                                  }}
+                                  className="p-1 rounded-lg text-md3-on-surface-variant hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                  title={t.settings.themeDelete}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
 
+                      {/* Нижняя панель шторки: Открыть папку + Обновить */}
+                      <div className="pt-2 border-t border-md3-outline-variant/15 flex items-center justify-between px-1">
+                        <button
+                          onClick={handleOpenThemesFolder}
+                          className="flex items-center gap-1.5 text-[11px] font-medium text-md3-primary hover:underline cursor-pointer"
+                        >
+                          <FolderOpen className="w-3 h-3" />
+                          <span>{t.settings.openThemesFolder}</span>
+                        </button>
+
+                        <button
+                          onClick={onRefreshCustomThemes}
+                          className="flex items-center gap-1 text-[11px] font-medium text-md3-on-surface-variant hover:text-md3-primary cursor-pointer p-1 rounded hover:bg-md3-surface"
+                          title={t.settings.reloadThemes}
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          <span>{t.settings.reloadThemes}</span>
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Dynamic Color Controls Depending on Selected Theme */}
-              {appTheme === 'default' && (
-                <div className="space-y-2.5 pt-2 border-t border-md3-outline-variant/15 animate-in fade-in duration-200">
-                  <div className="text-xs font-semibold text-md3-on-surface">{t.settings.colorPalette}</div>
-                  <div className="grid grid-cols-3 gap-2.5">
+              {/* СЕКЦИЯ НАСТРОЕК ВЫБРАННОЙ ТЕМЫ */}
+              {appTheme === 'default' ? (
+                /* НАСТРОЙКИ СТАНДАРТНОЙ ТЕМЫ: Режимы Dark / AMOLED / Light и палитра Material 3 */
+                <div className="space-y-3.5 pt-2 border-t border-md3-outline-variant/15 animate-in fade-in duration-200">
+                  <div className="text-xs font-semibold text-md3-on-surface">
+                    {t.settings.standardThemeSettings}
+                  </div>
+
+                  {/* Theme Mode Buttons (Dark / AMOLED / Light) */}
+                  <div className="grid grid-cols-3 gap-3">
                     <button
-                      onClick={() => onSetColorSchemeMode('dynamic')}
-                      className={`p-3 rounded-2xl border flex flex-col items-center gap-1.5 transition-all text-center cursor-pointer ${
-                        colorSchemeMode === 'dynamic'
-                          ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                          : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
+                      onClick={() => onSetThemeMode('dark')}
+                      className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all cursor-pointer ${
+                        themeMode === 'dark'
+                          ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-semibold shadow-xs'
+                          : 'border-md3-outline-variant/30 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
                       }`}
                     >
-                      <Sparkles className="w-4 h-4" />
-                      <span className="text-xs">{t.settings.paletteDynamic}</span>
-                      <span className="text-[10px] opacity-70">{t.settings.paletteDynamicDesc}</span>
+                      <Moon className="w-5 h-5" />
+                      <span className="text-xs">{t.settings.dark}</span>
                     </button>
 
                     <button
-                      onClick={() => onSetColorSchemeMode('system')}
-                      className={`p-3 rounded-2xl border flex flex-col items-center gap-1.5 transition-all text-center cursor-pointer ${
-                        colorSchemeMode === 'system'
-                          ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                          : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
+                      onClick={() => onSetThemeMode('amoled')}
+                      className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all cursor-pointer ${
+                        themeMode === 'amoled'
+                          ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-semibold shadow-xs'
+                          : 'border-md3-outline-variant/30 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
                       }`}
                     >
-                      <Monitor className="w-4 h-4" />
-                      <span className="text-xs">{t.settings.paletteSystem}</span>
-                      <span className="text-[10px] opacity-70">{t.settings.paletteSystemDesc}</span>
+                      <div className="w-5 h-5 rounded-full bg-black border border-white/40 flex items-center justify-center text-[10px] text-white font-bold">
+                        ●
+                      </div>
+                      <span className="text-xs">{t.settings.amoled}</span>
                     </button>
 
                     <button
-                      onClick={() => onSetColorSchemeMode('custom')}
-                      className={`p-3 rounded-2xl border flex flex-col items-center gap-1.5 transition-all text-center cursor-pointer ${
-                        colorSchemeMode === 'custom'
-                          ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                          : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
+                      onClick={() => onSetThemeMode('light')}
+                      className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all cursor-pointer ${
+                        themeMode === 'light'
+                          ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-semibold shadow-xs'
+                          : 'border-md3-outline-variant/30 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
                       }`}
                     >
-                      <Palette className="w-4 h-4" />
-                      <span className="text-xs">{t.settings.paletteCustom}</span>
-                      <span className="text-[10px] opacity-70">{t.settings.paletteCustomDesc}</span>
+                      <Sun className="w-5 h-5 text-amber-500" />
+                      <span className="text-xs">{t.settings.light}</span>
                     </button>
                   </div>
 
-                  {/* Standard Custom Palette Presets */}
-                  {colorSchemeMode === 'custom' && (
-                    <div className="p-3.5 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 space-y-2.5 animate-in fade-in duration-200">
-                      <div className="text-xs font-medium text-md3-on-surface-variant">
-                        {t.settings.pickAccentColor}
-                      </div>
-                      <div className="flex items-center gap-2.5 flex-wrap">
-                        {STANDARD_PRESETS.map((p) => (
-                          <button
-                            key={p.color}
-                            onClick={() => onSetSeedColor(p.color)}
-                            style={{ backgroundColor: p.color }}
-                            title={p.name}
-                            className="w-8 h-8 rounded-full flex items-center justify-center shadow-md hover:scale-110 active:scale-95 transition-transform cursor-pointer"
+                  {/* Material 3 Color Palette */}
+                  <div className="space-y-2.5 pt-1">
+                    <div className="text-xs font-semibold text-md3-on-surface">{t.settings.colorPalette}</div>
+                    <div className="grid grid-cols-3 gap-2.5">
+                      <button
+                        onClick={() => onSetColorSchemeMode('dynamic')}
+                        className={`p-3 rounded-2xl border flex flex-col items-center gap-1.5 transition-all text-center cursor-pointer ${
+                          colorSchemeMode === 'dynamic'
+                            ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                            : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
+                        }`}
+                      >
+                        <Sparkles className="w-4 h-4" />
+                        <span className="text-xs">{t.settings.paletteDynamic}</span>
+                        <span className="text-[10px] opacity-70">{t.settings.paletteDynamicDesc}</span>
+                      </button>
+
+                      <button
+                        onClick={() => onSetColorSchemeMode('system')}
+                        className={`p-3 rounded-2xl border flex flex-col items-center gap-1.5 transition-all text-center cursor-pointer ${
+                          colorSchemeMode === 'system'
+                            ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                            : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
+                        }`}
+                      >
+                        <Monitor className="w-4 h-4" />
+                        <span className="text-xs">{t.settings.paletteSystem}</span>
+                        <span className="text-[10px] opacity-70">{t.settings.paletteSystemDesc}</span>
+                      </button>
+
+                      <button
+                        onClick={() => onSetColorSchemeMode('custom')}
+                        className={`p-3 rounded-2xl border flex flex-col items-center gap-1.5 transition-all text-center cursor-pointer ${
+                          colorSchemeMode === 'custom'
+                            ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                            : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
+                        }`}
+                      >
+                        <Palette className="w-4 h-4" />
+                        <span className="text-xs">{t.settings.paletteCustom}</span>
+                        <span className="text-[10px] opacity-70">{t.settings.paletteCustomDesc}</span>
+                      </button>
+                    </div>
+
+                    {/* Standard Custom Palette Presets */}
+                    {colorSchemeMode === 'custom' && (
+                      <div className="p-3.5 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 space-y-2.5 animate-in fade-in duration-200">
+                        <div className="text-xs font-medium text-md3-on-surface-variant">
+                          {t.settings.pickAccentColor}
+                        </div>
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          {STANDARD_PRESETS.map((p) => (
+                            <button
+                              key={p.color}
+                              onClick={() => onSetSeedColor(p.color)}
+                              style={{ backgroundColor: p.color }}
+                              title={p.name}
+                              className="w-8 h-8 rounded-full flex items-center justify-center shadow-md hover:scale-110 active:scale-95 transition-transform cursor-pointer"
+                            >
+                              {seedColor.toLowerCase() === p.color.toLowerCase() && (
+                                <Check className="w-4 h-4 text-white drop-shadow" />
+                              )}
+                            </button>
+                          ))}
+                          <label
+                            className="relative w-8 h-8 rounded-full shadow-md hover:scale-110 active:scale-95 transition-transform cursor-pointer flex items-center justify-center border-2 border-white/40 overflow-hidden"
+                            style={{ backgroundColor: seedColor }}
+                            title={t.settings.paletteCustom}
                           >
-                            {seedColor.toLowerCase() === p.color.toLowerCase() && (
-                              <Check className="w-4 h-4 text-white drop-shadow" />
-                            )}
-                          </button>
-                        ))}
-                        <label
-                          className="relative w-8 h-8 rounded-full shadow-md hover:scale-110 active:scale-95 transition-transform cursor-pointer flex items-center justify-center border-2 border-white/40 overflow-hidden"
-                          style={{ backgroundColor: seedColor }}
-                          title={t.settings.paletteCustom}
+                            <input
+                              type="color"
+                              value={seedColor}
+                              onChange={(e) => onSetSeedColor(e.target.value)}
+                              className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* НАСТРОЙКИ ПОЛЬЗОВАТЕЛЬСКОЙ ТЕМЫ: Настройка палитры, опции темы, переключатели */
+                <div className="space-y-3 pt-2 border-t border-md3-outline-variant/15 animate-in fade-in duration-200">
+                  {/* Карточка информации о теме */}
+                  <div className="p-4 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-2xl bg-md3-primary/10 text-md3-primary flex items-center justify-center shrink-0">
+                        {activeCustomTheme?.is_folder ? <Folder className="w-5 h-5" /> : <FileCode className="w-5 h-5" />}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-bold text-md3-on-surface">
+                            {activeCustomTheme?.name || appTheme.replace('custom:', '')}
+                          </span>
+                          {activeCustomTheme?.version && (
+                            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-md3-primary/10 text-md3-primary">
+                              v{activeCustomTheme.version}
+                            </span>
+                          )}
+                          {activeCustomTheme?.author && (
+                            <span className="text-[10px] text-md3-on-surface-variant font-medium">
+                              ({t.settings.themeByAuthor}: {activeCustomTheme.author})
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-md3-on-surface-variant mt-0.5 line-clamp-2">
+                          {activeCustomTheme?.description || t.settings.themeSingleCssNotice}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {activeCustomTheme?.is_folder && (
+                        <button
+                          onClick={() => {
+                            if (isTauri()) {
+                              invoke('open_app_folder', { subfolder: `themes/${activeCustomTheme.folder_name}` }).catch(console.warn);
+                            }
+                          }}
+                          className="p-2 rounded-xl bg-md3-surface-container-high hover:bg-md3-primary/15 text-md3-primary transition-colors cursor-pointer"
+                          title={t.settings.openThemeFolder}
                         >
-                          <input
-                            type="color"
-                            value={seedColor}
-                            onChange={(e) => onSetSeedColor(e.target.value)}
-                            className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
-                          />
-                        </label>
+                          <FolderOpen className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button
+                        onClick={onRefreshCustomThemes}
+                        className="p-2 rounded-xl bg-md3-surface-container-high hover:bg-md3-surface-container-highest text-md3-on-surface-variant hover:text-md3-on-surface transition-colors cursor-pointer"
+                        title={t.settings.reloadThemes}
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Кнопка и блок настройки палитры (если палитра определена в теме) */}
+                  {activeCustomTheme?.palette && activeCustomTheme.palette.length > 0 && (
+                    <div className="p-4 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 flex items-center justify-between gap-4">
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Palette className="w-4 h-4 text-md3-primary" />
+                          <span className="text-xs font-bold text-md3-on-surface">
+                            {t.settings.themePaletteBtn}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-md3-on-surface-variant">
+                          {t.settings.themePaletteBtnDesc}
+                        </p>
+                        {/* Превью цветов палитры */}
+                        <div className="flex items-center gap-1.5 pt-1 flex-wrap">
+                          {activeCustomTheme.palette.map((item) => {
+                            const c = (themePaletteColors[item.id] || item.default).toLowerCase();
+                            return (
+                              <div
+                                key={item.id}
+                                className="w-4 h-4 rounded-full border border-black/20 shadow-xs"
+                                style={{ backgroundColor: c }}
+                                title={`${item.label}: ${c}`}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => setIsPaletteModalOpen(true)}
+                        className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-md3-primary text-md3-on-primary text-xs font-bold shadow-sm hover:scale-105 active:scale-95 transition-all cursor-pointer shrink-0"
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5" />
+                        <span>{t.settings.themePaletteBtn}</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Пользовательские переключатели темы (если определены в теме) */}
+                  {activeCustomTheme?.toggles && activeCustomTheme.toggles.length > 0 && (
+                    <div className="p-4 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 space-y-3">
+                      <div className="text-xs font-bold text-md3-on-surface flex items-center gap-2">
+                        <Sliders className="w-3.5 h-3.5 text-md3-primary" />
+                        <span>{t.settings.themeOptions}</span>
+                      </div>
+                      <div className="space-y-2">
+                        {activeCustomTheme.toggles.map((toggle) => {
+                          const isEnabled = themeToggles[toggle.id] ?? toggle.default;
+                          return (
+                            <div
+                              key={toggle.id}
+                              className="p-2.5 rounded-xl bg-md3-surface-container-low border border-md3-outline-variant/15 flex items-center justify-between gap-3"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="text-xs font-semibold text-md3-on-surface truncate">
+                                  {toggle.label}
+                                </div>
+                                {toggle.description && (
+                                  <div className="text-[10px] text-md3-on-surface-variant">
+                                    {toggle.description}
+                                  </div>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => onToggleThemeOption(toggle.id, !isEnabled)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                                  isEnabled
+                                    ? 'bg-emerald-600 text-white shadow-xs'
+                                    : 'bg-md3-surface-container-high text-md3-on-surface-variant hover:text-md3-on-surface'
+                                }`}
+                              >
+                                {isEnabled ? (language === 'ru' ? 'Вкл' : 'On') : (language === 'ru' ? 'Выкл' : 'Off')}
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
-                </div>
-              )}
 
-              {/* Discord Accent Presets */}
-              {appTheme === 'discord' && (
-                <div className="p-3.5 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 space-y-2.5 animate-in fade-in duration-200">
-                  <div className="text-xs font-medium text-md3-on-surface-variant">
-                    {t.settings.pickDiscordColor}
-                  </div>
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    {DISCORD_PRESETS.map((p) => (
-                      <button
-                        key={p.color}
-                        onClick={() => onSetSeedColor(p.color)}
-                        style={{ backgroundColor: p.color }}
-                        title={p.name}
-                        className="w-8 h-8 rounded-full flex items-center justify-center shadow-md hover:scale-110 active:scale-95 transition-transform cursor-pointer"
-                      >
-                        {seedColor.toLowerCase() === p.color.toLowerCase() && (
-                          <Check className="w-4 h-4 text-white drop-shadow" />
-                        )}
-                      </button>
-                    ))}
-                    <label
-                      className="relative w-8 h-8 rounded-full shadow-md hover:scale-110 active:scale-95 transition-transform cursor-pointer flex items-center justify-center border-2 border-white/40 overflow-hidden"
-                      style={{ backgroundColor: seedColor }}
-                      title={t.settings.paletteCustom}
-                    >
-                      <input
-                        type="color"
-                        value={seedColor}
-                        onChange={(e) => onSetSeedColor(e.target.value)}
-                        className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
-                      />
-                    </label>
-                  </div>
-                </div>
-              )}
-
-              {/* Telegram Accent Presets */}
-              {appTheme === 'telegram' && (
-                <div className="p-3.5 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 space-y-2.5 animate-in fade-in duration-200">
-                  <div className="text-xs font-medium text-md3-on-surface-variant">
-                    {t.settings.pickTelegramColor}
-                  </div>
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    {TELEGRAM_PRESETS.map((p) => (
-                      <button
-                        key={p.color}
-                        onClick={() => onSetSeedColor(p.color)}
-                        style={{ backgroundColor: p.color }}
-                        title={p.name}
-                        className="w-8 h-8 rounded-full flex items-center justify-center shadow-md hover:scale-110 active:scale-95 transition-transform cursor-pointer"
-                      >
-                        {seedColor.toLowerCase() === p.color.toLowerCase() && (
-                          <Check className="w-4 h-4 text-white drop-shadow" />
-                        )}
-                      </button>
-                    ))}
-                    <label
-                      className="relative w-8 h-8 rounded-full shadow-md hover:scale-110 active:scale-95 transition-transform cursor-pointer flex items-center justify-center border-2 border-white/40 overflow-hidden"
-                      style={{ backgroundColor: seedColor }}
-                      title={t.settings.paletteCustom}
-                    >
-                      <input
-                        type="color"
-                        value={seedColor}
-                        onChange={(e) => onSetSeedColor(e.target.value)}
-                        className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
-                      />
-                    </label>
-                  </div>
-                </div>
-              )}
-
-              {/* Cyberpunk Duotone (2 Colors) Presets & Pickers */}
-              {appTheme === 'cyberpunk' && (
-                <div className="p-3.5 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 space-y-3.5 animate-in fade-in duration-200">
-                  <div className="text-xs font-medium text-md3-on-surface-variant">
-                    {t.settings.duotonePresets}
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {CYBERPUNK_PAIRS.map((pair) => (
-                      <button
-                        key={pair.name}
-                        onClick={() => {
-                          onSetSeedColor(pair.primary);
-                          onSetSecondarySeedColor(pair.secondary);
-                        }}
-                        className={`p-2 rounded-xl border flex items-center justify-between transition-all cursor-pointer ${
-                          seedColor.toLowerCase() === pair.primary.toLowerCase() &&
-                          secondarySeedColor.toLowerCase() === pair.secondary.toLowerCase()
-                            ? 'border-md3-primary bg-md3-primary/10 shadow-xs'
-                            : 'border-md3-outline-variant/20 hover:bg-md3-surface-container-high'
-                        }`}
-                      >
-                        <span className="text-[11px] font-medium text-md3-on-surface truncate">{pair.name}</span>
-                        <div className="flex items-center -space-x-1.5 shrink-0">
-                          <div className="w-4 h-4 rounded-full border border-black/30" style={{ backgroundColor: pair.primary }} />
-                          <div className="w-4 h-4 rounded-full border border-black/30" style={{ backgroundColor: pair.secondary }} />
+                  {/* Одиночный CSS файл: сообщение с кнопкой открытия папки */}
+                  {(!activeCustomTheme?.palette || activeCustomTheme.palette.length === 0) &&
+                    (!activeCustomTheme?.toggles || activeCustomTheme.toggles.length === 0) && (
+                      <div className="p-3.5 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 text-xs text-md3-on-surface-variant flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <div className="font-semibold text-md3-on-surface">{t.settings.customCssActive}</div>
+                          <div className="text-[11px]">{t.settings.themeSingleCssNotice}</div>
                         </div>
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Individual Pickers for Primary & Secondary */}
-                  <div className="grid grid-cols-2 gap-3 pt-1">
-                    <div className="flex items-center justify-between p-2 rounded-xl bg-md3-surface-container-low border border-md3-outline-variant/20">
-                      <span className="text-[11px] text-md3-on-surface-variant">{t.settings.primaryAccent}</span>
-                      <label 
-                        className="relative w-6 h-6 rounded-full shadow-xs cursor-pointer border border-white/30 overflow-hidden" 
-                        style={{ backgroundColor: seedColor }}
-                      >
-                        <input
-                          type="color"
-                          value={seedColor}
-                          onChange={(e) => onSetSeedColor(e.target.value)}
-                          className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
-                        />
-                      </label>
-                    </div>
-
-                    <div className="flex items-center justify-between p-2 rounded-xl bg-md3-surface-container-low border border-md3-outline-variant/20">
-                      <span className="text-[11px] text-md3-on-surface-variant">{t.settings.secondaryAccent}</span>
-                      <label 
-                        className="relative w-6 h-6 rounded-full shadow-xs cursor-pointer border border-white/30 overflow-hidden" 
-                        style={{ backgroundColor: secondarySeedColor }}
-                      >
-                        <input
-                          type="color"
-                          value={secondarySeedColor}
-                          onChange={(e) => onSetSecondarySeedColor(e.target.value)}
-                          className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
-                        />
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Custom CSS Theme Notice */}
-              {appTheme.startsWith('custom:') && (
-                <div className="p-3.5 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 text-xs text-md3-on-surface-variant flex items-center justify-between animate-in fade-in duration-200">
-                  <div className="space-y-0.5">
-                    <div className="font-semibold text-md3-on-surface">{t.settings.customCssActive}</div>
-                    <div className="text-[11px]">{t.settings.customCssFile} {appTheme.replace('custom:', '')}</div>
-                  </div>
-                  <button
-                    onClick={refreshCustomThemes}
-                    className="px-3 py-1.5 rounded-xl bg-md3-primary/10 text-md3-primary hover:bg-md3-primary/20 text-xs font-semibold cursor-pointer"
-                  >
-                    {t.settings.refreshStyles}
-                  </button>
+                        <button
+                          onClick={handleOpenThemesFolder}
+                          className="px-3 py-1.5 rounded-xl bg-md3-primary/10 text-md3-primary hover:bg-md3-primary/20 text-xs font-semibold cursor-pointer"
+                        >
+                          {t.settings.openThemesFolder}
+                        </button>
+                      </div>
+                    )}
                 </div>
               )}
             </div>
@@ -1845,6 +1797,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         )}
       </div>
+
+      {/* Theme Palette Modal */}
+      <ThemePaletteModal
+        isOpen={isPaletteModalOpen}
+        onClose={() => setIsPaletteModalOpen(false)}
+        theme={activeCustomTheme || null}
+        paletteColors={themePaletteColors}
+        onUpdateColor={onUpdateThemePaletteColor}
+        onResetAll={onResetThemePalette}
+        language={language}
+      />
+
+      {/* Theme Deletion Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!themeToDelete}
+        title={t.settings.themeDelete}
+        message={
+          language === 'ru'
+            ? `Вы уверены, что хотите удалить тему «${themeToDelete?.name}»? Файлы темы будут безвозвратно удалены из папки themes/.`
+            : `Are you sure you want to delete the theme "${themeToDelete?.name}"? The theme files will be permanently deleted from the themes/ folder.`
+        }
+        confirmLabel={t.settings.themeDelete}
+        cancelLabel={language === 'ru' ? 'Отмена' : 'Cancel'}
+        isDestructive={true}
+        language={language}
+        onConfirm={async () => {
+          if (themeToDelete) {
+            await onDeleteCustomTheme(themeToDelete.id);
+            setThemeToDelete(null);
+          }
+        }}
+        onClose={() => setThemeToDelete(null)}
+      />
     </div>
   );
 };

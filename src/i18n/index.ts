@@ -49,16 +49,19 @@ export interface Translations {
     light: string;
     themeStyle: string;
     themeCurtainSelect: string;
-    builtinThemes: string;
     themeStandard: string;
     themeStandardDesc: string;
-    themeDiscord: string;
-    themeDiscordDesc: string;
-    themeTelegram: string;
-    themeTelegramDesc: string;
-    themeCyberpunk: string;
-    themeCyberpunkDesc: string;
-    customThemes: string;
+    standardThemeSettings: string;
+    themePaletteBtn: string;
+    themePaletteBtnDesc: string;
+    themeOptions: string;
+    themeFolder: string;
+    themeDelete: string;
+    themeDeleteConfirm: string;
+    themeCannotDeleteDefault: string;
+    themeByAuthor: string;
+    themeSingleCssNotice: string;
+    openThemeFolder: string;
     openThemesFolder: string;
     reloadThemes: string;
     noCustomThemes: string;
@@ -201,21 +204,24 @@ export const RU_TRANSLATIONS: Translations = {
     dark: 'Тёмная',
     amoled: 'AMOLED',
     light: 'Светлая',
-    themeStyle: 'Стиль оформления (CSS темы)',
+    themeStyle: 'Стиль оформления темы',
     themeCurtainSelect: 'Выберите тему оформления...',
-    builtinThemes: 'Встроенные темы',
-    themeStandard: 'Material Design 3 (Вшитая)',
-    themeStandardDesc: 'Стандартная адаптивная палитра Material Design',
-    themeDiscord: 'Discord',
-    themeDiscordDesc: 'Тёмная эстетика Discord с акцентами',
-    themeTelegram: 'Telegram',
-    themeTelegramDesc: 'Ночная сине-графитовая тема',
-    themeCyberpunk: 'Cyberpunk Duotone (2 цвета)',
-    themeCyberpunkDesc: 'Неоновый двухцветный дуэт',
-    customThemes: 'Пользовательские темы (.css)',
+    themeStandard: 'Стандартная (По умолчанию)',
+    themeStandardDesc: 'Адаптивная палитра Material Design 3',
+    standardThemeSettings: 'Настройки стандартной темы (Material 3)',
+    themePaletteBtn: 'Настройка палитры',
+    themePaletteBtnDesc: 'Настройка индивидуальных цветов элементов интерфейса',
+    themeOptions: 'Опции и переключатели темы',
+    themeFolder: 'Папка темы',
+    themeDelete: 'Удалить тему',
+    themeDeleteConfirm: 'Вы действительно хотите удалить эту тему? Файлы будут удалены с диска.',
+    themeCannotDeleteDefault: 'Стандартную тему нельзя удалить',
+    themeByAuthor: 'Автор',
+    themeSingleCssNotice: 'Тема загружена из одиночного файла CSS в папке themes/',
+    openThemeFolder: 'Открыть папку этой темы',
     openThemesFolder: 'Открыть папку с темами',
-    reloadThemes: 'Обновить список',
-    noCustomThemes: 'В папке themes/ пока нет .css файлов',
+    reloadThemes: 'Обновить список тем',
+    noCustomThemes: 'В папке themes/ пока нет пользовательских тем',
     colorPalette: 'Цветовая палитра',
     paletteDynamic: 'Динамическая',
     paletteDynamicDesc: 'Из обложки трека',
@@ -355,21 +361,24 @@ export const EN_TRANSLATIONS: Translations = {
     dark: 'Dark',
     amoled: 'AMOLED',
     light: 'Light',
-    themeStyle: 'Theme Style (CSS Themes)',
+    themeStyle: 'Theme Style',
     themeCurtainSelect: 'Select a theme style...',
-    builtinThemes: 'Built-in Themes',
-    themeStandard: 'Material Design 3 (Built-in)',
-    themeStandardDesc: 'Standard Material Design adaptive palette',
-    themeDiscord: 'Discord',
-    themeDiscordDesc: 'Discord dark aesthetic with color accents',
-    themeTelegram: 'Telegram',
-    themeTelegramDesc: 'Night blue & graphite theme',
-    themeCyberpunk: 'Cyberpunk Duotone (2 colors)',
-    themeCyberpunkDesc: 'Vibrant two-tone neon duet',
-    customThemes: 'Custom Themes (.css)',
+    themeStandard: 'Standard (Default)',
+    themeStandardDesc: 'Adaptive Material Design 3 palette',
+    standardThemeSettings: 'Default Theme Settings (Material 3)',
+    themePaletteBtn: 'Palette Settings',
+    themePaletteBtnDesc: 'Customize individual interface element colors',
+    themeOptions: 'Theme Options & Toggles',
+    themeFolder: 'Theme Folder',
+    themeDelete: 'Delete Theme',
+    themeDeleteConfirm: 'Are you sure you want to delete this theme? Files will be removed from disk.',
+    themeCannotDeleteDefault: 'Default theme cannot be deleted',
+    themeByAuthor: 'Author',
+    themeSingleCssNotice: 'Theme loaded from a standalone CSS file in themes/',
+    openThemeFolder: 'Open This Theme Folder',
     openThemesFolder: 'Open Themes Folder',
-    reloadThemes: 'Refresh List',
-    noCustomThemes: 'No .css files found in themes/ folder yet',
+    reloadThemes: 'Refresh Themes List',
+    noCustomThemes: 'No custom themes found in themes/ folder yet',
     colorPalette: 'Color Palette',
     paletteDynamic: 'Dynamic',
     paletteDynamicDesc: 'From album artwork',

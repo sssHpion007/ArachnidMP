@@ -23,22 +23,102 @@ pub fn init_storage_structure(base_dir: &Path) {
     let _ = fs::create_dir_all(&themes_dir);
     let _ = fs::create_dir_all(&locales_dir);
 
-    // Create a README in themes/ to guide users on custom CSS themes
+    // Create a README in themes/ to guide users on custom themes and theme tooling
     let themes_readme = themes_dir.join("README.txt");
     if !themes_readme.exists() {
         let readme_content = "\
-Arachnid Custom CSS Themes
-==========================
-Place your custom .css files in this folder to apply custom styles to Arachnid Music Player.
-You can override Material Design 3 variables:
-  --md-sys-color-primary: #a8c7fa;
-  --md-sys-color-primary-rgb: 168 199 250;
-  --md-sys-color-background: #111318;
-  --md-sys-color-background-rgb: 17 19 24;
-  --md-sys-color-surface: #1e1f25;
-  --md-sys-color-surface-rgb: 30 31 37;
-  --md-sys-color-surface-container: #282a30;
-  --md-sys-color-surface-container-rgb: 40 42 48;
+Arachnid Custom Themes & Tooling Guide / Руководство по созданию тем
+=====================================================================
+
+Arachnid Music Player supports two formats for custom themes:
+1. Theme Folders (Папки тем с манифестом theme.json, стилями и ассетами)
+2. Standalone CSS files (Одиночные файлы .css)
+
+---
+1. ТЕМЫ В ВИДЕ ПАПКИ (Folder Themes)
+---
+Создайте папку внутри themes/ (например, themes/my-theme/).
+Внутри папки размещаются:
+- theme.json — манифест темы с описанием, палитрой элементов и переключателями.
+- theme.css — файл со стилями оформления.
+- Ассеты — любые изображения, фоны, иконки, шрифты (например, assets/background.png). В theme.css на них можно ссылаться через url(\"assets/background.png\").
+
+Пример структуры theme.json:
+{
+  \"name\": \"Neon Flux\",
+  \"author\": \"Ваше имя\",
+  \"version\": \"1.0.0\",
+  \"description\": \"Тёмная киберпанк-тема с неоновыми акцентами\",
+  \"css\": \"theme.css\",
+  \"palette\": [
+    {
+      \"id\": \"accent\",
+      \"label\": \"Основной акцент\",
+      \"cssVar\": \"--md-sys-color-primary\",
+      \"default\": \"#00f5d4\",
+      \"description\": \"Цвет активных элементов и кнопок\"
+    },
+    {
+      \"id\": \"background\",
+      \"label\": \"Основной фон\",
+      \"cssVar\": \"--md-sys-color-background\",
+      \"default\": \"#0a0b10\",
+      \"description\": \"Фоновый цвет плеера\"
+    },
+    {
+      \"id\": \"surface\",
+      \"label\": \"Боковая панель и карточки\",
+      \"cssVar\": \"--md-sys-color-surface\",
+      \"default\": \"#12141d\",
+      \"description\": \"Цвет поверхностей и сайдбара\"
+    },
+    {
+      \"id\": \"text\",
+      \"label\": \"Основной текст\",
+      \"cssVar\": \"--md-sys-color-on-surface\",
+      \"default\": \"#ffffff\",
+      \"description\": \"Цвет текста и заголовков\"
+    }
+  ],
+  \"toggles\": [
+    {
+      \"id\": \"glow_buttons\",
+      \"label\": \"Неоновое свечение\",
+      \"description\": \"Добавляет неоновый отблеск кнопкам управления\",
+      \"cssClass\": \"theme-glow-buttons\",
+      \"default\": true
+    },
+    {
+      \"id\": \"compact_player\",
+      \"label\": \"Компактный плеер\",
+      \"description\": \"Уменьшает высоту нижней панели воспроизведения\",
+      \"cssClass\": \"theme-compact-player\",
+      \"default\": false
+    }
+  ]
+}
+
+Пользователи смогут открыть окно «Настройка палитры» прямо в настройках темы и настроить каждый элемент палитры через интерактивный выбор цвета (как в Telegram / Discord / Fluxer)!
+Любые переключатели из toggles автоматически отображаются тумблерами Вкл/Выкл в настройках темы.
+
+---
+2. ОСНОВНЫЕ ПЕРЕМЕННЫЕ CSS ПЛЕЕРА
+---
+Вы можете переопределять переменные Material Design 3 в theme.css:
+  --md-sys-color-primary: #00f5d4;
+  --md-sys-color-primary-rgb: 0 245 212;
+  --md-sys-color-background: #0a0b10;
+  --md-sys-color-background-rgb: 10 11 16;
+  --md-sys-color-surface: #12141d;
+  --md-sys-color-surface-rgb: 18 20 29;
+  --md-sys-color-surface-container: #1a1d29;
+  --md-sys-color-surface-container-rgb: 26 29 41;
+  --md-sys-color-surface-container-high: #242838;
+  --md-sys-color-surface-container-high-rgb: 36 40 56;
+  --md-sys-color-on-surface: #ffffff;
+  --md-sys-color-on-surface-rgb: 255 255 255;
+  --md-sys-color-on-surface-variant: #9ca3af;
+  --md-sys-color-outline-variant: #374151;
 ";
         let _ = fs::write(themes_readme, readme_content);
     }
@@ -61,6 +141,115 @@ You can override Material Design 3 variables:
 }
 ";
         let _ = fs::write(example_theme, example_content);
+    }
+
+    // Create an example folder theme: themes/neon-flux
+    let neon_flux_dir = themes_dir.join("neon-flux");
+    if !neon_flux_dir.exists() {
+        let _ = fs::create_dir_all(&neon_flux_dir);
+        let manifest_path = neon_flux_dir.join("theme.json");
+        let manifest_json = json!({
+            "name": "Neon Flux",
+            "author": "Arachnid Team",
+            "version": "1.0.0",
+            "description": "Киберпанк-тема с настраиваемой палитрой элементов и переключателями",
+            "css": "theme.css",
+            "palette": [
+                {
+                    "id": "accent",
+                    "label": "Основной акцент",
+                    "cssVar": "--md-sys-color-primary",
+                    "default": "#00f5d4",
+                    "description": "Цвет активных элементов, кнопок и ползунков"
+                },
+                {
+                    "id": "background",
+                    "label": "Основной фон",
+                    "cssVar": "--md-sys-color-background",
+                    "default": "#0a0b12",
+                    "description": "Фоновый цвет главного окна приложения"
+                },
+                {
+                    "id": "surface",
+                    "label": "Боковая панель и карточки",
+                    "cssVar": "--md-sys-color-surface",
+                    "default": "#121420",
+                    "description": "Цвет поверхностей и боковой панели"
+                },
+                {
+                    "id": "container",
+                    "label": "Контейнеры списков",
+                    "cssVar": "--md-sys-color-surface-container",
+                    "default": "#1a1c2c",
+                    "description": "Цвет блоков плеера и списков треков"
+                },
+                {
+                    "id": "text",
+                    "label": "Основной текст",
+                    "cssVar": "--md-sys-color-on-surface",
+                    "default": "#f0f6fc",
+                    "description": "Цвет названий треков и заголовков"
+                },
+                {
+                    "id": "subtext",
+                    "label": "Второстепенный текст",
+                    "cssVar": "--md-sys-color-on-surface-variant",
+                    "default": "#8b949e",
+                    "description": "Цвет исполнителей, времени и подсказок"
+                }
+            ],
+            "toggles": [
+                {
+                    "id": "neon_glow",
+                    "label": "Неоновое свечение кнопок",
+                    "description": "Добавляет мягкий неоновый отблеск активным кнопкам управления",
+                    "cssClass": "theme-neon-glow",
+                    "default": true
+                },
+                {
+                    "id": "compact_player",
+                    "label": "Компактная панель плеера",
+                    "description": "Более плотное и аккуратное расположение элементов плеера",
+                    "cssClass": "theme-compact-player",
+                    "default": false
+                }
+            ]
+        });
+        let _ = fs::write(manifest_path, serde_json::to_string_pretty(&manifest_json).unwrap_or_default());
+
+        let css_path = neon_flux_dir.join("theme.css");
+        let css_content = "\
+/* Neon Flux Theme */
+:root {
+  --md-sys-color-primary: #00f5d4;
+  --md-sys-color-primary-rgb: 0 245 212;
+  --md-sys-color-background: #0a0b12;
+  --md-sys-color-background-rgb: 10 11 18;
+  --md-sys-color-surface: #121420;
+  --md-sys-color-surface-rgb: 18 20 32;
+  --md-sys-color-surface-container: #1a1c2c;
+  --md-sys-color-surface-container-rgb: 26 28 44;
+  --md-sys-color-surface-container-high: #24273d;
+  --md-sys-color-surface-container-high-rgb: 36 39 61;
+  --md-sys-color-on-surface: #f0f6fc;
+  --md-sys-color-on-surface-rgb: 240 246 252;
+  --md-sys-color-on-surface-variant: #8b949e;
+  --md-sys-color-on-surface-variant-rgb: 139 148 158;
+}
+
+/* Optional Toggle: Neon Glow Buttons */
+.theme-neon-glow button:hover {
+  filter: drop-shadow(0 0 6px rgba(0, 245, 212, 0.45));
+  transition: filter 0.2s ease;
+}
+
+/* Optional Toggle: Compact Player Bar */
+.theme-compact-player footer {
+  padding-top: 0.5rem !important;
+  padding-bottom: 0.5rem !important;
+}
+";
+        let _ = fs::write(css_path, css_content);
     }
 
     // Create default locale files in locales/

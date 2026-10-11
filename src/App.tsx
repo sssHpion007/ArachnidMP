@@ -34,8 +34,12 @@ import {
   applyM3ThemeToDOM, 
   extractDominantColor,
   getWindowsAccentColor,
-  injectCustomThemeCss
+  injectCustomThemeCss,
+  applyCustomPaletteToDOM,
+  applyCustomTogglesToDOM,
+  clearCustomThemeClasses
 } from './theme/material3';
+import { CustomThemeInfo, ThemeContent } from './types/theme';
 import { AppLanguage, detectSystemLanguage } from './i18n';
 import { isNewerVersion, CURRENT_APP_VERSION } from './utils/version';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
@@ -73,7 +77,13 @@ interface StoredThemeCache {
 const getStoredThemeCache = (): StoredThemeCache => {
   try {
     const raw = localStorage.getItem('arachnid_theme_cache');
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.appTheme === 'discord' || parsed.appTheme === 'telegram' || parsed.appTheme === 'cyberpunk') {
+        parsed.appTheme = 'default';
+      }
+      return parsed;
+    }
   } catch (_) {}
   return {};
 };
@@ -130,6 +140,27 @@ export const App: React.FC = () => {
   const [seedColor, setSeedColor] = useState<string>(() => initialThemeCache.seedColor || DEFAULT_SEED_COLOR);
   const [secondarySeedColor, setSecondarySeedColor] = useState<string>(() => initialThemeCache.secondarySeedColor || '#f72585');
   const [appTheme, setAppTheme] = useState<string>(() => initialThemeCache.appTheme || 'default');
+  const [customThemesList, setCustomThemesList] = useState<CustomThemeInfo[]>([]);
+  const [themePaletteColors, setThemePaletteColors] = useState<Record<string, string>>(() => {
+    if (initialThemeCache.appTheme?.startsWith('custom:')) {
+      const tid = initialThemeCache.appTheme.replace('custom:', '');
+      try {
+        const raw = localStorage.getItem(`arachnid_theme_palette_${tid}`);
+        return raw ? JSON.parse(raw) : {};
+      } catch (_) {}
+    }
+    return {};
+  });
+  const [themeToggles, setThemeToggles] = useState<Record<string, boolean>>(() => {
+    if (initialThemeCache.appTheme?.startsWith('custom:')) {
+      const tid = initialThemeCache.appTheme.replace('custom:', '');
+      try {
+        const raw = localStorage.getItem(`arachnid_theme_toggles_${tid}`);
+        return raw ? JSON.parse(raw) : {};
+      } catch (_) {}
+    }
+    return {};
+  });
 
   // Language & Localization (auto-detects system language on first launch)
   const [language, setLanguage] = useState<AppLanguage>(() => initialThemeCache.language || detectSystemLanguage());
@@ -400,27 +431,146 @@ export const App: React.FC = () => {
     audioEngine.setRepeatMode(repeatMode);
   }, [repeatMode]);
 
+  const refreshCustomThemes = async () => {
+    if (isTauri()) {
+      try {
+        const list = await invoke<CustomThemeInfo[]>('list_custom_themes');
+        setCustomThemesList(list || []);
+        return list;
+      } catch (e) {
+        console.warn('Failed to load custom themes:', e);
+      }
+    }
+    return [];
+  };
+
+  useEffect(() => {
+    refreshCustomThemes();
+  }, []);
+
+  // Sync palette and toggles state when active custom theme changes
+  useEffect(() => {
+    if (appTheme.startsWith('custom:')) {
+      const themeId = appTheme.replace('custom:', '');
+      try {
+        const rawPalette = localStorage.getItem(`arachnid_theme_palette_${themeId}`);
+        setThemePaletteColors(rawPalette ? JSON.parse(rawPalette) : {});
+      } catch (_) {
+        setThemePaletteColors({});
+      }
+      try {
+        const rawToggles = localStorage.getItem(`arachnid_theme_toggles_${themeId}`);
+        setThemeToggles(rawToggles ? JSON.parse(rawToggles) : {});
+      } catch (_) {
+        setThemeToggles({});
+      }
+    }
+  }, [appTheme]);
+
+  const handleUpdateThemePaletteColor = (itemId: string, hex: string) => {
+    if (!appTheme.startsWith('custom:')) return;
+    const themeId = appTheme.replace('custom:', '');
+    const updated = { ...themePaletteColors, [itemId]: hex };
+    setThemePaletteColors(updated);
+    localStorage.setItem(`arachnid_theme_palette_${themeId}`, JSON.stringify(updated));
+
+    const activeTheme = customThemesList.find(t => t.id === themeId || t.css_filename === themeId);
+    if (activeTheme?.palette) {
+      applyCustomPaletteToDOM(activeTheme.palette, updated);
+    }
+  };
+
+  const handleResetThemePalette = () => {
+    if (!appTheme.startsWith('custom:')) return;
+    const themeId = appTheme.replace('custom:', '');
+    const activeTheme = customThemesList.find(t => t.id === themeId || t.css_filename === themeId);
+    const resetColors: Record<string, string> = {};
+    if (activeTheme?.palette) {
+      for (const item of activeTheme.palette) {
+        resetColors[item.id] = item.default;
+      }
+    }
+    setThemePaletteColors(resetColors);
+    localStorage.setItem(`arachnid_theme_palette_${themeId}`, JSON.stringify(resetColors));
+    if (activeTheme?.palette) {
+      applyCustomPaletteToDOM(activeTheme.palette, resetColors);
+    }
+  };
+
+  const handleToggleThemeOption = (toggleId: string, val: boolean) => {
+    if (!appTheme.startsWith('custom:')) return;
+    const themeId = appTheme.replace('custom:', '');
+    const updated = { ...themeToggles, [toggleId]: val };
+    setThemeToggles(updated);
+    localStorage.setItem(`arachnid_theme_toggles_${themeId}`, JSON.stringify(updated));
+
+    const activeTheme = customThemesList.find(t => t.id === themeId || t.css_filename === themeId);
+    if (activeTheme?.toggles) {
+      applyCustomTogglesToDOM(activeTheme.toggles, updated);
+    }
+  };
+
+  const handleDeleteCustomTheme = async (themeId: string) => {
+    if (themeId === 'default') return;
+    if (isTauri()) {
+      try {
+        await invoke('delete_custom_theme', { themeId });
+        if (appTheme === `custom:${themeId}` || appTheme === `custom:folder:${themeId}` || appTheme === `custom:file:${themeId}`) {
+          setAppTheme('default');
+          injectCustomThemeCss(null);
+        }
+        await refreshCustomThemes();
+      } catch (e) {
+        console.warn('Failed to delete custom theme:', e);
+      }
+    }
+  };
+
   // Dynamic M3 & Custom CSS Theme Palette
   useEffect(() => {
     const updateTheme = async () => {
       // Handle custom CSS themes loaded from themes/ folder
       if (appTheme.startsWith('custom:')) {
-        const filename = appTheme.replace('custom:', '');
+        const themeId = appTheme.replace('custom:', '');
         if (isTauri()) {
           try {
-            const css = await invoke<string>('read_custom_theme', { filename });
-            injectCustomThemeCss(css);
+            const content = await invoke<ThemeContent>('read_custom_theme', { themeId });
+            if (content && content.css) {
+              let finalCss = content.css;
+              if (content.base_path) {
+                finalCss = finalCss.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (match, quote, urlPath) => {
+                  const clean = urlPath.trim();
+                  if (clean.startsWith('http://') || clean.startsWith('https://') || clean.startsWith('data:') || clean.startsWith('blob:') || clean.startsWith('#') || clean.startsWith('asset:')) {
+                    return match;
+                  }
+                  const fullPath = `${content.base_path}/${clean.replace(/^\.?\//, '')}`;
+                  return `url("${convertFileSrc(fullPath)}")`;
+                });
+              }
+              injectCustomThemeCss(finalCss);
+            }
           } catch (e) {
             console.warn('Failed to load custom theme CSS, falling back to default:', e);
             injectCustomThemeCss(null);
           }
         }
+
+        // Apply custom theme palette and toggles if defined
+        const activeTheme = customThemesList.find(t => t.id === themeId || t.css_filename === themeId);
+        if (activeTheme?.palette && activeTheme.palette.length > 0) {
+          applyCustomPaletteToDOM(activeTheme.palette, themePaletteColors);
+        }
+        if (activeTheme?.toggles && activeTheme.toggles.length > 0) {
+          applyCustomTogglesToDOM(activeTheme.toggles, themeToggles);
+        }
       } else {
         injectCustomThemeCss(null);
-      }
 
-      let activeColor = DEFAULT_SEED_COLOR;
-      if (appTheme === 'default') {
+        // Clear any custom toggle classes
+        const allKnownClasses = customThemesList.flatMap(t => (t.toggles || []).map(tg => tg.cssClass || '')).filter(Boolean);
+        clearCustomThemeClasses(allKnownClasses);
+
+        let activeColor = DEFAULT_SEED_COLOR;
         if (colorSchemeMode === 'dynamic') {
           if (currentTrack?.coverArt) {
             activeColor = await extractDominantColor(currentTrack.coverArt);
@@ -432,16 +582,14 @@ export const App: React.FC = () => {
         } else if (colorSchemeMode === 'custom') {
           activeColor = seedColor;
         }
-      } else {
-        activeColor = seedColor;
-      }
 
-      const palette = generateCustomOrBuiltinPalette(appTheme, activeColor, secondarySeedColor, themeMode);
-      applyM3ThemeToDOM(palette, themeMode);
+        const palette = generateCustomOrBuiltinPalette(appTheme, activeColor, secondarySeedColor, themeMode);
+        applyM3ThemeToDOM(palette, themeMode);
+      }
     };
 
     updateTheme();
-  }, [currentTrack?.coverArt, colorSchemeMode, seedColor, secondarySeedColor, appTheme, themeMode]);
+  }, [currentTrack?.coverArt, colorSchemeMode, seedColor, secondarySeedColor, appTheme, themeMode, themePaletteColors, themeToggles, customThemesList]);
 
   // Discord Rich Presence update (only triggers when track changes or play/pause/enabled toggles, NEVER on timeupdate)
   useEffect(() => {
@@ -2529,6 +2677,14 @@ export const App: React.FC = () => {
         onSetAutoUpdateEnabled={handleSetAutoUpdateEnabled}
         autoUpdateInterval={autoUpdateInterval}
         onSetAutoUpdateInterval={handleSetAutoUpdateInterval}
+        customThemesList={customThemesList}
+        onRefreshCustomThemes={refreshCustomThemes}
+        onDeleteCustomTheme={handleDeleteCustomTheme}
+        themePaletteColors={themePaletteColors}
+        onUpdateThemePaletteColor={handleUpdateThemePaletteColor}
+        onResetThemePalette={handleResetThemePalette}
+        themeToggles={themeToggles}
+        onToggleThemeOption={handleToggleThemeOption}
       />
 
       {/* Track Context Menu */}
