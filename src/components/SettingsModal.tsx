@@ -155,13 +155,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const releaseNotesContainerRef = useRef<HTMLDivElement>(null);
   const mainSettingsContainerRef = useRef<HTMLDivElement>(null);
   const mainScrollTopRef = useRef<number>(0);
-  const updateCardRef = useRef<HTMLDivElement>(null);
-  const [cardHeight, setCardHeight] = useState<number | undefined>(undefined);
 
   const handleOpenUpdateSettings = () => {
-    if (updateCardRef.current) {
-      setCardHeight(updateCardRef.current.offsetHeight);
-    }
     setIsUpdateSettingsOpen(true);
   };
 
@@ -175,7 +170,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isUpdateSettingsOpen, setIsUpdateSettingsOpen] = useState<boolean>(false);
 
   // App version & Update checker state
-  const [appVersion, setAppVersion] = useState<string>('0.3.59');
+  const [appVersion, setAppVersion] = useState<string>('0.3.60');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'installing' | 'error'>('idle');
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [downloadStats, setDownloadStats] = useState<{ received: string; total: string }>({ received: '0', total: '0' });
@@ -390,7 +385,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (isOpen) {
       setCurrentView('main');
       setIsUpdateSettingsOpen(false);
-      setCardHeight(undefined);
       refreshCustomThemes();
     }
   }, [isOpen]);
@@ -1549,11 +1543,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             {/* 7. About Application & Updates Card */}
             <div ref={updateSectionRef} className="pt-2">
-              <div
-                ref={updateCardRef}
-                style={{ minHeight: cardHeight ? `${cardHeight}px` : undefined }}
-                className="p-5 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col justify-between min-h-[185px] gap-4 transition-all duration-200"
-              >
+              <div className="p-5 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col justify-between min-h-[210px] gap-4 transition-all duration-200">
                 {isUpdateSettingsOpen ? (
                   /* Auto-Update Settings View inside this container */
                   <div className="h-full flex flex-col justify-between gap-4 animate-in fade-in duration-200">

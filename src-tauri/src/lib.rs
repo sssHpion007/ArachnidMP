@@ -677,51 +677,41 @@ async fn download_and_install_update(
             return Err("Downloaded update file is too small or incomplete".to_string());
         }
 
-        // 4. In-place replacement via detached PowerShell and restart
+        // 4. In-place replacement via detached batch updater and restart
         #[cfg(target_os = "windows")]
         {
             use std::process::Command;
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
-            const DETACHED_PROCESS: u32 = 0x00000008;
+            const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
 
-            let pid = std::process::id();
-            let target_str = current_exe.to_string_lossy().to_string();
-            let source_str = temp_update_file.to_string_lossy().to_string();
-
-            let ps_script = format!(
-                "$p = Get-Process -Id {pid} -ErrorAction SilentlyContinue; \
-                if ($p) {{ $p.WaitForExit(15000); }} \
-                Start-Sleep -Milliseconds 1000; \
-                $copied = $false; \
-                for ($i = 0; $i -lt 40; $i++) {{ \
-                    try {{ \
-                        [System.IO.File]::Copy('{source}', '{target}', $true); \
-                        $copied = $true; \
-                        break; \
-                    }} catch {{ \
-                        try {{ \
-                            Remove-Item -Path '{target}' -Force -ErrorAction Stop; \
-                            [System.IO.File]::Copy('{source}', '{target}', $true); \
-                            $copied = $true; \
-                            break; \
-                        }} catch {{ \
-                            Start-Sleep -Milliseconds 500; \
-                        }} \
-                    }} \
-                }} \
-                Remove-Item -Path '{source}' -Force -ErrorAction SilentlyContinue; \
-                if ($copied) {{ \
-                    Start-Process -FilePath '{target}'; \
-                }}",
-                pid = pid,
-                source = source_str.replace("'", "''"),
-                target = target_str.replace("'", "''")
+            let bat_path = exe_dir.join(".updater.bat");
+            let bat_content = format!(
+                "@echo off\r\n\
+                chcp 65001 >nul\r\n\
+                ping 127.0.0.1 -n 3 >nul\r\n\
+                :retry\r\n\
+                if exist \"{target}.old\" del /f /q \"{target}.old\" >nul 2>&1\r\n\
+                move /y \"{target}\" \"{target}.old\" >nul 2>&1\r\n\
+                move /y \"{source}\" \"{target}\" >nul 2>&1\r\n\
+                if not exist \"{target}\" (\r\n\
+                    ping 127.0.0.1 -n 2 >nul\r\n\
+                    goto retry\r\n\
+                )\r\n\
+                start \"\" \"{target}\"\r\n\
+                del /f /q \"{target}.old\" >nul 2>&1\r\n\
+                (goto) 2>nul & del \"%~f0\"\r\n",
+                target = current_exe.to_string_lossy(),
+                source = temp_update_file.to_string_lossy()
             );
 
-            let _ = Command::new("powershell.exe")
-                .args(&["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &ps_script])
-                .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
+            std::fs::write(&bat_path, &bat_content)
+                .map_err(|e| format!("Failed to write updater script: {}", e))?;
+
+            let _ = Command::new("cmd.exe")
+                .current_dir(exe_dir)
+                .args(&["/c", "start", "/b", "", &bat_path.to_string_lossy()])
+                .creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
                 .spawn();
 
             std::process::exit(0);
@@ -757,45 +747,35 @@ fn apply_in_place_update(base64_data: String) -> Result<(), String> {
         use std::process::Command;
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
-        const DETACHED_PROCESS: u32 = 0x00000008;
+        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
 
-        let pid = std::process::id();
-        let target_str = current_exe.to_string_lossy().to_string();
-        let source_str = temp_update_file.to_string_lossy().to_string();
-
-        let ps_script = format!(
-            "$p = Get-Process -Id {pid} -ErrorAction SilentlyContinue; \
-            if ($p) {{ $p.WaitForExit(15000); }} \
-            Start-Sleep -Milliseconds 1000; \
-            $copied = $false; \
-            for ($i = 0; $i -lt 40; $i++) {{ \
-                try {{ \
-                    [System.IO.File]::Copy('{source}', '{target}', $true); \
-                    $copied = $true; \
-                    break; \
-                }} catch {{ \
-                    try {{ \
-                        Remove-Item -Path '{target}' -Force -ErrorAction Stop; \
-                        [System.IO.File]::Copy('{source}', '{target}', $true); \
-                        $copied = $true; \
-                        break; \
-                    }} catch {{ \
-                        Start-Sleep -Milliseconds 500; \
-                    }} \
-                }} \
-            }} \
-            Remove-Item -Path '{source}' -Force -ErrorAction SilentlyContinue; \
-            if ($copied) {{ \
-                Start-Process -FilePath '{target}'; \
-            }}",
-            pid = pid,
-            source = source_str.replace("'", "''"),
-            target = target_str.replace("'", "''")
+        let bat_path = exe_dir.join(".updater.bat");
+        let bat_content = format!(
+            "@echo off\r\n\
+            chcp 65001 >nul\r\n\
+            ping 127.0.0.1 -n 3 >nul\r\n\
+            :retry\r\n\
+            if exist \"{target}.old\" del /f /q \"{target}.old\" >nul 2>&1\r\n\
+            move /y \"{target}\" \"{target}.old\" >nul 2>&1\r\n\
+            move /y \"{source}\" \"{target}\" >nul 2>&1\r\n\
+            if not exist \"{target}\" (\r\n\
+                ping 127.0.0.1 -n 2 >nul\r\n\
+                goto retry\r\n\
+            )\r\n\
+            start \"\" \"{target}\"\r\n\
+            del /f /q \"{target}.old\" >nul 2>&1\r\n\
+            (goto) 2>nul & del \"%~f0\"\r\n",
+            target = current_exe.to_string_lossy(),
+            source = temp_update_file.to_string_lossy()
         );
 
-        let _ = Command::new("powershell.exe")
-            .args(&["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &ps_script])
-            .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
+        std::fs::write(&bat_path, &bat_content)
+            .map_err(|e| format!("Failed to write updater script: {}", e))?;
+
+        let _ = Command::new("cmd.exe")
+            .current_dir(exe_dir)
+            .args(&["/c", "start", "/b", "", &bat_path.to_string_lossy()])
+            .creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
             .spawn();
 
         std::process::exit(0);
@@ -877,7 +857,7 @@ mod windows_process_grouping {
             let job = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
             if !job.is_null() {
                 let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-                info.basic_limit_information.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                info.basic_limit_information.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | 0x00000800 | 0x00001000;
                 let _ = SetInformationJobObject(
                     job,
                     JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
@@ -894,6 +874,16 @@ mod windows_process_grouping {
 pub fn run() {
     let base_dir = storage::get_portable_base_dir();
     storage::init_storage_structure(&base_dir);
+
+    // Clean up temporary update files from previous run if any
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(parent) = current_exe.parent() {
+            let _ = std::fs::remove_file(parent.join(".updater.bat"));
+            let _ = std::fs::remove_file(parent.join(".update.bat"));
+            let _ = std::fs::remove_file(parent.join(".update_temp.tmp"));
+            let _ = std::fs::remove_file(format!("{}.old", current_exe.to_string_lossy()));
+        }
+    }
 
     #[cfg(target_os = "windows")]
     {
