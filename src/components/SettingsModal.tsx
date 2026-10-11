@@ -175,7 +175,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isUpdateSettingsOpen, setIsUpdateSettingsOpen] = useState<boolean>(false);
 
   // App version & Update checker state
-  const [appVersion, setAppVersion] = useState<string>('0.3.58');
+  const [appVersion, setAppVersion] = useState<string>('0.3.59');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'installing' | 'error'>('idle');
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [downloadStats, setDownloadStats] = useState<{ received: string; total: string }>({ received: '0', total: '0' });
@@ -441,9 +441,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div 
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 cursor-pointer"
+    >
       <div 
-        className="w-full max-w-xl bg-md3-surface-container rounded-3xl border border-md3-outline-variant/30 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-md3-on-surface"
+        className="w-full max-w-xl bg-md3-surface-container rounded-3xl border border-md3-outline-variant/30 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-md3-on-surface cursor-default"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -1549,13 +1552,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div
                 ref={updateCardRef}
                 style={{ minHeight: cardHeight ? `${cardHeight}px` : undefined }}
-                className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col justify-between transition-all duration-200"
+                className="p-5 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col justify-between min-h-[185px] gap-4 transition-all duration-200"
               >
                 {isUpdateSettingsOpen ? (
                   /* Auto-Update Settings View inside this container */
-                  <div className="h-full flex flex-col justify-between gap-3 animate-in fade-in duration-200">
+                  <div className="h-full flex flex-col justify-between gap-4 animate-in fade-in duration-200">
                     {/* Header with return button */}
-                    <div className="flex items-center gap-2 pb-2 border-b border-md3-outline-variant/15">
+                    <div className="flex items-center gap-2 pb-2.5 border-b border-md3-outline-variant/15">
                       <button
                         tabIndex={-1}
                         onMouseDown={(e) => e.preventDefault()}
@@ -1661,29 +1664,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <img
                         src="/app-logo.png"
                         alt="Arachnid Logo"
-                        className="w-12 h-12 rounded-2xl object-contain drop-shadow-md shrink-0"
+                        className="w-14 h-14 rounded-2xl object-contain drop-shadow-md shrink-0"
                       />
-                      <div className="space-y-0.5 min-w-0 flex-1">
+                      <div className="space-y-1 min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-sm text-md3-on-surface">Arachnid Music Player</span>
-                          <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full bg-md3-primary/10 text-md3-primary">
+                          <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full bg-md3-primary/10 text-md3-primary border border-md3-primary/20">
                             v{appVersion}
                           </span>
                         </div>
-                        <p className="text-xs text-md3-on-surface-variant">
+                        <p className="text-xs text-md3-on-surface-variant leading-relaxed">
                           {t.settings.aboutDesc}
                         </p>
                       </div>
                     </div>
 
                     {/* Updates Checker Row */}
-                    <div className="pt-2.5 border-t border-md3-outline-variant/15 flex flex-col gap-2.5">
-                      <div className="flex items-center justify-between gap-2">
+                    <div className="pt-3 border-t border-md3-outline-variant/15 flex flex-col gap-2.5">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
                         <div className="text-xs font-semibold text-md3-on-surface flex items-center gap-2">
                           <RefreshCw className={`w-3.5 h-3.5 text-md3-primary ${updateStatus === 'checking' ? 'animate-spin' : ''}`} />
                           <span>{t.settings.updates}</span>
                         </div>
 
+                        {/* Buttons: Check for updates + Release notes + Auto-update gear settings */}
                         <div className="flex items-center gap-2">
                           <button
                             tabIndex={-1}
@@ -1696,6 +1700,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             <span>{updateStatus === 'checking' ? t.settings.checkingUpdates : t.settings.checkUpdates}</span>
                           </button>
 
+                          {/* Always-visible Release Notes Button (between check updates and auto-update settings) */}
+                          <button
+                            tabIndex={-1}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={handleOpenReleaseNotes}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-surface hover:bg-md3-surface-container-high text-md3-on-surface text-xs font-medium border border-md3-outline-variant/20 hover:border-md3-primary/30 transition-all cursor-pointer shadow-xs outline-none focus:outline-none"
+                            title={t.settings.releaseNotes}
+                          >
+                            <FileText className="w-3.5 h-3.5 text-md3-primary" />
+                            <span>{t.settings.releaseNotes}</span>
+                          </button>
+
+                          {/* Auto-update Settings Gear Button */}
                           <button
                             tabIndex={-1}
                             onMouseDown={(e) => e.preventDefault()}
@@ -1708,22 +1725,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Status: Up to date */}
+                      {/* Status: Up to date (Clean notification without duplicate button) */}
                       {updateStatus === 'upToDate' && (
-                        <div className="flex items-center justify-between p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium animate-in fade-in flex-wrap gap-2">
-                          <div className="flex items-center gap-2">
-                            <CheckCircle2 className="w-4 h-4 shrink-0" />
-                            <span>{t.settings.latestVersionInstalled} (v{appVersion})</span>
-                          </div>
-                          <button
-                            tabIndex={-1}
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={handleOpenReleaseNotes}
-                            className="flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[11px] font-bold border border-emerald-500/30 transition-all cursor-pointer outline-none focus:outline-none"
-                          >
-                            <FileText className="w-3 h-3" />
-                            <span>{t.settings.releaseNotes}</span>
-                          </button>
+                        <div className="flex items-center gap-2 p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium animate-in fade-in">
+                          <CheckCircle2 className="w-4 h-4 shrink-0" />
+                          <span>{t.settings.latestVersionInstalled} (v{appVersion})</span>
                         </div>
                       )}
 
