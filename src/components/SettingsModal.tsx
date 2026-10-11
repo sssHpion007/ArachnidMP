@@ -170,7 +170,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isUpdateSettingsOpen, setIsUpdateSettingsOpen] = useState<boolean>(false);
 
   // App version & Update checker state
-  const [appVersion, setAppVersion] = useState<string>('0.3.60');
+  const [appVersion, setAppVersion] = useState<string>('0.3.61');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'installing' | 'error'>('idle');
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [downloadStats, setDownloadStats] = useState<{ received: string; total: string }>({ received: '0', total: '0' });
@@ -1543,33 +1543,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             {/* 7. About Application & Updates Card */}
             <div ref={updateSectionRef} className="pt-2">
-              <div className="p-5 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col justify-between min-h-[210px] gap-4 transition-all duration-200">
+              <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col gap-3.5 transition-all">
                 {isUpdateSettingsOpen ? (
                   /* Auto-Update Settings View inside this container */
-                  <div className="h-full flex flex-col justify-between gap-4 animate-in fade-in duration-200">
-                    {/* Header with return button */}
-                    <div className="flex items-center gap-2 pb-2.5 border-b border-md3-outline-variant/15">
-                      <button
-                        tabIndex={-1}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={handleCloseUpdateSettings}
-                        className="w-7 h-7 rounded-full bg-md3-surface hover:bg-md3-surface-container-high text-md3-primary border border-md3-outline-variant/20 flex items-center justify-center transition-all cursor-pointer outline-none focus:outline-none"
-                        title={language === 'ru' ? 'Назад' : 'Back'}
-                      >
-                        <ArrowLeft className="w-4 h-4" />
-                      </button>
-                      <span className="font-bold text-xs text-md3-on-surface">{t.settings.autoUpdateSettings}</span>
-                    </div>
+                  <div className="flex flex-col gap-3.5 animate-in fade-in duration-200">
+                    {/* Top Row: Back button + Title on the left, Toggle on the right */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <button
+                          tabIndex={-1}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={handleCloseUpdateSettings}
+                          className="w-7 h-7 rounded-full bg-md3-surface hover:bg-md3-surface-container-high text-md3-primary border border-md3-outline-variant/20 flex items-center justify-center transition-all cursor-pointer outline-none focus:outline-none shrink-0"
+                          title={language === 'ru' ? 'Назад' : 'Back'}
+                        >
+                          <ArrowLeft className="w-4 h-4" />
+                        </button>
+                        <span className="font-bold text-xs text-md3-on-surface truncate">{t.settings.autoUpdateCheck}</span>
+                      </div>
 
-                    {/* Enable / Disable Auto-check Toggle Buttons */}
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs font-semibold text-md3-on-surface">{t.settings.autoUpdateCheck}</span>
-                      <div className="flex items-center p-1 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 gap-1">
+                      {/* Enable / Disable Auto-check Toggle Buttons */}
+                      <div className="flex items-center p-0.5 rounded-xl bg-md3-surface border border-md3-outline-variant/20 gap-1 shrink-0">
                         <button
                           tabIndex={-1}
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={() => onSetAutoUpdateEnabled?.(true)}
-                          className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                             autoUpdateEnabled
                               ? 'bg-emerald-600 text-white shadow-xs'
                               : 'text-md3-on-surface-variant hover:text-md3-on-surface'
@@ -1581,7 +1580,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           tabIndex={-1}
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={() => onSetAutoUpdateEnabled?.(false)}
-                          className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                             !autoUpdateEnabled
                               ? 'bg-md3-surface-container-highest text-md3-on-surface shadow-xs'
                               : 'text-md3-on-surface-variant hover:text-md3-on-surface'
@@ -1592,8 +1591,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Slider for Auto-check Frequency */}
-                    <div className={`space-y-2 pt-1 transition-opacity ${!autoUpdateEnabled ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
+                    {/* Bottom Row: Frequency Slider */}
+                    <div className={`pt-2.5 border-t border-md3-outline-variant/15 flex flex-col gap-2 transition-opacity ${!autoUpdateEnabled ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
                       <div className="flex items-center justify-between text-[11px]">
                         <span className="text-md3-on-surface-variant font-medium">{t.settings.autoUpdateInterval}</span>
                         <span className="font-bold text-md3-primary">
@@ -1605,7 +1604,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </span>
                       </div>
 
-                      <div className="px-1 space-y-1.5">
+                      <div className="px-1 space-y-1">
                         <input
                           type="range"
                           min={0}
@@ -1654,23 +1653,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <img
                         src="/app-logo.png"
                         alt="Arachnid Logo"
-                        className="w-14 h-14 rounded-2xl object-contain drop-shadow-md shrink-0"
+                        className="w-12 h-12 rounded-2xl object-contain drop-shadow-md shrink-0"
                       />
-                      <div className="space-y-1 min-w-0 flex-1">
+                      <div className="space-y-0.5 min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-sm text-md3-on-surface">Arachnid Music Player</span>
-                          <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full bg-md3-primary/10 text-md3-primary border border-md3-primary/20">
+                          <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full bg-md3-primary/10 text-md3-primary">
                             v{appVersion}
                           </span>
                         </div>
-                        <p className="text-xs text-md3-on-surface-variant leading-relaxed">
+                        <p className="text-xs text-md3-on-surface-variant">
                           {t.settings.aboutDesc}
                         </p>
                       </div>
                     </div>
 
                     {/* Updates Checker Row */}
-                    <div className="pt-3 border-t border-md3-outline-variant/15 flex flex-col gap-2.5">
+                    <div className="pt-2.5 border-t border-md3-outline-variant/15 flex flex-col gap-2.5">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <div className="text-xs font-semibold text-md3-on-surface flex items-center gap-2">
                           <RefreshCw className={`w-3.5 h-3.5 text-md3-primary ${updateStatus === 'checking' ? 'animate-spin' : ''}`} />
