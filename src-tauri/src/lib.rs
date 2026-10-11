@@ -305,6 +305,15 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
         return Err(format!("File not found: {}", path_str));
     }
 
+    // Ensure file is writable on Windows if read-only attribute was set
+    if let Ok(meta) = std::fs::metadata(file_path) {
+        let mut perms = meta.permissions();
+        if perms.readonly() {
+            perms.set_readonly(false);
+            let _ = std::fs::set_permissions(file_path, perms);
+        }
+    }
+
     let is_mp3 = file_path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("mp3"));
 
     let mut tagged_file = lofty::read_from_path(file_path).map_err(|e| format!("Failed to read {}: {}", path_str, e))?;
@@ -312,7 +321,13 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
     // For MP3 files, ensure an ID3v2 tag is used/created so cover art (APIC) and full metadata are saved
     let tag = if is_mp3 {
         if tagged_file.tag(TagType::Id3v2).is_none() {
-            tagged_file.insert_tag(Tag::new(TagType::Id3v2));
+            let mut new_id3v2 = Tag::new(TagType::Id3v2);
+            if let Some(existing) = tagged_file.first_tag() {
+                for item in existing.items() {
+                    new_id3v2.insert(item.clone());
+                }
+            }
+            tagged_file.insert_tag(new_id3v2);
         }
         tagged_file.tag_mut(TagType::Id3v2).ok_or_else(|| "Failed to access ID3v2 tag".to_string())?
     } else {
@@ -420,38 +435,53 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
                 ("image/jpeg", trimmed)
             };
 
-            let clean_data = b64_data.replace(['\r', '\n', ' ', '\t', '"'], "");
-            if let Ok(bytes) = BASE64_STANDARD.decode(clean_data.as_bytes()) {
-                if !bytes.is_empty() {
-                    // Identify image format by magic bytes or fallback to mime_str
-                    let mime_type = if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
-                        MimeType::Png
-                    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
-                        MimeType::Jpeg
-                    } else if bytes.starts_with(b"GIF8") {
-                        MimeType::Gif
-                    } else if bytes.starts_with(b"BM") {
-                        MimeType::Bmp
-                    } else if bytes.starts_with(&[0x49, 0x49, 0x2A, 0x00]) || bytes.starts_with(&[0x4D, 0x4D, 0x00, 0x2A]) {
-                        MimeType::Tiff
-                    } else {
-                        match mime_str {
-                            "image/png" => MimeType::Png,
-                            "image/gif" => MimeType::Gif,
-                            "image/bmp" => MimeType::Bmp,
-                            "image/tiff" => MimeType::Tiff,
-                            _ => MimeType::Jpeg,
-                        }
-                    };
+            let clean_data: String = b64_data.chars().filter(|c| !c.is_whitespace() && *c != '"' && *c != '\'').collect();
+            let decoded = BASE64_STANDARD
+                .decode(clean_data.as_bytes())
+                .or_else(|_| BASE64_STANDARD_NO_PAD.decode(clean_data.as_bytes()))
+                .or_else(|_| BASE64_URL_SAFE.decode(clean_data.as_bytes()))
+                .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(clean_data.as_bytes()));
 
-                    let pic = Picture::new_unchecked(PictureType::CoverFront, Some(mime_type), None, bytes);
-                    tag.push_picture(pic);
+            match decoded {
+                Ok(bytes) => {
+                    if !bytes.is_empty() {
+                        // Identify image format by magic bytes or fallback to mime_str
+                        let mime_type = if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+                            MimeType::Png
+                        } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+                            MimeType::Jpeg
+                        } else if bytes.starts_with(b"GIF8") {
+                            MimeType::Gif
+                        } else if bytes.starts_with(b"BM") {
+                            MimeType::Bmp
+                        } else if bytes.starts_with(&[0x49, 0x49, 0x2A, 0x00]) || bytes.starts_with(&[0x4D, 0x4D, 0x00, 0x2A]) {
+                            MimeType::Tiff
+                        } else {
+                            match mime_str {
+                                "image/png" => MimeType::Png,
+                                "image/gif" => MimeType::Gif,
+                                "image/bmp" => MimeType::Bmp,
+                                "image/tiff" => MimeType::Tiff,
+                                _ => MimeType::Jpeg,
+                            }
+                        };
+
+                        let pic = Picture::new_unchecked(PictureType::CoverFront, Some(mime_type), None, bytes);
+                        tag.push_picture(pic);
+                    }
+                }
+                Err(e) => {
+                    return Err(format!("Failed to decode cover image base64: {}", e));
                 }
             }
         }
     }
 
-    tag.save_to_path(file_path, WriteOptions::default()).map_err(|e| e.to_string())?;
+    let mut write_options = WriteOptions::default();
+    if is_mp3 || tag.tag_type() == TagType::Id3v2 {
+        write_options.use_id3v23(true);
+    }
+    tag.save_to_path(file_path, write_options).map_err(|e| format!("Failed to save tags to {}: {}", path_str, e))?;
     Ok(())
 }
 
@@ -464,6 +494,7 @@ fn save_track_file_tags(path: String, updates: TagUpdates) -> Result<Option<Trac
 #[tauri::command]
 fn batch_save_track_file_tags(paths: Vec<String>, updates: TagUpdates) -> Result<usize, String> {
     let mut updated_count = 0;
+    let mut last_error = None;
     for path in &paths {
         match apply_tag_updates_to_file(path, &updates) {
             Ok(_) => {
@@ -471,7 +502,13 @@ fn batch_save_track_file_tags(paths: Vec<String>, updates: TagUpdates) -> Result
             }
             Err(e) => {
                 eprintln!("Error saving tags to {}: {}", path, e);
+                last_error = Some(format!("{}: {}", path, e));
             }
+        }
+    }
+    if updated_count == 0 && !paths.is_empty() {
+        if let Some(err) = last_error {
+            return Err(err);
         }
     }
     Ok(updated_count)
@@ -519,8 +556,12 @@ fn save_cover_image(data_url: String, default_filename: Option<String>) -> Resul
         ("image/jpeg", trimmed)
     };
 
+    let clean_b64: String = b64_clean.chars().filter(|c| !c.is_whitespace() && *c != '"' && *c != '\'').collect();
     let bytes = BASE64_STANDARD
-        .decode(b64_clean.as_bytes())
+        .decode(clean_b64.as_bytes())
+        .or_else(|_| BASE64_STANDARD_NO_PAD.decode(clean_b64.as_bytes()))
+        .or_else(|_| BASE64_URL_SAFE.decode(clean_b64.as_bytes()))
+        .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(clean_b64.as_bytes()))
         .map_err(|e| format!("Base64 decode error: {}", e))?;
 
     let ext = match mime {
@@ -599,7 +640,22 @@ fn save_track_lyrics(path: String, lyrics: String, lyricist: Option<String>) -> 
         }
     }
 
-    tag.save_to_path(file_path, WriteOptions::default()).map_err(|e| e.to_string())?;
+    if let Ok(meta) = std::fs::metadata(file_path) {
+        let mut perms = meta.permissions();
+        if perms.readonly() {
+            perms.set_readonly(false);
+            let _ = std::fs::set_permissions(file_path, perms);
+        }
+    }
+
+    let is_mp3 = file_path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("mp3"));
+
+    let mut write_options = WriteOptions::default();
+    if is_mp3 || tag.tag_type() == TagType::Id3v2 {
+        write_options.use_id3v23(true);
+    }
+
+    tag.save_to_path(file_path, write_options).map_err(|e| e.to_string())?;
     Ok(true)
 }
 

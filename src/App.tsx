@@ -2252,9 +2252,11 @@ export const App: React.FC = () => {
     conductor?: string;
     lyricist?: string;
     coverArt?: string | null;
-  }) => {
+  }, targetTracks?: Track[]) => {
+    const targetIds = new Set(targetTracks && targetTracks.length > 0 ? targetTracks.map(t => t.id) : Array.from(selectedTrackIds));
+
     setTracks(prev => prev.map(t => {
-      if (selectedTrackIds.has(t.id)) {
+      if (targetIds.has(t.id)) {
         return {
           ...t,
           title: updates.title !== undefined ? updates.title : t.title,
@@ -2275,7 +2277,7 @@ export const App: React.FC = () => {
       return t;
     }));
 
-    if (currentTrack && selectedTrackIds.has(currentTrack.id)) {
+    if (currentTrack && targetIds.has(currentTrack.id)) {
       setCurrentTrack(prev => prev ? {
         ...prev,
         title: updates.title !== undefined ? updates.title : prev.title,
@@ -2296,8 +2298,8 @@ export const App: React.FC = () => {
 
     // Persist tags and cover art to audio files on disk if running in Tauri
     if (isTauri()) {
-      const selectedTracks = tracks.filter(t => selectedTrackIds.has(t.id) && t.path);
-      const paths = selectedTracks.map(t => t.path as string);
+      const targetTrackObjects = tracks.filter(t => targetIds.has(t.id) && t.path);
+      const paths = targetTrackObjects.map(t => t.path as string);
       if (paths.length > 0) {
         try {
           await invoke('batch_save_track_file_tags', {
@@ -2320,6 +2322,7 @@ export const App: React.FC = () => {
           });
         } catch (e) {
           console.error('Failed to save tags to files:', e);
+          alert(language === 'ru' ? `Ошибка сохранения тегов в файл: ${e}` : `Failed to save tags to file: ${e}`);
         }
       }
     }

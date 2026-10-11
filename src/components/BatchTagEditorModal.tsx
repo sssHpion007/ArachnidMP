@@ -42,7 +42,7 @@ interface BatchTagEditorModalProps {
     conductor?: string;
     lyricist?: string;
     coverArt?: string | null;
-  }) => void;
+  }, targetTracks?: Track[]) => void;
 }
 
 type ExtraFieldKey = 'composer' | 'contentGroup' | 'comment' | 'conductor' | 'lyricist';
@@ -371,7 +371,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
       }
     }
 
-    onSaveTags(updates);
+    onSaveTags(updates, selectedTracks);
     onClose();
   };
 
