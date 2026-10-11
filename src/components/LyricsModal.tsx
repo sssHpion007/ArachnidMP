@@ -217,17 +217,17 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
               <button
                 onClick={handleCopyLyrics}
                 title={copiedLyrics ? (language === 'ru' ? 'Текст скопирован!' : 'Lyrics copied!') : (language === 'ru' ? 'Скопировать текст песни' : 'Copy lyrics')}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-md3-surface-container text-md3-on-surface hover:bg-md3-surface-container-high border border-md3-outline-variant/20 transition-all cursor-pointer hover:scale-102 active:scale-95"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold bg-md3-surface-container text-md3-on-surface hover:bg-md3-surface-container-high border border-md3-outline-variant/20 transition-all cursor-pointer hover:scale-102 active:scale-95"
               >
                 {copiedLyrics ? (
                   <>
                     <Check className="w-3.5 h-3.5 text-emerald-500" />
-                    <span className="text-emerald-500 font-bold">{language === 'ru' ? 'Скопировано' : 'Copied'}</span>
+                    <span className="hidden sm:inline text-emerald-500 font-bold">{language === 'ru' ? 'Скопировано' : 'Copied'}</span>
                   </>
                 ) : (
                   <>
                     <Copy className="w-3.5 h-3.5 text-md3-primary" />
-                    <span>{language === 'ru' ? 'Копировать' : 'Copy'}</span>
+                    <span className="hidden sm:inline">{language === 'ru' ? 'Копировать' : 'Copy'}</span>
                   </>
                 )}
               </button>
@@ -236,14 +236,15 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
             {/* Edit / View Toggle */}
             <button
               onClick={() => setIsEditing(!isEditing)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+              title={isEditing ? (language === 'ru' ? 'Просмотр' : 'View') : (language === 'ru' ? 'Редактировать' : 'Edit')}
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
                 isEditing
                   ? 'bg-md3-primary text-md3-on-primary shadow-sm'
                   : 'bg-md3-surface-container text-md3-on-surface hover:bg-md3-surface-container-high border border-md3-outline-variant/20'
               }`}
             >
               <Edit3 className="w-3.5 h-3.5" />
-              <span>{isEditing ? (language === 'ru' ? 'Просмотр' : 'View') : (language === 'ru' ? 'Редактировать' : 'Edit')}</span>
+              <span className="hidden sm:inline">{isEditing ? (language === 'ru' ? 'Просмотр' : 'View') : (language === 'ru' ? 'Редактировать' : 'Edit')}</span>
             </button>
 
             <button
