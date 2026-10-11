@@ -129,9 +129,22 @@ class AudioEngine {
     if (this.repeatMode === mode) return;
     this.repeatMode = mode;
 
-    // If active playback is running via Web Audio buffer, simply update the hardware loop flag smoothly.
-    // We NEVER interrupt, stop, restart, or recreate audio nodes mid-song on repeat mode toggles!
-    if (this.isUsingWebAudio && this.bufferSource) {
+    // If active playback is running via Web Audio buffer, update hardware loop flag and re-anchor timestamps!
+    // We normalize playbackPosition so that turning off loop mode after one or more repeats NEVER causes
+    // an accumulated timestamp overflow that cuts off playback or prematurely switches to the next track!
+    if (this.isUsingWebAudio && this.bufferSource && this.audioCtx) {
+      const dur = this.getDuration();
+      if (dur > 0) {
+        const curPos = this.getCurrentTime();
+        this.playbackPosition = curPos;
+        this.playbackStartTime = this.audioCtx.currentTime;
+        try {
+          this.audio.currentTime = curPos;
+          if (this.audio.paused && this.isPlaying) {
+            this.audio.play().catch(() => {});
+          }
+        } catch (_) {}
+      }
       this.bufferSource.loop = (mode === 'one' && this.fadeMode !== 'always');
     }
   }
@@ -444,10 +457,17 @@ class AudioEngine {
         const dur = this.getDuration();
 
         if (this.isUsingWebAudio && this.currentBuffer && this.audioCtx) {
-          const elapsed = this.audioCtx.currentTime - this.playbackStartTime;
+          const rawElapsed = Math.max(0, this.audioCtx.currentTime - this.playbackStartTime) + this.playbackPosition;
           if (this.bufferSource?.loop && dur > 0) {
-            curTime = (this.playbackPosition + elapsed) % dur;
+            if (rawElapsed >= dur) {
+              const completedLoops = Math.floor(rawElapsed / dur);
+              this.playbackStartTime += completedLoops * dur;
+              this.playbackPosition = 0;
+            }
+            const currentElapsed = Math.max(0, this.audioCtx.currentTime - this.playbackStartTime);
+            curTime = currentElapsed % dur;
           } else {
+            const elapsed = Math.max(0, this.audioCtx.currentTime - this.playbackStartTime);
             curTime = Math.min(dur > 0 ? dur : Infinity, this.playbackPosition + elapsed);
             if (dur > 0 && curTime >= dur && !this.bufferSource?.loop) {
               this.handleTrackEnded();
