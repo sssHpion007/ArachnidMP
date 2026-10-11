@@ -1,6 +1,6 @@
 import { DiscordPresenceInfo } from '../types/music';
 
-// Cache for resolved online album artwork URLs (so repeated searches are instant)
+// Cache for resolved online album artwork URLs (so repeated searches and uploads are instant)
 const coverArtCache = new Map<string, string>();
 
 // Initialize cache from localStorage if available
@@ -32,7 +32,87 @@ const PLAYING_ICON_URL = 'https://raw.githubusercontent.com/FozerG/WinYandexMusi
 const PAUSED_ICON_URL = 'https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png';
 
 /**
- * Resolves high-resolution 512x512 artwork URL for a track using iTunes and Deezer public APIs.
+ * Compresses and resizes a base64 image data URL to max 512x512 JPEG for fast, reliable upload
+ */
+function compressCoverForUpload(dataUrl: string, maxSize = 512): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.naturalWidth || img.width;
+        let height = img.naturalHeight || img.height;
+        if (width <= 0 || height <= 0) {
+          resolve(dataUrl);
+          return;
+        }
+        if (width > maxSize || height > maxSize) {
+          if (width > height) {
+            height = Math.round((height * maxSize) / width);
+            width = maxSize;
+          } else {
+            width = Math.round((width * maxSize) / height);
+            height = maxSize;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+          return;
+        }
+        resolve(dataUrl);
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    } catch (_) {
+      resolve(dataUrl);
+    }
+  });
+}
+
+/**
+ * Uploads a local track's embedded cover art to Imgur anonymously and returns the direct i.imgur.com URL.
+ * Uses DiscordBee's public Imgur client ID.
+ */
+async function uploadCoverToImgur(dataUrl: string): Promise<string | null> {
+  try {
+    const compressed = await compressCoverForUpload(dataUrl, 512);
+    const base64Data = compressed.replace(/^data:image\/[a-z0-9\-+]+;base64,/, '');
+    if (!base64Data || base64Data.length < 50) return null;
+
+    const formData = new FormData();
+    formData.append('image', base64Data);
+    formData.append('type', 'base64');
+
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    const res = await fetch('https://api.imgur.com/3/upload', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Client-ID 09bef4c058080cd',
+      },
+      body: formData,
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+
+    if (res.ok) {
+      const json = await res.json();
+      if (json.data && json.data.link) {
+        return json.data.link as string;
+      }
+    }
+  } catch (err) {
+    console.warn('[Discord RPC] Imgur upload error:', err);
+  }
+  return null;
+}
+
+/**
+ * Resolves artwork URL for a track using iTunes and Deezer public APIs if no local cover is found.
  * Falls back to official Arachnid logo URL if not found or offline.
  */
 export async function resolveCoverArtUrl(artist: string, title: string, album?: string): Promise<string> {
@@ -41,12 +121,12 @@ export async function resolveCoverArtUrl(artist: string, title: string, album?: 
     return DEFAULT_LOGO_URL;
   }
 
-  const cacheKey = query.toLowerCase();
+  const cacheKey = `online_${query.toLowerCase()}`;
   if (coverArtCache.has(cacheKey)) {
     return coverArtCache.get(cacheKey)!;
   }
 
-  // 1. Try iTunes Search API (fast, high-res 512x512 Apple CDN artwork)
+  // 1. Try iTunes Search API
   try {
     const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=1`;
     const ctrl = new AbortController();
@@ -145,11 +225,33 @@ class DiscordRpcService {
       return;
     }
 
-    // Resolve cover art URL
+    // Resolve cover art URL:
+    // Priority 1: Direct HTTP/HTTPS link on the track
+    // Priority 2: Embedded track coverArt (base64) -> upload to Imgur and get real link!
+    // Priority 3: Online iTunes / Deezer search (only if track had no embedded cover art)
+    // Priority 4: Official Arachnid player logo
     let resolvedCover: string = DEFAULT_LOGO_URL;
-    if (info.coverArt && (info.coverArt.startsWith('http://') || info.coverArt.startsWith('https://'))) {
-      resolvedCover = info.coverArt;
-    } else if (info.artist || info.trackName) {
+
+    if (info.coverArt) {
+      if (info.coverArt.startsWith('http://') || info.coverArt.startsWith('https://')) {
+        resolvedCover = info.coverArt;
+      } else if (info.coverArt.startsWith('data:image/')) {
+        const coverKey = `emb_${info.trackName}_${info.artist}_${info.coverArt.length}`.toLowerCase();
+        if (coverArtCache.has(coverKey)) {
+          resolvedCover = coverArtCache.get(coverKey)!;
+        } else {
+          const imgurLink = await uploadCoverToImgur(info.coverArt);
+          if (imgurLink) {
+            resolvedCover = imgurLink;
+            coverArtCache.set(coverKey, imgurLink);
+            saveCoverArtCache();
+          }
+        }
+      }
+    }
+
+    // If still fallback and track has no embedded cover, try online search
+    if (resolvedCover === DEFAULT_LOGO_URL && (info.artist || info.trackName)) {
       resolvedCover = await resolveCoverArtUrl(info.artist, info.trackName, info.album);
     }
 
@@ -174,7 +276,8 @@ class DiscordRpcService {
       }
     }
 
-    // Timestamps: for interactive timeline progress bar, BOTH start and end are sent when playing
+    // Timestamps: for interactive timeline progress bar, BOTH start and end are sent when playing.
+    // When paused, both start and end MUST be null so Discord removes timestamps completely!
     let startTimestamp: number | null = null;
     let endTimestamp: number | null = null;
     if (info.isPlaying) {
@@ -187,8 +290,8 @@ class DiscordRpcService {
     }
 
     // Status display format:
-    // statusMode === 'listening': status_display_type = 2 (song details) or generic music app ID
-    // statusMode === 'listening_app': status_display_type = 0 (app name "ArachnidMP")
+    // statusMode === 'listening': status_display_type = 2
+    // statusMode === 'listening_app': status_display_type = 0
     const statusMode = info.statusMode ?? 'listening_app';
     const statusDisplayType = statusMode === 'listening' ? 2 : 0;
 

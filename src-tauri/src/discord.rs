@@ -189,8 +189,15 @@ impl DiscordService {
                 }
 
                 if let Some(stream) = &mut active_stream {
+                    let act_name = if latest.status_display_type == Some(2) {
+                        "\u{200b}"
+                    } else {
+                        "ArachnidMP"
+                    };
+
                     let mut activity = json!({
                         "type": 2, // LISTENING (Слушает)
+                        "name": act_name,
                         "details": sanitize_discord_string(&latest.details),
                         "state": sanitize_discord_string(&latest.state),
                     });
@@ -225,16 +232,19 @@ impl DiscordService {
                         activity["assets"] = assets;
                     }
 
-                    // Timestamps: both start and end creates the timeline progress bar
-                    let mut timestamps = json!({});
-                    if let Some(ts_start) = latest.start_timestamp {
-                        timestamps["start"] = json!(ts_start);
-                    }
-                    if let Some(ts_end) = latest.end_timestamp {
-                        timestamps["end"] = json!(ts_end);
-                    }
-                    if timestamps.as_object().map_or(false, |o| !o.is_empty()) {
+                    // Timestamps: both start and end creates the timeline progress bar.
+                    // When paused (no start or end), explicitly send null so Discord DOES NOT start an automatic timer!
+                    if latest.start_timestamp.is_some() || latest.end_timestamp.is_some() {
+                        let mut timestamps = json!({});
+                        if let Some(ts_start) = latest.start_timestamp {
+                            timestamps["start"] = json!(ts_start);
+                        }
+                        if let Some(ts_end) = latest.end_timestamp {
+                            timestamps["end"] = json!(ts_end);
+                        }
                         activity["timestamps"] = timestamps;
+                    } else {
+                        activity["timestamps"] = json!(null);
                     }
 
                     // Status display type (0 = App Name, 1 = State / Artist, 2 = Details / Track)
