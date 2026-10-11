@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, 
   X, 
@@ -10,7 +10,8 @@ import {
   Disc,
   Mic2,
   Heart,
-  Tag
+  Tag,
+  ArrowLeft
 } from 'lucide-react';
 import { ThemeMode } from '../types/music';
 import { AppLanguage, getTranslations } from '../i18n';
@@ -57,6 +58,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   hasUpdate = false,
 }) => {
   const [windowWidth, setWindowWidth] = useState<number>(window.innerWidth);
+  const [isSearchExpanded, setIsSearchExpanded] = useState<boolean>(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const t = getTranslations(language);
 
@@ -65,6 +68,30 @@ export const TopBar: React.FC<TopBarProps> = ({
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Global Ctrl + F listener to open search
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.code === 'KeyF' || e.key === 'f' || e.key === 'F' || e.key === 'а' || e.key === 'А') && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        setIsSearchExpanded(true);
+        setTimeout(() => {
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        }, 50);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (isSearchExpanded) {
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 50);
+    }
+  }, [isSearchExpanded]);
 
   const allNavTabs = [
     { id: 'tracks' as const, label: t.nav.tracks, icon: Music },
@@ -77,51 +104,122 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   const navTabs = allNavTabs.filter(tab => (visibleTabs ? visibleTabs[tab.id] ?? true : true));
 
-  // Instantly collapse to miniature (icon-only) as soon as tabs might crowd controls
+  // Breakpoints
+  const isNarrow = windowWidth < 680;
   const isCompact = windowWidth < 1320 || (navTabs.length * 105 + 460 > windowWidth);
   const isSuperCompact = windowWidth < 850;
   const isUltraCompact = windowWidth < 650;
 
   return (
-    <header data-tauri-drag-region className="relative h-16 px-3 sm:px-6 shrink-0 flex items-center justify-between gap-2 sm:gap-4 bg-md3-surface-container-low border-b border-md3-outline-variant/15 select-none transition-colors duration-300">
-      {/* Left: Search Bar Pill Frame (Identical thickness and height to other frames) */}
-      <div className="z-10 shrink-0 w-32 sm:w-44 md:w-56 lg:w-64 transition-all flex items-center">
-        <div className="relative w-full h-10 flex items-center p-1 px-3 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 shadow-xs focus-within:border-md3-primary/60 focus-within:bg-md3-surface-container-high overflow-hidden transition-colors">
-          <div className="flex items-center pointer-events-none text-md3-on-surface-variant shrink-0 mr-2">
-            <Search className="w-3.5 h-3.5" />
+    <header data-tauri-drag-region className="relative h-16 px-2.5 sm:px-6 shrink-0 flex items-center justify-between gap-2 sm:gap-4 bg-md3-surface-container-low border-b border-md3-outline-variant/15 select-none transition-colors duration-300">
+      
+      {/* NARROW SCREEN EXPANDED SEARCH OVERLAY */}
+      {isNarrow && isSearchExpanded && (
+        <div className="absolute inset-0 z-50 flex items-center px-3 gap-2 bg-md3-surface-container-low border-b border-md3-outline-variant/15 animate-in fade-in slide-in-from-top-1 duration-150">
+          <button
+            onClick={() => setIsSearchExpanded(false)}
+            title={language === 'ru' ? 'Назад / Закрыть поиск (Esc)' : 'Back / Close search (Esc)'}
+            className="w-10 h-10 flex items-center justify-center rounded-full text-md3-on-surface hover:bg-md3-surface-container transition-colors cursor-pointer shrink-0"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          
+          <div className="relative flex-1 h-10 flex items-center p-1 px-3.5 bg-md3-surface-container rounded-full border border-md3-primary/60 shadow-sm overflow-hidden">
+            <Search className="w-4 h-4 text-md3-primary mr-2 shrink-0" />
+            <input
+              ref={searchInputRef}
+              data-search-input="true"
+              type="text"
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsSearchExpanded(false);
+                }
+              }}
+              placeholder={searchPlaceholder || (language === 'ru' ? `Поиск по ${totalTracksCount} трекам...` : `Search ${totalTracksCount} tracks...`)}
+              className="w-full h-full bg-transparent text-xs text-md3-on-surface placeholder-md3-on-surface-variant/50 border-0 outline-none focus:outline-none ring-0 focus:ring-0 truncate pr-6 select-text"
+            />
+            {searchQuery && (
+              <button
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onSearchChange('')}
+                className="absolute right-2.5 flex items-center justify-center text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
-          <input
-            data-search-input="true"
-            type="text"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                e.stopPropagation();
-                (e.target as HTMLInputElement).blur();
-              }
-            }}
-            placeholder={searchPlaceholder || (isSuperCompact ? (language === 'ru' ? 'Поиск (Ctrl+F)...' : 'Search (Ctrl+F)...') : `${language === 'ru' ? 'Поиск' : 'Search'} (${totalTracksCount})...`)}
-            className="w-full h-full bg-transparent text-xs text-md3-on-surface placeholder-md3-on-surface-variant/50 border-0 outline-none focus:outline-none ring-0 focus:ring-0 truncate pr-5 select-text"
-            style={{ outline: 'none', boxShadow: 'none' }}
-          />
-          {searchQuery && (
-            <button
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onSearchChange('')}
-              className="absolute right-2.5 flex items-center justify-center text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
         </div>
-      </div>
+      )}
 
-      {/* Center: Navigation Tabs (Pills) - ALWAYS EXACT MATHEMATICAL CENTER */}
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-0 pointer-events-none flex justify-center items-center">
-        <nav className="pointer-events-auto h-10 flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 overflow-hidden shadow-xs">
+      {/* LEFT AREA: Search */}
+      {isNarrow ? (
+        /* Mobile Search Button */
+        <div className="z-10 shrink-0 flex items-center gap-1">
+          <button
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setIsSearchExpanded(true)}
+            title={language === 'ru' ? 'Поиск (Ctrl + F)' : 'Search (Ctrl + F)'}
+            className={`w-10 h-10 flex items-center justify-center rounded-full bg-md3-surface-container border border-md3-outline-variant/15 text-md3-on-surface hover:bg-md3-surface-container-high transition-colors cursor-pointer shrink-0 relative shadow-xs ${
+              searchQuery ? 'text-md3-primary ring-1 ring-md3-primary/60 bg-md3-primary/10' : ''
+            }`}
+          >
+            <Search className="w-4 h-4" />
+            {searchQuery && (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-md3-primary" />
+            )}
+          </button>
+        </div>
+      ) : (
+        /* Desktop Search Bar Pill Frame */
+        <div className="z-10 shrink-0 w-32 sm:w-44 md:w-56 lg:w-64 transition-all flex items-center">
+          <div className="relative w-full h-10 flex items-center p-1 px-3 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 shadow-xs focus-within:border-md3-primary/60 focus-within:bg-md3-surface-container-high overflow-hidden transition-colors">
+            <div className="flex items-center pointer-events-none text-md3-on-surface-variant shrink-0 mr-2">
+              <Search className="w-3.5 h-3.5" />
+            </div>
+            <input
+              ref={searchInputRef}
+              data-search-input="true"
+              type="text"
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
+              placeholder={searchPlaceholder || (isSuperCompact ? (language === 'ru' ? 'Поиск (Ctrl+F)...' : 'Search (Ctrl+F)...') : `${language === 'ru' ? 'Поиск' : 'Search'} (${totalTracksCount})...`)}
+              className="w-full h-full bg-transparent text-xs text-md3-on-surface placeholder-md3-on-surface-variant/50 border-0 outline-none focus:outline-none ring-0 focus:ring-0 truncate pr-5 select-text"
+              style={{ outline: 'none', boxShadow: 'none' }}
+            />
+            {searchQuery && (
+              <button
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onSearchChange('')}
+                className="absolute right-2.5 flex items-center justify-center text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* CENTER: Navigation Tabs (Pills) */}
+      <div className={
+        isNarrow
+          ? "flex-1 min-w-0 flex justify-center items-center px-1 z-0"
+          : "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-0 pointer-events-none flex justify-center items-center"
+      }>
+        <nav className="pointer-events-auto h-10 flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 overflow-x-auto no-scrollbar shadow-xs max-w-full">
           {navTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = currentView === tab.id;
@@ -134,7 +232,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 onClick={() => onSelectView(tab.id)}
                 title={tab.label}
                 className={`flex items-center gap-1.5 h-full ${
-                  isUltraCompact ? 'px-2 py-1' : isCompact ? 'px-2.5 py-1' : 'px-3.5 py-1'
+                  isUltraCompact || isNarrow ? 'px-2 py-1' : isCompact ? 'px-2.5 py-1' : 'px-3.5 py-1'
                 } rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
                   isActive
                     ? 'bg-md3-primary text-md3-on-primary font-bold shadow-sm'
@@ -142,14 +240,14 @@ export const TopBar: React.FC<TopBarProps> = ({
                 }`}
               >
                 <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'stroke-[2.5]' : ''}`} />
-                <span className={isCompact ? 'hidden' : 'inline'}>{tab.label}</span>
+                <span className={isCompact || isNarrow ? 'hidden' : 'inline'}>{tab.label}</span>
               </button>
             );
           })}
         </nav>
       </div>
 
-      {/* Right Controls: Unified pill frame, exact same height (h-10) and padding (p-1) */}
+      {/* RIGHT CONTROLS: Add files, EQ, Settings */}
       <div className="z-10 shrink-0 flex items-center justify-end ml-auto">
         <div className="h-10 flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 shadow-xs">
           {/* Add Files Button */}
@@ -159,17 +257,17 @@ export const TopBar: React.FC<TopBarProps> = ({
             onClick={onOpenFiles}
             title={t.controls.openFiles}
             className={`flex items-center gap-1.5 h-full ${
-              isCompact ? 'px-2.5' : 'px-3.5'
+              isCompact || isNarrow ? 'w-8 px-0 justify-center' : 'px-3.5'
             } rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold shadow-sm hover:scale-[1.02] active:scale-95 transition-all cursor-pointer shrink-0 outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0`}
           >
             <FolderPlus className="w-3.5 h-3.5" />
-            <span className={isCompact ? 'hidden' : 'inline'}>
+            <span className={isCompact || isNarrow ? 'hidden' : 'inline'}>
               {language === 'ru' ? 'Добавить файлы' : 'Add Files'}
             </span>
           </button>
 
-          {/* Discord RPC switch (optional via settings) */}
-          {showDiscordButton && (
+          {/* Discord RPC switch (hidden on narrow to prioritize core player controls) */}
+          {showDiscordButton && !isNarrow && (
             <button
               tabIndex={-1}
               onMouseDown={(e) => e.preventDefault()}
