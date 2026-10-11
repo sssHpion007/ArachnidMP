@@ -28,6 +28,8 @@ export interface Track {
   customTags?: Record<string, string>;
 }
 
+export type FolderCoverType = 'icon' | 'first_playlist' | 'collage';
+
 export interface PlaylistFolder {
   id: string;
   name: string;
@@ -36,6 +38,7 @@ export interface PlaylistFolder {
   order?: number;
   color?: string;
   icon?: string; // Icon identifier (e.g. 'gamepad', 'headphones', 'music', 'flame')
+  coverType?: FolderCoverType; // 'icon' (default) | 'first_playlist' | 'collage'
   createdAt: number;
 }
 

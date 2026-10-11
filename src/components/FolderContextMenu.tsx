@@ -122,7 +122,7 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
           className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left cursor-pointer"
         >
           <Palette className="w-3.5 h-3.5 text-md3-primary" />
-          <span>{language === 'ru' ? 'Значок и цвет...' : 'Icon & Color...'}</span>
+          <span>{language === 'ru' ? 'Оформление папки...' : 'Folder Appearance...'}</span>
         </button>
       )}
 

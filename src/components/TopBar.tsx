@@ -4,8 +4,6 @@ import {
   X, 
   SlidersHorizontal, 
   Settings, 
-  Sun, 
-  Moon, 
   FolderPlus,
   Music,
   ListMusic,
@@ -27,8 +25,8 @@ interface TopBarProps {
   totalTracksCount: number;
   searchPlaceholder?: string;
   onOpenFiles: () => void;
-  themeMode: ThemeMode;
-  onToggleTheme: () => void;
+  themeMode?: ThemeMode;
+  onToggleTheme?: () => void;
   onOpenEQ: () => void;
   onOpenSettings: () => void;
   discordEnabled: boolean;
@@ -194,24 +192,6 @@ export const TopBar: React.FC<TopBarProps> = ({
               </span>
             </button>
           )}
-
-          {/* Theme mode toggle */}
-          <button
-            tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onToggleTheme}
-            title={language === 'ru'
-              ? `Тема: ${themeMode === 'dark' ? 'Темная' : themeMode === 'amoled' ? 'AMOLED' : 'Светлая'}`
-              : `Theme: ${themeMode === 'dark' ? 'Dark' : themeMode === 'amoled' ? 'AMOLED' : 'Light'}`
-            }
-            className="w-8 h-8 flex items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
-          >
-            {themeMode === 'light' ? (
-              <Sun className="w-4 h-4 text-amber-500" />
-            ) : (
-              <Moon className="w-4 h-4 text-md3-primary" />
-            )}
-          </button>
 
           {/* EQ Modal button */}
           <button

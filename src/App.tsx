@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Track, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode, FadeMode } from './types/music';
+import { Track, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode, FadeMode, FolderCoverType } from './types/music';
 import { TitleBar } from './components/TitleBar';
 import { TopBar, MainViewType } from './components/TopBar';
 import { TrackTable } from './components/TrackTable';
@@ -1922,7 +1922,7 @@ export const App: React.FC = () => {
     setIsCreateFolderOpen(true);
   };
 
-  const handleCreateFolderSubmit = (name: string, color?: string, icon?: string) => {
+  const handleCreateFolderSubmit = (name: string, color?: string, icon?: string, coverType?: FolderCoverType) => {
     const newFolder: PlaylistFolder = {
       id: `fld_${Date.now()}`,
       name: name.trim(),
@@ -1930,6 +1930,7 @@ export const App: React.FC = () => {
       groupId: folderCreationTarget?.groupId || null,
       color: color || undefined,
       icon: icon || undefined,
+      coverType: coverType || 'icon',
       createdAt: Date.now(),
       order: playlistFolders.length,
     };
@@ -1937,7 +1938,7 @@ export const App: React.FC = () => {
     setFolderCreationTarget(null);
   };
 
-  const handleSaveEditFolder = (name: string, color?: string, icon?: string) => {
+  const handleSaveEditFolder = (name: string, color?: string, icon?: string, coverType?: FolderCoverType) => {
     if (!editingFolderTarget) return;
     setPlaylistFolders(prev => prev.map(f => {
       if (f.id === editingFolderTarget.id) {
@@ -1946,6 +1947,7 @@ export const App: React.FC = () => {
           name: name.trim(),
           color: color || undefined,
           icon: icon || undefined,
+          coverType: coverType || 'icon',
         };
       }
       return f;
@@ -2785,11 +2787,11 @@ export const App: React.FC = () => {
           setFolderCreationTarget(null);
           setEditingFolderTarget(null);
         }}
-        onCreate={(name, color, icon) => {
+        onCreate={(name, color, icon, coverType) => {
           if (editingFolderTarget) {
-            handleSaveEditFolder(name, color, icon);
+            handleSaveEditFolder(name, color, icon, coverType);
           } else {
-            handleCreateFolderSubmit(name, color, icon);
+            handleCreateFolderSubmit(name, color, icon, coverType);
           }
         }}
         parentFolderName={folderCreationTarget?.parentId ? playlistFolders.find(f => f.id === folderCreationTarget.parentId)?.name : undefined}

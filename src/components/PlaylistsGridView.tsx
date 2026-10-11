@@ -84,9 +84,11 @@ const getFolderColorHex = (color: string | undefined): string => {
 
 interface FolderCardItemProps {
   folder: PlaylistFolder;
+  covers?: string[];
   stats: { playlistsCount: number; subfoldersCount: number; totalTracks: number };
   isDropTarget: boolean;
   isSelfDragging: boolean;
+  language?: AppLanguage;
   onPointerDown: (e: React.PointerEvent) => void;
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -95,9 +97,11 @@ interface FolderCardItemProps {
 
 const FolderCardItem: React.FC<FolderCardItemProps> = ({
   folder,
+  covers,
   stats,
   isDropTarget,
   isSelfDragging,
+  language = 'ru',
   onPointerDown,
   onClick,
   onContextMenu,
@@ -107,6 +111,8 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
   const IconComponent = getFolderIconComponent(folder.icon);
 
   const baseColor = getFolderColorHex(folder.color);
+  const coverType = folder.coverType || 'icon';
+  const hasImages = covers && covers.length > 0 && coverType !== 'icon';
 
   // Dynamic card background on hover
   const bgCard = isDropTarget
@@ -160,59 +166,129 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
         isSelfDragging ? 'opacity-30' : ''
       }`}
     >
-      {/* Visual Folder Icon & Preview - Completely colored background */}
-      <div 
-        className="relative aspect-square w-full rounded-2xl overflow-hidden flex flex-col items-center justify-center mb-3 shadow-inner pointer-events-none transition-all duration-300 border"
-        style={{
-          background: previewBg,
-          borderColor: getFolderColorRgba(folder.color, isHovered ? 0.45 : 0.20),
-        }}
-      >
-        {/* Inner Icon Badge - Colored background and border */}
+      {/* Visual Folder Icon / Playlist Cover / Collage Preview */}
+      {hasImages ? (
         <div 
-          className="w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:scale-110 shadow-sm border"
-          style={{ 
-            backgroundColor: iconBadgeBg,
-            borderColor: iconBadgeBorder,
+          className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest mb-3 shadow-inner pointer-events-none transition-all duration-300 border border-md3-outline-variant/20"
+        >
+          {coverType === 'first_playlist' || covers.length === 1 ? (
+            <img
+              src={covers[0]}
+              alt={folder.name}
+              draggable={false}
+              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none"
+            />
+          ) : covers.length === 2 ? (
+            <div className="w-full h-full grid grid-cols-2 grid-rows-1 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
+              <img src={covers[0]} alt="" draggable={false} className="w-full h-full object-cover" />
+              <img src={covers[1]} alt="" draggable={false} className="w-full h-full object-cover" />
+            </div>
+          ) : covers.length === 3 ? (
+            <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
+              <img src={covers[0]} alt="" draggable={false} className="w-full h-full object-cover row-span-2" />
+              <img src={covers[1]} alt="" draggable={false} className="w-full h-full object-cover" />
+              <img src={covers[2]} alt="" draggable={false} className="w-full h-full object-cover" />
+            </div>
+          ) : (
+            <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
+              <img src={covers[0]} alt="" draggable={false} className="w-full h-full object-cover" />
+              <img src={covers[1]} alt="" draggable={false} className="w-full h-full object-cover" />
+              <img src={covers[2]} alt="" draggable={false} className="w-full h-full object-cover" />
+              <img src={covers[3]} alt="" draggable={false} className="w-full h-full object-cover" />
+            </div>
+          )}
+
+          {/* Small folder badge in top-left to clearly indicate it's a folder */}
+          <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/60 text-[10px] font-semibold text-white/95 backdrop-blur-xs flex items-center gap-1 shadow-xs">
+            <IconComponent className="w-3 h-3 text-white/90" />
+            <span>{language === 'ru' ? 'Папка' : 'Folder'}</span>
+          </div>
+
+          {/* Quick Play Folder Button */}
+          {stats.totalTracks > 0 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onPlayFolder(folder);
+              }}
+              title={language === 'ru' ? "Воспроизвести всю папку" : "Play entire folder"}
+              style={{
+                backgroundColor: baseColor,
+              }}
+              className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200"
+            >
+              <Play className="w-5 h-5 fill-current ml-0.5" />
+            </button>
+          )}
+
+          {isDropTarget && (
+            <div 
+              className="absolute inset-0 backdrop-blur-xs flex items-center justify-center"
+              style={{ backgroundColor: getFolderColorRgba(folder.color, 0.3) }}
+            >
+              <span 
+                className="px-2.5 py-1 rounded-full text-md3-on-primary text-[10px] font-bold shadow-md"
+                style={{ backgroundColor: baseColor }}
+              >
+                {language === 'ru' ? 'Переместить в папку' : 'Move to folder'}
+              </span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div 
+          className="relative aspect-square w-full rounded-2xl overflow-hidden flex flex-col items-center justify-center mb-3 shadow-inner pointer-events-none transition-all duration-300 border"
+          style={{
+            background: previewBg,
+            borderColor: getFolderColorRgba(folder.color, isHovered ? 0.45 : 0.20),
           }}
         >
-          <IconComponent 
-            className="w-9 h-9 transition-colors" 
-            style={{ color: baseColor }}
-          />
-        </div>
-
-        {/* Quick Play Folder Button */}
-        {stats.totalTracks > 0 && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onPlayFolder(folder);
-            }}
-            title="Воспроизвести всю папку"
-            style={{
-              backgroundColor: baseColor,
-            }}
-            className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200"
-          >
-            <Play className="w-5 h-5 fill-current ml-0.5" />
-          </button>
-        )}
-
-        {isDropTarget && (
+          {/* Inner Icon Badge - Colored background and border */}
           <div 
-            className="absolute inset-0 backdrop-blur-xs flex items-center justify-center"
-            style={{ backgroundColor: getFolderColorRgba(folder.color, 0.3) }}
+            className="w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:scale-110 shadow-sm border"
+            style={{ 
+              backgroundColor: iconBadgeBg,
+              borderColor: iconBadgeBorder,
+            }}
           >
-            <span 
-              className="px-2.5 py-1 rounded-full text-md3-on-primary text-[10px] font-bold shadow-md"
-              style={{ backgroundColor: baseColor }}
-            >
-              Переместить в папку
-            </span>
+            <IconComponent 
+              className="w-9 h-9 transition-colors" 
+              style={{ color: baseColor }}
+            />
           </div>
-        )}
-      </div>
+
+          {/* Quick Play Folder Button */}
+          {stats.totalTracks > 0 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onPlayFolder(folder);
+              }}
+              title={language === 'ru' ? "Воспроизвести всю папку" : "Play entire folder"}
+              style={{
+                backgroundColor: baseColor,
+              }}
+              className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200"
+            >
+              <Play className="w-5 h-5 fill-current ml-0.5" />
+            </button>
+          )}
+
+          {isDropTarget && (
+            <div 
+              className="absolute inset-0 backdrop-blur-xs flex items-center justify-center"
+              style={{ backgroundColor: getFolderColorRgba(folder.color, 0.3) }}
+            >
+              <span 
+                className="px-2.5 py-1 rounded-full text-md3-on-primary text-[10px] font-bold shadow-md"
+                style={{ backgroundColor: baseColor }}
+              >
+                {language === 'ru' ? 'Переместить в папку' : 'Move to folder'}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Folder Info */}
       <div className="min-w-0 pointer-events-none">
@@ -333,6 +409,46 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
       playlistsCount: folderPlaylists.length,
       totalTracks,
     };
+  };
+
+  const getFolderCovers = (folderId: string): string[] => {
+    const getSubfolderIds = (fid: string): string[] => {
+      const directChildren = folders.filter((f) => f.parentId === fid).map((f) => f.id);
+      let all = [fid];
+      for (const childId of directChildren) {
+        all = [...all, ...getSubfolderIds(childId)];
+      }
+      return all;
+    };
+
+    const targetFolderIds = new Set(getSubfolderIds(folderId));
+    const folderPlaylists = playlists.filter((p) => p.folderId && targetFolderIds.has(p.folderId));
+
+    const covers: string[] = [];
+    // 1. Primary: first cover of each playlist in the folder
+    for (const pl of folderPlaylists) {
+      const c = getPlaylistCover(pl);
+      if (c && !covers.includes(c)) {
+        covers.push(c);
+        if (covers.length >= 4) break;
+      }
+    }
+
+    // 2. Secondary: supplement from tracks if fewer than 4 distinct covers
+    if (covers.length < 4) {
+      for (const pl of folderPlaylists) {
+        for (const tid of pl.trackIds) {
+          const t = tracks.find((tr) => tr.id === tid);
+          if (t && t.coverArt && !covers.includes(t.coverArt)) {
+            covers.push(t.coverArt);
+            if (covers.length >= 4) break;
+          }
+        }
+        if (covers.length >= 4) break;
+      }
+    }
+
+    return covers;
   };
 
   // ---------------- POINTER DRAG & DROP ENGINE ----------------
@@ -612,6 +728,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   // Render a Single Folder Card
   const renderFolderCard = (folder: PlaylistFolder) => {
     const stats = getFolderStats(folder.id);
+    const covers = getFolderCovers(folder.id);
     const isHovered = hoveredFolderId === folder.id;
     const isSelfDragging = dragState?.type === 'folder' && dragState?.id === folder.id && dragState.isDragging;
 
@@ -619,7 +736,9 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
       <FolderCardItem
         key={folder.id}
         folder={folder}
+        covers={covers}
         stats={stats}
+        language={language}
         isDropTarget={isHovered}
         isSelfDragging={isSelfDragging}
         onPointerDown={(e) => {
@@ -627,6 +746,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
             type: 'folder',
             id: folder.id,
             name: folder.name,
+            cover: covers.length > 0 ? covers[0] : null,
           });
         }}
         onClick={() => {
@@ -1016,7 +1136,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-md3-outline-variant/15">
         <div>
           <h2 className="text-xl font-bold text-md3-on-surface">
-            {language === 'ru' ? 'Мои Плейлисты' : 'My Playlists'}
+            {language === 'ru' ? 'Плейлисты' : 'Playlists'}
           </h2>
           <p className="text-xs text-md3-on-surface-variant mt-0.5">
             {playlists.length} {language === 'ru'

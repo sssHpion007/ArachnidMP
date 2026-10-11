@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FolderPlus, X, Check } from 'lucide-react';
+import { FolderPlus, X, Check, Folder, Image, LayoutGrid } from 'lucide-react';
 import { FOLDER_ICONS, FolderIconOption } from '../theme/folderIcons';
-import { PlaylistFolder } from '../types/music';
+import { PlaylistFolder, FolderCoverType } from '../types/music';
 import { AppLanguage } from '../i18n';
 
 interface CreateFolderModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (name: string, color?: string, icon?: string) => void;
+  onCreate: (name: string, color?: string, icon?: string, coverType?: FolderCoverType) => void;
   parentFolderName?: string;
   folderToEdit?: PlaylistFolder | null;
   language?: AppLanguage;
@@ -34,6 +34,7 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
   const [name, setName] = useState('');
   const [selectedColor, setSelectedColor] = useState('');
   const [selectedIcon, setSelectedIcon] = useState('folder');
+  const [coverType, setCoverType] = useState<FolderCoverType>('icon');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const folderColors = getFolderColors(language);
@@ -44,10 +45,12 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
         setName(folderToEdit.name);
         setSelectedColor(folderToEdit.color || '');
         setSelectedIcon(folderToEdit.icon || 'folder');
+        setCoverType(folderToEdit.coverType || 'icon');
       } else {
         setName('');
         setSelectedColor('');
         setSelectedIcon('folder');
+        setCoverType('icon');
       }
       setTimeout(() => {
         inputRef.current?.focus();
@@ -76,7 +79,7 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!name.trim()) return;
-    onCreate(name.trim(), selectedColor || undefined, selectedIcon || undefined);
+    onCreate(name.trim(), selectedColor || undefined, selectedIcon || undefined, coverType);
     onClose();
   };
 
@@ -105,7 +108,7 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
               </h2>
               <p className="text-xs text-md3-on-surface-variant mt-0.5 truncate max-w-[280px]">
                 {folderToEdit 
-                  ? (language === 'ru' ? 'Измените имя, значок и цвет папки' : 'Change folder name, icon and color') 
+                  ? (language === 'ru' ? 'Измените имя, обложку, значок и цвет' : 'Change folder name, cover style, icon and color') 
                   : parentFolderName 
                   ? (language === 'ru' ? `Внутри «${parentFolderName}»` : `Inside "${parentFolderName}"`) 
                   : (language === 'ru' ? 'Организуйте плейлисты по категориям' : 'Organize playlists into categories')}
@@ -138,10 +141,73 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
             />
           </div>
 
+          {/* Folder Cover Display Style */}
+          <div>
+            <label className="block text-xs font-semibold text-md3-on-surface-variant mb-1.5">
+              {language === 'ru' ? 'Отображение обложки' : 'Folder Cover Display'}
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setCoverType('icon')}
+                className={`flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl border text-center transition-all cursor-pointer ${
+                  coverType === 'icon'
+                    ? 'bg-md3-primary/15 border-md3-primary text-md3-primary shadow-xs ring-1 ring-md3-primary font-semibold'
+                    : 'bg-md3-surface-container-highest/60 border-md3-outline-variant/20 text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container'
+                }`}
+              >
+                <Folder className="w-5 h-5" />
+                <span className="text-xs">
+                  {language === 'ru' ? 'Иконка' : 'Icon'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCoverType('first_playlist')}
+                className={`flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl border text-center transition-all cursor-pointer ${
+                  coverType === 'first_playlist'
+                    ? 'bg-md3-primary/15 border-md3-primary text-md3-primary shadow-xs ring-1 ring-md3-primary font-semibold'
+                    : 'bg-md3-surface-container-highest/60 border-md3-outline-variant/20 text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container'
+                }`}
+              >
+                <Image className="w-5 h-5" />
+                <span className="text-xs">
+                  {language === 'ru' ? 'Первый плейлист' : 'First Playlist'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCoverType('collage')}
+                className={`flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl border text-center transition-all cursor-pointer ${
+                  coverType === 'collage'
+                    ? 'bg-md3-primary/15 border-md3-primary text-md3-primary shadow-xs ring-1 ring-md3-primary font-semibold'
+                    : 'bg-md3-surface-container-highest/60 border-md3-outline-variant/20 text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container'
+                }`}
+              >
+                <LayoutGrid className="w-5 h-5" />
+                <span className="text-xs">
+                  {language === 'ru' ? 'Коллаж 2×2' : '2×2 Collage'}
+                </span>
+              </button>
+            </div>
+            {coverType !== 'icon' && (
+              <p className="text-[11px] text-md3-on-surface-variant/80 mt-1.5 px-0.5">
+                {coverType === 'first_playlist'
+                  ? (language === 'ru' ? 'Будет отображаться обложка первого плейлиста в папке (или иконка, если плейлисты пусты).' : 'Displays the cover of the first playlist in the folder (or icon if empty).')
+                  : (language === 'ru' ? 'Будет отображаться коллаж из первых 4 плейлистов папки (или иконка, если плейлисты пусты).' : 'Displays a 2×2 collage of the first 4 playlists in the folder (or icon if empty).')
+                }
+              </p>
+            )}
+          </div>
+
           {/* Folder Icon Picker */}
           <div>
             <label className="block text-xs font-semibold text-md3-on-surface-variant mb-2">
-              {language === 'ru' ? 'Иконка папки' : 'Folder Icon'}
+              {coverType === 'icon' 
+                ? (language === 'ru' ? 'Иконка папки' : 'Folder Icon') 
+                : (language === 'ru' ? 'Иконка (резервная для пустой папки)' : 'Fallback Icon (if empty)')}
             </label>
             <div className="grid grid-cols-6 sm:grid-cols-9 gap-2 bg-md3-surface-container-highest/60 p-3 rounded-2xl border border-md3-outline-variant/20">
               {FOLDER_ICONS.map((opt: FolderIconOption) => {

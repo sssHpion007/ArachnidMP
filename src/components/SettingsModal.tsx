@@ -417,7 +417,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const getActiveThemeBadge = () => {
-    if (appTheme === 'default') return 'Material 3';
+    if (appTheme === 'default') return null;
     if (activeCustomTheme?.author) return activeCustomTheme.author;
     if (activeCustomTheme?.is_folder) return language === 'ru' ? 'Папка' : 'Folder';
     return 'CSS';
@@ -752,9 +752,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <span className="text-xs font-bold text-md3-on-surface truncate">
                             {getActiveThemeLabel()}
                           </span>
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-md3-primary/15 text-md3-primary font-mono shrink-0">
-                            {getActiveThemeBadge()}
-                          </span>
+                          {getActiveThemeBadge() && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-md3-primary/15 text-md3-primary font-mono shrink-0">
+                              {getActiveThemeBadge()}
+                            </span>
+                          )}
                         </div>
                         <span className="text-[11px] text-md3-on-surface-variant truncate block">
                           {appTheme === 'default' ? t.settings.themeStandardDesc : (activeCustomTheme?.description || t.settings.themeCurtainSelect)}
@@ -1763,28 +1765,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 <span>{t.settings.downloadAsset}</span>
                               </button>
                             )}
-
-                            {/* 3. GitHub Release page link */}
-                            <button
-                              tabIndex={-1}
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => handleDownloadUpdate(latestRelease.htmlUrl)}
-                              className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-md3-surface-container hover:bg-md3-surface-container-high text-md3-on-surface text-xs font-medium border border-md3-outline-variant/20 transition-all cursor-pointer outline-none focus:outline-none"
-                            >
-                              <ExternalLink className="w-3.5 h-3.5 text-md3-primary" />
-                              <span>GitHub</span>
-                            </button>
-
-                            {/* 4. Open formatted Release Notes sub-view */}
-                            <button
-                              tabIndex={-1}
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={handleOpenReleaseNotes}
-                              className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-md3-primary/15 hover:bg-md3-primary/25 text-md3-primary text-xs font-semibold border border-md3-primary/30 transition-all cursor-pointer outline-none focus:outline-none"
-                            >
-                              <FileText className="w-3.5 h-3.5" />
-                              <span>{t.settings.releaseNotes}</span>
-                            </button>
                           </div>
                         </div>
                       )}
