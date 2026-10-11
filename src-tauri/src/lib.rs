@@ -621,7 +621,7 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
         } else {
             // Cover not modified: keep existing picture if any
             if let Some(pic) = existing_tag.and_then(|t| t.pictures().first()) {
-                let mime = pic.mime_type().as_deref().unwrap_or("image/jpeg").to_string();
+                let mime = pic.mime_type().map(|m| m.as_str()).unwrap_or("image/jpeg").to_string();
                 (Some(pic.data().to_vec()), mime)
             } else {
                 (None, "image/jpeg".to_string())
