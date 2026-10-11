@@ -1,6 +1,6 @@
 [package]
 name = "arachnid"
-version = "0.3.54"
+version = "0.3.55"
 description = "Arachnid Music Player - Modern Material You 3 Player with MusicBee Power"
 authors = ["sssHpion007"]
 edition = "2021"
@@ -20,3 +20,4 @@ lofty = "0.21"
 walkdir = "2.4"
 base64 = "0.22"
 rfd = "0.15"
+ureq = { version = "2.10", default-features = false, features = ["tls", "native-certs"] }

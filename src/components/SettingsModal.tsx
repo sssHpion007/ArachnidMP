@@ -40,6 +40,7 @@ import { MainViewType } from './TopBar';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage, getTranslations } from '../i18n';
 import { isTauri, invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 export type ColorSchemeMode = 'dynamic' | 'system' | 'custom';
 
@@ -149,7 +150,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isLangCurtainOpen, setIsLangCurtainOpen] = useState<boolean>(false);
 
   // App version & Update checker state
-  const [appVersion, setAppVersion] = useState<string>('0.3.54');
+  const [appVersion, setAppVersion] = useState<string>('0.3.55');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'installing' | 'error'>('idle');
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [downloadStats, setDownloadStats] = useState<{ received: string; total: string }>({ received: '0', total: '0' });
@@ -245,66 +246,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
     setUpdateStatus('downloading');
     setDownloadProgress(0);
+    setDownloadStats({ received: '0.0', total: '11.6' });
     setInstallError(null);
 
     try {
-      const dlRes = await fetch(downloadTarget);
-
-      if (!dlRes.ok) {
-        throw new Error(`Failed to download binary: HTTP ${dlRes.status}`);
-      }
-
-      const contentLength = Number(dlRes.headers.get('content-length')) || 11650000;
-      const reader = dlRes.body?.getReader();
-
-      let chunks: Uint8Array[] = [];
-
-      if (!reader) {
-        const blob = await dlRes.blob();
-        setUpdateStatus('installing');
-        const b64 = await blobToBase64(blob);
-        if (isTauri()) {
-          await invoke('apply_in_place_update', { base64Data: b64 });
-        }
-        return;
-      }
-
-      let receivedLength = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) {
-          chunks.push(value);
-          receivedLength += value.length;
-          const pct = Math.min(100, Math.round((receivedLength / contentLength) * 100));
-          setDownloadProgress(pct);
-          setDownloadStats({
-            received: (receivedLength / (1024 * 1024)).toFixed(1),
-            total: (contentLength / (1024 * 1024)).toFixed(1),
-          });
-        }
-      }
-
-      setUpdateStatus('installing');
-
-      const blob = new Blob(chunks as any[], { type: 'application/octet-stream' });
-      const b64 = await blobToBase64(blob);
-
       if (isTauri()) {
-        await invoke('apply_in_place_update', { base64Data: b64 });
+        const unlisten = await listen<any>('update-progress', (event) => {
+          const payload = event.payload;
+          if (payload) {
+            setDownloadProgress(payload.percent || 0);
+            if (payload.downloaded && payload.total) {
+              setDownloadStats({
+                received: (payload.downloaded / (1024 * 1024)).toFixed(1),
+                total: (payload.total / (1024 * 1024)).toFixed(1),
+              });
+            }
+          }
+        });
+
+        try {
+          await invoke('download_and_install_update', { url: downloadTarget });
+          setUpdateStatus('installing');
+        } finally {
+          unlisten();
+        }
       } else {
-        // Fallback for browser testing
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = latestRelease.assetName || 'Arachnid-Portable.exe';
-        a.click();
-        URL.revokeObjectURL(url);
+        // Fallback for browser preview mode
+        window.open(downloadTarget, '_blank');
         setUpdateStatus('upToDate');
       }
     } catch (err: any) {
       console.error('Install update failed:', err);
-      setInstallError(err?.message || 'Download error');
+      setInstallError(err?.message || String(err));
       setUpdateStatus('error');
     }
   };

@@ -589,6 +589,146 @@ fn close_window(window: tauri::Window) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn download_and_install_update(
+    window: tauri::Window,
+    url: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use std::io::{Read, Write};
+        use tauri::Emitter;
+
+        let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let exe_dir = current_exe
+            .parent()
+            .ok_or_else(|| "Cannot get executable directory".to_string())?;
+        let current_exe_name = current_exe
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Arachnid-Portable.exe");
+        let new_exe = exe_dir.join("Arachnid-Update.new.exe");
+
+        // 1. Download via ureq with auto-redirects (bypasses browser CORS completely)
+        let download_result = (|| -> Result<(), String> {
+            let response = ureq::get(&url)
+                .set("User-Agent", "Arachnid-Music-Player-Updater")
+                .call()
+                .map_err(|e| format!("ureq request failed: {}", e))?;
+
+            let total_size = response
+                .header("Content-Length")
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(11_650_000);
+
+            let mut reader = response.into_reader();
+            let mut file = std::fs::File::create(&new_exe)
+                .map_err(|e| format!("Failed to create update file: {}", e))?;
+
+            let mut buffer = [0u8; 65536];
+            let mut downloaded: u64 = 0;
+            let mut last_percent: u32 = 0;
+
+            loop {
+                let n = reader
+                    .read(&mut buffer)
+                    .map_err(|e| format!("Failed reading stream: {}", e))?;
+                if n == 0 {
+                    break;
+                }
+                file.write_all(&buffer[..n])
+                    .map_err(|e| format!("Failed writing to disk: {}", e))?;
+                downloaded += n as u64;
+
+                let percent = ((downloaded as f64 / total_size as f64) * 100.0).min(100.0) as u32;
+                if percent != last_percent {
+                    last_percent = percent;
+                    let _ = window.emit(
+                        "update-progress",
+                        serde_json::json!({
+                            "downloaded": downloaded,
+                            "total": total_size,
+                            "percent": percent
+                        }),
+                    );
+                }
+            }
+
+            Ok(())
+        })();
+
+        // 2. Windows native fallback: curl.exe
+        if let Err(ureq_err) = download_result {
+            #[cfg(target_os = "windows")]
+            {
+                use std::process::Command;
+                let status = Command::new("curl.exe")
+                    .args(&["-L", "-f", "-s", "-S", "-o", &new_exe.to_string_lossy(), &url])
+                    .status();
+
+                if status.is_err() || !status.unwrap().success() {
+                    return Err(format!("Download failed: {}", ureq_err));
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                return Err(ureq_err);
+            }
+        }
+
+        // 3. Verify downloaded file integrity
+        let meta = std::fs::metadata(&new_exe).map_err(|e| e.to_string())?;
+        if meta.len() < 1_000_000 {
+            let _ = std::fs::remove_file(&new_exe);
+            return Err("Downloaded update file is too small or incomplete".to_string());
+        }
+
+        // 4. In-place replacement via batch script and restart
+        #[cfg(target_os = "windows")]
+        {
+            use std::process::Command;
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+            let script_path = exe_dir.join("apply_update.bat");
+            let script_content = format!(
+                "@echo off\r\n\
+                chcp 65001 >nul\r\n\
+                timeout /t 1 /nobreak >nul\r\n\
+                :retry\r\n\
+                move /y \"%~dp0Arachnid-Update.new.exe\" \"%~dp0{}\" >nul 2>&1\r\n\
+                if errorlevel 1 (\r\n\
+                    timeout /t 1 /nobreak >nul\r\n\
+                    goto retry\r\n\
+                )\r\n\
+                start \"\" \"%~dp0{}\"\r\n\
+                del \"%~f0\"\r\n",
+                current_exe_name,
+                current_exe_name
+            );
+
+            std::fs::write(&script_path, script_content)
+                .map_err(|e| format!("Failed to write update batch script: {}", e))?;
+
+            Command::new("cmd")
+                .current_dir(exe_dir)
+                .args(&["/c", "apply_update.bat"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .map_err(|e| format!("Failed to launch update batch script: {}", e))?;
+
+            std::process::exit(0);
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = std::fs::rename(&new_exe, &current_exe);
+            Ok(())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn apply_in_place_update(base64_data: String) -> Result<(), String> {
     let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let exe_dir = current_exe
@@ -770,6 +910,7 @@ pub fn run() {
             toggle_maximize_window,
             close_window,
             show_window,
+            download_and_install_update,
             apply_in_place_update,
             is_window_maximized,
             open_app_folder,
