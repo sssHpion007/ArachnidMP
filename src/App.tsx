@@ -175,6 +175,7 @@ export const App: React.FC = () => {
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState<boolean>(false);
   const [editingFolderTarget, setEditingFolderTarget] = useState<PlaylistFolder | null>(null);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState<boolean>(false);
+  const [editingGroupTarget, setEditingGroupTarget] = useState<PlaylistGroup | null>(null);
   const [playlistCreationTarget, setPlaylistCreationTarget] = useState<{ folderId?: string | null; groupId?: string | null } | null>(null);
   const [folderCreationTarget, setFolderCreationTarget] = useState<{ parentId?: string | null; groupId?: string | null } | null>(null);
   const [deleteFolderTarget, setDeleteFolderTarget] = useState<PlaylistFolder | null>(null);
@@ -801,7 +802,65 @@ export const App: React.FC = () => {
     };
   }, [tracks, queue]);
 
-  // Filtered and Sorted Tracks
+  // Set of group IDs that are configured as isolated containers
+  const isolatedGroupIds = useMemo(() => {
+    return new Set(playlistGroups.filter(g => g.isIsolated).map(g => g.id));
+  }, [playlistGroups]);
+
+  // Set of folder IDs that reside inside isolated groups (direct or nested)
+  const isolatedFolderIds = useMemo(() => {
+    if (isolatedGroupIds.size === 0) return new Set<string>();
+    const set = new Set<string>();
+    playlistFolders.forEach(f => {
+      if (f.groupId && isolatedGroupIds.has(f.groupId)) {
+        set.add(f.id);
+      }
+    });
+    let changed = true;
+    while (changed) {
+      changed = false;
+      playlistFolders.forEach(f => {
+        if (!set.has(f.id) && f.parentId && set.has(f.parentId)) {
+          set.add(f.id);
+          changed = true;
+        }
+      });
+    }
+    return set;
+  }, [playlistGroups, playlistFolders, isolatedGroupIds]);
+
+  // Set of playlist IDs belonging to isolated groups
+  const isolatedPlaylistIds = useMemo(() => {
+    if (isolatedGroupIds.size === 0) return new Set<string>();
+    const set = new Set<string>();
+    playlists.forEach(p => {
+      if (p.groupId && isolatedGroupIds.has(p.groupId)) {
+        set.add(p.id);
+      } else if (p.folderId && isolatedFolderIds.has(p.folderId)) {
+        set.add(p.id);
+      }
+    });
+    return set;
+  }, [playlists, isolatedGroupIds, isolatedFolderIds]);
+
+  // Track IDs that belong to isolated playlists
+  const isolatedTrackIds = useMemo(() => {
+    if (isolatedPlaylistIds.size === 0) return new Set<string>();
+    const set = new Set<string>();
+    playlists.forEach(p => {
+      if (isolatedPlaylistIds.has(p.id)) {
+        p.trackIds.forEach(id => set.add(id));
+      }
+    });
+    return set;
+  }, [playlists, isolatedPlaylistIds]);
+
+  // Non-isolated tracks (for 'Все треки', 'Альбомы', 'Исполнители', 'Жанры')
+  const nonIsolatedTracks = useMemo(() => {
+    if (isolatedTrackIds.size === 0) return tracks;
+    return tracks.filter(t => !isolatedTrackIds.has(t.id));
+  }, [tracks, isolatedTrackIds]);
+
   // Filtered and Sorted Tracks
   const filteredTracks = useMemo(() => {
     let result = [...tracks];
@@ -812,26 +871,34 @@ export const App: React.FC = () => {
         const trackMap = new Map(tracks.map(t => [t.id, t]));
         result = pl.trackIds.map(id => trackMap.get(id)).filter((t): t is Track => Boolean(t));
       }
-    } else if (selectedAlbum) {
-      result = result.filter(t => (t.album ? t.album.trim() : 'Без альбома') === selectedAlbum);
-    } else if (selectedArtist) {
-      result = result.filter(t => (t.artist ? t.artist.trim() : 'Неизвестный исполнитель') === selectedArtist);
-    } else if (selectedGenre) {
-      result = result.filter(t => {
-        if (!t.genre) return selectedGenre === 'Без жанра';
-        const list = t.genre.split(/[,/;\\]+/).map(g => g.trim()).filter(Boolean);
-        return list.length > 0 ? list.includes(selectedGenre) : selectedGenre === 'Без жанра';
-      });
-    } else if (currentView === 'favorites') {
-      const plFav = playlists.find(p => p.id === 'pl_favorites');
-      const trackMap = new Map(tracks.map(t => [t.id, t]));
-      if (plFav && plFav.trackIds.length > 0) {
-        const ordered = plFav.trackIds.map(id => trackMap.get(id)).filter((t): t is Track => Boolean(t && t.isFavorite));
-        const orderedSet = new Set(ordered.map(t => t.id));
-        const remaining = tracks.filter(t => t.isFavorite && !orderedSet.has(t.id));
-        result = [...ordered, ...remaining];
-      } else {
-        result = result.filter(t => t.isFavorite);
+    } else {
+      // For any view that is not a specific playlist (All Tracks, Albums, Artists, Genres):
+      // Filter out isolated tracks!
+      if (isolatedTrackIds.size > 0) {
+        result = result.filter(t => !isolatedTrackIds.has(t.id));
+      }
+
+      if (selectedAlbum) {
+        result = result.filter(t => (t.album ? t.album.trim() : 'Без альбома') === selectedAlbum);
+      } else if (selectedArtist) {
+        result = result.filter(t => (t.artist ? t.artist.trim() : 'Неизвестный исполнитель') === selectedArtist);
+      } else if (selectedGenre) {
+        result = result.filter(t => {
+          if (!t.genre) return selectedGenre === 'Без жанра';
+          const list = t.genre.split(/[,/;\\]+/).map(g => g.trim()).filter(Boolean);
+          return list.length > 0 ? list.includes(selectedGenre) : selectedGenre === 'Без жанра';
+        });
+      } else if (currentView === 'favorites') {
+        const plFav = playlists.find(p => p.id === 'pl_favorites');
+        const trackMap = new Map(result.map(t => [t.id, t]));
+        if (plFav && plFav.trackIds.length > 0) {
+          const ordered = plFav.trackIds.map(id => trackMap.get(id)).filter((t): t is Track => Boolean(t && t.isFavorite));
+          const orderedSet = new Set(ordered.map(t => t.id));
+          const remaining = result.filter(t => t.isFavorite && !orderedSet.has(t.id));
+          result = [...ordered, ...remaining];
+        } else {
+          result = result.filter(t => t.isFavorite);
+        }
       }
     }
 
@@ -862,7 +929,7 @@ export const App: React.FC = () => {
     }
 
     return result;
-  }, [tracks, selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, currentView, searchQuery, sortBy, sortOrder, playlists]);
+  }, [tracks, selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, currentView, searchQuery, sortBy, sortOrder, playlists, isolatedTrackIds]);
 
   useEffect(() => {
     filteredTracksRef.current = filteredTracks;
@@ -887,7 +954,7 @@ export const App: React.FC = () => {
     }
     if (selectedAlbum) {
       const unknownAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
-      const albumTracks = tracks.filter(t => (t.album ? t.album.trim() : unknownAlbumLabel) === selectedAlbum);
+      const albumTracks = nonIsolatedTracks.filter(t => (t.album ? t.album.trim() : unknownAlbumLabel) === selectedAlbum);
       const firstCover = albumTracks.find(t => t.coverArt)?.coverArt;
       const artist = albumTracks[0]?.artist || (language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist');
       return {
@@ -900,7 +967,7 @@ export const App: React.FC = () => {
     }
     if (selectedArtist) {
       const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
-      const artistTracks = tracks.filter(t => (t.artist ? t.artist.trim() : unknownArtistLabel) === selectedArtist);
+      const artistTracks = nonIsolatedTracks.filter(t => (t.artist ? t.artist.trim() : unknownArtistLabel) === selectedArtist);
       const firstCover = artistTracks.find(t => t.coverArt)?.coverArt;
       return {
         type: 'artist' as const,
@@ -912,7 +979,7 @@ export const App: React.FC = () => {
     }
     if (selectedGenre) {
       const unknownGenreLabel = language === 'ru' ? 'Без жанра' : 'No Genre';
-      const genreTracks = tracks.filter(t => {
+      const genreTracks = nonIsolatedTracks.filter(t => {
         if (!t.genre) return selectedGenre === unknownGenreLabel;
         const list = t.genre.split(/[,/;\\]+/).map(g => g.trim()).filter(Boolean);
         return list.length > 0 ? list.includes(selectedGenre) : selectedGenre === unknownGenreLabel;
@@ -925,7 +992,7 @@ export const App: React.FC = () => {
       };
     }
     return null;
-  }, [selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, playlists, tracks, language]);
+  }, [selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, playlists, tracks, nonIsolatedTracks, language]);
 
   const searchPlaceholder = useMemo(() => {
     if (currentDetail) {
@@ -947,10 +1014,10 @@ export const App: React.FC = () => {
       case 'tracks':
       default:
         return language === 'ru'
-          ? `Поиск среди треков (${tracks.length})...`
-          : `Search all tracks (${tracks.length})...`;
+          ? `Поиск среди треков (${nonIsolatedTracks.length})...`
+          : `Search all tracks (${nonIsolatedTracks.length})...`;
     }
-  }, [currentDetail, currentView, tracks.length, language]);
+  }, [currentDetail, currentView, nonIsolatedTracks.length, language]);
 
   const handleBackToGrid = () => {
     setSelectedPlaylistId(null);
@@ -1955,14 +2022,34 @@ export const App: React.FC = () => {
     setEditingFolderTarget(null);
   };
 
-  const handleCreateGroupSubmit = (name: string) => {
+  const handleCreateGroupSubmit = (name: string, color?: string, isIsolated?: boolean) => {
     const newGroup: PlaylistGroup = {
       id: `grp_${Date.now()}`,
       name: name.trim(),
       order: playlistGroups.length,
       isCollapsed: false,
+      color: color || undefined,
+      isIsolated: !!isIsolated,
     };
     setPlaylistGroups(prev => [...prev, newGroup]);
+    setIsCreateGroupOpen(false);
+  };
+
+  const handleSaveEditGroup = (name: string, color?: string, isIsolated?: boolean) => {
+    if (!editingGroupTarget) return;
+    setPlaylistGroups(prev => prev.map(g => {
+      if (g.id === editingGroupTarget.id) {
+        return {
+          ...g,
+          name: name.trim(),
+          color: color || undefined,
+          isIsolated: !!isIsolated,
+        };
+      }
+      return g;
+    }));
+    setEditingGroupTarget(null);
+    setIsCreateGroupOpen(false);
   };
 
   const handleToggleGroupCollapse = (groupId: string) => {
@@ -2351,7 +2438,7 @@ export const App: React.FC = () => {
         onSelectView={handleSelectView}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        totalTracksCount={tracks.length}
+        totalTracksCount={nonIsolatedTracks.length}
         searchPlaceholder={searchPlaceholder}
         onOpenFiles={handleOpenFiles}
         themeMode={themeMode}
@@ -2477,7 +2564,10 @@ export const App: React.FC = () => {
             onSelectPlaylist={handleSelectPlaylist}
             onCreatePlaylist={handleCreatePlaylist}
             onCreateFolder={handleOpenCreateFolder}
-            onCreateGroup={() => setIsCreateGroupOpen(true)}
+            onCreateGroup={() => {
+              setEditingGroupTarget(null);
+              setIsCreateGroupOpen(true);
+            }}
             onPlayPlaylist={handlePlayPlaylist}
             onPlayFolder={handlePlayFolder}
             onOpenPlaylistContextMenu={(e, pl) => {
@@ -2491,7 +2581,14 @@ export const App: React.FC = () => {
             onToggleGroupCollapse={handleToggleGroupCollapse}
             onMoveGroup={handleMoveGroup}
             onReorderGroups={handleReorderGroups}
-            onRenameGroup={(grp) => setRenameItemTarget({ isOpen: true, type: 'group', item: grp })}
+            onRenameGroup={(grp) => {
+              setEditingGroupTarget(grp);
+              setIsCreateGroupOpen(true);
+            }}
+            onEditGroup={(grp) => {
+              setEditingGroupTarget(grp);
+              setIsCreateGroupOpen(true);
+            }}
             onDeleteGroup={handleDeleteGroup}
             onMovePlaylistToFolder={handleMovePlaylistToFolder}
             onMovePlaylistToGroup={handleMovePlaylistToGroup}
@@ -2502,7 +2599,7 @@ export const App: React.FC = () => {
           />
         ) : currentView === 'albums' ? (
           <AlbumsGridView
-            tracks={tracks}
+            tracks={nonIsolatedTracks}
             searchQuery={searchQuery}
             language={language}
             onSelectAlbum={(alb) => setSelectedAlbum(alb)}
@@ -2510,7 +2607,7 @@ export const App: React.FC = () => {
           />
         ) : currentView === 'artists' ? (
           <ArtistsGridView
-            tracks={tracks}
+            tracks={nonIsolatedTracks}
             searchQuery={searchQuery}
             language={language}
             onSelectArtist={(art) => setSelectedArtist(art)}
@@ -2518,7 +2615,7 @@ export const App: React.FC = () => {
           />
         ) : currentView === 'genres' ? (
           <GenresGridView
-            tracks={tracks}
+            tracks={nonIsolatedTracks}
             searchQuery={searchQuery}
             language={language}
             onSelectGenre={(gen) => setSelectedGenre(gen)}
@@ -2798,12 +2895,22 @@ export const App: React.FC = () => {
         folderToEdit={editingFolderTarget}
       />
 
-      {/* Material 3 Create Group Modal */}
+      {/* Material 3 Create / Edit Group Modal */}
       <CreateGroupModal
-        isOpen={isCreateGroupOpen}
+        isOpen={isCreateGroupOpen || !!editingGroupTarget}
         language={language}
-        onClose={() => setIsCreateGroupOpen(false)}
-        onCreate={handleCreateGroupSubmit}
+        onClose={() => {
+          setIsCreateGroupOpen(false);
+          setEditingGroupTarget(null);
+        }}
+        onCreate={(name, color, isIsolated) => {
+          if (editingGroupTarget) {
+            handleSaveEditGroup(name, color, isIsolated);
+          } else {
+            handleCreateGroupSubmit(name, color, isIsolated);
+          }
+        }}
+        groupToEdit={editingGroupTarget}
       />
 
       {/* Universal Rename Item Modal (Playlist, Folder, Group) */}

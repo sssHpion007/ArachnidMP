@@ -14,7 +14,8 @@ import {
   Trash2, 
   FolderOpen,
   Palette,
-  GripVertical
+  GripVertical,
+  ShieldAlert
 } from 'lucide-react';
 import { Playlist, PlaylistFolder, PlaylistGroup, Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
@@ -38,6 +39,7 @@ interface PlaylistsGridViewProps {
   onOpenFolderContextMenu: (e: React.MouseEvent, folder: PlaylistFolder) => void;
   onToggleGroupCollapse: (groupId: string) => void;
   onRenameGroup: (group: PlaylistGroup) => void;
+  onEditGroup?: (group: PlaylistGroup) => void;
   onDeleteGroup: (groupId: string) => void;
   onMoveGroup?: (groupId: string, direction: 'up' | 'down') => void;
   onReorderGroups?: (reorderedGroups: PlaylistGroup[]) => void;
@@ -326,6 +328,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   onOpenFolderContextMenu,
   onToggleGroupCollapse,
   onRenameGroup,
+  onEditGroup,
   onDeleteGroup,
   onMoveGroup,
   onReorderGroups,
@@ -1195,10 +1198,15 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
             const isGroupHovered = hoveredGroupId === group.id;
             const isTargetGroup = dropTargetGroup?.id === group.id;
 
+            const groupColor = group.color ? getFolderColorHex(group.color) : undefined;
+            const groupHeaderBg = group.color ? getFolderColorRgba(group.color, 0.14) : undefined;
+            const groupBorderColor = group.color ? getFolderColorRgba(group.color, 0.35) : undefined;
+
             return (
               <div
                 key={group.id}
                 data-group-id={group.id}
+                style={groupBorderColor ? { borderColor: groupBorderColor } : undefined}
                 className={`relative rounded-3xl border transition-all duration-150 overflow-hidden ${
                   isGroupHovered || isTargetGroup
                     ? 'ring-2 ring-md3-primary border-md3-primary bg-md3-primary/5 shadow-md'
@@ -1228,6 +1236,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                       onToggleGroupCollapse(group.id);
                     }
                   }}
+                  style={groupHeaderBg ? { backgroundColor: groupHeaderBg } : undefined}
                   className="w-full flex items-center justify-between px-4 py-3 bg-md3-surface-container/60 hover:bg-md3-surface-container cursor-pointer transition-colors border-b border-md3-outline-variant/10 touch-none"
                 >
                   <div className="flex items-center gap-2.5 min-w-0 pointer-events-none">
@@ -1242,13 +1251,28 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                       )}
                     </button>
                     <GripVertical className="w-3.5 h-3.5 text-md3-on-surface-variant/40" />
-                    <Layers className="w-4 h-4 text-md3-primary flex-shrink-0" />
-                    <h3 className="font-bold text-sm text-md3-on-surface truncate">
+                    <Layers
+                      className="w-4 h-4 flex-shrink-0"
+                      style={{ color: groupColor || 'var(--md-sys-color-primary)' }}
+                    />
+                    <h3
+                      className="font-bold text-sm text-md3-on-surface truncate"
+                      style={groupColor ? { color: groupColor } : undefined}
+                    >
                       {group.name}
                     </h3>
                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-md3-surface-container-highest text-md3-on-surface-variant font-medium">
                       {totalGroupItems}
                     </span>
+                    {group.isIsolated && (
+                      <span
+                        className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-500 border border-amber-500/30 font-medium flex items-center gap-1 shrink-0"
+                        title={language === 'ru' ? 'Изолированный контейнер: треки скрыты из общего списка библиотеки' : 'Isolated container: tracks are hidden from global library'}
+                      >
+                        <ShieldAlert className="w-3 h-3" />
+                        <span>{language === 'ru' ? 'Изолированная' : 'Isolated'}</span>
+                      </span>
+                    )}
                   </div>
 
                   {/* Group Quick Actions (Reorder Up/Down, Add, Edit, Delete) */}
@@ -1290,8 +1314,8 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                       <FolderPlus className="w-3.5 h-3.5" />
                     </button>
                     <button
-                      onClick={() => onRenameGroup(group)}
-                      title="Переименовать группу"
+                      onClick={() => onEditGroup ? onEditGroup(group) : onRenameGroup(group)}
+                      title={language === 'ru' ? 'Настройки группы (цвет, изоляция, название)' : 'Group settings (color, isolation, name)'}
                       className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-primary hover:bg-md3-surface-container-highest transition-colors"
                     >
                       <Edit3 className="w-3.5 h-3.5" />

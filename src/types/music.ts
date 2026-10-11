@@ -45,6 +45,8 @@ export interface PlaylistFolder {
 export interface PlaylistGroup {
   id: string;
   name: string;
+  color?: string; // Group accent color
+  isIsolated?: boolean; // Isolated container: tracks in this group's playlists are hidden from All Tracks, Albums, Artists
   isCollapsed?: boolean; // "группа сворачивается разворачивается"
   order: number;
 }
