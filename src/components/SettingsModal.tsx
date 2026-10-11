@@ -155,6 +155,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const releaseNotesContainerRef = useRef<HTMLDivElement>(null);
   const mainSettingsContainerRef = useRef<HTMLDivElement>(null);
   const mainScrollTopRef = useRef<number>(0);
+  const updateCardRef = useRef<HTMLDivElement>(null);
+  const [cardHeight, setCardHeight] = useState<number | undefined>(undefined);
+
+  const handleOpenUpdateSettings = () => {
+    if (updateCardRef.current) {
+      setCardHeight(updateCardRef.current.offsetHeight);
+    }
+    setIsUpdateSettingsOpen(true);
+  };
+
+  const handleCloseUpdateSettings = () => {
+    setIsUpdateSettingsOpen(false);
+  };
 
   // Accordion (шторка) open/closed states
   const [isThemeCurtainOpen, setIsThemeCurtainOpen] = useState<boolean>(false);
@@ -162,7 +175,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isUpdateSettingsOpen, setIsUpdateSettingsOpen] = useState<boolean>(false);
 
   // App version & Update checker state
-  const [appVersion, setAppVersion] = useState<string>('0.3.57');
+  const [appVersion, setAppVersion] = useState<string>('0.3.58');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'installing' | 'error'>('idle');
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [downloadStats, setDownloadStats] = useState<{ received: string; total: string }>({ received: '0', total: '0' });
@@ -377,6 +390,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (isOpen) {
       setCurrentView('main');
       setIsUpdateSettingsOpen(false);
+      setCardHeight(undefined);
       refreshCustomThemes();
     }
   }, [isOpen]);
@@ -1532,32 +1546,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             {/* 7. About Application & Updates Card */}
             <div ref={updateSectionRef} className="pt-2">
-              <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col gap-3.5">
+              <div
+                ref={updateCardRef}
+                style={{ minHeight: cardHeight ? `${cardHeight}px` : undefined }}
+                className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col justify-between transition-all duration-200"
+              >
                 {isUpdateSettingsOpen ? (
                   /* Auto-Update Settings View inside this container */
-                  <div className="space-y-3.5 animate-in fade-in duration-200">
+                  <div className="h-full flex flex-col justify-between gap-3 animate-in fade-in duration-200">
                     {/* Header with return button */}
-                    <div className="flex items-center justify-between pb-2 border-b border-md3-outline-variant/15">
-                      <div className="flex items-center gap-2">
-                        <button
-                          tabIndex={-1}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => setIsUpdateSettingsOpen(false)}
-                          className="w-7 h-7 rounded-full bg-md3-surface hover:bg-md3-surface-container-high text-md3-primary border border-md3-outline-variant/20 flex items-center justify-center transition-all cursor-pointer outline-none focus:outline-none"
-                          title={t.settings.back}
-                        >
-                          <ArrowLeft className="w-4 h-4" />
-                        </button>
-                        <span className="font-bold text-xs text-md3-on-surface">{t.settings.autoUpdateSettings}</span>
-                      </div>
+                    <div className="flex items-center gap-2 pb-2 border-b border-md3-outline-variant/15">
                       <button
                         tabIndex={-1}
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => setIsUpdateSettingsOpen(false)}
-                        className="text-[11px] font-semibold text-md3-primary hover:underline cursor-pointer"
+                        onClick={handleCloseUpdateSettings}
+                        className="w-7 h-7 rounded-full bg-md3-surface hover:bg-md3-surface-container-high text-md3-primary border border-md3-outline-variant/20 flex items-center justify-center transition-all cursor-pointer outline-none focus:outline-none"
+                        title={language === 'ru' ? 'Назад' : 'Back'}
                       >
-                        {language === 'ru' ? 'Назад' : 'Back'}
+                        <ArrowLeft className="w-4 h-4" />
                       </button>
+                      <span className="font-bold text-xs text-md3-on-surface">{t.settings.autoUpdateSettings}</span>
                     </div>
 
                     {/* Enable / Disable Auto-check Toggle Buttons */}
@@ -1657,7 +1665,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       />
                       <div className="space-y-0.5 min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm text-md3-on-surface">{t.settings.about}</span>
+                          <span className="font-bold text-sm text-md3-on-surface">Arachnid Music Player</span>
                           <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full bg-md3-primary/10 text-md3-primary">
                             v{appVersion}
                           </span>
@@ -1691,7 +1699,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <button
                             tabIndex={-1}
                             onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => setIsUpdateSettingsOpen(true)}
+                            onClick={handleOpenUpdateSettings}
                             className="p-1.5 rounded-full bg-md3-surface hover:bg-md3-surface-container-high text-md3-on-surface-variant hover:text-md3-primary border border-md3-outline-variant/20 hover:border-md3-primary/30 transition-all cursor-pointer shadow-xs outline-none focus:outline-none"
                             title={t.settings.autoUpdateSettings}
                           >
