@@ -44,6 +44,7 @@ class AudioEngine {
   private onEndCallback?: () => void;
   private onPlayCallback?: () => void;
   private onPauseCallback?: () => void;
+  private onErrorCallback?: (err: any) => void;
 
   // Configuration
   private targetVolume: number = 0.85;
@@ -87,6 +88,7 @@ class AudioEngine {
     this.audio.addEventListener('error', () => {
       const err = this.audio.error;
       console.warn('Audio playback error:', err ? `code=${err.code}, msg=${err.message}` : 'unknown error');
+      this.onErrorCallback?.(err);
     });
 
     this.startPrecisionLoop();
@@ -112,12 +114,14 @@ class AudioEngine {
     onEnded?: () => void;
     onPlay?: () => void;
     onPause?: () => void;
+    onError?: (err: any) => void;
   }) {
     this.onTimeUpdateCallback = callbacks.onTimeUpdate;
     this.onDurationCallback = callbacks.onDuration;
     this.onEndCallback = callbacks.onEnded;
     this.onPlayCallback = callbacks.onPlay;
     this.onPauseCallback = callbacks.onPause;
+    this.onErrorCallback = callbacks.onError;
   }
 
   public setFadeConfig(mode: FadeMode, durationSec: number) {
@@ -616,6 +620,7 @@ class AudioEngine {
         }
       } catch (e) {
         console.warn('Playback play() was blocked or interrupted:', e);
+        this.onErrorCallback?.(e);
       }
     }
 

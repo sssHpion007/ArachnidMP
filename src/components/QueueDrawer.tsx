@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { X, Trash2, Shuffle, Music, Play, ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
+import { X, Trash2, Shuffle, Music, Play, ArrowUp, ArrowDown, GripVertical, AlertTriangle } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage } from '../i18n';
@@ -304,9 +304,22 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                   </div>
 
                   <div className="min-w-0 flex-1">
-                    <p className={`text-xs font-bold truncate ${isCurrent ? 'text-md3-on-primary-container' : 'text-md3-on-surface'}`}>
-                      {track.title}
-                    </p>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <p className={`text-xs font-bold truncate ${
+                        track.isMissing 
+                          ? 'text-amber-500/90 dark:text-amber-400/90' 
+                          : isCurrent 
+                          ? 'text-md3-on-primary-container' 
+                          : 'text-md3-on-surface'
+                      }`}>
+                        {track.title}
+                      </p>
+                      {track.isMissing && (
+                        <span title="Файл не найден">
+                          <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" />
+                        </span>
+                      )}
+                    </div>
                     <p className="text-[11px] text-md3-on-surface-variant truncate">
                       {track.artist}
                     </p>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Track, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode, FadeMode, FolderCoverType } from './types/music';
 import { TitleBar } from './components/TitleBar';
 import { TopBar, MainViewType } from './components/TopBar';
@@ -228,6 +228,31 @@ export const App: React.FC = () => {
     }
   }, [currentTrack, isLyricsOpen]);
 
+  const verifyTracksExistence = useCallback(async (tracksToCheck: Track[]) => {
+    if (!isTauri() || tracksToCheck.length === 0) return;
+    const paths = tracksToCheck.map(t => t.path).filter((p): p is string => Boolean(p));
+    if (paths.length === 0) return;
+    try {
+      const results = await invoke<Record<string, boolean>>('batch_check_files_exist', { paths });
+      setTracks(prev => {
+        let changed = false;
+        const updated = prev.map(t => {
+          if (t.path && results[t.path] !== undefined) {
+            const missing = !results[t.path];
+            if (t.isMissing !== missing) {
+              changed = true;
+              return { ...t, isMissing: missing };
+            }
+          }
+          return t;
+        });
+        return changed ? updated : prev;
+      });
+    } catch (e) {
+      console.warn('Failed to verify tracks existence:', e);
+    }
+  }, []);
+
   // Load Portable Data on Startup (strictly from arachnid_data.json next to exe in Tauri)
   useEffect(() => {
     const loadData = async () => {
@@ -251,6 +276,7 @@ export const App: React.FC = () => {
               return t;
             });
             setTracks(hydrated);
+            verifyTracksExistence(hydrated);
 
             // Auto-refresh metadata in background for existing tracks missing cover, artist, or lyrics
             if (isTauri()) {
@@ -419,6 +445,19 @@ export const App: React.FC = () => {
       onEnded: () => handleTrackEndedRef.current(),
       onPlay: () => setIsPlaying(true),
       onPause: () => setIsPlaying(false),
+      onError: async (err) => {
+        console.warn('AudioEngine playback error:', err);
+        const cur = currentTrackRef.current;
+        if (cur?.path && isTauri()) {
+          try {
+            const exists = await invoke<boolean>('check_file_exists', { path: cur.path });
+            if (!exists) {
+              setTracks(prev => prev.map(t => t.id === cur.id ? { ...t, isMissing: true } : t));
+              setCurrentTrack(prev => prev && prev.id === cur.id ? { ...prev, isMissing: true } : prev);
+            }
+          } catch (_) {}
+        }
+      },
     });
   }, []);
 
@@ -436,6 +475,13 @@ export const App: React.FC = () => {
   useEffect(() => {
     audioEngine.setRepeatMode(repeatMode);
   }, [repeatMode]);
+
+  // Periodically and on view change verify tracks existence
+  useEffect(() => {
+    if (tracksRef.current.length > 0) {
+      verifyTracksExistence(tracksRef.current);
+    }
+  }, [currentView, selectedPlaylistId, verifyTracksExistence]);
 
   const refreshCustomThemes = async () => {
     if (isTauri()) {
@@ -1609,20 +1655,116 @@ export const App: React.FC = () => {
     }
   };
 
+  const updateTrackRelocation = (trackId: string, newPath: string, newSrc: string, metadata?: any) => {
+    setTracks(prev => prev.map(t => {
+      if (t.id === trackId) {
+        return {
+          ...t,
+          path: newPath,
+          src: newSrc,
+          isMissing: false,
+          title: metadata?.title || t.title,
+          artist: metadata?.artist || t.artist,
+          album: metadata?.album || t.album,
+          duration: metadata?.duration_seconds || metadata?.duration || t.duration,
+          coverArt: metadata?.cover_art || metadata?.coverArt || t.coverArt,
+        };
+      }
+      return t;
+    }));
+
+    if (currentTrack && currentTrack.id === trackId) {
+      const updatedCurr: Track = {
+        ...currentTrack,
+        path: newPath,
+        src: newSrc,
+        isMissing: false,
+        title: metadata?.title || currentTrack.title,
+        artist: metadata?.artist || currentTrack.artist,
+        album: metadata?.album || currentTrack.album,
+        duration: metadata?.duration_seconds || metadata?.duration || currentTrack.duration,
+        coverArt: metadata?.cover_art || metadata?.coverArt || currentTrack.coverArt,
+      };
+      setCurrentTrack(updatedCurr);
+      audioEngine.playTrack(newSrc, true, true, updatedCurr.duration, newPath);
+      setIsPlaying(true);
+    }
+  };
+
+  const handleRelocateTrack = async (track: Track) => {
+    let newPath: string | null = null;
+    if (isTauri()) {
+      try {
+        const picked = await invoke<string | null>('pick_single_audio_file');
+        if (picked) {
+          newPath = picked;
+        }
+      } catch (err) {
+        console.error('Failed to pick file:', err);
+      }
+    } else {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'audio/*';
+      input.onchange = (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (file) {
+          const url = URL.createObjectURL(file);
+          updateTrackRelocation(track.id, file.name, url);
+        }
+      };
+      input.click();
+      return;
+    }
+
+    if (newPath) {
+      let meta: any = null;
+      if (isTauri()) {
+        try {
+          const metaList = await invoke<any[]>('read_audio_files', { paths: [newPath] });
+          if (metaList && metaList.length > 0) meta = metaList[0];
+        } catch (_) {}
+      }
+      const newSrc = convertFileSrc(newPath);
+      updateTrackRelocation(track.id, newPath, newSrc, meta);
+    }
+  };
+
   // Plays a specific track at an existing index in the queue without replacing the queue
   const playQueueIndex = async (index: number) => {
     if (index < 0 || index >= queue.length) return;
     const track = queue[index];
+    if (track.isMissing) {
+      handleRelocateTrack(track);
+      return;
+    }
     setQueueIndex(index);
     setCurrentTrack(track);
     setDuration(track.duration || 0);
-    await audioEngine.playTrack(track.src, true, true, track.duration, track.path);
-    setIsPlaying(true);
+    try {
+      await audioEngine.playTrack(track.src, true, true, track.duration, track.path);
+      setIsPlaying(true);
+    } catch (e) {
+      console.warn('Queue playback start error:', e);
+      if (track.path && isTauri()) {
+        const exists = await invoke<boolean>('check_file_exists', { path: track.path });
+        if (!exists) {
+          setTracks(prev => prev.map(t => t.id === track.id ? { ...t, isMissing: true } : t));
+          setCurrentTrack(prev => prev && prev.id === track.id ? { ...prev, isMissing: true } : prev);
+          handleRelocateTrack(track);
+        }
+      }
+    }
   };
 
   // Starts playback of a track with context: populates the playback queue with all tracks from that view/playlist
   // in their exact displayed order, and sets the active queue index to the clicked track.
   const playTrackWithContext = async (track: Track, contextTracks?: Track[]) => {
+    if (track.isMissing) {
+      handleRelocateTrack(track);
+      return;
+    }
+
     const list = contextTracks && contextTracks.length > 0 ? contextTracks : [track];
     setQueue(list);
     const idx = list.findIndex(t => t.id === track.id);
@@ -1631,8 +1773,20 @@ export const App: React.FC = () => {
 
     setCurrentTrack(track);
     setDuration(track.duration || 0);
-    await audioEngine.playTrack(track.src, true, true, track.duration, track.path);
-    setIsPlaying(true);
+    try {
+      await audioEngine.playTrack(track.src, true, true, track.duration, track.path);
+      setIsPlaying(true);
+    } catch (e) {
+      console.warn('Playback start error:', e);
+      if (track.path && isTauri()) {
+        const exists = await invoke<boolean>('check_file_exists', { path: track.path });
+        if (!exists) {
+          setTracks(prev => prev.map(t => t.id === track.id ? { ...t, isMissing: true } : t));
+          setCurrentTrack(prev => prev && prev.id === track.id ? { ...prev, isMissing: true } : prev);
+          handleRelocateTrack(track);
+        }
+      }
+    }
   };
 
   const playTrack = async (track: Track) => {
@@ -2555,6 +2709,7 @@ export const App: React.FC = () => {
               currentView={currentView}
               isReorderable={Boolean(selectedPlaylistId) && !searchQuery.trim()}
               onReorderTracks={selectedPlaylistId ? handleReorderPlaylistTracks : undefined}
+              onRelocateTrack={handleRelocateTrack}
               language={language}
             />
           </div>
@@ -2651,6 +2806,7 @@ export const App: React.FC = () => {
             onDropFiles={importFiles}
             isReorderable={currentView === 'favorites' && !searchQuery.trim()}
             onReorderTracks={currentView === 'favorites' ? handleReorderFavoriteTracks : undefined}
+            onRelocateTrack={handleRelocateTrack}
             language={language}
           />
         )}
@@ -2826,6 +2982,7 @@ export const App: React.FC = () => {
           onAddToPlaylist={handleDropTracksToPlaylist}
           onRemoveTracks={handleRequestRemoveTracks}
           onOpenTrackDetails={(t) => setTrackDetailsTarget(t)}
+          onRelocateTrack={handleRelocateTrack}
         />
       )}
 

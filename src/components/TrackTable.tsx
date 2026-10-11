@@ -10,7 +10,8 @@ import {
   ArrowUpDown,
   CheckSquare,
   Disc3,
-  GripVertical
+  GripVertical,
+  AlertTriangle
 } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
@@ -39,6 +40,7 @@ interface TrackTableProps {
   currentView?: string;
   isReorderable?: boolean;
   onReorderTracks?: (reorderedTrackIds: string[]) => void;
+  onRelocateTrack?: (track: Track) => void;
   language?: AppLanguage;
 }
 
@@ -84,6 +86,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   currentView,
   isReorderable = false,
   onReorderTracks,
+  onRelocateTrack,
   language = 'ru',
 }) => {
   const [hoveredTrackId, setHoveredTrackId] = useState<string | null>(null);
@@ -388,7 +391,11 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                 }}
                 onDoubleClick={() => {
                   if (hasDraggedRef.current) return;
-                  onPlayTrack(track);
+                  if (track.isMissing && onRelocateTrack) {
+                    onRelocateTrack(track);
+                  } else {
+                    onPlayTrack(track);
+                  }
                 }}
                 onContextMenu={(e) => onOpenContextMenu(e, track)}
                 className={`relative grid ${gridCols} items-center px-4 py-2 cursor-pointer transition-colors duration-150 ${
@@ -431,7 +438,9 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (isCurrent && onTogglePlayPause) {
+                          if (track.isMissing && onRelocateTrack) {
+                            onRelocateTrack(track);
+                          } else if (isCurrent && onTogglePlayPause) {
                             onTogglePlayPause();
                           } else {
                             onPlayTrack(track);
@@ -469,9 +478,30 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className={`text-sm font-semibold truncate ${isCurrent ? 'text-md3-primary' : 'text-md3-on-surface'}`}>
-                      {track.title}
-                    </p>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <p className={`text-sm font-semibold truncate ${
+                        track.isMissing 
+                          ? 'text-amber-500/90 dark:text-amber-400/90' 
+                          : isCurrent 
+                          ? 'text-md3-primary' 
+                          : 'text-md3-on-surface'
+                      }`}>
+                        {track.title}
+                      </p>
+                      {track.isMissing && (
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRelocateTrack?.(track);
+                          }}
+                          title={language === 'ru' ? 'Файл не найден. Нажмите, чтобы указать путь к файлу' : 'File not found. Click to relocate file'}
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[10px] font-bold cursor-pointer hover:bg-amber-500/25 transition-colors shrink-0 select-none shadow-2xs"
+                        >
+                          <AlertTriangle className="w-3 h-3 shrink-0" />
+                          <span className="hidden sm:inline">{language === 'ru' ? 'Файл потерян' : 'Missing'}</span>
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-md3-on-surface-variant/70 truncate md:hidden">
                       {track.artist}
                     </p>

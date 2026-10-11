@@ -890,7 +890,49 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
         }
     }
 
+    notify_shell_file_changed(file_path);
+
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn notify_shell_file_changed(file_path: &Path) {
+    use std::os::windows::ffi::OsStrExt;
+    let wide: Vec<u16> = file_path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    unsafe {
+        #[link(name = "shell32")]
+        extern "system" {
+            fn SHChangeNotify(wEventId: i32, uFlags: u32, dwItem1: *const u16, dwItem2: *const u16);
+        }
+        // SHCNE_UPDATEITEM = 0x00002000, SHCNF_PATHW = 0x0005
+        SHChangeNotify(0x00002000, 0x0005, wide.as_ptr(), std::ptr::null());
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn notify_shell_file_changed(_file_path: &Path) {}
+
+#[tauri::command]
+fn check_file_exists(path: String) -> bool {
+    Path::new(&path).is_file()
+}
+
+#[tauri::command]
+fn batch_check_files_exist(paths: Vec<String>) -> std::collections::HashMap<String, bool> {
+    let mut map = std::collections::HashMap::new();
+    for p in paths {
+        map.insert(p.clone(), Path::new(&p).is_file());
+    }
+    map
+}
+
+#[tauri::command]
+fn pick_single_audio_file() -> Result<Option<String>, String> {
+    let file = rfd::FileDialog::new()
+        .add_filter("Audio Files (*.mp3;*.flac;*.wav;*.ogg;*.m4a;*.opus;*.aac;*.wma)", &["mp3", "flac", "wav", "ogg", "m4a", "opus", "aac", "wma"])
+        .pick_file();
+
+    Ok(file.and_then(|p| p.to_str().map(|s| s.to_string())))
 }
 
 #[tauri::command]
@@ -1453,7 +1495,10 @@ pub fn run() {
             read_custom_theme,
             delete_custom_theme,
             load_locale_file,
-            save_cover_image
+            save_cover_image,
+            check_file_exists,
+            batch_check_files_exist,
+            pick_single_audio_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arachnid application");

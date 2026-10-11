@@ -7,7 +7,8 @@ import {
   Heart, 
   FolderPlus, 
   Trash2,
-  Info
+  Info,
+  FolderSearch
 } from 'lucide-react';
 import { Track, Playlist } from '../types/music';
 import { AppLanguage } from '../i18n';
@@ -28,6 +29,7 @@ interface ContextMenuProps {
   onAddToPlaylist: (playlistId: string, trackIds: string[]) => void;
   onRemoveTracks: (trackIds: string[]) => void;
   onOpenTrackDetails?: (track: Track) => void;
+  onRelocateTrack?: (track: Track) => void;
 }
 
 export const ContextMenu: React.FC<ContextMenuProps> = ({
@@ -46,6 +48,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   onAddToPlaylist,
   onRemoveTracks,
   onOpenTrackDetails,
+  onRelocateTrack,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -199,6 +202,26 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
             }
           </span>
         </button>
+
+        {/* Relocate Track (Указать путь к файлу вручную) */}
+        {onRelocateTrack && (
+          <button
+            onClick={() => {
+              onRelocateTrack(track);
+              onClose();
+            }}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 text-left cursor-pointer transition-colors ${
+              track.isMissing 
+                ? 'bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 font-semibold' 
+                : 'text-md3-on-surface hover:bg-md3-surface-container'
+            }`}
+          >
+            <FolderSearch className="w-3.5 h-3.5 shrink-0" />
+            <span>
+              {language === 'ru' ? 'Указать путь к файлу...' : 'Relocate track file...'}
+            </span>
+          </button>
+        )}
 
         {/* Remove */}
         <button

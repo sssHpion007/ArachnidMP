@@ -26,6 +26,7 @@ export interface Track {
   conductor?: string;
   lyricist?: string;
   customTags?: Record<string, string>;
+  isMissing?: boolean;
 }
 
 export type FolderCoverType = 'icon' | 'first_playlist' | 'collage';
