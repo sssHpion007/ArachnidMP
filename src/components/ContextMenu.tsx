@@ -7,12 +7,10 @@ import {
   Heart, 
   FolderPlus, 
   Trash2,
-  Info,
-  Download
+  Info
 } from 'lucide-react';
 import { Track, Playlist } from '../types/music';
 import { AppLanguage } from '../i18n';
-import { downloadCoverImage } from '../services/tagEditor';
 
 interface ContextMenuProps {
   x: number;
@@ -166,20 +164,6 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
           >
             <Info className="w-3.5 h-3.5 text-md3-primary" />
             <span>{language === 'ru' ? 'Сведения о треке' : 'Track Details'}</span>
-          </button>
-        )}
-
-        {track.coverArt && (
-          <button
-            onClick={() => {
-              const defaultName = `${track.artist || 'Artist'} - ${track.album || track.title || 'Cover'}`;
-              downloadCoverImage(track.coverArt!, defaultName);
-              onClose();
-            }}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5 text-md3-primary" />
-            <span>{language === 'ru' ? 'Сохранить обложку' : 'Save Cover Art'}</span>
           </button>
         )}
 

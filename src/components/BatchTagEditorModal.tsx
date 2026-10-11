@@ -105,6 +105,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
   // Cover art state
   const [coverArtPreview, setCoverArtPreview] = useState<string | null>(null);
   const [applyCover, setApplyCover] = useState(false);
+  const [coverModified, setCoverModified] = useState(false);
   const [isDraggingOverCover, setIsDraggingOverCover] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -132,6 +133,8 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
   // Initialize form when opened or selection changes
   useEffect(() => {
     if (!isOpen || selectedTracks.length === 0) return;
+
+    setCoverModified(false);
 
     if (isSingle && firstTrack) {
       setTitleValue(firstTrack.title || '');
@@ -255,6 +258,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
       reader.onload = () => {
         setCoverArtPreview(reader.result as string);
         setApplyCover(true);
+        setCoverModified(true);
       };
       reader.readAsDataURL(file);
     }
@@ -269,6 +273,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
       reader.onload = () => {
         setCoverArtPreview(reader.result as string);
         setApplyCover(true);
+        setCoverModified(true);
       };
       reader.readAsDataURL(file);
     }
@@ -278,6 +283,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
     e.stopPropagation();
     setCoverArtPreview(null);
     setApplyCover(true);
+    setCoverModified(true);
   };
 
   const handleDownloadCover = (e: React.MouseEvent) => {
@@ -354,7 +360,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
       if (!isNaN(parsedYear)) updates.year = parsedYear;
     }
 
-    if (applyCover) {
+    if (applyCover || (isSingle && coverModified)) {
       updates.coverArt = coverArtPreview;
     }
 

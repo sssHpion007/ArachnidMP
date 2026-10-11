@@ -16,11 +16,10 @@ import {
   Check,
   Users,
   Music,
-  MessageSquare,
-  Download
+  MessageSquare
 } from 'lucide-react';
 import { Track } from '../types/music';
-import { formatTime, downloadCoverImage } from '../services/tagEditor';
+import { formatTime } from '../services/tagEditor';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { AppLanguage } from '../i18n';
 
@@ -140,23 +139,9 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
           {/* Top Banner: Large Cover & Metadata Beside It */}
           <div className="flex flex-col sm:flex-row items-center sm:items-stretch gap-5 p-5 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/15">
             {/* Large Cover Art */}
-            <div className="relative group w-36 h-36 sm:w-44 sm:h-44 rounded-2xl overflow-hidden bg-md3-surface-container-high shadow-lg shrink-0 border border-md3-outline-variant/15">
+            <div className="w-36 h-36 sm:w-44 sm:h-44 rounded-2xl overflow-hidden bg-md3-surface-container-high shadow-lg shrink-0 border border-md3-outline-variant/15 relative">
               {track.coverArt ? (
-                <>
-                  <img src={track.coverArt} alt={track.title} className="w-full h-full object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const defaultName = `${track.artist || 'Artist'} - ${track.album || track.title || 'Cover'}`;
-                      downloadCoverImage(track.coverArt!, defaultName);
-                    }}
-                    title={language === 'ru' ? 'Скачать обложку в файл' : 'Save cover art to file'}
-                    className="absolute bottom-2 right-2 px-2.5 py-1.5 rounded-xl bg-black/65 hover:bg-black/85 text-white backdrop-blur-md opacity-90 hover:opacity-100 hover:scale-105 active:scale-95 transition-all shadow-md cursor-pointer flex items-center gap-1.5 text-xs font-semibold"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>{language === 'ru' ? 'Скачать' : 'Save'}</span>
-                  </button>
-                </>
+                <img src={track.coverArt} alt={track.title} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center bg-md3-primary/10 text-md3-primary gap-2">
                   <Disc3 className="w-12 h-12" />

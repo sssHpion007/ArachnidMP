@@ -7,9 +7,9 @@ use tauri::State;
 use base64::prelude::*;
 use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
-use lofty::picture::{Picture, PictureType};
+use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::probe::Probe;
-use lofty::tag::{Accessor, ItemKey, Tag, TagExt};
+use lofty::tag::{Accessor, ItemKey, Tag, TagExt, TagType};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TrackMetadata {
@@ -305,18 +305,29 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
         return Err(format!("File not found: {}", path_str));
     }
 
-    let mut tagged_file = lofty::read_from_path(file_path).map_err(|e| e.to_string())?;
+    let is_mp3 = file_path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("mp3"));
 
-    let tag = match tagged_file.primary_tag_mut() {
-        Some(t) => t,
-        None => {
-            tagged_file.insert_tag(Tag::new(tagged_file.primary_tag_type()));
-            match tagged_file.primary_tag_mut() {
-                Some(t) => t,
-                None => match tagged_file.first_tag_mut() {
+    let mut tagged_file = lofty::read_from_path(file_path).map_err(|e| format!("Failed to read {}: {}", path_str, e))?;
+
+    // For MP3 files, ensure an ID3v2 tag is used/created so cover art (APIC) and full metadata are saved
+    let tag = if is_mp3 {
+        if tagged_file.tag(TagType::Id3v2).is_none() {
+            tagged_file.insert_tag(Tag::new(TagType::Id3v2));
+        }
+        tagged_file.tag_mut(TagType::Id3v2).ok_or_else(|| "Failed to access ID3v2 tag".to_string())?
+    } else {
+        match tagged_file.primary_tag_mut() {
+            Some(t) => t,
+            None => {
+                let ptype = tagged_file.primary_tag_type();
+                tagged_file.insert_tag(Tag::new(ptype));
+                match tagged_file.primary_tag_mut() {
                     Some(t) => t,
-                    None => return Err("Failed to access or create audio tags".to_string()),
-                },
+                    None => match tagged_file.first_tag_mut() {
+                        Some(t) => t,
+                        None => return Err("Failed to access or create audio tags".to_string()),
+                    },
+                }
             }
         }
     };
@@ -388,19 +399,52 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
         }
     }
 
-    // Cover art update
+    // Cover art update: embed into ID3v2 / VorbisComments / ILST tags
     if let Some(ref cover_art_data) = updates.cover_art {
-        tag.remove_picture_type(PictureType::CoverFront);
+        // Clear all existing pictures to ensure complete replacement
+        while !tag.pictures().is_empty() {
+            tag.remove_picture(0);
+        }
+
         let trimmed = cover_art_data.trim();
         if !trimmed.is_empty() {
-            let b64_clean = if let Some(idx) = trimmed.find(";base64,") {
-                &trimmed[idx + 8..]
+            let (mime_str, b64_data) = if let Some(idx) = trimmed.find(";base64,") {
+                let prefix = &trimmed[..idx];
+                let mime = if prefix.starts_with("data:") {
+                    &prefix[5..]
+                } else {
+                    "image/jpeg"
+                };
+                (mime, &trimmed[idx + 8..])
             } else {
-                trimmed
+                ("image/jpeg", trimmed)
             };
-            if let Ok(bytes) = BASE64_STANDARD.decode(b64_clean.as_bytes()) {
-                if let Ok(mut pic) = Picture::from_reader(&mut std::io::Cursor::new(bytes)) {
-                    pic.set_pic_type(PictureType::CoverFront);
+
+            let clean_data = b64_data.replace(['\r', '\n', ' ', '\t', '"'], "");
+            if let Ok(bytes) = BASE64_STANDARD.decode(clean_data.as_bytes()) {
+                if !bytes.is_empty() {
+                    // Identify image format by magic bytes or fallback to mime_str
+                    let mime_type = if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+                        MimeType::Png
+                    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+                        MimeType::Jpeg
+                    } else if bytes.starts_with(b"GIF8") {
+                        MimeType::Gif
+                    } else if bytes.starts_with(b"BM") {
+                        MimeType::Bmp
+                    } else if bytes.starts_with(&[0x49, 0x49, 0x2A, 0x00]) || bytes.starts_with(&[0x4D, 0x4D, 0x00, 0x2A]) {
+                        MimeType::Tiff
+                    } else {
+                        match mime_str {
+                            "image/png" => MimeType::Png,
+                            "image/gif" => MimeType::Gif,
+                            "image/bmp" => MimeType::Bmp,
+                            "image/tiff" => MimeType::Tiff,
+                            _ => MimeType::Jpeg,
+                        }
+                    };
+
+                    let pic = Picture::new_unchecked(PictureType::CoverFront, Some(mime_type), None, bytes);
                     tag.push_picture(pic);
                 }
             }
@@ -421,8 +465,13 @@ fn save_track_file_tags(path: String, updates: TagUpdates) -> Result<Option<Trac
 fn batch_save_track_file_tags(paths: Vec<String>, updates: TagUpdates) -> Result<usize, String> {
     let mut updated_count = 0;
     for path in &paths {
-        if apply_tag_updates_to_file(path, &updates).is_ok() {
-            updated_count += 1;
+        match apply_tag_updates_to_file(path, &updates) {
+            Ok(_) => {
+                updated_count += 1;
+            }
+            Err(e) => {
+                eprintln!("Error saving tags to {}: {}", path, e);
+            }
         }
     }
     Ok(updated_count)
