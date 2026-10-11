@@ -169,6 +169,7 @@ export const App: React.FC = () => {
   const [isEQOpen, setIsEQOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [hasUpdate, setHasUpdate] = useState<boolean>(false);
+  const handleTrackEndedRef = useRef<() => void>(() => {});
   const [isBatchTagEditorOpen, setIsBatchTagEditorOpen] = useState<boolean>(false);
   const [isCreatePlaylistOpen, setIsCreatePlaylistOpen] = useState<boolean>(false);
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState<boolean>(false);
@@ -401,7 +402,7 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('contextmenu', handleGlobalContextMenu);
   }, []);
 
-  // Audio Engine callbacks
+  // Audio Engine callbacks (initialized once on mount)
   useEffect(() => {
     audioEngine.setCallbacks({
       onTimeUpdate: (time) => {
@@ -414,12 +415,16 @@ export const App: React.FC = () => {
           setDuration(dur);
         }
       },
-      onEnded: () => handleTrackEnded(),
+      onEnded: () => handleTrackEndedRef.current(),
       onPlay: () => setIsPlaying(true),
       onPause: () => setIsPlaying(false),
     });
+  }, []);
+
+  // Sync Audio Engine Volume only when volume actually changes
+  useEffect(() => {
     audioEngine.setVolume(volume);
-  }, [queue, queueIndex, repeatMode]);
+  }, [volume]);
 
   // Sync Audio Engine Fade Configuration
   useEffect(() => {
@@ -1643,6 +1648,7 @@ export const App: React.FC = () => {
       }
     }
   };
+  handleTrackEndedRef.current = handleTrackEnded;
 
   const handleSeek = (time: number) => {
     if (seekDebounceTimerRef.current) {

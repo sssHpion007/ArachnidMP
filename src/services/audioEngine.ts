@@ -127,23 +127,12 @@ class AudioEngine {
 
   public setRepeatMode(mode: 'off' | 'all' | 'one') {
     if (this.repeatMode === mode) return;
-    const prevMode = this.repeatMode;
     this.repeatMode = mode;
 
-    if (this.isUsingWebAudio && this.currentBuffer && this.audioCtx) {
-      // Snapshot the exact current playback position before changing loop flag
-      // This prevents (playbackPosition + elapsed) from prematurely exceeding dur when loop is toggled off!
-      const curPos = this.getCurrentTime();
-      this.playbackPosition = curPos;
-      this.playbackStartTime = this.audioCtx.currentTime;
-
-      if (this.bufferSource) {
-        this.bufferSource.loop = (mode === 'one' && this.fadeMode !== 'always');
-      }
-    } else if (mode === 'one' && prevMode !== 'one' && this.isPlaying && this.currentBuffer && this.audioCtx && this.fadeMode !== 'always') {
-      // Seamlessly transition to sample-accurate Web Audio loop WITHOUT stutter
-      const curPos = this.getCurrentTime();
-      this.startBufferPlayback(curPos);
+    // If active playback is running via Web Audio buffer, simply update the hardware loop flag smoothly.
+    // We NEVER interrupt, stop, restart, or recreate audio nodes mid-song on repeat mode toggles!
+    if (this.isUsingWebAudio && this.bufferSource) {
+      this.bufferSource.loop = (mode === 'one' && this.fadeMode !== 'always');
     }
   }
 
@@ -171,8 +160,13 @@ class AudioEngine {
       try {
         const now = this.audioCtx.currentTime;
         this.gainNode.gain.cancelScheduledValues(now);
-        this.gainNode.gain.setValueAtTime(clamped, now);
-      } catch (_) {}
+        // De-zipper / de-pop micro-ramp (5ms linear interpolation) eliminates any DC step or click
+        this.gainNode.gain.linearRampToValueAtTime(clamped, now + 0.005);
+      } catch (_) {
+        try {
+          this.gainNode.gain.setValueAtTime(clamped, this.audioCtx.currentTime);
+        } catch (_) {}
+      }
     }
   }
 
@@ -546,11 +540,9 @@ class AudioEngine {
     }
 
     loadPromise.then(() => {
-      // If repeating single track and still playing this track, seamlessly switch to Web Audio loop
-      if (this.playRequestId === reqId && this.currentTrackSrc === src && this.repeatMode === 'one' && this.fadeMode !== 'always' && this.isPlaying) {
-        const cur = this.getCurrentTime();
-        this.startBufferPlayback(cur);
-      }
+      // Buffer is now decoded and cached in RAM (this.currentBuffer).
+      // It is ready to be used seamlessly when the track loops at the end!
+      // We deliberately do NOT interrupt the actively playing audio stream mid-song!
     });
   }
 

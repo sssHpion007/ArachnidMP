@@ -169,7 +169,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isUpdateSettingsOpen, setIsUpdateSettingsOpen] = useState<boolean>(false);
 
   // App version & Update checker state
-  const [appVersion, setAppVersion] = useState<string>('0.3.62');
+  const [appVersion, setAppVersion] = useState<string>('0.3.63');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'installing' | 'error'>('idle');
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [downloadStats, setDownloadStats] = useState<{ received: string; total: string }>({ received: '0', total: '0' });
