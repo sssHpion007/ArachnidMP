@@ -210,11 +210,11 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
 
   const isNarrow = windowWidth < 680;
 
-  // Render narrow / smartphone layout
+  // Render narrow / smartphone layout (< 680px)
   if (isNarrow) {
     return (
-      <footer className="relative min-h-[114px] w-full shrink-0 bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-3 py-2 flex flex-col justify-between select-none z-30 transition-colors duration-300 gap-1.5">
-        {/* Tier 1: Track Cover, Title/Artist, and Quick Actions */}
+      <footer className="relative min-h-[124px] w-full shrink-0 bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-3 py-2 flex flex-col justify-between select-none z-30 transition-colors duration-300 gap-1.5">
+        {/* Tier 1: Track Cover, Title/Artist/Album, and Quick Actions */}
         <div className="w-full flex items-center justify-between gap-2.5">
           <div 
             onClick={() => currentTrack && onOpenTrackDetails && onOpenTrackDetails(currentTrack)}
@@ -333,120 +333,155 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
         </div>
 
         {/* Tier 3: Controls row centered */}
-        <div className="w-full flex items-center justify-between px-1">
-          {/* Mute button */}
+        <div className="w-full flex items-center justify-center gap-3">
+          <button
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onToggleShuffle}
+            title={isShuffled ? `${t.controls.shuffleOn}` : `${t.controls.shuffleOff}`}
+            className={`p-1.5 rounded-full relative cursor-pointer ${
+              isShuffled ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
+            }`}
+          >
+            <Shuffle className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onPrev}
+            title={language === 'ru' ? 'Предыдущий трек' : 'Previous Track'}
+            className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
+          >
+            <SkipBack className="w-4 h-4 fill-current" />
+          </button>
+
+          <button
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onPlayPause}
+            title={isPlaying ? `${t.controls.pause}` : `${t.controls.play}`}
+            className="w-9 h-9 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-md active:scale-95 transition-transform cursor-pointer"
+          >
+            {isPlaying ? (
+              <Pause className="w-4 h-4 fill-current" />
+            ) : (
+              <Play className="w-4 h-4 fill-current ml-0.5" />
+            )}
+          </button>
+
+          <button
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onNext}
+            title={language === 'ru' ? 'Следующий трек' : 'Next Track'}
+            className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
+          >
+            <SkipForward className="w-4 h-4 fill-current" />
+          </button>
+
+          <button
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onToggleRepeat}
+            title={`${t.controls.repeatPrefix}: ${repeatMode}`}
+            className={`p-1.5 rounded-full relative cursor-pointer ${
+              repeatMode !== 'off' ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
+            }`}
+          >
+            {repeatMode === 'one' ? <Repeat1 className="w-3.5 h-3.5" /> : <Repeat className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+
+        {/* Tier 4: Volume Controls with smooth slider */}
+        <div className="w-full flex items-center justify-center gap-2 px-3 pt-0.5">
           <button
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
             onClick={onToggleMute}
             title={isMuted ? t.controls.unmute : `${t.controls.volume}: ${Math.round(volume * 100)}%`}
-            className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
+            className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer shrink-0"
           >
             {isMuted || volume === 0 ? (
-              <VolumeX className="w-4 h-4 text-red-400" />
+              <VolumeX className="w-3.5 h-3.5 text-red-400" />
             ) : volume < 0.5 ? (
-              <Volume1 className="w-4 h-4" />
+              <Volume1 className="w-3.5 h-3.5" />
             ) : (
-              <Volume2 className="w-4 h-4" />
+              <Volume2 className="w-3.5 h-3.5" />
             )}
           </button>
 
-          {/* Centered Controls */}
-          <div className="flex items-center gap-3">
-            <button
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={onToggleShuffle}
-              title={isShuffled ? `${t.controls.shuffleOn}` : `${t.controls.shuffleOff}`}
-              className={`p-1.5 rounded-full relative cursor-pointer ${
-                isShuffled ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
-              }`}
-            >
-              <Shuffle className="w-3.5 h-3.5" />
-            </button>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            tabIndex={-1}
+            value={isMuted ? 0 : volume}
+            onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
+            onInput={(e) => onVolumeChange(parseFloat((e.target as HTMLInputElement).value))}
+            title={`${t.controls.volume}: ${Math.round((isMuted ? 0 : volume) * 100)}%`}
+            className="flex-1 max-w-[260px] accent-md3-primary h-1 rounded-full bg-md3-surface-container-highest cursor-pointer outline-none"
+          />
 
-            <button
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={onPrev}
-              title={language === 'ru' ? 'Предыдущий трек' : 'Previous Track'}
-              className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
-            >
-              <SkipBack className="w-4 h-4 fill-current" />
-            </button>
-
-            <button
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={onPlayPause}
-              title={isPlaying ? `${t.controls.pause}` : `${t.controls.play}`}
-              className="w-9 h-9 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-md active:scale-95 transition-transform cursor-pointer"
-            >
-              {isPlaying ? (
-                <Pause className="w-4 h-4 fill-current" />
-              ) : (
-                <Play className="w-4 h-4 fill-current ml-0.5" />
-              )}
-            </button>
-
-            <button
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={onNext}
-              title={language === 'ru' ? 'Следующий трек' : 'Next Track'}
-              className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
-            >
-              <SkipForward className="w-4 h-4 fill-current" />
-            </button>
-
-            <button
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={onToggleRepeat}
-              title={`${t.controls.repeatPrefix}: ${repeatMode}`}
-              className={`p-1.5 rounded-full relative cursor-pointer ${
-                repeatMode !== 'off' ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
-              }`}
-            >
-              {repeatMode === 'one' ? <Repeat1 className="w-3.5 h-3.5" /> : <Repeat className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-
-          {/* Spacer for symmetry with mute button */}
-          <div className="w-7" />
+          <span className="text-[10px] font-mono text-md3-on-surface-variant/70 w-8 text-right shrink-0">
+            {Math.round((isMuted ? 0 : volume) * 100)}%
+          </span>
         </div>
       </footer>
     );
   }
 
-  // Desktop 3-column Layout
+  // Desktop 3-column Layout (>= 680px)
   return (
     <footer className="relative h-24 max-h-24 w-full shrink-0 bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-4 sm:px-6 flex items-center justify-between select-none z-30 transition-colors duration-300">
       {/* Left: Cover Art & Track Metadata (Clickable to open Track Details) */}
       <div 
         onClick={() => currentTrack && onOpenTrackDetails && onOpenTrackDetails(currentTrack)}
         title={currentTrack ? (language === 'ru' ? 'Нажмите, чтобы открыть сведения о треке' : 'Click to open track details') : undefined}
-        className={`z-20 relative flex items-center gap-3 max-w-[28%] md:max-w-[32%] shrink-0 select-none ${currentTrack ? 'cursor-pointer group' : ''}`}
+        className={`z-20 relative flex items-center gap-3 max-w-[210px] md:max-w-[250px] lg:max-w-[300px] xl:max-w-[360px] shrink-0 select-none ${currentTrack ? 'cursor-pointer group' : ''}`}
       >
         {/* Cover Art with subtle glow - strictly constrained to 56x56 */}
-        <div 
-          style={{ width: '56px', height: '56px', minWidth: '56px', minHeight: '56px', maxWidth: '56px', maxHeight: '56px' }}
-          className="w-14 h-14 min-w-[56px] min-h-[56px] max-w-[56px] max-h-[56px] rounded-2xl overflow-hidden shrink-0 bg-md3-surface-container shadow-md border border-md3-outline-variant/15 relative"
-        >
-          {currentTrack?.coverArt ? (
-            <img 
-              src={currentTrack.coverArt} 
-              alt={currentTrack.title} 
-              className={`w-full h-full max-w-full max-h-full object-cover transition-transform duration-300 ${isPlaying ? 'scale-105' : ''} group-hover:scale-110`} 
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-md3-primary/10 text-md3-primary">
-              <Disc3 className={`w-7 h-7 ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }} />
-            </div>
+        <div className="relative group/cover shrink-0">
+          <div 
+            style={{ width: '56px', height: '56px', minWidth: '56px', minHeight: '56px', maxWidth: '56px', maxHeight: '56px' }}
+            className="w-14 h-14 min-w-[56px] min-h-[56px] max-w-[56px] max-h-[56px] rounded-2xl overflow-hidden shrink-0 bg-md3-surface-container shadow-md border border-md3-outline-variant/15 relative"
+          >
+            {currentTrack?.coverArt ? (
+              <img 
+                src={currentTrack.coverArt} 
+                alt={currentTrack.title} 
+                className={`w-full h-full max-w-full max-h-full object-cover transition-transform duration-300 ${isPlaying ? 'scale-105' : ''} group-hover:scale-110`} 
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-md3-primary/10 text-md3-primary">
+                <Disc3 className={`w-7 h-7 ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }} />
+              </div>
+            )}
+          </div>
+
+          {/* Compact Heart badge directly on cover when space is constrained (< 1150px) to prevent collision with controls */}
+          {currentTrack && windowWidth < 1150 && (
+            <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFavorite(currentTrack.id, e);
+              }}
+              title={currentTrack.isFavorite ? t.controls.removeFromFavorites : t.controls.addToFavorites}
+              className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center transition-all shadow-md cursor-pointer z-10 ${
+                currentTrack.isFavorite 
+                  ? 'bg-md3-surface-container-high border border-red-500/40 text-red-500' 
+                  : 'bg-md3-surface-container-high/90 border border-md3-outline-variant/40 text-md3-on-surface-variant hover:text-red-500 hover:scale-110'
+              }`}
+            >
+              <Heart className={`w-3.5 h-3.5 transition-transform active:scale-125 ${currentTrack.isFavorite ? 'fill-red-500 text-red-500 scale-105' : 'opacity-70'}`} />
+            </button>
           )}
         </div>
 
-        {/* Title & Artist */}
+        {/* Title & Artist (Album hidden before xl/1150px to prevent crowding with center controls) */}
         <div className="min-w-0 flex-1">
           <p className="text-sm font-bold text-md3-on-surface truncate group-hover:text-md3-primary transition-colors">
             {currentTrack ? currentTrack.title : (language === 'ru' ? 'Ничего не играет' : 'Nothing playing')}
@@ -455,7 +490,9 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             {currentTrack ? (
               <>
                 <span>{currentTrack.artist}</span>
-                {currentTrack.album && <span className="opacity-60"> — {currentTrack.album}</span>}
+                {currentTrack.album && windowWidth >= 1150 && (
+                  <span className="opacity-60"> — {currentTrack.album}</span>
+                )}
               </>
             ) : (
               language === 'ru' ? 'Выберите трек из библиотеки' : 'Select a track from library'
@@ -463,8 +500,8 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
           </p>
         </div>
 
-        {/* Favorite Heart Button */}
-        {currentTrack && (
+        {/* Favorite Heart Button: rendered beside text only on wide screens (>= 1150px) */}
+        {currentTrack && windowWidth >= 1150 && (
           <button
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
@@ -481,7 +518,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
       </div>
 
       {/* Center: Playback Controls & Timeline - ALWAYS EXACT MATHEMATICAL CENTER */}
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-full max-w-[380px] sm:max-w-[480px] md:max-w-xl px-2 pointer-events-none flex flex-col items-center justify-center">
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-full max-w-[380px] sm:max-w-[440px] md:max-w-lg lg:max-w-xl px-2 pointer-events-none flex flex-col items-center justify-center">
         <div className="pointer-events-auto flex flex-col items-center justify-center w-full">
           {/* Main Controls Row */}
           <div className="flex items-center gap-3 sm:gap-4 mb-1.5">

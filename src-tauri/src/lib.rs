@@ -585,7 +585,7 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
         if trimmed.is_empty() {
             Some((None, "image/jpeg".to_string()))
         } else {
-            let (mime_str, b64_data) = if let Some(idx) = trimmed.find(";base64,") {
+            let (_mime_str, b64_data) = if let Some(idx) = trimmed.find(";base64,") {
                 let prefix = &trimmed[..idx];
                 let mime = if prefix.starts_with("data:") {
                     &prefix[5..]

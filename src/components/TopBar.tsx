@@ -106,7 +106,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   // Breakpoints
   const isNarrow = windowWidth < 680;
-  const isCompact = windowWidth < 1320 || (navTabs.length * 105 + 460 > windowWidth);
+  const isCompact = windowWidth < 1200 || (navTabs.length * 110 + 520 > windowWidth);
   const isSuperCompact = windowWidth < 850;
   const isUltraCompact = windowWidth < 650;
 
@@ -219,7 +219,12 @@ export const TopBar: React.FC<TopBarProps> = ({
           ? "flex-1 min-w-0 flex justify-center items-center px-1 z-0"
           : "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-0 pointer-events-none flex justify-center items-center"
       }>
-        <nav className="pointer-events-auto h-10 flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 overflow-x-auto no-scrollbar shadow-xs max-w-full">
+        <nav 
+          className={`pointer-events-auto h-10 flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 shadow-xs max-w-full select-none ${
+            isNarrow ? 'overflow-x-auto no-scrollbar' : 'overflow-hidden'
+          }`}
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
           {navTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = currentView === tab.id;
