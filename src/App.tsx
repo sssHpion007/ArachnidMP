@@ -197,6 +197,10 @@ export const App: React.FC = () => {
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
   const [discordEnabled, setDiscordEnabled] = useState<boolean>(true);
   const [showDiscordButton, setShowDiscordButton] = useState<boolean>(true);
+  const [discordShowPlayIcon, setDiscordShowPlayIcon] = useState<boolean>(true);
+  const [discordShowPauseIcon, setDiscordShowPauseIcon] = useState<boolean>(true);
+  const [discordStatusMode, setDiscordStatusMode] = useState<'listening' | 'listening_app'>('listening_app');
+  const [discordCustomClientId, setDiscordCustomClientId] = useState<string>('');
   const [visibleTabs, setVisibleTabs] = useState<Record<MainViewType, boolean>>(DEFAULT_VISIBLE_TABS);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -333,6 +337,12 @@ export const App: React.FC = () => {
           }
           if (typeof parsed.discordEnabled === 'boolean') setDiscordEnabled(parsed.discordEnabled);
           if (typeof parsed.showDiscordButton === 'boolean') setShowDiscordButton(parsed.showDiscordButton);
+          if (typeof parsed.discordShowPlayIcon === 'boolean') setDiscordShowPlayIcon(parsed.discordShowPlayIcon);
+          if (typeof parsed.discordShowPauseIcon === 'boolean') setDiscordShowPauseIcon(parsed.discordShowPauseIcon);
+          if (parsed.discordStatusMode === 'listening' || parsed.discordStatusMode === 'listening_app') {
+            setDiscordStatusMode(parsed.discordStatusMode);
+          }
+          if (typeof parsed.discordCustomClientId === 'string') setDiscordCustomClientId(parsed.discordCustomClientId);
           if (parsed.visibleTabs && typeof parsed.visibleTabs === 'object') {
             setVisibleTabs({ ...DEFAULT_VISIBLE_TABS, ...parsed.visibleTabs });
           }
@@ -370,6 +380,10 @@ export const App: React.FC = () => {
       language,
       discordEnabled,
       showDiscordButton,
+      discordShowPlayIcon,
+      discordShowPauseIcon,
+      discordStatusMode,
+      discordCustomClientId,
       visibleTabs,
       colorSchemeMode,
       isDynamicColor: colorSchemeMode === 'dynamic',
@@ -397,7 +411,7 @@ export const App: React.FC = () => {
     } else {
       localStorage.setItem('arachnid_portable_data', jsonString);
     }
-  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, visibleTabs, colorSchemeMode, fadeMode, fadeDuration]);
+  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, colorSchemeMode, fadeMode, fadeDuration]);
 
   // Safety fallback: reveal window in case TitleBar unmounted or delayed
   useEffect(() => {
@@ -643,17 +657,23 @@ export const App: React.FC = () => {
     updateTheme();
   }, [currentTrack?.coverArt, colorSchemeMode, seedColor, secondarySeedColor, appTheme, themeMode, themePaletteColors, themeToggles, customThemesList]);
 
-  // Discord Rich Presence update (only triggers when track changes or play/pause/enabled toggles, NEVER on timeupdate)
+  // Discord Rich Presence update (triggers on track changes, play/pause, seek, or setting updates)
   useEffect(() => {
     if (currentTrack) {
+      const curTime = audioEngine.getCurrentTime();
       discordRpc.updatePresence({
         enabled: discordEnabled,
         trackName: currentTrack.title,
         artist: currentTrack.artist,
         album: currentTrack.album,
-        duration: currentTrack.duration || 0,
-        currentTime: 0,
+        duration: currentTrack.duration || audioEngine.getDuration() || 0,
+        currentTime: curTime,
         isPlaying: isPlaying,
+        coverArt: currentTrack.coverArt,
+        showPlayIcon: discordShowPlayIcon,
+        showPauseIcon: discordShowPauseIcon,
+        statusMode: discordStatusMode,
+        customClientId: discordCustomClientId,
       });
     } else {
       discordRpc.updatePresence({
@@ -664,9 +684,24 @@ export const App: React.FC = () => {
         duration: 0,
         currentTime: 0,
         isPlaying: false,
+        showPlayIcon: discordShowPlayIcon,
+        showPauseIcon: discordShowPauseIcon,
+        statusMode: discordStatusMode,
+        customClientId: discordCustomClientId,
       });
     }
-  }, [currentTrack?.id, isPlaying, discordEnabled]);
+  }, [
+    currentTrack?.id,
+    currentTrack?.title,
+    currentTrack?.artist,
+    currentTrack?.album,
+    isPlaying,
+    discordEnabled,
+    discordShowPlayIcon,
+    discordShowPauseIcon,
+    discordStatusMode,
+    discordCustomClientId,
+  ]);
 
   // Auto-update checker preferences
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState<boolean>(() => {
@@ -1113,7 +1148,7 @@ export const App: React.FC = () => {
         return;
       }
 
-      // 2. Escape: Blur active search bar if focused
+      // Escape: Blur active search bar if focused
       if (e.key === 'Escape' || e.code === 'Escape') {
         const searchInput = document.querySelector('input[data-search-input="true"]') as HTMLInputElement;
         if (searchInput && document.activeElement === searchInput) {
@@ -1122,6 +1157,31 @@ export const App: React.FC = () => {
           searchInput.blur();
           return;
         }
+      }
+
+      // Settings Hotkey: Ctrl + , (or Cmd + , or Cyrillic Ctrl + б)
+      if ((e.code === 'Comma' || e.key === ',' || e.key === '<' || e.key.toLowerCase() === 'б') && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        setIsSettingsOpen(prev => !prev);
+        return;
+      }
+
+      // Equalizer Hotkey: Ctrl + E (or Cmd + E or Cyrillic Ctrl + у)
+      if ((e.code === 'KeyE' || e.key.toLowerCase() === 'e' || e.key.toLowerCase() === 'у') && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        setIsEQOpen(prev => !prev);
+        return;
+      }
+
+      // Fullscreen Hotkey: F11
+      if (e.code === 'F11' || e.key === 'F11') {
+        e.preventDefault();
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen?.().catch(() => {});
+        } else {
+          document.exitFullscreen?.().catch(() => {});
+        }
+        return;
       }
 
       const target = e.target as HTMLElement;
@@ -1176,7 +1236,7 @@ export const App: React.FC = () => {
       } else if ((e.code === 'KeyR' || e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'к') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         handleToggleRepeat();
-      } else if ((e.code === 'KeyT' || e.key.toLowerCase() === 't' || e.key.toLowerCase() === 'е') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      } else if ((e.code === 'KeyT' || e.key.toLowerCase() === 't' || e.key.toLowerCase() === 'е' || e.code === 'KeyL' || e.key.toLowerCase() === 'l' || e.key.toLowerCase() === 'д') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         if (currentTrackRef.current) {
           setIsLyricsOpen(prev => !prev);
@@ -1880,6 +1940,23 @@ export const App: React.FC = () => {
     audioEngine.setScrubbing(false);
     setCurrentTime(time);
     audioEngine.seek(time);
+
+    if (discordEnabled && currentTrack) {
+      discordRpc.updatePresence({
+        enabled: true,
+        trackName: currentTrack.title,
+        artist: currentTrack.artist,
+        album: currentTrack.album,
+        duration: currentTrack.duration || audioEngine.getDuration() || 0,
+        currentTime: time,
+        isPlaying: isPlaying,
+        coverArt: currentTrack.coverArt,
+        showPlayIcon: discordShowPlayIcon,
+        showPauseIcon: discordShowPauseIcon,
+        statusMode: discordStatusMode,
+        customClientId: discordCustomClientId,
+      });
+    }
   };
 
   const handleVolumeChange = (vol: number) => {
@@ -2930,6 +3007,14 @@ export const App: React.FC = () => {
         onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
         showDiscordButton={showDiscordButton}
         onToggleShowDiscordButton={() => setShowDiscordButton(prev => !prev)}
+        discordShowPlayIcon={discordShowPlayIcon}
+        onToggleDiscordPlayIcon={() => setDiscordShowPlayIcon(prev => !prev)}
+        discordShowPauseIcon={discordShowPauseIcon}
+        onToggleDiscordPauseIcon={() => setDiscordShowPauseIcon(prev => !prev)}
+        discordStatusMode={discordStatusMode}
+        onSetDiscordStatusMode={setDiscordStatusMode}
+        discordCustomClientId={discordCustomClientId}
+        onSetDiscordCustomClientId={setDiscordCustomClientId}
         visibleTabs={visibleTabs}
         onToggleTabVisibility={handleToggleTabVisibility}
         currentTrack={currentTrack}

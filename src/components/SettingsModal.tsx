@@ -70,6 +70,14 @@ interface SettingsModalProps {
   onToggleDiscord: () => void;
   showDiscordButton: boolean;
   onToggleShowDiscordButton: () => void;
+  discordShowPlayIcon: boolean;
+  onToggleDiscordPlayIcon: () => void;
+  discordShowPauseIcon: boolean;
+  onToggleDiscordPauseIcon: () => void;
+  discordStatusMode: 'listening' | 'listening_app';
+  onSetDiscordStatusMode: (mode: 'listening' | 'listening_app') => void;
+  discordCustomClientId: string;
+  onSetDiscordCustomClientId: (id: string) => void;
   visibleTabs: Record<MainViewType, boolean>;
   onToggleTabVisibility: (tab: MainViewType) => void;
   currentTrack: Track | null;
@@ -123,6 +131,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onToggleDiscord,
   showDiscordButton,
   onToggleShowDiscordButton,
+  discordShowPlayIcon,
+  onToggleDiscordPlayIcon,
+  discordShowPauseIcon,
+  onToggleDiscordPauseIcon,
+  discordStatusMode,
+  onSetDiscordStatusMode,
+  discordCustomClientId,
+  onSetDiscordCustomClientId,
   visibleTabs,
   onToggleTabVisibility,
   currentTrack,
@@ -147,7 +163,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   themeToggles,
   onToggleThemeOption,
 }) => {
-  const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes'>('main');
+  const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes' | 'discord'>('main');
   const [isPaletteModalOpen, setIsPaletteModalOpen] = useState<boolean>(false);
   const [themeToDelete, setThemeToDelete] = useState<CustomThemeInfo | null>(null);
   const updateSectionRef = useRef<HTMLDivElement>(null);
@@ -456,6 +472,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ? t.settings.shortcuts
                   : currentView === 'release_notes'
                   ? t.settings.releaseNotes
+                  : currentView === 'discord'
+                  ? t.settings.discordRpc
                   : t.settings.title}
               </h3>
               <p className="text-xs text-md3-on-surface-variant">
@@ -463,6 +481,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ? t.settings.shortcutsDesc
                   : currentView === 'release_notes'
                   ? (latestRelease?.tagName ? `${latestRelease.name || latestRelease.tagName}` : (language === 'ru' ? 'Что нового в обновлении' : "What's new in update"))
+                  : currentView === 'discord'
+                  ? t.settings.discordSettingsDesc
                   : t.settings.subtitle}
               </p>
             </div>
@@ -539,6 +559,43 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.mute}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    M
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.shuffle}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    E
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.repeat}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    R
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{language === 'ru' ? '10-полосный эквалайзер' : '10-Band Equalizer'}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    Ctrl + E
+                  </kbd>
+                </div>
+              </div>
+            </div>
+
+            {/* Library & Track Management */}
+            <div className="space-y-3">
+              <div className="text-xs font-bold uppercase tracking-wider text-md3-primary flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4" />
+                <span>{t.shortcuts.libraryAndManagement}</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
                   <span className="text-md3-on-surface-variant">{t.shortcuts.trackNav}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     ↑ / ↓
@@ -560,23 +617,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.mute}</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.selectAll}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    M
+                    Ctrl + A
                   </kbd>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.shuffle}</span>
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.deleteTracks}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    E
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.repeat}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    R
+                    Delete
                   </kbd>
                 </div>
               </div>
@@ -590,9 +640,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.switchTabs}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    Tab / Shift + Tab
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
                   <span className="text-md3-on-surface-variant">{t.shortcuts.search}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     Ctrl + F
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.dismiss}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    Escape
                   </kbd>
                 </div>
 
@@ -604,9 +668,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.clearQueue}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    X
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
                   <span className="text-md3-on-surface-variant">{t.shortcuts.lyrics}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    L
+                    T / L
                   </kbd>
                 </div>
 
@@ -630,6 +701,312 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     F11
                   </kbd>
                 </div>
+              </div>
+            </div>
+          </div>
+        ) : currentView === 'discord' ? (
+          /* Dedicated Discord Integration Settings View */
+          <div key="view-discord" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1">
+            {/* 1. Master Discord Toggle Card */}
+            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-[#5865F2]/15 text-[#5865F2] flex items-center justify-center">
+                    <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24">
+                      <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.078.078 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-md3-on-surface">
+                      {t.settings.discordToggle}
+                    </div>
+                    <div className="text-xs text-md3-on-surface-variant">
+                      {t.settings.discordToggleDesc}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${
+                    discordEnabled
+                      ? 'bg-[#5865F2]/15 text-[#5865F2] border border-[#5865F2]/30'
+                      : 'bg-md3-surface-container-high text-md3-on-surface-variant'
+                  }`}>
+                    {discordEnabled ? t.settings.discordEnabled : t.settings.discordDisabled}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={discordEnabled}
+                    onChange={onToggleDiscord}
+                    className="w-5 h-5 rounded accent-md3-primary cursor-pointer"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Status Display Format Selection ("Слушает" vs "Слушает ArachnidMP") */}
+            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
+              <div>
+                <div className="text-sm font-bold text-md3-on-surface">
+                  {t.settings.discordStatusMode}
+                </div>
+                <div className="text-xs text-md3-on-surface-variant">
+                  {t.settings.discordStatusModeDesc}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                {/* Option 1: "Слушает" */}
+                <button
+                  type="button"
+                  onClick={() => onSetDiscordStatusMode('listening')}
+                  className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col gap-1.5 ${
+                    discordStatusMode === 'listening'
+                      ? 'bg-md3-primary/10 border-md3-primary ring-1 ring-md3-primary shadow-xs'
+                      : 'bg-md3-surface border-md3-outline-variant/20 hover:border-md3-outline-variant/40'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-md3-on-surface">
+                      {t.settings.discordStatusListening}
+                    </span>
+                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                      discordStatusMode === 'listening'
+                        ? 'border-md3-primary bg-md3-primary text-md3-on-primary'
+                        : 'border-md3-outline-variant'
+                    }`}>
+                      {discordStatusMode === 'listening' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-md3-on-surface-variant leading-relaxed">
+                    {language === 'ru'
+                      ? 'Минималистичный статус без названия программы. В списке профилей отображается только слово «Слушает».'
+                      : 'Minimalist status without application name. Friends see only “Listening to” in member list.'}
+                  </p>
+                </button>
+
+                {/* Option 2: "Слушает ArachnidMP" */}
+                <button
+                  type="button"
+                  onClick={() => onSetDiscordStatusMode('listening_app')}
+                  className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col gap-1.5 ${
+                    discordStatusMode === 'listening_app'
+                      ? 'bg-md3-primary/10 border-md3-primary ring-1 ring-md3-primary shadow-xs'
+                      : 'bg-md3-surface border-md3-outline-variant/20 hover:border-md3-outline-variant/40'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-md3-on-surface">
+                      {t.settings.discordStatusListeningApp}
+                    </span>
+                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                      discordStatusMode === 'listening_app'
+                        ? 'border-md3-primary bg-md3-primary text-md3-on-primary'
+                        : 'border-md3-outline-variant'
+                    }`}>
+                      {discordStatusMode === 'listening_app' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-md3-on-surface-variant leading-relaxed">
+                    {language === 'ru'
+                      ? 'Фирменный статус с указанием плеера: «Слушает ArachnidMP». Подчеркивает воспроизведение в плеере.'
+                      : 'Branded status showing player name: “Listening to ArachnidMP”. Emphasizes playback in player.'}
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {/* 3. Playback State Icons (2 separate checkboxes: Play and Pause) */}
+            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
+              <div>
+                <div className="text-sm font-bold text-md3-on-surface">
+                  {t.settings.discordIcons}
+                </div>
+                <div className="text-xs text-md3-on-surface-variant">
+                  {t.settings.discordIconsDesc}
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-1">
+                {/* Checkbox 1: Play Icon */}
+                <label className="flex items-center justify-between p-3 rounded-2xl bg-md3-surface border border-md3-outline-variant/15 hover:border-md3-outline-variant/30 transition-colors cursor-pointer">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                      <img
+                        src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png"
+                        alt="Play"
+                        className="w-4 h-4 object-contain"
+                      />
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-md3-on-surface">
+                        {t.settings.discordShowPlayIcon}
+                      </div>
+                      <div className="text-[11px] text-md3-on-surface-variant">
+                        {t.settings.discordShowPlayIconDesc}
+                      </div>
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={discordShowPlayIcon}
+                    onChange={onToggleDiscordPlayIcon}
+                    className="w-4 h-4 rounded accent-md3-primary cursor-pointer ml-3 shrink-0"
+                  />
+                </label>
+
+                {/* Checkbox 2: Pause Icon */}
+                <label className="flex items-center justify-between p-3 rounded-2xl bg-md3-surface border border-md3-outline-variant/15 hover:border-md3-outline-variant/30 transition-colors cursor-pointer">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
+                      <img
+                        src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png"
+                        alt="Pause"
+                        className="w-4 h-4 object-contain"
+                      />
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-md3-on-surface">
+                        {t.settings.discordShowPauseIcon}
+                      </div>
+                      <div className="text-[11px] text-md3-on-surface-variant">
+                        {t.settings.discordShowPauseIconDesc}
+                      </div>
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={discordShowPauseIcon}
+                    onChange={onToggleDiscordPauseIcon}
+                    className="w-4 h-4 rounded accent-md3-primary cursor-pointer ml-3 shrink-0"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* 4. Live Discord Mockup Profile Card */}
+            <div className="p-4 rounded-3xl bg-[#2b2d31] border border-white/10 space-y-3 shadow-lg">
+              <div className="text-[11px] font-bold text-[#949ba4] uppercase tracking-wider flex items-center justify-between">
+                <span>{t.settings.discordPreview}</span>
+                <span className="text-[10px] text-emerald-400 font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                  {isPlaying ? 'Online' : 'Idle'}
+                </span>
+              </div>
+
+              {/* Discord Activity Box */}
+              <div className="p-3.5 rounded-2xl bg-[#1e1f22] border border-white/5 space-y-3">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-[#949ba4]">
+                  {discordStatusMode === 'listening'
+                    ? (language === 'ru' ? 'Слушает' : 'Listening to')
+                    : (language === 'ru' ? 'Слушает ArachnidMP' : 'Listening to ArachnidMP')}
+                </div>
+
+                <div className="flex items-start gap-3.5">
+                  {/* Large Album Art with Small Play/Pause Badge */}
+                  <div className="relative w-16 h-16 rounded-xl bg-[#313338] overflow-hidden shrink-0 border border-white/5 shadow-md">
+                    {currentTrack && currentTrack.coverArt ? (
+                      <img
+                        src={currentTrack.coverArt}
+                        alt="Artwork"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#5865F2]/20 to-[#5865F2]/40 text-[#5865F2] font-black text-xl">
+                        A
+                      </div>
+                    )}
+
+                    {/* Small Play/Pause Badge */}
+                    {isPlaying && discordShowPlayIcon && (
+                      <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-[#1e1f22] border-2 border-[#1e1f22] flex items-center justify-center shadow-md">
+                        <img
+                          src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png"
+                          alt="Playing"
+                          className="w-full h-full object-contain rounded-full"
+                        />
+                      </div>
+                    )}
+                    {!isPlaying && discordShowPauseIcon && (
+                      <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-[#1e1f22] border-2 border-[#1e1f22] flex items-center justify-center shadow-md">
+                        <img
+                          src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png"
+                          alt="Paused"
+                          className="w-full h-full object-contain rounded-full"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Metadata and Real Timeline Progress Bar */}
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="font-bold text-xs text-white truncate">
+                      {currentTrack ? currentTrack.title : 'Bohemian Rhapsody'}
+                    </div>
+                    <div className="text-[11px] text-[#dbdee1] truncate font-medium">
+                      by {currentTrack ? currentTrack.artist : 'Queen'}
+                    </div>
+                    <div className="text-[11px] text-[#949ba4] truncate">
+                      on {currentTrack ? currentTrack.album : 'A Night at the Opera'}
+                    </div>
+
+                    {/* Real Timeline Progress Bar */}
+                    <div className="space-y-1 pt-1.5">
+                      <div className="w-full bg-[#4e5058] h-1.5 rounded-full overflow-hidden">
+                        <div
+                          className="bg-white h-full rounded-full transition-all duration-300"
+                          style={{
+                            width: `${
+                              currentTrack && currentTrack.duration
+                                ? Math.min(100, Math.max(0, (currentTime / currentTrack.duration) * 100))
+                                : isPlaying ? 45 : 0
+                            }%`
+                          }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[10px] text-[#949ba4] font-mono">
+                        <span>{formatTime(currentTime)}</span>
+                        <span>{currentTrack && currentTrack.duration ? formatTime(currentTrack.duration) : '5:55'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 5. Additional Settings: TopBar Switch & Custom Client ID */}
+            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
+              {/* Show Discord Quick Switch in TopBar */}
+              <label className="flex items-center justify-between p-3 rounded-2xl bg-md3-surface border border-md3-outline-variant/15 hover:border-md3-outline-variant/30 transition-colors cursor-pointer">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-semibold text-md3-on-surface">
+                    {t.settings.discordTopBar}
+                  </div>
+                  <div className="text-[11px] text-md3-on-surface-variant">
+                    {t.settings.discordTopBarDesc}
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={showDiscordButton}
+                  onChange={onToggleShowDiscordButton}
+                  className="w-4 h-4 rounded accent-md3-primary cursor-pointer ml-3 shrink-0"
+                />
+              </label>
+
+              {/* Custom Client ID Input (Optional) */}
+              <div className="p-3 rounded-2xl bg-md3-surface border border-md3-outline-variant/15 space-y-1.5">
+                <div className="text-xs font-semibold text-md3-on-surface">
+                  {t.settings.discordCustomClientId}
+                </div>
+                <div className="text-[11px] text-md3-on-surface-variant">
+                  {t.settings.discordCustomClientIdDesc}
+                </div>
+                <input
+                  type="text"
+                  value={discordCustomClientId}
+                  onChange={(e) => onSetDiscordCustomClientId(e.target.value)}
+                  placeholder="1304561842858561637"
+                  className="w-full px-3 py-2 rounded-xl bg-md3-surface-container-high border border-md3-outline-variant/30 text-xs font-mono text-md3-on-surface focus:outline-none focus:border-md3-primary transition-colors mt-1"
+                />
               </div>
             </div>
           </div>
@@ -1284,100 +1661,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
-            {/* 4. Section: Discord RPC Integration */}
-            <div className="space-y-3 pt-4 border-t border-md3-outline-variant/20">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
-                  <div className="w-4 h-4 flex items-center justify-center font-black text-[11px] text-[#5865F2]">
-                    ●
+            {/* Button to Open Discord Integration Settings */}
+            <div className="pt-2">
+              <button
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  if (mainSettingsContainerRef.current) {
+                    mainScrollTopRef.current = mainSettingsContainerRef.current.scrollTop;
+                  }
+                  setCurrentView('discord');
+                }}
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-md3-surface-container-high/60 hover:bg-md3-surface-container-high border border-md3-outline-variant/20 hover:border-[#5865F2]/40 transition-all cursor-pointer group shadow-xs outline-none focus:outline-none"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-[#5865F2]/10 text-[#5865F2] flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                      <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.078.078 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
+                    </svg>
                   </div>
-                  <span>{t.settings.discordRpc}</span>
-                </div>
-                <div className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${
-                  discordEnabled 
-                    ? 'bg-[#5865F2]/15 text-[#5865F2] border border-[#5865F2]/30' 
-                    : 'bg-md3-surface-container-high text-md3-on-surface-variant'
-                }`}>
-                  {discordEnabled ? t.settings.discordEnabled : t.settings.discordDisabled}
-                </div>
-              </div>
-
-              {/* Master Discord Toggle */}
-              <div className="flex items-center justify-between p-3 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/15">
-                <div className="space-y-0.5">
-                  <div className="text-xs font-semibold text-md3-on-surface">
-                    {t.settings.discordToggle}
-                  </div>
-                  <div className="text-[11px] text-md3-on-surface-variant">
-                    {t.settings.discordToggleDesc}
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={discordEnabled}
-                  onChange={onToggleDiscord}
-                  className="w-4 h-4 rounded accent-md3-primary cursor-pointer"
-                />
-              </div>
-
-              {/* Live Preview Card */}
-              <div className="p-3.5 rounded-2xl bg-[#2b2d31] border border-white/10 space-y-2">
-                <div className="text-[11px] font-bold text-[#949ba4] uppercase tracking-wider flex items-center gap-1.5">
-                  <span>{t.settings.discordPreview}</span>
-                </div>
-
-                <div className="flex items-center gap-3 p-2 rounded-xl bg-[#1e1f22]">
-                  <div className="relative w-12 h-12 rounded-xl bg-[#313338] overflow-hidden flex-shrink-0 border border-white/5">
-                    {currentTrack && currentTrack.coverArt ? (
-                      <img
-                        src={currentTrack.coverArt}
-                        alt="Discord Preview"
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-[#5865F2] font-black text-lg">
-                        A
-                      </div>
-                    )}
-                    <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[#5865F2] border-2 border-[#2b2d31] flex items-center justify-center text-[9px]">
-                      🎵
+                  <div className="text-left">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-md3-on-surface group-hover:text-md3-primary transition-colors">
+                        {t.settings.discordRpc}
+                      </span>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                        discordEnabled 
+                          ? 'bg-[#5865F2]/15 text-[#5865F2] border border-[#5865F2]/30' 
+                          : 'bg-md3-surface-container-high text-md3-on-surface-variant'
+                      }`}>
+                        {discordEnabled ? t.settings.discordEnabled : t.settings.discordDisabled}
+                      </span>
                     </div>
-                  </div>
-
-                  <div className="min-w-0 flex-1 space-y-0.5">
-                    <div className="font-bold text-xs text-white truncate">
-                      Arachnid Music Player
-                    </div>
-                    <div className="text-xs text-[#dbdee1] truncate font-medium">
-                      {currentTrack ? currentTrack.title : 'Neon Horizon'}
-                    </div>
-                    <div className="text-[11px] text-[#949ba4] truncate">
-                      by {currentTrack ? currentTrack.artist : 'Synthwave Sunset'}
-                    </div>
-                    <div className="text-[10px] text-[#949ba4] font-mono">
-                      {isPlaying ? `${formatTime(currentTime)} (${t.settings.playing})` : t.settings.paused}
+                    <div className="text-[11px] text-md3-on-surface-variant">
+                      {t.settings.discordSettingsDesc}
                     </div>
                   </div>
                 </div>
-              </div>
-
-              {/* Show Discord Quick Switch in TopBar toggle */}
-              <div className="flex items-center justify-between p-3 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/15">
-                <div className="space-y-0.5">
-                  <div className="text-xs font-semibold text-md3-on-surface">
-                    {t.settings.discordTopBar}
-                  </div>
-                  <div className="text-[11px] text-md3-on-surface-variant">
-                    {t.settings.discordTopBarDesc}
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={showDiscordButton}
-                  onChange={onToggleShowDiscordButton}
-                  className="w-4 h-4 rounded accent-md3-primary cursor-pointer"
-                />
-              </div>
+                <ChevronRight className="w-4 h-4 text-md3-on-surface-variant group-hover:text-md3-primary group-hover:translate-x-0.5 transition-all" />
+              </button>
             </div>
 
             {/* 5. Section: Language (ШТОРКА ЯЗЫКА ИНТЕРФЕЙСА) - Перед горячими клавишами */}

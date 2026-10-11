@@ -96,6 +96,24 @@ export interface Translations {
     discordDisabled: string;
     discordToggle: string;
     discordToggleDesc: string;
+    discordSettings: string;
+    discordSettingsDesc: string;
+    discordStatusMode: string;
+    discordStatusModeDesc: string;
+    discordStatusListening: string;
+    discordStatusListeningApp: string;
+    discordIcons: string;
+    discordIconsDesc: string;
+    discordShowPlayIcon: string;
+    discordShowPlayIconDesc: string;
+    discordShowPauseIcon: string;
+    discordShowPauseIconDesc: string;
+    discordTimelineTitle: string;
+    discordTimelineInfo: string;
+    discordCoverTitle: string;
+    discordCoverInfo: string;
+    discordCustomClientId: string;
+    discordCustomClientIdDesc: string;
     discordPreview: string;
     discordTopBar: string;
     discordTopBarDesc: string;
@@ -135,6 +153,7 @@ export interface Translations {
   };
   shortcuts: {
     playbackAndSound: string;
+    libraryAndManagement: string;
     navigationAndPanels: string;
     space: string;
     spaceKey: string;
@@ -148,12 +167,17 @@ export interface Translations {
     mute: string;
     shuffle: string;
     repeat: string;
+    selectAll: string;
+    deleteTracks: string;
     search: string;
     queue: string;
+    clearQueue: string;
     lyrics: string;
     discord: string;
     settings: string;
     fullscreen: string;
+    switchTabs: string;
+    dismiss: string;
   };
 }
 
@@ -253,6 +277,24 @@ export const RU_TRANSLATIONS: Translations = {
     discordDisabled: 'Выключено',
     discordToggle: 'Включить отображение активности в Discord',
     discordToggleDesc: 'Транслировать текущий трек, обложку и статус воспроизведения в Discord',
+    discordSettings: 'Настройки Discord',
+    discordSettingsDesc: 'Статус, значки воспроизведения, обложка и предпросмотр',
+    discordStatusMode: 'Формат отображения статуса',
+    discordStatusModeDesc: 'Выберите, как активность отображается в вашем профиле Discord',
+    discordStatusListening: '«Слушает»',
+    discordStatusListeningApp: '«Слушает ArachnidMP»',
+    discordIcons: 'Значки состояния воспроизведения',
+    discordIconsDesc: 'Отображение значка в углу обложки при воспроизведении и на паузе',
+    discordShowPlayIcon: 'Показывать значок воспроизведения',
+    discordShowPlayIconDesc: 'Отображать значок Play во время звучания трека',
+    discordShowPauseIcon: 'Показывать значок паузы',
+    discordShowPauseIconDesc: 'Отображать значок Pause при остановке на паузу',
+    discordTimelineTitle: 'Интерактивная шкала прогресса',
+    discordTimelineInfo: 'Discord рассчитывает таймлайн (прошло / осталось) и отображает шкалу времени от начала до конца трека',
+    discordCoverTitle: 'Обложка высокого разрешения (HD)',
+    discordCoverInfo: 'Автоматический поиск обложек через iTunes и Deezer с запасным логотипом плеера',
+    discordCustomClientId: 'Пользовательский Client ID (опционально)',
+    discordCustomClientIdDesc: 'Укажите собственный Application ID из Discord Developer Portal при необходимости',
     discordPreview: 'Предпросмотр профиля Discord',
     discordTopBar: 'Кнопка в верхней панели',
     discordTopBarDesc: 'Отображать быстрый переключатель Discord в правом углу (горячая клавиша: D)',
@@ -292,6 +334,7 @@ export const RU_TRANSLATIONS: Translations = {
   },
   shortcuts: {
     playbackAndSound: 'Воспроизведение и звук',
+    libraryAndManagement: 'Медиатека и треки',
     navigationAndPanels: 'Навигация и панели',
     space: 'Старт / Пауза',
     spaceKey: 'Пробел',
@@ -305,12 +348,17 @@ export const RU_TRANSLATIONS: Translations = {
     mute: 'Без звука (Mute)',
     shuffle: 'Случайный порядок',
     repeat: 'Режим зацикливания',
+    selectAll: 'Выделить все треки в списке',
+    deleteTracks: 'Удалить выбранные треки',
     search: 'Фокус на поле поиска',
-    queue: 'Открыть / закрыть панель очереди',
+    queue: 'Открыть / закрыть очередь',
+    clearQueue: 'Очистить очередь воспроизведения',
     lyrics: 'Открыть / закрыть текст песни',
     discord: 'Переключить статус Discord RPC',
     settings: 'Открыть настройки',
     fullscreen: 'Полноэкранный режим',
+    switchTabs: 'Переключение вкладок навигации',
+    dismiss: 'Закрыть окно / Сбросить выбор / Отмена',
   },
 };
 
@@ -410,6 +458,24 @@ export const EN_TRANSLATIONS: Translations = {
     discordDisabled: 'Disabled',
     discordToggle: 'Enable Discord Rich Presence',
     discordToggleDesc: 'Broadcast current track, cover artwork, and status to Discord',
+    discordSettings: 'Discord Settings',
+    discordSettingsDesc: 'Status display, playback icons, cover art, and preview',
+    discordStatusMode: 'Status Display Format',
+    discordStatusModeDesc: 'Choose how playback activity appears on your Discord profile',
+    discordStatusListening: '“Listening to”',
+    discordStatusListeningApp: '“Listening to ArachnidMP”',
+    discordIcons: 'Playback State Icons',
+    discordIconsDesc: 'Show small badge on artwork during playback and pause',
+    discordShowPlayIcon: 'Show Play Icon',
+    discordShowPlayIconDesc: 'Display green Play badge when audio is playing',
+    discordShowPauseIcon: 'Show Pause Icon',
+    discordShowPauseIconDesc: 'Display orange Pause badge when playback is paused',
+    discordTimelineTitle: 'Interactive Timeline Bar',
+    discordTimelineInfo: 'Discord automatically calculates and displays the live timeline bar from start to finish',
+    discordCoverTitle: 'High-Resolution Cover Art',
+    discordCoverInfo: 'Automatic HD artwork lookup via iTunes and Deezer with player logo fallback',
+    discordCustomClientId: 'Custom Client ID (Optional)',
+    discordCustomClientIdDesc: 'Provide your own Discord Developer Portal Application ID if desired',
     discordPreview: 'Discord Profile Preview',
     discordTopBar: 'Top Bar Quick Button',
     discordTopBarDesc: 'Show quick Discord toggle button in top right corner (hotkey: D)',
@@ -449,6 +515,7 @@ export const EN_TRANSLATIONS: Translations = {
   },
   shortcuts: {
     playbackAndSound: 'Playback and Sound',
+    libraryAndManagement: 'Library & Tracks',
     navigationAndPanels: 'Navigation and Panels',
     space: 'Play / Pause',
     spaceKey: 'Space',
@@ -462,12 +529,17 @@ export const EN_TRANSLATIONS: Translations = {
     mute: 'Mute / Unmute',
     shuffle: 'Shuffle Mode',
     repeat: 'Repeat Mode',
+    selectAll: 'Select All Tracks in View',
+    deleteTracks: 'Delete Selected Tracks',
     search: 'Focus Search Bar',
-    queue: 'Open / Close Queue Panel',
+    queue: 'Open / Close Queue',
+    clearQueue: 'Clear Playback Queue',
     lyrics: 'Open / Close Lyrics Panel',
     discord: 'Toggle Discord RPC Status',
     settings: 'Open Settings',
     fullscreen: 'Fullscreen Mode',
+    switchTabs: 'Switch Navigation Tabs',
+    dismiss: 'Close Modal / Clear Selection / Cancel',
   },
 };
 

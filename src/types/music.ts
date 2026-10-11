@@ -87,6 +87,11 @@ export interface DiscordPresenceInfo {
   duration: number;
   currentTime: number;
   isPlaying: boolean;
+  coverArt?: string;
+  showPlayIcon?: boolean;
+  showPauseIcon?: boolean;
+  statusMode?: 'listening' | 'listening_app';
+  customClientId?: string;
 }
 
 export interface EQPreset {

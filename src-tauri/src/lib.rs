@@ -57,10 +57,14 @@ pub struct DiscordPresenceState {
     pub enabled: bool,
     pub details: String,
     pub state: String,
-    pub large_image: String,
-    pub large_text: String,
+    pub large_image: Option<String>,
+    pub large_text: Option<String>,
+    pub small_image: Option<String>,
+    pub small_text: Option<String>,
     pub start_timestamp: Option<i64>,
     pub end_timestamp: Option<i64>,
+    pub status_display_type: Option<i32>,
+    pub client_id: Option<String>,
 }
 
 pub struct AppState {
@@ -273,8 +277,14 @@ fn update_discord_presence(presence: DiscordPresenceState, state: State<'_, AppS
         enabled: presence.enabled,
         details: presence.details,
         state: presence.state,
+        large_image: presence.large_image,
         large_text: presence.large_text,
+        small_image: presence.small_image,
+        small_text: presence.small_text,
         start_timestamp: presence.start_timestamp,
+        end_timestamp: presence.end_timestamp,
+        status_display_type: presence.status_display_type,
+        client_id: presence.client_id,
     });
     Ok("Discord presence update queued".to_string())
 }
