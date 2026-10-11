@@ -13,7 +13,9 @@ import {
   Heart, 
   ListMusic, 
   Disc3,
-  Mic2
+  Mic2,
+  SlidersHorizontal,
+  FolderPlus
 } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
@@ -42,6 +44,7 @@ interface NowPlayingBarProps {
   onToggleRepeat: () => void;
   onToggleQueue: () => void;
   onToggleFavorite: (trackId: string, e: React.MouseEvent) => void;
+  onOpenFiles?: () => void;
   onOpenEQ?: () => void;
   onOpenTrackDetails?: (track: Track) => void;
   onOpenLyrics?: () => void;
@@ -69,6 +72,8 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   onToggleRepeat,
   onToggleQueue,
   onToggleFavorite,
+  onOpenFiles,
+  onOpenEQ,
   onOpenTrackDetails,
   onOpenLyrics,
 }) => {
@@ -208,20 +213,20 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
     }
   };
 
-  const isNarrow = windowWidth < 680;
+  const isNarrow = windowWidth < 780;
 
-  // Render narrow / smartphone layout (< 680px)
+  // Render narrow / compact smartphone layout (< 780px)
   if (isNarrow) {
     return (
-      <footer className="relative min-h-[124px] w-full shrink-0 bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-3 py-2 flex flex-col justify-between select-none z-30 transition-colors duration-300 gap-1.5">
-        {/* Tier 1: Track Cover, Title/Artist/Album, and Quick Actions */}
+      <footer className="relative min-h-[148px] w-full shrink-0 bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-3 py-2.5 flex flex-col justify-between select-none z-30 transition-colors duration-300 gap-1.5">
+        {/* Tier 1: Track Cover, Title/Artist/Album, and Favorite Heart button */}
         <div className="w-full flex items-center justify-between gap-2.5">
           <div 
             onClick={() => currentTrack && onOpenTrackDetails && onOpenTrackDetails(currentTrack)}
             title={currentTrack ? (language === 'ru' ? 'Нажмите, чтобы открыть сведения о треке' : 'Click to open track details') : undefined}
             className={`flex items-center gap-2.5 min-w-0 flex-1 ${currentTrack ? 'cursor-pointer group' : ''}`}
           >
-            <div className="w-10 h-10 min-w-[40px] min-h-[40px] max-w-[40px] max-h-[40px] rounded-xl overflow-hidden shrink-0 bg-md3-surface-container shadow-sm border border-md3-outline-variant/15 relative">
+            <div className="w-11 h-11 min-w-[44px] min-h-[44px] max-w-[44px] max-h-[44px] rounded-xl overflow-hidden shrink-0 bg-md3-surface-container shadow-sm border border-md3-outline-variant/15 relative">
               {currentTrack?.coverArt ? (
                 <img 
                   src={currentTrack.coverArt} 
@@ -252,57 +257,21 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             </div>
           </div>
 
-          {/* Quick Actions: Favorite, Lyrics, Queue */}
-          <div className="flex items-center gap-0.5 shrink-0">
-            {currentTrack && (
-              <button
-                tabIndex={-1}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleFavorite(currentTrack.id, e);
-                }}
-                title={currentTrack.isFavorite ? t.controls.removeFromFavorites : t.controls.addToFavorites}
-                className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-red-500 transition-colors cursor-pointer"
-              >
-                <Heart className={`w-4 h-4 ${currentTrack.isFavorite ? 'fill-red-500 text-red-500' : 'opacity-60'}`} />
-              </button>
-            )}
-
+          {/* Favorite Heart Button on the right of metadata */}
+          {currentTrack && (
             <button
               tabIndex={-1}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={onOpenLyrics}
-              disabled={!currentTrack}
-              title={t.controls.lyrics}
-              className={`p-1.5 rounded-full transition-all ${
-                !currentTrack
-                  ? 'text-md3-on-surface-variant/30 cursor-not-allowed opacity-40'
-                  : currentTrack.lyrics && currentTrack.lyrics.trim().length > 0
-                  ? 'text-md3-primary bg-md3-primary/15'
-                  : 'text-md3-on-surface-variant hover:text-md3-on-surface'
-              }`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFavorite(currentTrack.id, e);
+              }}
+              title={currentTrack.isFavorite ? t.controls.removeFromFavorites : t.controls.addToFavorites}
+              className="p-2 rounded-full text-md3-on-surface-variant hover:text-red-500 transition-colors cursor-pointer shrink-0"
             >
-              <Mic2 className="w-4 h-4" />
+              <Heart className={`w-5 h-5 transition-transform active:scale-125 ${currentTrack.isFavorite ? 'fill-red-500 text-red-500' : 'opacity-60'}`} />
             </button>
-
-            <button
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={onToggleQueue}
-              title={t.controls.queue}
-              className={`relative p-1.5 rounded-full transition-all cursor-pointer ${
-                isQueueOpen ? 'bg-md3-primary text-md3-on-primary' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
-              }`}
-            >
-              <ListMusic className="w-4 h-4" />
-              {queueCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 px-1 py-0.2 rounded-full text-[9px] font-bold bg-md3-tertiary text-md3-on-tertiary">
-                  {queueCount}
-                </span>
-              )}
-            </button>
-          </div>
+          )}
         </div>
 
         {/* Tier 2: Timeline Scrubber across full width */}
@@ -332,65 +301,137 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
           </span>
         </div>
 
-        {/* Tier 3: Controls row centered */}
-        <div className="w-full flex items-center justify-center gap-3">
-          <button
-            tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onToggleShuffle}
-            title={isShuffled ? `${t.controls.shuffleOn}` : `${t.controls.shuffleOff}`}
-            className={`p-1.5 rounded-full relative cursor-pointer ${
-              isShuffled ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
-            }`}
-          >
-            <Shuffle className="w-3.5 h-3.5" />
-          </button>
-
-          <button
-            tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onPrev}
-            title={language === 'ru' ? 'Предыдущий трек' : 'Previous Track'}
-            className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
-          >
-            <SkipBack className="w-4 h-4 fill-current" />
-          </button>
-
-          <button
-            tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onPlayPause}
-            title={isPlaying ? `${t.controls.pause}` : `${t.controls.play}`}
-            className="w-9 h-9 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-md active:scale-95 transition-transform cursor-pointer"
-          >
-            {isPlaying ? (
-              <Pause className="w-4 h-4 fill-current" />
-            ) : (
-              <Play className="w-4 h-4 fill-current ml-0.5" />
+        {/* Tier 3: Controls row with enlarged buttons, Left = Add Files & EQ, Right = Lyrics & Queue */}
+        <div className="w-full flex items-center justify-between px-1">
+          {/* Left: Add Files & EQ */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onOpenFiles && (
+              <button
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={onOpenFiles}
+                title={t.controls.openFiles}
+                className="w-9 h-9 flex items-center justify-center rounded-full bg-md3-primary text-md3-on-primary shadow-xs hover:scale-105 active:scale-95 transition-all cursor-pointer"
+              >
+                <FolderPlus className="w-4 h-4" />
+              </button>
             )}
-          </button>
 
-          <button
-            tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onNext}
-            title={language === 'ru' ? 'Следующий трек' : 'Next Track'}
-            className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
-          >
-            <SkipForward className="w-4 h-4 fill-current" />
-          </button>
+            {onOpenEQ && (
+              <button
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={onOpenEQ}
+                title={t.controls.equalizer}
+                className="w-9 h-9 flex items-center justify-center rounded-full bg-md3-surface-container border border-md3-outline-variant/15 text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high transition-colors cursor-pointer shadow-xs"
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+              </button>
+            )}
+          </div>
 
-          <button
-            tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onToggleRepeat}
-            title={`${t.controls.repeatPrefix}: ${repeatMode}`}
-            className={`p-1.5 rounded-full relative cursor-pointer ${
-              repeatMode !== 'off' ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
-            }`}
-          >
-            {repeatMode === 'one' ? <Repeat1 className="w-3.5 h-3.5" /> : <Repeat className="w-3.5 h-3.5" />}
-          </button>
+          {/* Center: Enlarged Playback Controls */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onToggleShuffle}
+              title={isShuffled ? `${t.controls.shuffleOn}` : `${t.controls.shuffleOff}`}
+              className={`w-8 h-8 flex items-center justify-center rounded-full relative cursor-pointer ${
+                isShuffled ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
+              }`}
+            >
+              <Shuffle className="w-4 h-4" />
+              {isShuffled && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-md3-primary" />}
+            </button>
+
+            <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onPrev}
+              title={language === 'ru' ? 'Предыдущий трек' : 'Previous Track'}
+              className="w-9 h-9 flex items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface cursor-pointer"
+            >
+              <SkipBack className="w-4.5 h-4.5 fill-current" />
+            </button>
+
+            {/* Enlarged Primary Play/Pause button */}
+            <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onPlayPause}
+              title={isPlaying ? `${t.controls.pause}` : `${t.controls.play}`}
+              className="w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-transform cursor-pointer"
+            >
+              {isPlaying ? (
+                <Pause className="w-5.5 h-5.5 fill-current" />
+              ) : (
+                <Play className="w-5.5 h-5.5 fill-current ml-0.5" />
+              )}
+            </button>
+
+            <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onNext}
+              title={language === 'ru' ? 'Следующий трек' : 'Next Track'}
+              className="w-9 h-9 flex items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface cursor-pointer"
+            >
+              <SkipForward className="w-4.5 h-4.5 fill-current" />
+            </button>
+
+            <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onToggleRepeat}
+              title={`${t.controls.repeatPrefix}: ${repeatMode}`}
+              className={`w-8 h-8 flex items-center justify-center rounded-full relative cursor-pointer ${
+                repeatMode !== 'off' ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
+              }`}
+            >
+              {repeatMode === 'one' ? <Repeat1 className="w-4 h-4" /> : <Repeat className="w-4 h-4" />}
+              {repeatMode !== 'off' && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-md3-primary" />}
+            </button>
+          </div>
+
+          {/* Right: Lyrics & Queue */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onOpenLyrics}
+              disabled={!currentTrack}
+              title={t.controls.lyrics}
+              className={`w-9 h-9 flex items-center justify-center rounded-full transition-all cursor-pointer shadow-xs ${
+                !currentTrack
+                  ? 'text-md3-on-surface-variant/30 cursor-not-allowed opacity-40 bg-md3-surface-container/50'
+                  : currentTrack.lyrics && currentTrack.lyrics.trim().length > 0
+                  ? 'text-md3-primary bg-md3-primary/15 hover:bg-md3-primary/25 font-bold'
+                  : 'bg-md3-surface-container border border-md3-outline-variant/15 text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
+              }`}
+            >
+              <Mic2 className="w-4 h-4" />
+            </button>
+
+            <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onToggleQueue}
+              title={t.controls.queue}
+              className={`w-9 h-9 flex items-center justify-center rounded-full transition-all cursor-pointer shadow-xs relative ${
+                isQueueOpen 
+                  ? 'bg-md3-primary text-md3-on-primary' 
+                  : 'bg-md3-surface-container border border-md3-outline-variant/15 text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
+              }`}
+            >
+              <ListMusic className="w-4 h-4" />
+              {queueCount > 0 && (
+                <span className="absolute -top-1 -right-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-md3-tertiary text-md3-on-tertiary shadow-sm">
+                  {queueCount}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Tier 4: Volume Controls with smooth slider */}
@@ -403,11 +444,11 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer shrink-0"
           >
             {isMuted || volume === 0 ? (
-              <VolumeX className="w-3.5 h-3.5 text-red-400" />
+              <VolumeX className="w-4 h-4 text-red-400" />
             ) : volume < 0.5 ? (
-              <Volume1 className="w-3.5 h-3.5" />
+              <Volume1 className="w-4 h-4" />
             ) : (
-              <Volume2 className="w-3.5 h-3.5" />
+              <Volume2 className="w-4 h-4" />
             )}
           </button>
 
@@ -421,7 +462,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
             onInput={(e) => onVolumeChange(parseFloat((e.target as HTMLInputElement).value))}
             title={`${t.controls.volume}: ${Math.round((isMuted ? 0 : volume) * 100)}%`}
-            className="flex-1 max-w-[260px] accent-md3-primary h-1 rounded-full bg-md3-surface-container-highest cursor-pointer outline-none"
+            className="flex-1 max-w-[280px] accent-md3-primary h-1.5 rounded-full bg-md3-surface-container-highest cursor-pointer outline-none"
           />
 
           <span className="text-[10px] font-mono text-md3-on-surface-variant/70 w-8 text-right shrink-0">
@@ -432,7 +473,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
     );
   }
 
-  // Desktop 3-column Layout (>= 680px)
+  // Desktop 3-column Layout (>= 780px)
   return (
     <footer className="relative h-24 max-h-24 w-full shrink-0 bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-4 sm:px-6 flex items-center justify-between select-none z-30 transition-colors duration-300">
       {/* Left: Cover Art & Track Metadata (Clickable to open Track Details) */}
@@ -684,7 +725,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
 
         {/* Secondary Panels Pill Frame: Lyrics & Queue (Moved to the end, after volume) */}
         <div className="flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 shadow-xs shrink-0">
-          {/* Lyrics Button [L] - Always rendered to prevent layout shift */}
+          {/* Lyrics Button [L] */}
           <button
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}

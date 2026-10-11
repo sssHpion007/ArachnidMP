@@ -59,12 +59,20 @@ export const TopBar: React.FC<TopBarProps> = ({
 }) => {
   const [windowWidth, setWindowWidth] = useState<number>(window.innerWidth);
   const [isSearchExpanded, setIsSearchExpanded] = useState<boolean>(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const desktopSearchInputRef = useRef<HTMLInputElement>(null);
+  const compactSearchInputRef = useRef<HTMLInputElement>(null);
 
   const t = getTranslations(language);
 
+  // Resize handler with automatic deactivation of compact search overlay when expanding window
   useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth);
+    const handleResize = () => {
+      const width = window.innerWidth;
+      setWindowWidth(width);
+      if (width >= 780) {
+        setIsSearchExpanded(false);
+      }
+    };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -74,21 +82,26 @@ export const TopBar: React.FC<TopBarProps> = ({
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if ((e.code === 'KeyF' || e.key === 'f' || e.key === 'F' || e.key === 'а' || e.key === 'А') && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        setIsSearchExpanded(true);
-        setTimeout(() => {
-          searchInputRef.current?.focus();
-          searchInputRef.current?.select();
-        }, 50);
+        if (windowWidth < 780) {
+          setIsSearchExpanded(true);
+          setTimeout(() => {
+            compactSearchInputRef.current?.focus();
+            compactSearchInputRef.current?.select();
+          }, 50);
+        } else {
+          desktopSearchInputRef.current?.focus();
+          desktopSearchInputRef.current?.select();
+        }
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, []);
+  }, [windowWidth]);
 
   useEffect(() => {
     if (isSearchExpanded) {
       setTimeout(() => {
-        searchInputRef.current?.focus();
+        compactSearchInputRef.current?.focus();
       }, 50);
     }
   }, [isSearchExpanded]);
@@ -104,18 +117,18 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   const navTabs = allNavTabs.filter(tab => (visibleTabs ? visibleTabs[tab.id] ?? true : true));
 
-  // Breakpoints
-  const isNarrow = windowWidth < 680;
+  // Breakpoints: narrow transformation starts at 780px to prevent crowding with side buttons
+  const isNarrow = windowWidth < 780;
   const isCompact = windowWidth < 1200 || (navTabs.length * 110 + 520 > windowWidth);
-  const isSuperCompact = windowWidth < 850;
-  const isUltraCompact = windowWidth < 650;
+  const isSuperCompact = windowWidth < 880;
 
   return (
-    <header data-tauri-drag-region className="relative h-16 px-2.5 sm:px-6 shrink-0 flex items-center justify-between gap-2 sm:gap-4 bg-md3-surface-container-low border-b border-md3-outline-variant/15 select-none transition-colors duration-300">
+    <header data-tauri-drag-region className="relative h-16 px-3 sm:px-6 shrink-0 flex items-center justify-between gap-2 sm:gap-4 bg-md3-surface-container-low border-b border-md3-outline-variant/15 select-none transition-colors duration-300">
       
-      {/* NARROW SCREEN EXPANDED SEARCH OVERLAY */}
+      {/* NARROW SCREEN EXPANDED SEARCH OVERLAY WITH PERFECT SYMMETRICAL PADDING */}
       {isNarrow && isSearchExpanded && (
         <div className="absolute inset-0 z-50 flex items-center px-3 gap-2 bg-md3-surface-container-low border-b border-md3-outline-variant/15 animate-in fade-in slide-in-from-top-1 duration-150">
+          {/* Back button (Left) */}
           <button
             onClick={() => setIsSearchExpanded(false)}
             title={language === 'ru' ? 'Назад / Закрыть поиск (Esc)' : 'Back / Close search (Esc)'}
@@ -124,10 +137,11 @@ export const TopBar: React.FC<TopBarProps> = ({
             <ArrowLeft className="w-5 h-5" />
           </button>
           
+          {/* Symmetrical Search Pill */}
           <div className="relative flex-1 h-10 flex items-center p-1 px-3.5 bg-md3-surface-container rounded-full border border-md3-primary/60 shadow-sm overflow-hidden">
             <Search className="w-4 h-4 text-md3-primary mr-2 shrink-0" />
             <input
-              ref={searchInputRef}
+              ref={compactSearchInputRef}
               data-search-input="true"
               type="text"
               value={searchQuery}
@@ -153,13 +167,16 @@ export const TopBar: React.FC<TopBarProps> = ({
               </button>
             )}
           </div>
+
+          {/* Symmetrical Right Spacer: Matches the Left Arrow button 1:1 for perfect visual balance */}
+          <div className="w-10 h-10 shrink-0 pointer-events-none" />
         </div>
       )}
 
       {/* LEFT AREA: Search */}
       {isNarrow ? (
         /* Mobile Search Button */
-        <div className="z-10 shrink-0 flex items-center gap-1">
+        <div className="z-10 shrink-0 flex items-center">
           <button
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
@@ -177,13 +194,13 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
       ) : (
         /* Desktop Search Bar Pill Frame */
-        <div className="z-10 shrink-0 w-32 sm:w-44 md:w-56 lg:w-64 transition-all flex items-center">
+        <div className="z-10 shrink-0 w-32 sm:w-40 md:w-52 lg:w-64 transition-all flex items-center">
           <div className="relative w-full h-10 flex items-center p-1 px-3 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 shadow-xs focus-within:border-md3-primary/60 focus-within:bg-md3-surface-container-high overflow-hidden transition-colors">
             <div className="flex items-center pointer-events-none text-md3-on-surface-variant shrink-0 mr-2">
               <Search className="w-3.5 h-3.5" />
             </div>
             <input
-              ref={searchInputRef}
+              ref={desktopSearchInputRef}
               data-search-input="true"
               type="text"
               value={searchQuery}
@@ -213,12 +230,8 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
       )}
 
-      {/* CENTER: Navigation Tabs (Pills) */}
-      <div className={
-        isNarrow
-          ? "flex-1 min-w-0 flex justify-center items-center px-1 z-0"
-          : "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-0 pointer-events-none flex justify-center items-center"
-      }>
+      {/* CENTER: Navigation Tabs (Pills) - ALWAYS EXACT MATHEMATICAL CENTER */}
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-0 pointer-events-none flex justify-center items-center">
         <nav 
           className={`pointer-events-auto h-10 flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 shadow-xs max-w-full select-none ${
             isNarrow ? 'overflow-x-auto no-scrollbar' : 'overflow-hidden'
@@ -237,7 +250,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 onClick={() => onSelectView(tab.id)}
                 title={tab.label}
                 className={`flex items-center gap-1.5 h-full ${
-                  isUltraCompact || isNarrow ? 'px-2 py-1' : isCompact ? 'px-2.5 py-1' : 'px-3.5 py-1'
+                  isNarrow ? 'px-2.5 py-1' : isCompact ? 'px-2.5 py-1' : 'px-3.5 py-1'
                 } rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
                   isActive
                     ? 'bg-md3-primary text-md3-on-primary font-bold shadow-sm'
@@ -252,71 +265,19 @@ export const TopBar: React.FC<TopBarProps> = ({
         </nav>
       </div>
 
-      {/* RIGHT CONTROLS: Add files, EQ, Settings */}
+      {/* RIGHT CONTROLS: In narrow mode, EQ and Add Files are in bottom bar, so top has only Settings */}
       <div className="z-10 shrink-0 flex items-center justify-end ml-auto">
-        <div className="h-10 flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 shadow-xs">
-          {/* Add Files Button */}
-          <button
-            tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onOpenFiles}
-            title={t.controls.openFiles}
-            className={`flex items-center gap-1.5 h-full ${
-              isCompact || isNarrow ? 'w-8 px-0 justify-center' : 'px-3.5'
-            } rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold shadow-sm hover:scale-[1.02] active:scale-95 transition-all cursor-pointer shrink-0 outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0`}
-          >
-            <FolderPlus className="w-3.5 h-3.5" />
-            <span className={isCompact || isNarrow ? 'hidden' : 'inline'}>
-              {language === 'ru' ? 'Добавить файлы' : 'Add Files'}
-            </span>
-          </button>
-
-          {/* Discord RPC switch (hidden on narrow to prioritize core player controls) */}
-          {showDiscordButton && !isNarrow && (
-            <button
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={onToggleDiscord}
-              title={language === 'ru'
-                ? `Discord RPC: ${discordEnabled ? 'Включен [D]' : 'Выключен [D]'} (кликните или нажмите D для переключения)`
-                : `Discord RPC: ${discordEnabled ? 'Enabled [D]' : 'Disabled [D]'} (click or press D)`
-              }
-              className={`flex items-center gap-1.5 h-full ${
-                isCompact ? 'px-2.5' : 'px-3'
-              } rounded-full text-xs font-semibold transition-all cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
-                discordEnabled
-                  ? 'bg-[#5865F2]/20 text-[#5865F2] font-bold shadow-sm'
-                  : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
-              }`}
-            >
-              <span className={`w-2 h-2 rounded-full shrink-0 ${discordEnabled ? 'bg-[#5865F2] animate-pulse' : 'bg-gray-400'}`} />
-              <span className={isCompact ? 'hidden' : 'inline'}>
-                Discord
-              </span>
-            </button>
-          )}
-
-          {/* EQ Modal button */}
-          <button
-            tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onOpenEQ}
-            title={t.controls.equalizer}
-            className="w-8 h-8 flex items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-          </button>
-
-          {/* Settings button */}
+        {isNarrow ? (
+          /* Single Settings button matching left Search button 1:1 in size and position */
           <button
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
             onClick={onOpenSettings}
             title={hasUpdate ? `${t.controls.settings} (${language === 'ru' ? 'Доступно обновление!' : 'Update available!'})` : t.controls.settings}
-            className={`w-8 h-8 flex items-center justify-center rounded-full transition-all cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 relative ${
+            className={`w-10 h-10 flex items-center justify-center rounded-full bg-md3-surface-container border border-md3-outline-variant/15 transition-all cursor-pointer relative shadow-xs ${
               hasUpdate
-                ? 'text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30 ring-2 ring-emerald-500/40 animate-pulse shadow-sm'
-                : 'text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface'
+                ? 'text-emerald-400 bg-emerald-500/20 ring-2 ring-emerald-500/40 animate-pulse'
+                : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
             }`}
           >
             <Settings className={`w-4 h-4 ${hasUpdate ? 'text-emerald-400' : ''}`} />
@@ -327,7 +288,81 @@ export const TopBar: React.FC<TopBarProps> = ({
               </span>
             )}
           </button>
-        </div>
+        ) : (
+          /* Desktop Pill Frame: Add files, Discord, EQ, Settings */
+          <div className="h-10 flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 shadow-xs">
+            {/* Add Files Button */}
+            <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onOpenFiles}
+              title={t.controls.openFiles}
+              className={`flex items-center gap-1.5 h-full ${
+                isCompact ? 'w-8 px-0 justify-center' : 'px-3.5'
+              } rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold shadow-sm hover:scale-[1.02] active:scale-95 transition-all cursor-pointer shrink-0 outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0`}
+            >
+              <FolderPlus className="w-3.5 h-3.5" />
+              <span className={isCompact ? 'hidden' : 'inline'}>
+                {language === 'ru' ? 'Добавить файлы' : 'Add Files'}
+              </span>
+            </button>
+
+            {/* Discord RPC switch */}
+            {showDiscordButton && windowWidth >= 1000 && (
+              <button
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={onToggleDiscord}
+                title={language === 'ru'
+                  ? `Discord RPC: ${discordEnabled ? 'Включен [D]' : 'Выключен [D]'} (кликните или нажмите D для переключения)`
+                  : `Discord RPC: ${discordEnabled ? 'Enabled [D]' : 'Disabled [D]'} (click or press D)`
+                }
+                className={`flex items-center gap-1.5 h-full px-2.5 rounded-full text-xs font-semibold transition-all cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
+                  discordEnabled
+                    ? 'bg-[#5865F2]/20 text-[#5865F2] font-bold shadow-sm'
+                    : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full shrink-0 ${discordEnabled ? 'bg-[#5865F2] animate-pulse' : 'bg-gray-400'}`} />
+                <span className="hidden xl:inline">
+                  Discord
+                </span>
+              </button>
+            )}
+
+            {/* EQ Modal button */}
+            <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onOpenEQ}
+              title={t.controls.equalizer}
+              className="w-8 h-8 flex items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+            </button>
+
+            {/* Settings button */}
+            <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onOpenSettings}
+              title={hasUpdate ? `${t.controls.settings} (${language === 'ru' ? 'Доступно обновление!' : 'Update available!'})` : t.controls.settings}
+              className={`w-8 h-8 flex items-center justify-center rounded-full transition-all cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 relative ${
+                hasUpdate
+                  ? 'text-emerald-400 bg-emerald-500/20 hover:bg-emerald-500/30 ring-2 ring-emerald-500/40 animate-pulse shadow-sm'
+                  : 'text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface'
+              }`}
+            >
+              <Settings className={`w-4 h-4 ${hasUpdate ? 'text-emerald-400' : ''}`} />
+              {hasUpdate && (
+                <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

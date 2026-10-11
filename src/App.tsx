@@ -2835,6 +2835,8 @@ export const App: React.FC = () => {
         onToggleRepeat={handleToggleRepeat}
         onToggleQueue={() => setIsQueueOpen(!isQueueOpen)}
         onToggleFavorite={handleToggleFavorite}
+        onOpenFiles={handleOpenFiles}
+        onOpenEQ={() => setIsEQOpen(true)}
         onOpenTrackDetails={(t) => setTrackDetailsTarget(t)}
         onOpenLyrics={() => {
           if (currentTrack) setIsLyricsOpen(true);
