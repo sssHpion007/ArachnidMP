@@ -62,6 +62,16 @@ export const TopBar: React.FC<TopBarProps> = ({
   const desktopSearchInputRef = useRef<HTMLInputElement>(null);
   const compactSearchInputRef = useRef<HTMLInputElement>(null);
 
+  // Tab indicator refs and state for smooth sliding glow animation
+  const navContainerRef = useRef<HTMLElement>(null);
+  const tabRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+  const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; width: number; height: number; opacity: number }>({
+    left: 0,
+    width: 0,
+    height: 0,
+    opacity: 0,
+  });
+
   const t = getTranslations(language);
 
   // Resize handler with automatic deactivation of compact search overlay when expanding window
@@ -121,6 +131,33 @@ export const TopBar: React.FC<TopBarProps> = ({
   const isNarrow = windowWidth < 780;
   const isCompact = windowWidth < 1200 || (navTabs.length * 110 + 520 > windowWidth);
   const isSuperCompact = windowWidth < 880;
+
+  // Smooth sliding glow pill positioning
+  const updateIndicator = () => {
+    const el = tabRefs.current[currentView];
+    if (el) {
+      setIndicatorStyle({
+        left: el.offsetLeft,
+        width: el.offsetWidth,
+        height: el.offsetHeight,
+        opacity: 1,
+      });
+    }
+  };
+
+  useEffect(() => {
+    updateIndicator();
+    const timer = setTimeout(updateIndicator, 40);
+    return () => clearTimeout(timer);
+  }, [currentView, isCompact, isNarrow, navTabs.length, windowWidth]);
+
+  useEffect(() => {
+    if (navContainerRef.current && window.ResizeObserver) {
+      const ro = new ResizeObserver(() => updateIndicator());
+      ro.observe(navContainerRef.current);
+      return () => ro.disconnect();
+    }
+  }, []);
 
   return (
     <header data-tauri-drag-region className="relative h-16 px-3 sm:px-6 shrink-0 flex items-center justify-between gap-2 sm:gap-4 bg-md3-surface-container-low border-b border-md3-outline-variant/15 select-none transition-colors duration-300">
@@ -230,14 +267,27 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
       )}
 
-      {/* CENTER: Navigation Tabs (Pills) - ALWAYS EXACT MATHEMATICAL CENTER */}
+      {/* CENTER: Navigation Tabs (Pills) - ALWAYS EXACT MATHEMATICAL CENTER WITH SLIDING GLOW PILL */}
       <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-0 pointer-events-none flex justify-center items-center">
         <nav 
-          className={`pointer-events-auto h-10 flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 shadow-xs max-w-full select-none ${
+          ref={navContainerRef}
+          className={`relative pointer-events-auto h-10 flex items-center gap-1 p-1 bg-md3-surface-container rounded-full border border-md3-outline-variant/15 shadow-xs max-w-full select-none ${
             isNarrow ? 'overflow-x-auto no-scrollbar' : 'overflow-hidden'
           }`}
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
+          {/* Smooth sliding glow pill indicator */}
+          <div
+            className="absolute rounded-full bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+            style={{
+              left: `${indicatorStyle.left}px`,
+              width: `${indicatorStyle.width}px`,
+              height: `${indicatorStyle.height}px`,
+              opacity: indicatorStyle.opacity,
+              boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
+            }}
+          />
+
           {navTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = currentView === tab.id;
@@ -245,19 +295,20 @@ export const TopBar: React.FC<TopBarProps> = ({
             return (
               <button
                 key={tab.id}
+                ref={(el) => { tabRefs.current[tab.id] = el; }}
                 tabIndex={-1}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => onSelectView(tab.id)}
                 title={tab.label}
-                className={`flex items-center gap-1.5 h-full ${
+                className={`relative z-10 flex items-center gap-1.5 h-full ${
                   isNarrow ? 'px-2.5 py-1' : isCompact ? 'px-2.5 py-1' : 'px-3.5 py-1'
-                } rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
+                } rounded-full text-xs font-medium transition-colors duration-200 shrink-0 cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
                   isActive
-                    ? 'bg-md3-primary text-md3-on-primary font-bold shadow-sm'
-                    : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
+                    ? 'text-md3-on-primary font-bold'
+                    : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high/60'
                 }`}
               >
-                <Icon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'stroke-[2.5]' : ''}`} />
+                <Icon className={`w-3.5 h-3.5 shrink-0 transition-transform ${isActive ? 'stroke-[2.5] scale-105' : ''}`} />
                 <span className={isCompact || isNarrow ? 'hidden' : 'inline'}>{tab.label}</span>
               </button>
             );
