@@ -244,7 +244,54 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
     };
   }, [isPlusMenuOpen]);
 
-  const handleCoverFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const processImageToJpeg = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const img = new Image();
+        img.onload = () => {
+          // Constrain max dimension to 1200px while maintaining aspect ratio
+          const maxDim = 1200;
+          let width = img.naturalWidth || img.width;
+          let height = img.naturalHeight || img.height;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, width);
+          canvas.height = Math.max(1, height);
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(dataUrl);
+            return;
+          }
+          // Fill white background to cleanly flatten any transparent PNG / WebP
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          try {
+            const jpegUrl = canvas.toDataURL('image/jpeg', 0.92);
+            resolve(jpegUrl);
+          } catch {
+            resolve(dataUrl);
+          }
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
+      };
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleCoverFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (!file.type.startsWith('image/')) {
@@ -254,28 +301,26 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
         );
         return;
       }
-      const reader = new FileReader();
-      reader.onload = () => {
-        setCoverArtPreview(reader.result as string);
+      const jpegDataUrl = await processImageToJpeg(file);
+      if (jpegDataUrl) {
+        setCoverArtPreview(jpegDataUrl);
         setApplyCover(true);
         setCoverModified(true);
-      };
-      reader.readAsDataURL(file);
+      }
     }
   };
 
-  const handleCoverDrop = (e: React.DragEvent) => {
+  const handleCoverDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDraggingOverCover(false);
     const file = e.dataTransfer.files?.[0];
     if (file && file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setCoverArtPreview(reader.result as string);
+      const jpegDataUrl = await processImageToJpeg(file);
+      if (jpegDataUrl) {
+        setCoverArtPreview(jpegDataUrl);
         setApplyCover(true);
         setCoverModified(true);
-      };
-      reader.readAsDataURL(file);
+      }
     }
   };
 

@@ -499,14 +499,16 @@ fn build_id3v23_tag_bytes(frames: &[Vec<u8>]) -> Vec<u8> {
     if total_frames_len == 0 {
         return Vec::new();
     }
-    let s = total_frames_len as u32;
+    // Include 1024 bytes of standard null padding (matches Mp3tag/TagLib/iTunes standard layout)
+    let padding_len = 1024;
+    let s = (total_frames_len + padding_len) as u32;
     let synch_size = [
         ((s >> 21) & 0x7F) as u8,
         ((s >> 14) & 0x7F) as u8,
         ((s >> 7) & 0x7F) as u8,
         (s & 0x7F) as u8,
     ];
-    let mut tag = Vec::with_capacity(10 + total_frames_len);
+    let mut tag = Vec::with_capacity(10 + total_frames_len + padding_len);
     tag.extend_from_slice(b"ID3");
     tag.push(0x03); // version 2.3
     tag.push(0x00); // revision
@@ -515,7 +517,51 @@ fn build_id3v23_tag_bytes(frames: &[Vec<u8>]) -> Vec<u8> {
     for f in frames {
         tag.extend_from_slice(f);
     }
+    tag.resize(10 + total_frames_len + padding_len, 0);
     tag
+}
+
+fn sync_folder_cover_art(folder: &Path, new_cover: Option<&[u8]>) {
+    if !folder.is_dir() {
+        return;
+    }
+
+    let make_writable = |p: &Path| {
+        if let Ok(meta) = std::fs::metadata(p) {
+            let mut perms = meta.permissions();
+            if perms.readonly() {
+                #[allow(clippy::permissions_set_readonly_false)]
+                perms.set_readonly(false);
+                let _ = std::fs::set_permissions(p, perms);
+            }
+        }
+    };
+
+    if let Ok(entries) = std::fs::read_dir(folder) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    let name_lower = name.to_ascii_lowercase();
+                    // Match Windows Media Player generated cover files (AlbumArt*.jpg)
+                    if name_lower.starts_with("albumart") && name_lower.ends_with(".jpg") {
+                        make_writable(&path);
+                        let _ = std::fs::remove_file(&path);
+                    } else if (name_lower == "folder.jpg" || name_lower == "cover.jpg") && new_cover.is_none() {
+                        make_writable(&path);
+                        let _ = std::fs::remove_file(&path);
+                    }
+                }
+            }
+        }
+    }
+
+    // If new cover is provided, write/overwrite Folder.jpg
+    if let Some(bytes) = new_cover {
+        let folder_jpg = folder.join("Folder.jpg");
+        make_writable(&folder_jpg);
+        let _ = std::fs::write(&folder_jpg, bytes);
+    }
 }
 
 fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(), String> {
@@ -532,6 +578,44 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
             let _ = std::fs::set_permissions(file_path, perms);
         }
     }
+
+    // Decode new cover art data if explicitly updated
+    let parsed_cover_art: Option<(Option<Vec<u8>>, String)> = if let Some(ref cover_art_data) = updates.cover_art {
+        let trimmed = cover_art_data.trim();
+        if trimmed.is_empty() {
+            Some((None, "image/jpeg".to_string()))
+        } else {
+            let (mime_str, b64_data) = if let Some(idx) = trimmed.find(";base64,") {
+                let prefix = &trimmed[..idx];
+                let mime = if prefix.starts_with("data:") {
+                    &prefix[5..]
+                } else {
+                    "image/jpeg"
+                };
+                (mime, &trimmed[idx + 8..])
+            } else {
+                ("image/jpeg", trimmed)
+            };
+
+            let clean_data: String = b64_data.chars().filter(|c| !c.is_whitespace() && *c != '"' && *c != '\'').collect();
+            let decoded = BASE64_STANDARD
+                .decode(clean_data.as_bytes())
+                .or_else(|_| BASE64_STANDARD_NO_PAD.decode(clean_data.as_bytes()))
+                .or_else(|_| BASE64_URL_SAFE.decode(clean_data.as_bytes()))
+                .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(clean_data.as_bytes()))
+                .map_err(|e| format!("Failed to decode cover image base64: {}", e))?;
+
+            let mime_final = if decoded.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+                "image/png".to_string()
+            } else {
+                "image/jpeg".to_string()
+            };
+
+            Some((Some(decoded), mime_final))
+        }
+    } else {
+        None
+    };
 
     let is_mp3 = file_path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("mp3"));
 
@@ -582,42 +666,8 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
             .or_else(|| existing_tag.and_then(|t| t.get_string(&ItemKey::Lyrics).map(|s| s.to_string())));
 
         // Determine cover art
-        let (cover_bytes, cover_mime): (Option<Vec<u8>>, String) = if let Some(ref cover_art_data) = updates.cover_art {
-            let trimmed = cover_art_data.trim();
-            if trimmed.is_empty() {
-                // User explicitly removed cover art: do NOT include any APIC frame
-                (None, "image/jpeg".to_string())
-            } else {
-                let (mime_str, b64_data) = if let Some(idx) = trimmed.find(";base64,") {
-                    let prefix = &trimmed[..idx];
-                    let mime = if prefix.starts_with("data:") {
-                        &prefix[5..]
-                    } else {
-                        "image/jpeg"
-                    };
-                    (mime, &trimmed[idx + 8..])
-                } else {
-                    ("image/jpeg", trimmed)
-                };
-
-                let clean_data: String = b64_data.chars().filter(|c| !c.is_whitespace() && *c != '"' && *c != '\'').collect();
-                let decoded = BASE64_STANDARD
-                    .decode(clean_data.as_bytes())
-                    .or_else(|_| BASE64_STANDARD_NO_PAD.decode(clean_data.as_bytes()))
-                    .or_else(|_| BASE64_URL_SAFE.decode(clean_data.as_bytes()))
-                    .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(clean_data.as_bytes()))
-                    .map_err(|e| format!("Failed to decode cover image base64: {}", e))?;
-
-                let mime_final = if decoded.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
-                    "image/png".to_string()
-                } else if decoded.starts_with(&[0xFF, 0xD8, 0xFF]) {
-                    "image/jpeg".to_string()
-                } else {
-                    mime_str.to_string()
-                };
-
-                (Some(decoded), mime_final)
-            }
+        let (cover_bytes, cover_mime): (Option<Vec<u8>>, String) = if let Some((ref bytes, ref mime)) = parsed_cover_art {
+            (bytes.clone(), mime.clone())
         } else {
             // Cover not modified: keep existing picture if any
             if let Some(pic) = existing_tag.and_then(|t| t.pictures().first()) {
@@ -811,44 +861,18 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
             }
         }
 
-        if let Some(ref cover_art_data) = updates.cover_art {
+        if let Some((ref maybe_bytes, _)) = parsed_cover_art {
             while !tag.pictures().is_empty() {
                 tag.remove_picture(0);
             }
-            let trimmed = cover_art_data.trim();
-            if !trimmed.is_empty() {
-                let (mime_str, b64_data) = if let Some(idx) = trimmed.find(";base64,") {
-                    let prefix = &trimmed[..idx];
-                    let mime = if prefix.starts_with("data:") {
-                        &prefix[5..]
-                    } else {
-                        "image/jpeg"
-                    };
-                    (mime, &trimmed[idx + 8..])
-                } else {
-                    ("image/jpeg", trimmed)
-                };
-
-                let clean_data: String = b64_data.chars().filter(|c| !c.is_whitespace() && *c != '"' && *c != '\'').collect();
-                let decoded = BASE64_STANDARD
-                    .decode(clean_data.as_bytes())
-                    .or_else(|_| BASE64_STANDARD_NO_PAD.decode(clean_data.as_bytes()))
-                    .or_else(|_| BASE64_URL_SAFE.decode(clean_data.as_bytes()))
-                    .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(clean_data.as_bytes()))
-                    .map_err(|e| format!("Failed to decode cover image base64: {}", e))?;
-
+            if let Some(ref decoded) = maybe_bytes {
                 if !decoded.is_empty() {
                     let mime_type = if decoded.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
                         MimeType::Png
-                    } else if decoded.starts_with(&[0xFF, 0xD8, 0xFF]) {
-                        MimeType::Jpeg
                     } else {
-                        match mime_str {
-                            "image/png" => MimeType::Png,
-                            _ => MimeType::Jpeg,
-                        }
+                        MimeType::Jpeg
                     };
-                    let pic = Picture::new_unchecked(PictureType::CoverFront, Some(mime_type), None, decoded);
+                    let pic = Picture::new_unchecked(PictureType::CoverFront, Some(mime_type), None, decoded.clone());
                     tag.push_picture(pic);
                 }
             }
@@ -857,6 +881,13 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
         let write_options = WriteOptions::default();
         tag.save_to_path(file_path, write_options)
             .map_err(|e| format!("Failed to save tags to {}: {}", path_str, e))?;
+    }
+
+    // Synchronize album art files in the parent folder for Windows Media Player and MusicBee
+    if let Some(parent) = file_path.parent() {
+        if let Some((ref maybe_bytes, _)) = parsed_cover_art {
+            sync_folder_cover_art(parent, maybe_bytes.as_deref());
+        }
     }
 
     Ok(())
