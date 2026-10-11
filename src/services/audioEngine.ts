@@ -137,13 +137,14 @@ class AudioEngine {
   }
 
   public setScrubbing(isScrubbing: boolean): void {
+    if (this.isScrubbing === isScrubbing) return;
     this.isScrubbing = isScrubbing;
     if (isScrubbing) {
-      // Temporarily mute output so scrubbing / rapid arrow seeking is completely silent!
-      this.setVolumeInstantly(0);
+      // Temporarily mute output with a 12ms micro-fade so scrubbing / rapid arrow seeking is completely silent!
+      this.performMicroFade(0, 0.012);
     } else {
-      // Restore effective volume when scrubbing finishes
-      this.setVolumeInstantly(this.getEffectiveVolume());
+      // Restore effective volume with a 15ms micro-fade when scrubbing finishes
+      this.performMicroFade(this.getEffectiveVolume(), 0.015);
     }
   }
 
@@ -160,13 +161,56 @@ class AudioEngine {
       try {
         const now = this.audioCtx.currentTime;
         this.gainNode.gain.cancelScheduledValues(now);
-        // De-zipper / de-pop micro-ramp (5ms linear interpolation) eliminates any DC step or click
-        this.gainNode.gain.linearRampToValueAtTime(clamped, now + 0.005);
+        // De-zipper / de-pop micro-ramp (15ms linear interpolation) eliminates any DC step or click
+        this.gainNode.gain.linearRampToValueAtTime(clamped, now + 0.015);
       } catch (_) {
         try {
           this.gainNode.gain.setValueAtTime(clamped, this.audioCtx.currentTime);
         } catch (_) {}
       }
+    }
+  }
+
+  private fadeAudioElementVolume(targetVol: number, durationMs: number = 20, onComplete?: () => void) {
+    const startVol = this.audio.volume;
+    if (Math.abs(startVol - targetVol) < 0.01) {
+      try {
+        this.audio.volume = targetVol;
+      } catch (_) {}
+      onComplete?.();
+      return;
+    }
+    const startTime = performance.now();
+    const step = () => {
+      const elapsed = performance.now() - startTime;
+      const p = Math.min(1, elapsed / durationMs);
+      try {
+        this.audio.volume = Math.max(0, Math.min(1, startVol + (targetVol - startVol) * p));
+      } catch (_) {}
+      if (p < 1) {
+        requestAnimationFrame(step);
+      } else {
+        try {
+          this.audio.volume = targetVol;
+        } catch (_) {}
+        onComplete?.();
+      }
+    };
+    requestAnimationFrame(step);
+  }
+
+  private performMicroFade(targetVol: number, durationSec: number = 0.015) {
+    const clamped = Math.max(0, Math.min(1, targetVol));
+    if (this.gainNode && this.audioCtx) {
+      try {
+        const now = this.audioCtx.currentTime;
+        this.gainNode.gain.cancelScheduledValues(now);
+        this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
+        this.gainNode.gain.linearRampToValueAtTime(clamped, now + durationSec);
+      } catch (_) {}
+    }
+    if (!this.isUsingWebAudio) {
+      this.fadeAudioElementVolume(clamped, Math.round(durationSec * 1000));
     }
   }
 
@@ -286,7 +330,7 @@ class AudioEngine {
   /**
    * Starts hardware sample-accurate gapless loop with Web Audio API
    */
-  private async startBufferPlayback(startOffset: number) {
+  private async startBufferPlayback(startOffset: number, fadeInDuration: number = 0.018) {
     if (!this.currentBuffer) return;
     const ctx = this.getOrCreateAudioContext();
     if (ctx.state === 'suspended') {
@@ -295,7 +339,8 @@ class AudioEngine {
       } catch (_) {}
     }
 
-    this.stopBufferSource();
+    // Smoothly fade out previous buffer source if active
+    this.stopBufferSource(fadeInDuration);
 
     const source = ctx.createBufferSource();
     const sourceGain = ctx.createGain();
@@ -303,41 +348,43 @@ class AudioEngine {
     const shouldLoop = (this.repeatMode === 'one' && this.fadeMode !== 'always');
     source.loop = shouldLoop;
 
-    // Connect source -> individual sourceGain (5ms micro-envelope) -> master gainNode -> destination
+    // Connect source -> individual sourceGain (18ms micro-envelope) -> master gainNode -> destination
     source.connect(sourceGain);
     sourceGain.connect(this.gainNode!);
 
     const dur = this.currentBuffer.duration;
     const offset = Math.max(0, Math.min(dur, startOffset % dur));
 
-    // Fast 5ms micro-fade in to eliminate any DC offset pop at start
+    // Smooth 18ms micro-fade in to eliminate any DC offset pop at start
     const now = ctx.currentTime;
     try {
       sourceGain.gain.setValueAtTime(0, now);
-      sourceGain.gain.linearRampToValueAtTime(1, now + 0.005);
+      sourceGain.gain.linearRampToValueAtTime(1, now + fadeInDuration);
     } catch (_) {
       try {
         sourceGain.gain.setValueAtTime(1, now);
       } catch (_) {}
     }
 
-    // Ensure master gain is at target effective volume
+    // Ensure master gain is at target effective volume with smooth de-pop ramp
     const effVol = this.getEffectiveVolume();
     try {
       this.gainNode!.gain.cancelScheduledValues(now);
-      this.gainNode!.gain.setValueAtTime(effVol, now);
+      this.gainNode!.gain.setValueAtTime(this.gainNode!.gain.value, now);
+      this.gainNode!.gain.linearRampToValueAtTime(effVol, now + fadeInDuration);
     } catch (_) {}
 
-    // Start buffer FIRST to ensure gapless transition, then mute background element
+    // Start buffer FIRST to ensure gapless transition, then smoothly mute background element
     source.start(0, offset);
 
-    // Keep HTMLAudioElement playing in the background at volume 0 to preserve Windows SMTC & Bluetooth headphone controls!
-    try {
-      this.audio.volume = 0;
-      if (this.audio.paused) {
-        this.audio.play().catch(() => {});
-      }
-    } catch (_) {}
+    // Keep HTMLAudioElement playing silently in the background to preserve Windows SMTC & Bluetooth headphone controls!
+    this.fadeAudioElementVolume(0, Math.round(fadeInDuration * 1000) + 10, () => {
+      try {
+        if (this.audio.paused) {
+          this.audio.play().catch(() => {});
+        }
+      } catch (_) {}
+    });
 
     this.bufferSource = source;
     this.bufferGainNode = sourceGain;
@@ -347,7 +394,7 @@ class AudioEngine {
     this.playbackPosition = offset;
   }
 
-  private stopBufferSource() {
+  private stopBufferSource(customFadeDuration: number = 0.018) {
     if (this.bufferSource) {
       const source = this.bufferSource;
       const gain = this.bufferGainNode;
@@ -359,14 +406,14 @@ class AudioEngine {
           const now = this.audioCtx.currentTime;
           gain.gain.cancelScheduledValues(now);
           gain.gain.setValueAtTime(gain.gain.value, now);
-          gain.gain.linearRampToValueAtTime(0, now + 0.005);
-          source.stop(now + 0.006);
+          gain.gain.linearRampToValueAtTime(0, now + customFadeDuration);
+          source.stop(now + customFadeDuration + 0.002);
           setTimeout(() => {
             try {
               source.disconnect();
               gain.disconnect();
             } catch (_) {}
-          }, 20);
+          }, Math.round((customFadeDuration + 0.03) * 1000));
         } catch (_) {
           try {
             source.stop();
@@ -409,6 +456,14 @@ class AudioEngine {
         } else if (!this.audio.paused) {
           curTime = Math.min(dur > 0 ? dur : Infinity, this.audio.currentTime);
           this.playbackPosition = curTime;
+
+          // Seamless loop transition: switch to Web Audio buffer 60ms BEFORE HTMLAudioElement reaches EOF
+          // This eliminates the browser hardware buffer starvation pop that happens on the first repeat!
+          if (this.repeatMode === 'one' && this.currentBuffer && this.audioCtx && dur > 0.5) {
+            if (curTime >= dur - 0.060 && !this.isHandlingEnd) {
+              this.handleLoopRepeat();
+            }
+          }
         }
 
         const safeTime = Math.max(0, Math.min(dur > 0 ? dur : Infinity, curTime));
@@ -425,6 +480,19 @@ class AudioEngine {
     this.rafId = requestAnimationFrame(loop);
   }
 
+  private handleLoopRepeat() {
+    if (this.isHandlingEnd) return;
+    this.isHandlingEnd = true;
+    setTimeout(() => {
+      this.isHandlingEnd = false;
+    }, 400);
+
+    this.playbackPosition = 0;
+    this.startBufferPlayback(0, 0.020);
+    this.onPlayCallback?.();
+    this.onTimeUpdateCallback?.(0);
+  }
+
   private handleTrackEnded() {
     if (this.isHandlingEnd) return;
     this.isHandlingEnd = true;
@@ -434,17 +502,16 @@ class AudioEngine {
 
     if (this.repeatMode === 'one') {
       if (this.currentBuffer && this.audioCtx && this.fadeMode !== 'always') {
-        // Sample-accurate hardware PCM loop restart
-        try {
-          this.audio.pause();
-        } catch (_) {}
+        // Sample-accurate hardware PCM loop restart with 20ms de-click ramp
         this.playbackPosition = 0;
-        this.startBufferPlayback(0);
+        this.startBufferPlayback(0, 0.020);
         this.onPlayCallback?.();
         this.onTimeUpdateCallback?.(0);
       } else {
         // Fallback to HTMLAudioElement with micro-fade in to avoid crackle
-        this.setVolumeInstantly(0);
+        try {
+          this.audio.volume = 0;
+        } catch (_) {}
         this.playbackPosition = 0;
         this.audio.currentTime = 0;
         this.audio.play().then(() => {
@@ -457,7 +524,7 @@ class AudioEngine {
     } else {
       this.isPlaying = false;
       this.playbackPosition = 0;
-      this.stopBufferSource();
+      this.stopBufferSource(0.020);
       try {
         this.audio.pause();
       } catch (_) {}
@@ -627,24 +694,31 @@ class AudioEngine {
     this.cancelFade();
     this.playbackPosition = safeSec;
 
-    // Immediately restore target listening volume if not actively scrubbing
-    if (!this.isScrubbing) {
-      this.setVolumeInstantly(this.getEffectiveVolume());
-    }
-
-    if (this.isPlaying) {
-      if (this.isUsingWebAudio && this.currentBuffer && this.audioCtx) {
-        this.startBufferPlayback(safeSec);
-      } else {
-        this.audio.currentTime = safeSec;
-        if (this.audio.paused) {
-          this.audio.play().catch(() => {});
-        }
-      }
-    } else {
+    if (!this.isPlaying) {
       if (!this.isUsingWebAudio) {
         this.audio.currentTime = safeSec;
       }
+      this.lastTimeUpdateTimestamp = performance.now();
+      this.onTimeUpdateCallback?.(safeSec);
+      return;
+    }
+
+    // Actively playing!
+    if (this.currentBuffer && this.audioCtx) {
+      // Seek seamlessly using Web Audio PCM buffer with smooth 18ms micro-envelope
+      this.startBufferPlayback(safeSec, 0.018);
+    } else {
+      // HTMLAudioElement: apply smooth 15ms de-click envelope before and after timestamp jump
+      const effVol = this.getEffectiveVolume();
+      this.fadeAudioElementVolume(0, 15, () => {
+        try {
+          this.audio.currentTime = safeSec;
+          if (this.audio.paused) {
+            this.audio.play().catch(() => {});
+          }
+        } catch (_) {}
+        this.fadeAudioElementVolume(effVol, 15);
+      });
     }
 
     this.lastTimeUpdateTimestamp = performance.now();

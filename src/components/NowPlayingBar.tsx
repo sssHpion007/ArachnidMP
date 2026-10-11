@@ -79,6 +79,8 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   const [isScrubbing, setIsScrubbing] = useState<boolean>(false);
   const [scrubPosition, setScrubPosition] = useState<number | null>(null);
   const isScrubbingRef = useRef<boolean>(false);
+  const isPointerDownRef = useRef<boolean>(false);
+  const startPointerXRef = useRef<number>(0);
   const progressBarRef = useRef<HTMLDivElement>(null);
   const animFrameRef = useRef<number | null>(null);
 
@@ -123,9 +125,10 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
     try {
       (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     } catch (_) {}
-    isScrubbingRef.current = true;
-    setIsScrubbing(true);
-    audioEngine.setScrubbing(true);
+
+    isPointerDownRef.current = true;
+    startPointerXRef.current = e.clientX;
+    isScrubbingRef.current = false;
 
     const rect = progressBarRef.current.getBoundingClientRect();
     const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
@@ -143,17 +146,26 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
     setHoverSeekPos(e.clientX - rect.left);
     setHoverSeekTime(targetTime);
 
-    if (isScrubbingRef.current) {
-      setScrubPosition(targetTime);
+    if (isPointerDownRef.current) {
+      if (!isScrubbingRef.current && Math.abs(e.clientX - startPointerXRef.current) > 3) {
+        isScrubbingRef.current = true;
+        setIsScrubbing(true);
+        audioEngine.setScrubbing(true);
+      }
+      if (isScrubbingRef.current) {
+        setScrubPosition(targetTime);
+      }
     }
   };
 
   const handleProgressBarPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isScrubbingRef.current) return;
+    if (!isPointerDownRef.current) return;
+    isPointerDownRef.current = false;
     try {
       (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
     } catch (_) {}
 
+    const wasScrubbing = isScrubbingRef.current;
     isScrubbingRef.current = false;
     setIsScrubbing(false);
 
@@ -162,23 +174,31 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
       const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
       const targetTime = pos * safeDuration;
       setScrubPosition(null);
-      audioEngine.setScrubbing(false);
+      if (wasScrubbing) {
+        audioEngine.setScrubbing(false);
+      }
       onSeek(targetTime);
     } else {
       setScrubPosition(null);
-      audioEngine.setScrubbing(false);
+      if (wasScrubbing) {
+        audioEngine.setScrubbing(false);
+      }
     }
   };
 
   const handleProgressBarPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isScrubbingRef.current) return;
+    if (!isPointerDownRef.current) return;
+    isPointerDownRef.current = false;
     try {
       (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
     } catch (_) {}
+    const wasScrubbing = isScrubbingRef.current;
     isScrubbingRef.current = false;
     setIsScrubbing(false);
     setScrubPosition(null);
-    audioEngine.setScrubbing(false);
+    if (wasScrubbing) {
+      audioEngine.setScrubbing(false);
+    }
   };
 
   return (
@@ -326,7 +346,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               onPointerMove={handleProgressBarPointerMove}
               onPointerUp={handleProgressBarPointerUp}
               onPointerCancel={handleProgressBarPointerCancel}
-              onMouseLeave={() => { if (!isScrubbingRef.current) setHoverSeekTime(null); }}
+              onMouseLeave={() => { if (!isScrubbingRef.current && !isPointerDownRef.current) setHoverSeekTime(null); }}
               title="Перемотка [← / → на 5 сек]"
               className={`flex-1 ${isScrubbing ? 'h-2.5' : 'h-1.5 hover:h-2.5'} rounded-full bg-md3-surface-container-highest cursor-pointer transition-all duration-150 relative group touch-none`}
             >
