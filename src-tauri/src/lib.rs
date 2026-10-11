@@ -34,7 +34,7 @@ pub struct TrackMetadata {
     pub lyricist: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct TagUpdates {
     pub title: Option<String>,
     pub artist: Option<String>,
@@ -49,6 +49,7 @@ pub struct TagUpdates {
     pub conductor: Option<String>,
     pub lyricist: Option<String>,
     pub cover_art: Option<String>,
+    pub lyrics: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -382,43 +383,139 @@ fn find_mp3_audio_end(data: &[u8], audio_start: usize) -> (usize, bool) {
     (end, has_id3v1)
 }
 
-fn write_clean_tags_to_file(file_path: &Path, tag: &Tag, is_mp3: bool) -> Result<(), String> {
-    if is_mp3 {
-        let mut new_tag_bytes = Vec::new();
-        let mut write_options = WriteOptions::default();
-        write_options.use_id3v23(true);
-        tag.dump_to(&mut new_tag_bytes, write_options)
-            .map_err(|e| format!("Failed to serialize ID3v2.3 tag: {}", e))?;
+fn encode_id3v23_text(text: &str) -> Vec<u8> {
+    if text.chars().all(|c| (c as u32) <= 0xFF) {
+        let mut out = Vec::with_capacity(1 + text.len());
+        out.push(0x00); // Latin1 (ISO-8859-1)
+        for c in text.chars() {
+            out.push(c as u8);
+        }
+        out
+    } else {
+        let utf16: Vec<u16> = text.encode_utf16().collect();
+        let mut out = Vec::with_capacity(3 + utf16.len() * 2);
+        out.push(0x01); // UTF-16 with BOM
+        out.push(0xFF); // BOM Little Endian
+        out.push(0xFE);
+        for code in utf16 {
+            let bytes = code.to_le_bytes();
+            out.push(bytes[0]);
+            out.push(bytes[1]);
+        }
+        out
+    }
+}
 
-        let file_bytes = std::fs::read(file_path)
-            .map_err(|e| format!("Failed to read {}: {}", file_path.display(), e))?;
+fn make_id3v23_frame(frame_id: &str, payload: &[u8]) -> Vec<u8> {
+    if payload.is_empty() || frame_id.len() != 4 {
+        return Vec::new();
+    }
+    let mut frame = Vec::with_capacity(10 + payload.len());
+    frame.extend_from_slice(frame_id.as_bytes());
+    frame.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+    frame.extend_from_slice(&[0x00, 0x00]); // frame flags
+    frame.extend_from_slice(payload);
+    frame
+}
 
-        let audio_start = find_mp3_audio_start(&file_bytes);
-        let (audio_end, has_id3v1) = find_mp3_audio_end(&file_bytes, audio_start);
+fn make_id3v23_text_frame(frame_id: &str, text: &str) -> Vec<u8> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    let encoded = encode_id3v23_text(trimmed);
+    make_id3v23_frame(frame_id, &encoded)
+}
 
-        if audio_start >= file_bytes.len() || audio_end <= audio_start {
-            // Fallback if bounds detection was inconclusive: use Lofty's save_to_path
-            tag.save_to_path(file_path, write_options)
-                .map_err(|e| format!("Failed to save tags to {}: {}", file_path.display(), e))?;
-        } else {
-            let mut new_file_data = Vec::with_capacity(
-                new_tag_bytes.len() + (audio_end - audio_start) + if has_id3v1 { 128 } else { 0 },
-            );
-            new_file_data.extend_from_slice(&new_tag_bytes);
-            new_file_data.extend_from_slice(&file_bytes[audio_start..audio_end]);
-            if has_id3v1 && file_bytes.len() >= 128 {
-                new_file_data.extend_from_slice(&file_bytes[file_bytes.len() - 128..]);
-            }
-
-            std::fs::write(file_path, &new_file_data)
-                .map_err(|e| format!("Failed to write updated MP3 file {}: {}", file_path.display(), e))?;
+fn make_id3v23_comm_frame(comment: &str) -> Vec<u8> {
+    let trimmed = comment.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    let mut payload = Vec::new();
+    if trimmed.chars().all(|c| (c as u32) <= 0xFF) {
+        payload.push(0x00); // Latin1
+        payload.extend_from_slice(b"eng"); // language
+        payload.push(0x00); // short description null terminator
+        for c in trimmed.chars() {
+            payload.push(c as u8);
         }
     } else {
-        let write_options = WriteOptions::default();
-        tag.save_to_path(file_path, write_options)
-            .map_err(|e| format!("Failed to save tags to {}: {}", file_path.display(), e))?;
+        payload.push(0x01); // UTF-16 with BOM
+        payload.extend_from_slice(b"eng"); // language
+        payload.extend_from_slice(&[0x00, 0x00]); // short description null terminator (UTF-16 2 bytes)
+        payload.extend_from_slice(&[0xFF, 0xFE]); // BOM
+        for code in trimmed.encode_utf16() {
+            payload.extend_from_slice(&code.to_le_bytes());
+        }
     }
-    Ok(())
+    make_id3v23_frame("COMM", &payload)
+}
+
+fn make_id3v23_lyrics_frame(lyrics: &str) -> Vec<u8> {
+    let trimmed = lyrics.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    let mut payload = Vec::new();
+    if trimmed.chars().all(|c| (c as u32) <= 0xFF) {
+        payload.push(0x00); // Latin1
+        payload.extend_from_slice(b"eng");
+        payload.push(0x00); // descriptor terminator
+        for c in trimmed.chars() {
+            payload.push(c as u8);
+        }
+    } else {
+        payload.push(0x01); // UTF-16 with BOM
+        payload.extend_from_slice(b"eng");
+        payload.extend_from_slice(&[0x00, 0x00]);
+        payload.extend_from_slice(&[0xFF, 0xFE]);
+        for code in trimmed.encode_utf16() {
+            payload.extend_from_slice(&code.to_le_bytes());
+        }
+    }
+    make_id3v23_frame("USLT", &payload)
+}
+
+fn make_id3v23_apic_frame(image_bytes: &[u8], mime_type: &str) -> Vec<u8> {
+    if image_bytes.is_empty() {
+        return Vec::new();
+    }
+    let mime = if mime_type.is_empty() { "image/jpeg" } else { mime_type };
+    // Standard ID3v2.3 APIC frame as written by TagLib / MusicBee / Mp3tag:
+    // [0x00] (Latin1) + [MIME string] + [0x00] + [0x03 Front cover] + [0x00 Empty description] + [image data]
+    let mut payload = Vec::with_capacity(1 + mime.len() + 1 + 1 + 1 + image_bytes.len());
+    payload.push(0x00);
+    payload.extend_from_slice(mime.as_bytes());
+    payload.push(0x00);
+    payload.push(0x03);
+    payload.push(0x00);
+    payload.extend_from_slice(image_bytes);
+    make_id3v23_frame("APIC", &payload)
+}
+
+fn build_id3v23_tag_bytes(frames: &[Vec<u8>]) -> Vec<u8> {
+    let total_frames_len: usize = frames.iter().map(|f| f.len()).sum();
+    if total_frames_len == 0 {
+        return Vec::new();
+    }
+    let s = total_frames_len as u32;
+    let synch_size = [
+        ((s >> 21) & 0x7F) as u8,
+        ((s >> 14) & 0x7F) as u8,
+        ((s >> 7) & 0x7F) as u8,
+        (s & 0x7F) as u8,
+    ];
+    let mut tag = Vec::with_capacity(10 + total_frames_len);
+    tag.extend_from_slice(b"ID3");
+    tag.push(0x03); // version 2.3
+    tag.push(0x00); // revision
+    tag.push(0x00); // flags
+    tag.extend_from_slice(&synch_size);
+    for f in frames {
+        tag.extend_from_slice(f);
+    }
+    tag
 }
 
 fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(), String> {
@@ -438,192 +535,329 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
 
     let is_mp3 = file_path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("mp3"));
 
-    // Attempt to read existing tags using Relaxed parsing mode to ignore minor errors.
-    // If existing tags are corrupted (e.g. invalid UTF-16 BOM from buggy external software),
-    // fallback gracefully to a clean tag instead of failing the entire write!
-    let parse_opts = ParseOptions::new().parsing_mode(ParsingMode::Relaxed);
-    let mut tag = match Probe::open(file_path).and_then(|p| p.options(parse_opts).read()) {
-        Ok(mut tagged_file) => {
-            if is_mp3 {
-                if tagged_file.tag(TagType::Id3v2).is_none() {
-                    let mut new_id3v2 = Tag::new(TagType::Id3v2);
-                    if let Some(existing) = tagged_file.first_tag() {
-                        for item in existing.items() {
-                            new_id3v2.insert(item.clone());
-                        }
-                        for pic in existing.pictures() {
-                            new_id3v2.push_picture(pic.clone());
-                        }
-                    }
-                    tagged_file.insert_tag(new_id3v2);
-                }
-                let raw_tag = tagged_file.tag(TagType::Id3v2)
-                    .or_else(|| tagged_file.first_tag());
-                let mut clean_tag = Tag::new(TagType::Id3v2);
-                if let Some(existing) = raw_tag {
-                    for item in existing.items() {
-                        clean_tag.insert(item.clone());
-                    }
-                    for pic in existing.pictures() {
-                        clean_tag.push_picture(pic.clone());
-                    }
-                }
-                clean_tag
+    if is_mp3 {
+        // Read existing metadata to preserve fields not modified in updates
+        let parse_opts = ParseOptions::new().parsing_mode(ParsingMode::Relaxed);
+        let existing_tagged = Probe::open(file_path).and_then(|p| p.options(parse_opts).read()).ok();
+
+        let title = updates.title.clone()
+            .or_else(|| existing_tagged.as_ref().and_then(|t| t.title().map(|s| s.to_string())))
+            .or_else(|| file_path.file_stem().and_then(|s| s.to_str()).map(|s| s.to_string()));
+
+        let artist = updates.artist.clone()
+            .or_else(|| existing_tagged.as_ref().and_then(|t| t.artist().map(|s| s.to_string())));
+
+        let album = updates.album.clone()
+            .or_else(|| existing_tagged.as_ref().and_then(|t| t.album().map(|s| s.to_string())));
+
+        let genre = updates.genre.clone()
+            .or_else(|| existing_tagged.as_ref().and_then(|t| t.genre().map(|s| s.to_string())));
+
+        let year = updates.year
+            .or_else(|| existing_tagged.as_ref().and_then(|t| t.year()));
+
+        let track_number = updates.track_number
+            .or_else(|| existing_tagged.as_ref().and_then(|t| t.track()));
+
+        let track_total = updates.track_total
+            .or_else(|| existing_tagged.as_ref().and_then(|t| t.track_total()));
+
+        let composer = updates.composer.clone()
+            .or_else(|| existing_tagged.as_ref().and_then(|t| t.get_string(&ItemKey::Composer).map(|s| s.to_string())));
+
+        let content_group = updates.content_group.clone()
+            .or_else(|| existing_tagged.as_ref().and_then(|t| t.get_string(&ItemKey::ContentGroup).map(|s| s.to_string())));
+
+        let comment = updates.comment.clone()
+            .or_else(|| existing_tagged.as_ref().and_then(|t| t.comment().map(|s| s.to_string())));
+
+        let conductor = updates.conductor.clone()
+            .or_else(|| existing_tagged.as_ref().and_then(|t| t.get_string(&ItemKey::Conductor).map(|s| s.to_string())));
+
+        let lyricist = updates.lyricist.clone()
+            .or_else(|| existing_tagged.as_ref().and_then(|t| t.get_string(&ItemKey::Lyricist).map(|s| s.to_string())));
+
+        let lyrics = updates.lyrics.clone()
+            .or_else(|| existing_tagged.as_ref().and_then(|t| t.get_string(&ItemKey::Lyrics).map(|s| s.to_string())));
+
+        // Determine cover art
+        let (cover_bytes, cover_mime): (Option<Vec<u8>>, String) = if let Some(ref cover_art_data) = updates.cover_art {
+            let trimmed = cover_art_data.trim();
+            if trimmed.is_empty() {
+                // User explicitly removed cover art: do NOT include any APIC frame
+                (None, "image/jpeg".to_string())
             } else {
-                match tagged_file.primary_tag_mut() {
-                    Some(t) => t.clone(),
-                    None => {
-                        let ptype = tagged_file.primary_tag_type();
-                        tagged_file.insert_tag(Tag::new(ptype));
-                        tagged_file.primary_tag_mut()
-                            .map(|t| t.clone())
-                            .unwrap_or_else(|| Tag::new(ptype))
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            eprintln!("Warning: existing tags in {} are corrupted ({}). Re-initializing with clean tag.", path_str, e);
-            let default_tag_type = if is_mp3 { TagType::Id3v2 } else { TagType::VorbisComments };
-            let mut fresh = Tag::new(default_tag_type);
-            if let Some(stem) = file_path.file_stem().and_then(|s| s.to_str()) {
-                fresh.set_title(stem.to_string());
-            }
-            fresh
-        }
-    };
-
-    if let Some(ref title) = updates.title {
-        tag.set_title(title.clone());
-    }
-    if let Some(ref artist) = updates.artist {
-        tag.set_artist(artist.clone());
-    }
-    if let Some(ref album) = updates.album {
-        tag.set_album(album.clone());
-    }
-    if let Some(ref genre) = updates.genre {
-        tag.set_genre(genre.clone());
-    }
-    if let Some(year) = updates.year {
-        tag.set_year(year);
-    }
-    if let Some(track_num) = updates.track_number {
-        if track_num == 0 {
-            tag.remove_track();
-        } else {
-            tag.set_track(track_num);
-        }
-    }
-    if let Some(track_tot) = updates.track_total {
-        if track_tot == 0 {
-            tag.remove_track_total();
-        } else {
-            tag.set_track_total(track_tot);
-        }
-    }
-
-    if let Some(ref comp) = updates.composer {
-        if comp.trim().is_empty() {
-            tag.remove_key(&ItemKey::Composer);
-        } else {
-            tag.insert_text(ItemKey::Composer, comp.clone());
-        }
-    }
-    if let Some(ref cg) = updates.content_group {
-        if cg.trim().is_empty() {
-            tag.remove_key(&ItemKey::ContentGroup);
-        } else {
-            tag.insert_text(ItemKey::ContentGroup, cg.clone());
-        }
-    }
-    if let Some(ref com) = updates.comment {
-        if com.trim().is_empty() {
-            tag.remove_comment();
-            tag.remove_key(&ItemKey::Comment);
-        } else {
-            tag.set_comment(com.clone());
-        }
-    }
-    if let Some(ref cond) = updates.conductor {
-        if cond.trim().is_empty() {
-            tag.remove_key(&ItemKey::Conductor);
-        } else {
-            tag.insert_text(ItemKey::Conductor, cond.clone());
-        }
-    }
-    if let Some(ref lyr) = updates.lyricist {
-        if lyr.trim().is_empty() {
-            tag.remove_key(&ItemKey::Lyricist);
-        } else {
-            tag.insert_text(ItemKey::Lyricist, lyr.clone());
-        }
-    }
-
-    // Cover art update: embed into ID3v2 / VorbisComments / ILST tags
-    if let Some(ref cover_art_data) = updates.cover_art {
-        // Clear all existing pictures to ensure complete replacement
-        while !tag.pictures().is_empty() {
-            tag.remove_picture(0);
-        }
-
-        let trimmed = cover_art_data.trim();
-        if !trimmed.is_empty() {
-            let (mime_str, b64_data) = if let Some(idx) = trimmed.find(";base64,") {
-                let prefix = &trimmed[..idx];
-                let mime = if prefix.starts_with("data:") {
-                    &prefix[5..]
+                let (mime_str, b64_data) = if let Some(idx) = trimmed.find(";base64,") {
+                    let prefix = &trimmed[..idx];
+                    let mime = if prefix.starts_with("data:") {
+                        &prefix[5..]
+                    } else {
+                        "image/jpeg"
+                    };
+                    (mime, &trimmed[idx + 8..])
                 } else {
-                    "image/jpeg"
+                    ("image/jpeg", trimmed)
                 };
-                (mime, &trimmed[idx + 8..])
+
+                let clean_data: String = b64_data.chars().filter(|c| !c.is_whitespace() && *c != '"' && *c != '\'').collect();
+                let decoded = BASE64_STANDARD
+                    .decode(clean_data.as_bytes())
+                    .or_else(|_| BASE64_STANDARD_NO_PAD.decode(clean_data.as_bytes()))
+                    .or_else(|_| BASE64_URL_SAFE.decode(clean_data.as_bytes()))
+                    .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(clean_data.as_bytes()))
+                    .map_err(|e| format!("Failed to decode cover image base64: {}", e))?;
+
+                let mime_final = if decoded.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+                    "image/png".to_string()
+                } else if decoded.starts_with(&[0xFF, 0xD8, 0xFF]) {
+                    "image/jpeg".to_string()
+                } else {
+                    mime_str.to_string()
+                };
+
+                (Some(decoded), mime_final)
+            }
+        } else {
+            // Cover not modified: keep existing picture if any
+            if let Some(pic) = existing_tagged.as_ref().and_then(|t| t.pictures().first()) {
+                let mime = pic.mime_type().as_deref().unwrap_or("image/jpeg").to_string();
+                (Some(pic.data().to_vec()), mime)
             } else {
-                ("image/jpeg", trimmed)
-            };
+                (None, "image/jpeg".to_string())
+            }
+        };
 
-            let clean_data: String = b64_data.chars().filter(|c| !c.is_whitespace() && *c != '"' && *c != '\'').collect();
-            let decoded = BASE64_STANDARD
-                .decode(clean_data.as_bytes())
-                .or_else(|_| BASE64_STANDARD_NO_PAD.decode(clean_data.as_bytes()))
-                .or_else(|_| BASE64_URL_SAFE.decode(clean_data.as_bytes()))
-                .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(clean_data.as_bytes()));
+        // Construct standard ID3v2.3 frames
+        let mut frames = Vec::new();
+        if let Some(ref t) = title {
+            let f = make_id3v23_text_frame("TIT2", t);
+            if !f.is_empty() { frames.push(f); }
+        }
+        if let Some(ref a) = artist {
+            let f = make_id3v23_text_frame("TPE1", a);
+            if !f.is_empty() { frames.push(f); }
+        }
+        if let Some(ref al) = album {
+            let f = make_id3v23_text_frame("TALB", al);
+            if !f.is_empty() { frames.push(f); }
+        }
+        if let Some(ref g) = genre {
+            let f = make_id3v23_text_frame("TCON", g);
+            if !f.is_empty() { frames.push(f); }
+        }
+        if let Some(y) = year {
+            if y > 0 {
+                let f = make_id3v23_text_frame("TYER", &y.to_string());
+                if !f.is_empty() { frames.push(f); }
+            }
+        }
+        if let Some(num) = track_number {
+            if num > 0 {
+                let trck_str = if let Some(tot) = track_total {
+                    if tot > 0 { format!("{}/{}", num, tot) } else { num.to_string() }
+                } else {
+                    num.to_string()
+                };
+                let f = make_id3v23_text_frame("TRCK", &trck_str);
+                if !f.is_empty() { frames.push(f); }
+            }
+        }
+        if let Some(ref comp) = composer {
+            let f = make_id3v23_text_frame("TCOM", comp);
+            if !f.is_empty() { frames.push(f); }
+        }
+        if let Some(ref cg) = content_group {
+            let f = make_id3v23_text_frame("TIT1", cg);
+            if !f.is_empty() { frames.push(f); }
+        }
+        if let Some(ref com) = comment {
+            let f = make_id3v23_comm_frame(com);
+            if !f.is_empty() { frames.push(f); }
+        }
+        if let Some(ref cond) = conductor {
+            let f = make_id3v23_text_frame("TPE3", cond);
+            if !f.is_empty() { frames.push(f); }
+        }
+        if let Some(ref lyr) = lyricist {
+            let f = make_id3v23_text_frame("TEXT", lyr);
+            if !f.is_empty() { frames.push(f); }
+        }
+        if let Some(ref ly) = lyrics {
+            let f = make_id3v23_lyrics_frame(ly);
+            if !f.is_empty() { frames.push(f); }
+        }
+        if let Some(ref bytes) = cover_bytes {
+            let f = make_id3v23_apic_frame(bytes, &cover_mime);
+            if !f.is_empty() { frames.push(f); }
+        }
 
-            match decoded {
-                Ok(bytes) => {
-                    if !bytes.is_empty() {
-                        // Identify image format by magic bytes or fallback to mime_str
-                        let mime_type = if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
-                            MimeType::Png
-                        } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
-                            MimeType::Jpeg
-                        } else if bytes.starts_with(b"GIF8") {
-                            MimeType::Gif
-                        } else if bytes.starts_with(b"BM") {
-                            MimeType::Bmp
-                        } else if bytes.starts_with(&[0x49, 0x49, 0x2A, 0x00]) || bytes.starts_with(&[0x4D, 0x4D, 0x00, 0x2A]) {
-                            MimeType::Tiff
-                        } else {
-                            match mime_str {
-                                "image/png" => MimeType::Png,
-                                "image/gif" => MimeType::Gif,
-                                "image/bmp" => MimeType::Bmp,
-                                "image/tiff" => MimeType::Tiff,
-                                _ => MimeType::Jpeg,
-                            }
-                        };
+        let new_tag_bytes = build_id3v23_tag_bytes(&frames);
 
-                        let pic = Picture::new_unchecked(PictureType::CoverFront, Some(mime_type), None, bytes);
-                        tag.push_picture(pic);
-                    }
+        let file_bytes = std::fs::read(file_path)
+            .map_err(|e| format!("Failed to read {}: {}", file_path.display(), e))?;
+
+        let audio_start = find_mp3_audio_start(&file_bytes);
+        let (audio_end, has_id3v1) = find_mp3_audio_end(&file_bytes, audio_start);
+
+        let mut new_file_data = Vec::with_capacity(
+            new_tag_bytes.len() + (audio_end.saturating_sub(audio_start)) + if has_id3v1 { 128 } else { 0 },
+        );
+        new_file_data.extend_from_slice(&new_tag_bytes);
+        if audio_start < file_bytes.len() && audio_end >= audio_start {
+            new_file_data.extend_from_slice(&file_bytes[audio_start..audio_end]);
+        }
+        if has_id3v1 && file_bytes.len() >= 128 {
+            new_file_data.extend_from_slice(&file_bytes[file_bytes.len() - 128..]);
+        }
+
+        std::fs::write(file_path, &new_file_data)
+            .map_err(|e| format!("Failed to write updated MP3 file {}: {}", file_path.display(), e))?;
+    } else {
+        // Non-MP3 files: FLAC, M4A, OGG, WAV
+        let parse_opts = ParseOptions::new().parsing_mode(ParsingMode::Relaxed);
+        let mut tag = match Probe::open(file_path).and_then(|p| p.options(parse_opts).read()) {
+            Ok(mut tagged_file) => match tagged_file.primary_tag_mut() {
+                Some(t) => t.clone(),
+                None => {
+                    let ptype = tagged_file.primary_tag_type();
+                    tagged_file.insert_tag(Tag::new(ptype));
+                    tagged_file.primary_tag_mut()
+                        .map(|t| t.clone())
+                        .unwrap_or_else(|| Tag::new(ptype))
                 }
-                Err(e) => {
-                    return Err(format!("Failed to decode cover image base64: {}", e));
+            },
+            Err(_) => {
+                let ptype = match file_path.extension().and_then(|s| s.to_str()).map(|s| s.to_ascii_lowercase()).as_deref() {
+                    Some("flac") | Some("ogg") | Some("opus") => TagType::VorbisComments,
+                    Some("m4a") | Some("mp4") | Some("aac") => TagType::Mp4Ilst,
+                    Some("wav") => TagType::RiffInfo,
+                    _ => TagType::VorbisComments,
+                };
+                Tag::new(ptype)
+            }
+        };
+
+        if let Some(ref title) = updates.title {
+            tag.set_title(title.clone());
+        }
+        if let Some(ref artist) = updates.artist {
+            tag.set_artist(artist.clone());
+        }
+        if let Some(ref album) = updates.album {
+            tag.set_album(album.clone());
+        }
+        if let Some(ref genre) = updates.genre {
+            tag.set_genre(genre.clone());
+        }
+        if let Some(year) = updates.year {
+            tag.set_year(year);
+        }
+        if let Some(track_num) = updates.track_number {
+            if track_num == 0 {
+                tag.remove_track();
+            } else {
+                tag.set_track(track_num);
+            }
+        }
+        if let Some(track_tot) = updates.track_total {
+            if track_tot == 0 {
+                tag.remove_track_total();
+            } else {
+                tag.set_track_total(track_tot);
+            }
+        }
+        if let Some(ref comp) = updates.composer {
+            if comp.trim().is_empty() {
+                tag.remove_key(&ItemKey::Composer);
+            } else {
+                tag.insert_text(ItemKey::Composer, comp.clone());
+            }
+        }
+        if let Some(ref cg) = updates.content_group {
+            if cg.trim().is_empty() {
+                tag.remove_key(&ItemKey::ContentGroup);
+            } else {
+                tag.insert_text(ItemKey::ContentGroup, cg.clone());
+            }
+        }
+        if let Some(ref com) = updates.comment {
+            if com.trim().is_empty() {
+                tag.remove_comment();
+                tag.remove_key(&ItemKey::Comment);
+            } else {
+                tag.set_comment(com.clone());
+            }
+        }
+        if let Some(ref cond) = updates.conductor {
+            if cond.trim().is_empty() {
+                tag.remove_key(&ItemKey::Conductor);
+            } else {
+                tag.insert_text(ItemKey::Conductor, cond.clone());
+            }
+        }
+        if let Some(ref lyr) = updates.lyricist {
+            if lyr.trim().is_empty() {
+                tag.remove_key(&ItemKey::Lyricist);
+            } else {
+                tag.insert_text(ItemKey::Lyricist, lyr.clone());
+            }
+        }
+        if let Some(ref ly) = updates.lyrics {
+            if ly.trim().is_empty() {
+                tag.remove_key(&ItemKey::Lyrics);
+            } else {
+                tag.insert_text(ItemKey::Lyrics, ly.clone());
+            }
+        }
+
+        if let Some(ref cover_art_data) = updates.cover_art {
+            while !tag.pictures().is_empty() {
+                tag.remove_picture(0);
+            }
+            let trimmed = cover_art_data.trim();
+            if !trimmed.is_empty() {
+                let (mime_str, b64_data) = if let Some(idx) = trimmed.find(";base64,") {
+                    let prefix = &trimmed[..idx];
+                    let mime = if prefix.starts_with("data:") {
+                        &prefix[5..]
+                    } else {
+                        "image/jpeg"
+                    };
+                    (mime, &trimmed[idx + 8..])
+                } else {
+                    ("image/jpeg", trimmed)
+                };
+
+                let clean_data: String = b64_data.chars().filter(|c| !c.is_whitespace() && *c != '"' && *c != '\'').collect();
+                let decoded = BASE64_STANDARD
+                    .decode(clean_data.as_bytes())
+                    .or_else(|_| BASE64_STANDARD_NO_PAD.decode(clean_data.as_bytes()))
+                    .or_else(|_| BASE64_URL_SAFE.decode(clean_data.as_bytes()))
+                    .or_else(|_| BASE64_URL_SAFE_NO_PAD.decode(clean_data.as_bytes()))
+                    .map_err(|e| format!("Failed to decode cover image base64: {}", e))?;
+
+                if !decoded.is_empty() {
+                    let mime_type = if decoded.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+                        MimeType::Png
+                    } else if decoded.starts_with(&[0xFF, 0xD8, 0xFF]) {
+                        MimeType::Jpeg
+                    } else {
+                        match mime_str {
+                            "image/png" => MimeType::Png,
+                            _ => MimeType::Jpeg,
+                        }
+                    };
+                    let pic = Picture::new_unchecked(PictureType::CoverFront, Some(mime_type), None, decoded);
+                    tag.push_picture(pic);
                 }
             }
         }
+
+        let write_options = WriteOptions::default();
+        tag.save_to_path(file_path, write_options)
+            .map_err(|e| format!("Failed to save tags to {}: {}", path_str, e))?;
     }
 
-    write_clean_tags_to_file(file_path, &tag, is_mp3).map_err(|e| format!("Failed to save tags to {}: {}", path_str, e))?;
     Ok(())
 }
 
@@ -747,65 +981,12 @@ fn save_cover_image(data_url: String, default_filename: Option<String>) -> Resul
 
 #[tauri::command]
 fn save_track_lyrics(path: String, lyrics: String, lyricist: Option<String>) -> Result<bool, String> {
-    let file_path = Path::new(&path);
-    if !file_path.is_file() {
-        return Err("File not found".to_string());
-    }
-
-    if let Ok(meta) = std::fs::metadata(file_path) {
-        let mut perms = meta.permissions();
-        if perms.readonly() {
-            perms.set_readonly(false);
-            let _ = std::fs::set_permissions(file_path, perms);
-        }
-    }
-
-    let is_mp3 = file_path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("mp3"));
-
-    let parse_opts = ParseOptions::new().parsing_mode(ParsingMode::Relaxed);
-    let mut tag = match Probe::open(file_path).and_then(|p| p.options(parse_opts).read()) {
-        Ok(mut tagged_file) => {
-            if is_mp3 {
-                if tagged_file.tag(TagType::Id3v2).is_none() {
-                    tagged_file.insert_tag(Tag::new(TagType::Id3v2));
-                }
-                tagged_file.tag_mut(TagType::Id3v2)
-                    .map(|t| t.clone())
-                    .unwrap_or_else(|| Tag::new(TagType::Id3v2))
-            } else {
-                match tagged_file.primary_tag_mut() {
-                    Some(t) => t.clone(),
-                    None => {
-                        let ptype = tagged_file.primary_tag_type();
-                        tagged_file.insert_tag(Tag::new(ptype));
-                        tagged_file.primary_tag_mut()
-                            .map(|t| t.clone())
-                            .unwrap_or_else(|| Tag::new(ptype))
-                    }
-                }
-            }
-        }
-        Err(_) => {
-            let default_tag_type = if is_mp3 { TagType::Id3v2 } else { TagType::VorbisComments };
-            Tag::new(default_tag_type)
-        }
+    let updates = TagUpdates {
+        lyrics: Some(lyrics),
+        lyricist,
+        ..Default::default()
     };
-
-    if lyrics.trim().is_empty() {
-        tag.remove_key(&ItemKey::Lyrics);
-    } else {
-        tag.insert_text(ItemKey::Lyrics, lyrics);
-    }
-
-    if let Some(lyr) = lyricist {
-        if lyr.trim().is_empty() {
-            tag.remove_key(&ItemKey::Lyricist);
-        } else {
-            tag.insert_text(ItemKey::Lyricist, lyr);
-        }
-    }
-
-    write_clean_tags_to_file(file_path, &tag, is_mp3).map_err(|e| e.to_string())?;
+    apply_tag_updates_to_file(&path, &updates)?;
     Ok(true)
 }
 
