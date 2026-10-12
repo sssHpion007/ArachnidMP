@@ -1475,11 +1475,8 @@ export const App: React.FC = () => {
         const baseTime = pendingSeekTimeRef.current !== null ? pendingSeekTimeRef.current : audioEngine.getCurrentTime();
         const nextTime = Math.max(0, Math.min(dur > 0 ? dur : Infinity, baseTime - 5));
 
-        if (pendingSeekTimeRef.current === null) {
-          wasPlayingBeforeArrowRef.current = isPlaying;
-          if (isPlaying) {
-            audioEngine.pause();
-          }
+        if (pendingSeekTimeRef.current === null && isPlaying) {
+          audioEngine.scrubHold();
         }
 
         pendingSeekTimeRef.current = nextTime;
@@ -1494,9 +1491,8 @@ export const App: React.FC = () => {
           pendingSeekTimeRef.current = null;
           if (finalTime !== null) {
             audioEngine.seek(finalTime);
-            if (wasPlayingBeforeArrowRef.current) {
-              audioEngine.resume();
-            }
+          } else {
+            audioEngine.scrubCancel();
           }
           audioEngine.setScrubbing(false);
         }, 220);
@@ -1506,11 +1502,8 @@ export const App: React.FC = () => {
         const baseTime = pendingSeekTimeRef.current !== null ? pendingSeekTimeRef.current : audioEngine.getCurrentTime();
         const nextTime = Math.max(0, Math.min(dur > 0 ? dur : Infinity, baseTime + 5));
 
-        if (pendingSeekTimeRef.current === null) {
-          wasPlayingBeforeArrowRef.current = isPlaying;
-          if (isPlaying) {
-            audioEngine.pause();
-          }
+        if (pendingSeekTimeRef.current === null && isPlaying) {
+          audioEngine.scrubHold();
         }
 
         pendingSeekTimeRef.current = nextTime;
@@ -1525,9 +1518,8 @@ export const App: React.FC = () => {
           pendingSeekTimeRef.current = null;
           if (finalTime !== null) {
             audioEngine.seek(finalTime);
-            if (wasPlayingBeforeArrowRef.current) {
-              audioEngine.resume();
-            }
+          } else {
+            audioEngine.scrubCancel();
           }
           audioEngine.setScrubbing(false);
         }, 220);

@@ -1659,6 +1659,8 @@ pub fn run() {
             native_resume,
             native_stop,
             native_seek,
+            native_scrub_hold,
+            native_scrub_cancel,
             native_set_volume,
             native_set_repeat_one,
             native_set_fade_config,
@@ -2053,6 +2055,16 @@ fn native_stop(state: tauri::State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 fn native_seek(state: tauri::State<'_, AppState>, seconds: f64) -> Result<(), String> {
     state.player.seek(seconds)
+}
+
+#[tauri::command]
+fn native_scrub_hold(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.player.scrub_hold()
+}
+
+#[tauri::command]
+fn native_scrub_cancel(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.player.scrub_cancel()
 }
 
 #[tauri::command]

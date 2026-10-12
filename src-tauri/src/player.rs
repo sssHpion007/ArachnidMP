@@ -22,6 +22,8 @@ pub enum PlayerCmd {
     Seek {
         position_secs: f64,
     },
+    ScrubHold,
+    ScrubCancel,
     SetVolume {
         volume: f32,
     },
@@ -132,6 +134,20 @@ impl NativePlayer {
             .map_err(|e| e.to_string())
     }
 
+    pub fn scrub_hold(&self) -> Result<(), String> {
+        let sender = self.sender.lock().map_err(|e| e.to_string())?;
+        sender
+            .send(PlayerCmd::ScrubHold)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn scrub_cancel(&self) -> Result<(), String> {
+        let sender = self.sender.lock().map_err(|e| e.to_string())?;
+        sender
+            .send(PlayerCmd::ScrubCancel)
+            .map_err(|e| e.to_string())
+    }
+
     pub fn set_volume(&self, volume: f32) -> Result<(), String> {
         let sender = self.sender.lock().map_err(|e| e.to_string())?;
         sender
@@ -170,16 +186,19 @@ impl NativePlayer {
     }
 }
 
-fn fade_sink_volume(sink: &Sink, from: f32, to: f32, duration_secs: f64) {
-    let dur_ms = (duration_secs * 1000.0).max(20.0).min(5000.0) as u64;
-    let step_ms = 15u64;
-    let steps = (dur_ms / step_ms).max(2);
+fn ramp_sink_volume(sink: &Sink, from: f32, to: f32, duration_ms: u64) {
+    if (from - to).abs() < 0.001 {
+        sink.set_volume(to.clamp(0.0, 1.0));
+        return;
+    }
+    let steps = (duration_ms / 2).max(4); // 2ms per step
+    let step_dur = Duration::from_millis(2);
     for i in 1..=steps {
         let t = i as f32 / steps as f32;
         let smooth_t = t * t * (3.0 - 2.0 * t);
         let vol = from + (to - from) * smooth_t;
         sink.set_volume(vol.clamp(0.0, 1.0));
-        std::thread::sleep(Duration::from_millis(step_ms));
+        std::thread::sleep(step_dur);
     }
     sink.set_volume(to.clamp(0.0, 1.0));
 }
@@ -239,6 +258,7 @@ fn run_player_thread(
     let mut current_path: Option<String> = None;
     let mut is_playing = false;
     let mut is_paused = false;
+    let mut is_scrub_holding = false;
     let mut repeat_one = false;
     let mut current_duration = 0.0;
     let mut play_start_pos = 0.0;
@@ -348,10 +368,10 @@ fn run_player_thread(
                     // Smooth fade out of previous track if currently playing
                     if is_playing && !is_paused && current_volume > 0.01 {
                         if fade_mode != "off" && fade_duration > 0.05 {
-                            let fade_out_dur = fade_duration.min(0.6).max(0.08);
-                            fade_sink_volume(&sink, current_volume, 0.0, fade_out_dur);
+                            let fade_out_dur = (fade_duration.min(0.6).max(0.08) * 1000.0) as u64;
+                            ramp_sink_volume(&sink, current_volume, 0.0, fade_out_dur);
                         } else {
-                            fade_sink_volume(&sink, current_volume, 0.0, 0.035);
+                            ramp_sink_volume(&sink, current_volume, 0.0, 15);
                         }
                     }
 
@@ -397,10 +417,10 @@ fn run_player_thread(
                                 sink.play();
 
                                 if fade_mode != "off" && fade_duration > 0.05 && user_target_volume > 0.01 {
-                                    let fade_in_dur = fade_duration.min(2.0).max(0.08);
-                                    fade_sink_volume(&sink, 0.0, user_target_volume, fade_in_dur);
+                                    let fade_in_dur = (fade_duration.min(2.0).max(0.08) * 1000.0) as u64;
+                                    ramp_sink_volume(&sink, 0.0, user_target_volume, fade_in_dur);
                                 } else {
-                                    fade_sink_volume(&sink, 0.0, user_target_volume, 0.035);
+                                    ramp_sink_volume(&sink, 0.0, user_target_volume, 15);
                                 }
 
                                 current_volume = user_target_volume;
@@ -421,16 +441,16 @@ fn run_player_thread(
                 }
                 PlayerCmd::Pause => {
                     active_volume_fade = None;
+                    is_scrub_holding = false;
                     if is_playing && !is_paused {
                         if fade_mode != "off" && fade_duration > 0.05 && current_volume > 0.01 {
-                            let fade_out_dur = fade_duration.min(1.0).max(0.08);
-                            fade_sink_volume(&sink, current_volume, 0.0, fade_out_dur);
+                            let fade_out_dur = (fade_duration.min(1.0).max(0.08) * 1000.0) as u64;
+                            ramp_sink_volume(&sink, current_volume, 0.0, fade_out_dur);
                         } else {
-                            fade_sink_volume(&sink, current_volume, 0.0, 0.035);
+                            ramp_sink_volume(&sink, current_volume, 0.0, 15);
                         }
                         sink.pause();
-                        current_volume = user_target_volume;
-                        sink.set_volume(current_volume);
+                        current_volume = 0.0;
                         is_paused = true;
                         let elapsed = play_start_instant.elapsed().as_secs_f64();
                         play_start_pos = (play_start_pos + elapsed).min(if current_duration > 0.0 { current_duration } else { f64::MAX });
@@ -438,6 +458,7 @@ fn run_player_thread(
                 }
                 PlayerCmd::Resume => {
                     active_volume_fade = None;
+                    is_scrub_holding = false;
                     if is_playing && is_paused {
                         // Immediately ensure we are routing to the active default audio device
                         if let Some(dev) = rodio::cpal::default_host().default_output_device() {
@@ -475,33 +496,53 @@ fn run_player_thread(
 
                         is_paused = false;
                         play_start_instant = Instant::now();
+                        sink.play();
+
                         if fade_mode != "off" && fade_duration > 0.05 && user_target_volume > 0.01 {
-                            sink.set_volume(0.0);
-                            sink.play();
-                            let fade_in_dur = fade_duration.min(2.0).max(0.08);
-                            fade_sink_volume(&sink, 0.0, user_target_volume, fade_in_dur);
+                            let fade_in_dur = (fade_duration.min(2.0).max(0.08) * 1000.0) as u64;
+                            ramp_sink_volume(&sink, 0.0, user_target_volume, fade_in_dur);
                         } else {
-                            sink.set_volume(0.0);
-                            sink.play();
-                            fade_sink_volume(&sink, 0.0, user_target_volume, 0.035);
+                            ramp_sink_volume(&sink, 0.0, user_target_volume, 15);
                         }
                         current_volume = user_target_volume;
-                        sink.set_volume(current_volume);
                     }
                 }
                 PlayerCmd::Stop => {
                     active_volume_fade = None;
+                    is_scrub_holding = false;
                     if is_playing && !is_paused && current_volume > 0.005 {
-                        fade_sink_volume(&sink, current_volume, 0.0, 0.035);
+                        ramp_sink_volume(&sink, current_volume, 0.0, 15);
                     }
                     sink.stop();
-                    current_volume = user_target_volume;
-                    sink.set_volume(current_volume);
+                    current_volume = 0.0;
                     is_playing = false;
                     is_paused = false;
                     current_path = None;
                     play_start_pos = 0.0;
                     preloaded_next_loop = false;
+                }
+                PlayerCmd::ScrubHold => {
+                    active_volume_fade = None;
+                    if is_playing && !is_paused && !is_scrub_holding {
+                        ramp_sink_volume(&sink, current_volume, 0.0, 12);
+                        sink.pause();
+                        current_volume = 0.0;
+                        is_scrub_holding = true;
+                        let elapsed = play_start_instant.elapsed().as_secs_f64();
+                        play_start_pos = (play_start_pos + elapsed).min(if current_duration > 0.0 { current_duration } else { f64::MAX });
+                        logger::log("AUDIO", "SEEK", "ScrubHold: audio held in silence for scrubbing");
+                    }
+                }
+                PlayerCmd::ScrubCancel => {
+                    if is_scrub_holding {
+                        is_scrub_holding = false;
+                        if is_playing && !is_paused {
+                            sink.play();
+                            ramp_sink_volume(&sink, 0.0, user_target_volume, 12);
+                            current_volume = user_target_volume;
+                            logger::log("AUDIO", "SEEK", "ScrubCancel: audio resumed from pre-scrub position");
+                        }
+                    }
                 }
                 PlayerCmd::Seek { position_secs } => {
                     let t0 = Instant::now();
@@ -511,11 +552,19 @@ fn run_player_thread(
                     preloaded_next_loop = false;
                     active_volume_fade = None;
 
-                    logger::log("AUDIO", "SEEK", &format!("Seek requested: target={:.3}s (safe={:.3}s, total_dur={:.3}s, is_paused={})", position_secs, safe_pos, current_duration, is_paused));
+                    let should_resume = !is_paused;
+                    is_scrub_holding = false;
+
+                    // Micro-ramp to silence before switching source to prevent waveform step discontinuity
+                    if is_playing && should_resume && current_volume > 0.01 {
+                        ramp_sink_volume(&sink, current_volume, 0.0, 12);
+                    }
+
+                    logger::log("AUDIO", "SEEK", &format!("Seek requested: target={:.3}s (safe={:.3}s, total_dur={:.3}s, is_paused={}, should_resume={})", position_secs, safe_pos, current_duration, is_paused, should_resume));
 
                     let mut seek_done = false;
 
-                    // Gapless queue transition: append new decoder and skip previous sound (same mechanism as repeat loop)
+                    // Gapless queue transition: append new decoder and skip previous sound
                     if let Some(ref path) = current_path {
                         if let Ok(file) = File::open(path) {
                             if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
@@ -537,10 +586,13 @@ fn run_player_thread(
                                     sink.skip_one();
                                 }
 
-                                if !is_paused {
+                                if should_resume {
                                     sink.play();
+                                    ramp_sink_volume(&sink, 0.0, user_target_volume, 12);
+                                    current_volume = user_target_volume;
                                 } else {
                                     sink.pause();
+                                    current_volume = 0.0;
                                 }
 
                                 seek_done = true;
@@ -550,6 +602,14 @@ fn run_player_thread(
 
                     if !seek_done {
                         let _ = sink.try_seek(target_dur);
+                        if should_resume {
+                            sink.play();
+                            ramp_sink_volume(&sink, 0.0, user_target_volume, 12);
+                            current_volume = user_target_volume;
+                        } else {
+                            sink.pause();
+                            current_volume = 0.0;
+                        }
                     }
 
                     play_start_pos = safe_pos;
@@ -575,7 +635,7 @@ fn run_player_thread(
                 }
                 PlayerCmd::SetVolume { volume } => {
                     user_target_volume = volume;
-                    if active_volume_fade.is_none() {
+                    if active_volume_fade.is_none() && !is_paused && !is_scrub_holding {
                         current_volume = volume;
                         sink.set_volume(volume);
                     }

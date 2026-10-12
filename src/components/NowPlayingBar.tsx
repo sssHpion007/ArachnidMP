@@ -232,11 +232,6 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
     isScrubbingRef.current = false;
     wasPlayingBeforeDragRef.current = isPlaying;
 
-    // Immediately pause audio when user starts interacting with the timeline
-    if (isPlaying) {
-      audioEngine.pause();
-    }
-
     const rect = progressBarRef.current.getBoundingClientRect();
     const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const targetTime = pos * safeDuration;
@@ -259,6 +254,9 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
         isScrubbingRef.current = true;
         setIsScrubbing(true);
         audioEngine.setScrubbing(true);
+        if (isPlaying) {
+          audioEngine.scrubHold();
+        }
       }
       if (isScrubbingRef.current) {
         setScrubPosition(targetTime);
@@ -293,19 +291,14 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
       if (wasScrubbing) {
         audioEngine.setScrubbing(false);
       }
-      logger.audio('TIMELINE', `pointerup: seeking to ${targetTime.toFixed(3)}s (wasScrubbing=${wasScrubbing}, resume=${wasPlayingBeforeDragRef.current})`);
+      logger.audio('TIMELINE', `pointerup: seeking to ${targetTime.toFixed(3)}s (wasScrubbing=${wasScrubbing})`);
       onSeek(targetTime);
-      if (wasPlayingBeforeDragRef.current) {
-        audioEngine.resume();
-      }
     } else {
       setScrubPosition(null);
       if (wasScrubbing) {
         audioEngine.setScrubbing(false);
       }
-      if (wasPlayingBeforeDragRef.current) {
-        audioEngine.resume();
-      }
+      audioEngine.scrubCancel();
     }
   };
 
@@ -323,9 +316,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
     if (wasScrubbing) {
       audioEngine.setScrubbing(false);
     }
-    if (wasPlayingBeforeDragRef.current) {
-      audioEngine.resume();
-    }
+    audioEngine.scrubCancel();
   };
 
   const isNarrow = windowWidth < 780;

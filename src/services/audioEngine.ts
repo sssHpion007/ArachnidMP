@@ -218,6 +218,26 @@ class AudioEngine {
     this.isScrubbing = isScrubbing;
   }
 
+  public scrubHold(): void {
+    if (this.isUsingNative && isTauri()) {
+      invoke('native_scrub_hold').catch(() => {});
+      return;
+    }
+    if (this.isPlaying) {
+      try { this.audio.pause(); } catch (_) {}
+    }
+  }
+
+  public scrubCancel(): void {
+    if (this.isUsingNative && isTauri()) {
+      invoke('native_scrub_cancel').catch(() => {});
+      return;
+    }
+    if (this.isPlaying) {
+      try { this.audio.play().catch(() => {}); } catch (_) {}
+    }
+  }
+
   public getEffectiveVolume(): number {
     return this.isMuted ? 0 : this.targetVolume;
   }
