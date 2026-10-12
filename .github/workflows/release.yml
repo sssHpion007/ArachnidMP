@@ -36,16 +36,27 @@ jobs:
         run: npm run build
 
       - name: Build Tauri Desktop Portable
-        shell: pwsh
+        shell: cmd
         run: |
-          npx tauri build --no-bundle 2>&1 | Tee-Object -FilePath build.log
-          if ($LASTEXITCODE -ne 0) {
-            "### ❌ Tauri Build Failed (Last 150 lines):" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8
-            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-            Get-Content build.log -Tail 150 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-            exit 1
-          }
+          call npx tauri build --no-bundle > build.log 2>&1
+          if %ERRORLEVEL% neq 0 (
+            type build.log
+            exit /b %ERRORLEVEL%
+          )
+
+      - name: Publish Failure Log
+        if: failure()
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build.log
+          tag_name: ${{ github.ref_name || 'v0.1.0' }}
+          name: Build Failed ${{ github.ref_name || 'v0.1.0' }}
+          draft: false
+          prerelease: true
+          body: |
+            Build failed on Windows runner. Log attached.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prepare Portable Artifacts
         shell: pwsh
