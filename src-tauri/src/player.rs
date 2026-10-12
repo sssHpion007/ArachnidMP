@@ -268,15 +268,19 @@ fn run_player_thread(
                     play_start_pos = 0.0;
                 }
                 PlayerCmd::Seek { position_secs } => {
-                    if let Some(ref path) = current_path {
+                    let max_dur = if current_duration > 0.1 { current_duration - 0.05 } else { position_secs };
+                    let safe_pos = position_secs.max(0.0).min(max_dur);
+                    let target_dur = Duration::from_secs_f64(safe_pos);
+
+                    if sink.try_seek(target_dur).is_ok() {
+                        play_start_pos = safe_pos;
+                        play_start_instant = Instant::now();
+                    } else if let Some(ref path) = current_path {
                         sink.stop();
                         if let Ok(file) = File::open(path) {
                             if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
-                                let max_dur = if current_duration > 0.1 { current_duration - 0.05 } else { position_secs };
-                                let safe_pos = position_secs.max(0.0).min(max_dur);
-
                                 if safe_pos > 0.05 {
-                                    let skipped = decoder.skip_duration(Duration::from_secs_f64(safe_pos));
+                                    let skipped = decoder.skip_duration(target_dur);
                                     sink.append(skipped);
                                 } else {
                                     sink.append(decoder);
