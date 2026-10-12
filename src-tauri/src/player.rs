@@ -196,6 +196,13 @@ fn run_player_thread(
                     volume,
                     duration_hint,
                 } => {
+                    if is_playing && !is_paused && current_volume > 0.005 {
+                        let fade_steps = 3;
+                        for i in (0..fade_steps).rev() {
+                            sink.set_volume(current_volume * (i as f32 / fade_steps as f32));
+                            std::thread::sleep(Duration::from_millis(2));
+                        }
+                    }
                     sink.stop();
                     current_volume = volume;
                     sink.set_volume(volume);
@@ -247,7 +254,15 @@ fn run_player_thread(
                 }
                 PlayerCmd::Pause => {
                     if is_playing && !is_paused {
+                        if current_volume > 0.005 {
+                            let fade_steps = 3;
+                            for i in (0..fade_steps).rev() {
+                                sink.set_volume(current_volume * (i as f32 / fade_steps as f32));
+                                std::thread::sleep(Duration::from_millis(2));
+                            }
+                        }
                         sink.pause();
+                        sink.set_volume(current_volume);
                         is_paused = true;
                         let elapsed = play_start_instant.elapsed().as_secs_f64();
                         play_start_pos = (play_start_pos + elapsed).min(if current_duration > 0.0 { current_duration } else { f64::MAX });
@@ -255,13 +270,30 @@ fn run_player_thread(
                 }
                 PlayerCmd::Resume => {
                     if is_playing && is_paused {
+                        sink.set_volume(0.0);
                         sink.play();
                         is_paused = false;
                         play_start_instant = Instant::now();
+                        if current_volume > 0.005 {
+                            let fade_steps = 3;
+                            for i in 1..=fade_steps {
+                                sink.set_volume(current_volume * (i as f32 / fade_steps as f32));
+                                std::thread::sleep(Duration::from_millis(2));
+                            }
+                        }
+                        sink.set_volume(current_volume);
                     }
                 }
                 PlayerCmd::Stop => {
+                    if is_playing && !is_paused && current_volume > 0.005 {
+                        let fade_steps = 3;
+                        for i in (0..fade_steps).rev() {
+                            sink.set_volume(current_volume * (i as f32 / fade_steps as f32));
+                            std::thread::sleep(Duration::from_millis(2));
+                        }
+                    }
                     sink.stop();
+                    sink.set_volume(current_volume);
                     is_playing = false;
                     is_paused = false;
                     current_path = None;
@@ -272,7 +304,18 @@ fn run_player_thread(
                     let safe_pos = position_secs.max(0.0).min(max_dur);
                     let target_dur = Duration::from_secs_f64(safe_pos);
 
-                    if sink.try_seek(target_dur).is_ok() {
+                    // Micro-fade envelope (12ms out) to eliminate pops and crackles
+                    if is_playing && !is_paused && current_volume > 0.005 {
+                        let fade_steps = 4;
+                        for i in (0..fade_steps).rev() {
+                            sink.set_volume(current_volume * (i as f32 / fade_steps as f32));
+                            std::thread::sleep(Duration::from_millis(3));
+                        }
+                        sink.set_volume(0.0);
+                    }
+
+                    let seek_ok = sink.try_seek(target_dur).is_ok();
+                    if seek_ok {
                         play_start_pos = safe_pos;
                         play_start_instant = Instant::now();
                     } else if let Some(ref path) = current_path {
@@ -296,6 +339,32 @@ fn run_player_thread(
                             }
                         }
                     }
+
+                    // Micro-fade envelope (15ms in) back to target volume
+                    if is_playing && !is_paused && current_volume > 0.005 {
+                        let fade_steps = 5;
+                        for i in 1..=fade_steps {
+                            sink.set_volume(current_volume * (i as f32 / fade_steps as f32));
+                            std::thread::sleep(Duration::from_millis(3));
+                        }
+                    }
+                    sink.set_volume(current_volume);
+
+                    // Immediately update shared state and emit time-update
+                    if let Ok(mut s) = shared_state.lock() {
+                        s.position = safe_pos;
+                    }
+                    if let Ok(guard) = app_handle.lock() {
+                        if let Some(ref handle) = *guard {
+                            let _ = handle.emit(
+                                "audio://time-update",
+                                serde_json::json!({
+                                    "position": safe_pos,
+                                    "duration": current_duration,
+                                }),
+                            );
+                        }
+                    }
                 }
                 PlayerCmd::SetVolume { volume } => {
                     current_volume = volume;
@@ -312,15 +381,16 @@ fn run_player_thread(
             let elapsed = play_start_instant.elapsed().as_secs_f64();
             let current_pos = play_start_pos + elapsed;
 
-            // Check if track reached end
-            let is_ended = sink.empty() || (current_duration > 0.5 && current_pos >= current_duration);
+            // Check if track reached end:
+            // Crucial: Only rely on sink.empty(), or a generous safety fallback past the duration
+            // NEVER cut off early with (current_pos >= current_duration) which severed the last 200-500ms!
+            let is_ended = sink.empty() || (current_duration > 1.0 && current_pos >= current_duration + 2.0);
 
             if is_ended {
                 if repeat_one {
                     if let Some(ref path) = current_path {
                         if let Ok(file) = File::open(path) {
                             if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
-                                sink.stop();
                                 sink.append(decoder);
                                 sink.play();
                                 play_start_pos = 0.0;
@@ -328,11 +398,19 @@ fn run_player_thread(
 
                                 if let Ok(mut s) = shared_state.lock() {
                                     s.loop_repeated = true;
+                                    s.position = 0.0;
                                 }
 
                                 if let Ok(guard) = app_handle.lock() {
                                     if let Some(ref handle) = *guard {
                                         let _ = handle.emit("audio://loop-repeat", ());
+                                        let _ = handle.emit(
+                                            "audio://time-update",
+                                            serde_json::json!({
+                                                "position": 0.0,
+                                                "duration": current_duration,
+                                            }),
+                                        );
                                     }
                                 }
                             }
@@ -345,15 +423,24 @@ fn run_player_thread(
 
                     if let Ok(mut s) = shared_state.lock() {
                         s.track_ended = true;
+                        s.is_playing = false;
+                        s.position = 0.0;
                     }
 
                     if let Ok(guard) = app_handle.lock() {
                         if let Some(ref handle) = *guard {
                             let _ = handle.emit("audio://track-ended", ());
+                            let _ = handle.emit(
+                                "audio://time-update",
+                                serde_json::json!({
+                                    "position": 0.0,
+                                    "duration": current_duration,
+                                }),
+                            );
                         }
                     }
                 }
-            } else if last_emit_instant.elapsed().as_millis() >= 80 {
+            } else if last_emit_instant.elapsed().as_millis() >= 60 {
                 last_emit_instant = Instant::now();
                 if let Ok(guard) = app_handle.lock() {
                     if let Some(ref handle) = *guard {

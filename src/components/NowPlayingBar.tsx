@@ -90,6 +90,8 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   const [visBars, setVisBars] = useState<number[]>([20, 40, 60, 80, 50, 30, 70, 25]);
   const [isScrubbing, setIsScrubbing] = useState<boolean>(false);
   const [scrubPosition, setScrubPosition] = useState<number | null>(null);
+  const [optimisticSeekTime, setOptimisticSeekTime] = useState<number | null>(null);
+  const optimisticSeekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isScrubbingRef = useRef<boolean>(false);
   const isPointerDownRef = useRef<boolean>(false);
   const startPointerXRef = useRef<number>(0);
@@ -97,6 +99,16 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   const animFrameRef = useRef<number | null>(null);
   const [isCompactVolHovered, setIsCompactVolHovered] = useState<boolean>(false);
   const volHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (optimisticSeekTime !== null && Math.abs(currentTime - optimisticSeekTime) < 1.0) {
+      setOptimisticSeekTime(null);
+      if (optimisticSeekTimerRef.current) {
+        clearTimeout(optimisticSeekTimerRef.current);
+        optimisticSeekTimerRef.current = null;
+      }
+    }
+  }, [currentTime, optimisticSeekTime]);
 
   const handleVolMouseEnter = () => {
     if (volHoverTimeoutRef.current) {
@@ -201,7 +213,9 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
 
   const safeDuration = (duration > 0 && isFinite(duration) && !isNaN(duration)) ? duration : (currentTrack?.duration || 0);
   const safeCurrentTime = Math.max(0, Math.min(safeDuration > 0 ? safeDuration : Infinity, currentTime || 0));
-  const effectiveDisplayTime = isScrubbing && scrubPosition !== null ? scrubPosition : safeCurrentTime;
+  const effectiveDisplayTime = scrubPosition !== null
+    ? scrubPosition
+    : (optimisticSeekTime !== null ? optimisticSeekTime : safeCurrentTime);
   const progressPercent = safeDuration > 0 ? Math.min(100, Math.max(0, (effectiveDisplayTime / safeDuration) * 100)) : 0;
   const remainingTime = Math.max(0, safeDuration - effectiveDisplayTime);
 
@@ -259,6 +273,14 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
       const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
       const targetTime = pos * safeDuration;
       setScrubPosition(null);
+      setOptimisticSeekTime(targetTime);
+      if (optimisticSeekTimerRef.current) {
+        clearTimeout(optimisticSeekTimerRef.current);
+      }
+      optimisticSeekTimerRef.current = setTimeout(() => {
+        setOptimisticSeekTime(null);
+      }, 400);
+
       if (wasScrubbing) {
         audioEngine.setScrubbing(false);
       }
@@ -281,6 +303,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
     isScrubbingRef.current = false;
     setIsScrubbing(false);
     setScrubPosition(null);
+    setOptimisticSeekTime(null);
     if (wasScrubbing) {
       audioEngine.setScrubbing(false);
     }

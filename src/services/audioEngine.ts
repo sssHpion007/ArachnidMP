@@ -51,6 +51,8 @@ class AudioEngine {
   private isScrubbing: boolean = false;
   private visualizerDataCache = new Uint8Array(16);
   private nativePoller: number | null = null;
+  private seekLatchUntil: number = 0;
+  private latchedPosition: number = 0;
 
   constructor() {
     this.audio = new Audio();
@@ -65,12 +67,25 @@ class AudioEngine {
 
   private initNativeListeners() {
     listen<{ position: number; duration: number }>('audio://time-update', (event) => {
-      if (!this.isScrubbing) {
-        const { position, duration } = event.payload;
-        if (duration > 0 && (!this.currentTrackDuration || this.currentTrackDuration <= 0)) {
-          this.currentTrackDuration = duration;
-          this.onDurationCallback?.(duration);
+      const { position, duration } = event.payload;
+      if (duration > 0 && (!this.currentTrackDuration || this.currentTrackDuration <= 0)) {
+        this.currentTrackDuration = duration;
+        this.onDurationCallback?.(duration);
+      }
+
+      // If we recently seeked, ignore stale updates that were in-flight
+      if (Date.now() < this.seekLatchUntil) {
+        if (Math.abs(position - this.latchedPosition) < 0.75) {
+          this.seekLatchUntil = 0;
+          this.playbackPosition = position;
+          if (!this.isScrubbing) {
+            this.onTimeUpdateCallback?.(position);
+          }
         }
+        return;
+      }
+
+      if (!this.isScrubbing) {
         this.playbackPosition = position;
         this.onTimeUpdateCallback?.(position);
       }
@@ -79,11 +94,13 @@ class AudioEngine {
     listen('audio://track-ended', () => {
       this.isPlaying = false;
       this.playbackPosition = 0;
+      this.seekLatchUntil = 0;
       this.onEndCallback?.();
     }).catch(() => {});
 
     listen('audio://loop-repeat', () => {
       this.playbackPosition = 0;
+      this.seekLatchUntil = 0;
       this.onLoopRepeatCallback?.();
       this.onTimeUpdateCallback?.(0);
     }).catch(() => {});
@@ -320,6 +337,7 @@ class AudioEngine {
 
   private startNativePoller() {
     this.stopNativePoller();
+    // Lightweight backup poller to catch edge cases if Tauri events miss
     this.nativePoller = window.setInterval(async () => {
       if (!this.isPlaying || !this.isUsingNative) {
         this.stopNativePoller();
@@ -335,27 +353,36 @@ class AudioEngine {
           loop_repeated: boolean;
         }>('native_get_state');
 
-        if (!this.isScrubbing) {
-          this.playbackPosition = state.position;
-          this.onTimeUpdateCallback?.(state.position);
-          if (state.duration > 0 && (!this.currentTrackDuration || this.currentTrackDuration <= 0)) {
-            this.currentTrackDuration = state.duration;
-            this.onDurationCallback?.(state.duration);
-          }
+        if (state.duration > 0 && (!this.currentTrackDuration || this.currentTrackDuration <= 0)) {
+          this.currentTrackDuration = state.duration;
+          this.onDurationCallback?.(state.duration);
         }
 
         if (state.loop_repeated) {
           this.playbackPosition = 0;
+          this.seekLatchUntil = 0;
           this.onLoopRepeatCallback?.();
           this.onTimeUpdateCallback?.(0);
         } else if (state.track_ended) {
           this.isPlaying = false;
           this.playbackPosition = 0;
+          this.seekLatchUntil = 0;
           this.stopNativePoller();
           this.onEndCallback?.();
+        } else if (Date.now() < this.seekLatchUntil) {
+          if (Math.abs(state.position - this.latchedPosition) < 0.75) {
+            this.seekLatchUntil = 0;
+            this.playbackPosition = state.position;
+            if (!this.isScrubbing) {
+              this.onTimeUpdateCallback?.(state.position);
+            }
+          }
+        } else if (!this.isScrubbing) {
+          this.playbackPosition = state.position;
+          this.onTimeUpdateCallback?.(state.position);
         }
       } catch (_) {}
-    }, 60);
+    }, 200);
   }
 
   private stopNativePoller() {
@@ -371,13 +398,21 @@ class AudioEngine {
     const safeSec = Math.max(0, Math.min(maxSafe, seconds));
 
     this.playbackPosition = safeSec;
+    this.latchedPosition = safeSec;
+    this.seekLatchUntil = Date.now() + 350;
 
     if (this.isUsingNative && isTauri()) {
       invoke('native_seek', { seconds: safeSec }).catch(() => {});
-      try {
-        this.audio.currentTime = safeSec;
-      } catch (_) {}
       this.onTimeUpdateCallback?.(safeSec);
+      if ('mediaSession' in navigator && dur > 0) {
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: dur,
+            playbackRate: 1,
+            position: safeSec,
+          });
+        } catch (_) {}
+      }
       return;
     }
 
