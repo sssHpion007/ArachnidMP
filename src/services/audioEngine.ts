@@ -79,12 +79,12 @@ class AudioEngine {
     });
 
     this.audio.addEventListener('ended', () => {
-      if (!this.isUsingWebAudio) {
-        this.handleTrackEnded();
-      } else if (this.repeatMode === 'one') {
-        // Keep HTMLAudio playing silently in loop to maintain Windows SMTC & Bluetooth headphone controls!
+      if (this.repeatMode === 'one') {
+        this.onLoopRepeatCallback?.();
         this.audio.currentTime = 0;
         this.audio.play().catch(() => {});
+      } else {
+        this.handleTrackEnded();
       }
     });
 
@@ -137,25 +137,7 @@ class AudioEngine {
   public setRepeatMode(mode: 'off' | 'all' | 'one') {
     if (this.repeatMode === mode) return;
     this.repeatMode = mode;
-
-    // If active playback is running via Web Audio buffer, update hardware loop flag and re-anchor timestamps!
-    // We normalize playbackPosition so that turning off loop mode after one or more repeats NEVER causes
-    // an accumulated timestamp overflow that cuts off playback or prematurely switches to the next track!
-    if (this.isUsingWebAudio && this.bufferSource && this.audioCtx) {
-      const dur = this.getDuration();
-      if (dur > 0) {
-        const curPos = this.getCurrentTime();
-        this.playbackPosition = curPos;
-        this.playbackStartTime = this.audioCtx.currentTime;
-        try {
-          this.audio.currentTime = curPos;
-          if (this.audio.paused && this.isPlaying) {
-            this.audio.play().catch(() => {});
-          }
-        } catch (_) {}
-      }
-      this.bufferSource.loop = (mode === 'one' && this.fadeMode !== 'always');
-    }
+    this.audio.loop = (mode === 'one' && this.fadeMode !== 'always');
   }
 
   public setScrubbing(isScrubbing: boolean): void {
@@ -317,36 +299,11 @@ class AudioEngine {
   }
 
   /**
-   * Reads raw audio bytes directly via Rust backend (std::fs::read) to bypass CORS and network lag
+   * Zero-overhead streaming mode: audio streams natively via HTMLAudioElement without allocating
+   * multi-hundred-megabyte PCM buffers and JSON number arrays in JavaScript heap.
    */
-  private async preloadBuffer(src: string, path?: string, reqId?: number): Promise<void> {
-    if (!src && !path) return;
-    try {
-      const ctx = this.getOrCreateAudioContext();
-      let arrayBuffer: ArrayBuffer;
-
-      if (isTauri() && path) {
-        const bytes = await invoke<number[]>('read_audio_binary', { path });
-        const uint8 = new Uint8Array(bytes);
-        arrayBuffer = uint8.buffer;
-      } else {
-        const response = await fetch(src);
-        arrayBuffer = await response.arrayBuffer();
-      }
-
-      const decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
-
-      if (reqId !== undefined && this.playRequestId !== reqId) return;
-
-      if (this.currentTrackSrc === src) {
-        this.currentBuffer = decodedBuffer;
-        this.currentTrackDuration = decodedBuffer.duration;
-        this.onDurationCallback?.(decodedBuffer.duration);
-      }
-    } catch (e) {
-      console.warn('Web Audio PCM preload fallback:', e);
-      this.currentBuffer = null;
-    }
+  private async preloadBuffer(_src: string, _path?: string, _reqId?: number): Promise<void> {
+    return;
   }
 
   /**
@@ -492,14 +449,6 @@ class AudioEngine {
           }
           this.lastRecordedAudioTime = curTime;
           this.playbackPosition = curTime;
-
-          // Seamless loop transition: switch to Web Audio buffer 60ms BEFORE HTMLAudioElement reaches EOF
-          // This eliminates the browser hardware buffer starvation pop that happens on the first repeat!
-          if (this.repeatMode === 'one' && this.currentBuffer && this.audioCtx && dur > 0.5) {
-            if (curTime >= dur - 0.060 && !this.isHandlingEnd) {
-              this.handleLoopRepeat();
-            }
-          }
         }
 
         const safeTime = Math.max(0, Math.min(dur > 0 ? dur : Infinity, curTime));
@@ -624,16 +573,8 @@ class AudioEngine {
     // Load HTMLAudioElement for instant streaming playback
     this.audio.src = src;
     this.audio.currentTime = 0;
+    this.audio.loop = (this.repeatMode === 'one' && this.fadeMode !== 'always');
     this.audio.load();
-
-    // Warm up AudioContext immediately on user playback gesture
-    const ctx = this.getOrCreateAudioContext();
-    if (ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
-    }
-
-    // Start background PCM decode in parallel via Rust
-    const loadPromise = this.preloadBuffer(src, nativePath, reqId);
 
     if (autoPlay) {
       const initialVol = this.fadeMode !== 'off' && (isDifferent || isTrackChange) ? 0 : this.getEffectiveVolume();
@@ -654,12 +595,6 @@ class AudioEngine {
         this.onErrorCallback?.(e);
       }
     }
-
-    loadPromise.then(() => {
-      // Buffer is now decoded and cached in RAM (this.currentBuffer).
-      // It is ready to be used seamlessly when the track loops at the end!
-      // We deliberately do NOT interrupt the actively playing audio stream mid-song!
-    });
   }
 
   public stop(): void {
@@ -777,33 +712,28 @@ class AudioEngine {
   public setEqGain(_bandIndex: number, _gainDb: number): void {}
   public applyEqPreset(_values: number[]): void {}
 
+  private visualizerDataCache = new Uint8Array(16);
+
   public getVisualizerData(): Uint8Array {
-    const bars = new Uint8Array(16);
     if (this.isPlaying) {
       const now = Date.now() / 150;
       for (let i = 0; i < 16; i++) {
         const val = Math.sin(now + i * 0.8) * 0.5 + 0.5;
-        bars[i] = Math.round(val * 180 + 40);
+        this.visualizerDataCache[i] = Math.round(val * 180 + 40);
       }
+    } else {
+      this.visualizerDataCache.fill(0);
     }
-    return bars;
+    return this.visualizerDataCache;
   }
 
   public getCurrentTime(): number {
-    if (this.isUsingWebAudio && this.currentBuffer && this.audioCtx) {
-      const dur = this.currentBuffer.duration;
-      const elapsed = Math.max(0, this.audioCtx.currentTime - this.playbackStartTime);
-      if (this.bufferSource?.loop && dur > 0) {
-        return Math.max(0, Math.min(dur, (this.playbackPosition + elapsed) % dur));
-      }
-      return Math.max(0, Math.min(dur > 0 ? dur : Infinity, this.playbackPosition + elapsed));
-    }
     const dur = this.currentTrackDuration || this.audio.duration;
     return Math.max(0, Math.min(dur || Infinity, this.isPlaying ? this.audio.currentTime : this.playbackPosition));
   }
 
   public getDuration(): number {
-    return this.currentTrackDuration || this.currentBuffer?.duration || this.audio.duration || 0;
+    return this.currentTrackDuration || this.audio.duration || 0;
   }
 }
 

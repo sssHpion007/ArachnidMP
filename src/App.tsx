@@ -309,10 +309,11 @@ export const App: React.FC = () => {
             setTracks(hydrated);
             verifyTracksExistence(hydrated);
 
-            // Auto-refresh metadata in background for existing tracks missing cover, artist, or lyrics
+            // Auto-refresh metadata in background only for tracks missing essential tags (Unknown title/artist or missing cover)
             if (isTauri()) {
               const pathsToRefresh = hydrated
-                .filter(t => t.path && (!t.coverArt || t.artist === 'Unknown Artist' || !t.lyrics))
+                .filter(t => t.path && (!t.coverArt || t.title === 'Unknown' || t.artist === 'Unknown Artist'))
+                .slice(0, 50)
                 .map(t => t.path as string);
               if (pathsToRefresh.length > 0) {
                 invoke<any[]>('read_audio_files', { paths: pathsToRefresh }).then(refreshed => {

@@ -164,11 +164,20 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Animated visualizer loop
+  // Animated visualizer loop (throttled to 15 FPS and active ONLY when visible on wide screens >= 1280px)
   useEffect(() => {
+    if (!isPlaying || windowWidth < 1280) {
+      setVisBars([15, 15, 15, 15, 15, 15, 15, 15]);
+      return;
+    }
+
     let active = true;
-    const updateVis = () => {
-      if (isPlaying) {
+    let lastUpdate = 0;
+
+    const updateVis = (time: number) => {
+      if (!active) return;
+      if (time - lastUpdate >= 66) {
+        lastUpdate = time;
         const data = audioEngine.getVisualizerData();
         if (data && data.length >= 8) {
           const step = Math.floor(data.length / 8);
@@ -179,12 +188,8 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
           }
           setVisBars(heights);
         }
-      } else {
-        setVisBars([15, 15, 15, 15, 15, 15, 15, 15]);
       }
-      if (active) {
-        animFrameRef.current = requestAnimationFrame(updateVis);
-      }
+      animFrameRef.current = requestAnimationFrame(updateVis);
     };
 
     animFrameRef.current = requestAnimationFrame(updateVis);
@@ -192,7 +197,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
       active = false;
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [isPlaying]);
+  }, [isPlaying, windowWidth]);
 
   const safeDuration = (duration > 0 && isFinite(duration) && !isNaN(duration)) ? duration : (currentTrack?.duration || 0);
   const safeCurrentTime = Math.max(0, Math.min(safeDuration > 0 ? safeDuration : Infinity, currentTime || 0));
