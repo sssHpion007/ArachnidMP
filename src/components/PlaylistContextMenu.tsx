@@ -1,12 +1,13 @@
 import React, { useEffect, useRef } from 'react';
 import { Play, ListPlus, Edit3, Trash2, ListX, Folder, FolderSymlink, Layers } from 'lucide-react';
-import { Playlist, PlaylistFolder, PlaylistGroup } from '../types/music';
+import { Playlist, PlaylistFolder, PlaylistGroup, Track } from '../types/music';
 import { AppLanguage } from '../i18n';
 
 interface PlaylistContextMenuProps {
   x: number;
   y: number;
   playlist: Playlist;
+  tracks?: Track[];
   folders?: PlaylistFolder[];
   groups?: PlaylistGroup[];
   language?: AppLanguage;
@@ -24,6 +25,7 @@ export const PlaylistContextMenu: React.FC<PlaylistContextMenuProps> = ({
   x,
   y,
   playlist,
+  tracks = [],
   folders = [],
   groups = [],
   language = 'ru',
@@ -37,6 +39,32 @@ export const PlaylistContextMenu: React.FC<PlaylistContextMenuProps> = ({
   onMoveToGroup,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const totalDuration = React.useMemo(() => {
+    let sum = 0;
+    const trackMap = new Map(tracks.map(t => [t.id, t]));
+    for (const tid of playlist.trackIds) {
+      const t = trackMap.get(tid);
+      if (t && t.duration && !isNaN(t.duration)) {
+        sum += t.duration;
+      }
+    }
+    return sum;
+  }, [playlist.trackIds, tracks]);
+
+  const formatDurationText = (sec: number) => {
+    if (!sec || sec <= 0) return '';
+    const hours = Math.floor(sec / 3600);
+    const minutes = Math.floor((sec % 3600) / 60);
+    const seconds = Math.floor(sec % 60);
+    if (hours > 0) {
+      return language === 'ru' ? `${hours} ч ${minutes} мин` : `${hours}h ${minutes}m`;
+    }
+    if (minutes > 0) {
+      return language === 'ru' ? `${minutes} мин ${seconds} сек` : `${minutes}m ${seconds}s`;
+    }
+    return language === 'ru' ? `${seconds} сек` : `${seconds}s`;
+  };
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -67,11 +95,17 @@ export const PlaylistContextMenu: React.FC<PlaylistContextMenuProps> = ({
       style={{ left: `${posX}px`, top: `${posY}px` }}
       className="fixed z-50 w-56 bg-md3-surface-container-highest rounded-2xl shadow-2xl border border-md3-outline-variant/40 py-1.5 text-xs select-none animate-in fade-in zoom-in-95 duration-100 max-h-[85vh] overflow-y-auto custom-scrollbar"
     >
-      <div className="px-3 py-1.5 text-[11px] font-bold text-md3-on-surface-variant/80 border-b border-md3-outline-variant/20 truncate">
-        {playlist.name} ({playlist.trackIds.length} {language === 'ru' 
-          ? (playlist.trackIds.length === 1 ? 'трек' : playlist.trackIds.length < 5 ? 'трека' : 'треков')
-          : (playlist.trackIds.length === 1 ? 'track' : 'tracks')
-        })
+      <div className="px-3.5 py-2 border-b border-md3-outline-variant/20">
+        <div className="font-bold text-xs text-md3-on-surface truncate">
+          {playlist.name}
+        </div>
+        <div className="text-[11px] text-md3-on-surface-variant/80 font-medium mt-0.5 truncate">
+          {playlist.trackIds.length} {language === 'ru' 
+            ? (playlist.trackIds.length === 1 ? 'трек' : playlist.trackIds.length < 5 ? 'трека' : 'треков')
+            : (playlist.trackIds.length === 1 ? 'track' : 'tracks')
+          }
+          {totalDuration > 0 && ` • ${formatDurationText(totalDuration)}`}
+        </div>
       </div>
 
       <button

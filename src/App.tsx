@@ -105,6 +105,15 @@ export const App: React.FC = () => {
   const [sortBy, setSortBy] = useState<string>('title');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
+  // Responsive layout state
+  const [windowWidth, setWindowWidth] = useState<number>(window.innerWidth);
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  const isCompact = windowWidth < 780;
+
   // Multi-Selection State
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set());
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
@@ -1050,18 +1059,51 @@ export const App: React.FC = () => {
 
   // Information about current active detail view (if drilling into Album, Artist, Genre, or Playlist)
   const currentDetail = useMemo(() => {
+    const formatDurationText = (sec: number) => {
+      if (!sec || sec <= 0) return '';
+      const hours = Math.floor(sec / 3600);
+      const minutes = Math.floor((sec % 3600) / 60);
+      const seconds = Math.floor(sec % 60);
+      if (hours > 0) {
+        return language === 'ru' ? `${hours} ч ${minutes} мин` : `${hours}h ${minutes}m`;
+      }
+      if (minutes > 0) {
+        return language === 'ru' ? `${minutes} мин ${seconds} сек` : `${minutes}m ${seconds}s`;
+      }
+      return language === 'ru' ? `${seconds} сек` : `${seconds}s`;
+    };
+
     if (selectedPlaylistId) {
       const pl = playlists.find(p => p.id === selectedPlaylistId);
       if (!pl) return null;
       const count = pl.trackIds.length;
+      let firstCover: string | undefined = undefined;
+      let totalDuration = 0;
+      const trackMap = new Map(tracks.map(t => [t.id, t]));
+      for (const tid of pl.trackIds) {
+        const t = trackMap.get(tid);
+        if (t) {
+          if (!firstCover && t.coverArt) {
+            firstCover = t.coverArt;
+          }
+          if (t.duration && !isNaN(t.duration)) {
+            totalDuration += t.duration;
+          }
+        }
+      }
+
+      const countText = language === 'ru' 
+        ? `${count} трек${count % 10 === 1 && count % 100 !== 11 ? '' : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 10 || count % 100 >= 20) ? 'а' : 'ов'}`
+        : `${count} ${count === 1 ? 'track' : 'tracks'}`;
+      const durText = formatDurationText(totalDuration);
+      const stats = durText ? `${countText} • ${durText}` : countText;
+
       return {
         type: 'playlist' as const,
         title: pl.name,
-        subtitle: pl.description || (language === 'ru' 
-          ? `${count} трек${count % 10 === 1 && count % 100 !== 11 ? '' : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 10 || count % 100 >= 20) ? 'а' : 'ов'}`
-          : `${count} ${count === 1 ? 'track' : 'tracks'}`
-        ),
-        icon: <ListMusic className="w-6 h-6" />,
+        subtitle: pl.description ? `${stats} — ${pl.description}` : stats,
+        coverArt: firstCover,
+        icon: <ListMusic className="w-8 h-8" />,
         playlist: pl,
       };
     }
@@ -1070,24 +1112,28 @@ export const App: React.FC = () => {
       const albumTracks = nonIsolatedTracks.filter(t => (t.album ? t.album.trim() : unknownAlbumLabel) === selectedAlbum);
       const firstCover = albumTracks.find(t => t.coverArt)?.coverArt;
       const artist = albumTracks[0]?.artist || (language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist');
+      const totalDur = albumTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
+      const durText = formatDurationText(totalDur);
       return {
         type: 'album' as const,
         title: selectedAlbum,
-        subtitle: `${artist} • ${albumTracks.length} ${language === 'ru' ? 'трек(ов)' : 'tracks'}`,
+        subtitle: `${artist} • ${albumTracks.length} ${language === 'ru' ? 'трек(ов)' : 'tracks'}${durText ? ` • ${durText}` : ''}`,
         coverArt: firstCover,
-        icon: <Disc3 className="w-6 h-6" />,
+        icon: <Disc3 className="w-8 h-8" />,
       };
     }
     if (selectedArtist) {
       const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
       const artistTracks = nonIsolatedTracks.filter(t => (t.artist ? t.artist.trim() : unknownArtistLabel) === selectedArtist);
       const firstCover = artistTracks.find(t => t.coverArt)?.coverArt;
+      const totalDur = artistTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
+      const durText = formatDurationText(totalDur);
       return {
         type: 'artist' as const,
         title: selectedArtist,
-        subtitle: `${artistTracks.length} ${language === 'ru' ? 'трек(ов)' : 'tracks'}`,
+        subtitle: `${artistTracks.length} ${language === 'ru' ? 'трек(ов)' : 'tracks'}${durText ? ` • ${durText}` : ''}`,
         coverArt: firstCover,
-        icon: <Mic2 className="w-6 h-6" />,
+        icon: <Mic2 className="w-8 h-8" />,
       };
     }
     if (selectedGenre) {
@@ -1097,11 +1143,15 @@ export const App: React.FC = () => {
         const list = t.genre.split(/[,/;\\]+/).map(g => g.trim()).filter(Boolean);
         return list.length > 0 ? list.includes(selectedGenre) : selectedGenre === unknownGenreLabel;
       });
+      const firstCover = genreTracks.find(t => t.coverArt)?.coverArt;
+      const totalDur = genreTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
+      const durText = formatDurationText(totalDur);
       return {
         type: 'genre' as const,
         title: selectedGenre,
-        subtitle: `${genreTracks.length} ${language === 'ru' ? 'трек(ов)' : 'tracks'}`,
-        icon: <Tag className="w-6 h-6" />,
+        subtitle: `${genreTracks.length} ${language === 'ru' ? 'трек(ов)' : 'tracks'}${durText ? ` • ${durText}` : ''}`,
+        coverArt: firstCover,
+        icon: <Tag className="w-8 h-8" />,
       };
     }
     return null;
@@ -2747,37 +2797,47 @@ export const App: React.FC = () => {
         {currentDetail ? (
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             {/* Header Banner */}
-            <div className="px-6 py-3.5 bg-md3-surface-container-low border-b border-md3-outline-variant/15 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-4 min-w-0">
-                <button
+            <div className="px-4 sm:px-6 py-4 sm:py-5 bg-md3-surface-container-low border-b border-md3-outline-variant/15 flex items-center justify-between shrink-0 gap-3 select-none">
+              <div className="flex items-center gap-3.5 sm:gap-4.5 min-w-0 flex-1">
+                {/* Cover art with built-in Back button & hover arrow */}
+                <div 
                   onClick={handleBackToGrid}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-md3-surface-container hover:bg-md3-surface-container-high text-xs font-semibold text-md3-on-surface transition-all cursor-pointer shrink-0 border border-md3-outline-variant/15 hover:scale-105 active:scale-95"
+                  title={language === 'ru' ? 'Назад (нажмите для возврата)' : 'Back (click to return)'}
+                  className="relative group w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden shadow-md shrink-0 border border-md3-outline-variant/20 cursor-pointer select-none bg-md3-surface-container-high transition-transform active:scale-95"
                 >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>{language === 'ru' ? 'Назад' : 'Back'}</span>
-                </button>
-
-                <div className="flex items-center gap-3.5 min-w-0">
                   {currentDetail.coverArt ? (
                     <img 
                       src={currentDetail.coverArt} 
                       alt={currentDetail.title} 
-                      className="w-12 h-12 rounded-2xl object-cover shadow-md shrink-0 border border-md3-outline-variant/15" 
+                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" 
                     />
                   ) : (
-                    <div className="w-12 h-12 rounded-2xl bg-md3-primary/10 text-md3-primary flex items-center justify-center shadow-inner shrink-0">
+                    <div className="w-full h-full bg-md3-primary/10 text-md3-primary flex items-center justify-center">
                       {currentDetail.icon}
                     </div>
                   )}
 
-                  <div className="min-w-0">
-                    <h2 className="text-lg font-bold text-md3-on-surface truncate leading-tight">
-                      {currentDetail.title}
-                    </h2>
-                    <p className="text-xs text-md3-on-surface-variant font-medium mt-0.5 truncate">
-                      {currentDetail.subtitle}
-                    </p>
+                  {/* Built-in back button overlay appearing on hover */}
+                  <div className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white backdrop-blur-[2px]">
+                    <ArrowLeft className="w-6 h-6 stroke-[2.5] drop-shadow-md transition-transform group-hover:-translate-x-0.5" />
+                    <span className="text-[10px] font-bold mt-1 tracking-wider uppercase drop-shadow-sm">
+                      {language === 'ru' ? 'Назад' : 'Back'}
+                    </span>
                   </div>
+
+                  {/* Subtle corner arrow badge for quick visual affordance */}
+                  <div className="absolute bottom-1.5 left-1.5 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center shadow-xs backdrop-blur-xs group-hover:opacity-0 transition-opacity">
+                    <ArrowLeft className="w-3 h-3 stroke-[2.5]" />
+                  </div>
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-lg sm:text-xl md:text-2xl font-extrabold text-md3-on-surface truncate leading-tight">
+                    {currentDetail.title}
+                  </h2>
+                  <p className="text-xs sm:text-sm text-md3-on-surface-variant font-medium mt-1 truncate">
+                    {currentDetail.subtitle}
+                  </p>
                 </div>
               </div>
 
@@ -2789,19 +2849,22 @@ export const App: React.FC = () => {
                       playTrackWithContext(filteredTracks[0], filteredTracks);
                     }
                   }}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                  title={language === 'ru' ? 'Воспроизвести всё' : 'Play All'}
+                  className={`flex items-center justify-center gap-1.5 ${
+                    isCompact ? 'w-10 h-10 p-0 rounded-full' : 'px-4 py-2.5 rounded-full'
+                  } bg-md3-primary text-md3-on-primary text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer shrink-0`}
                 >
-                  <Play className="w-4 h-4 fill-current ml-0.5" />
-                  <span>{language === 'ru' ? 'Воспроизвести всё' : 'Play All'}</span>
+                  <Play className="w-4.5 h-4.5 fill-current ml-0.5" />
+                  {!isCompact && <span>{language === 'ru' ? 'Воспроизвести всё' : 'Play All'}</span>}
                 </button>
 
                 {currentDetail.type === 'playlist' && !currentDetail.playlist.isSystem && (
                   <button
                     onClick={() => handleDeletePlaylist(currentDetail.playlist)}
                     title={language === 'ru' ? "Удалить плейлист" : "Delete playlist"}
-                    className="p-2 rounded-full text-md3-on-surface-variant hover:text-red-500 hover:bg-md3-surface-container transition-colors cursor-pointer"
+                    className="p-2.5 rounded-full text-md3-on-surface-variant hover:text-red-500 hover:bg-md3-surface-container transition-colors cursor-pointer"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-4.5 h-4.5" />
                   </button>
                 )}
               </div>
@@ -3130,6 +3193,7 @@ export const App: React.FC = () => {
           x={playlistContextMenu.x}
           y={playlistContextMenu.y}
           playlist={playlistContextMenu.playlist}
+          tracks={tracks}
           folders={playlistFolders}
           groups={playlistGroups}
           language={language}

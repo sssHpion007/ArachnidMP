@@ -286,7 +286,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   // Render narrow / compact smartphone layout (< 780px)
   if (isNarrow) {
     return (
-      <footer className="relative h-[174px] min-h-[174px] w-full shrink-0 bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-3 py-3 flex flex-col justify-between select-none z-30 transition-colors duration-300 gap-1.5">
+      <footer className="relative min-h-[196px] w-full shrink-0 bg-md3-surface-container-high/95 backdrop-blur-xl border-t border-md3-outline-variant/15 px-3.5 py-3.5 flex flex-col justify-between select-none z-30 transition-colors duration-300 gap-2">
         
         {/* Android-style Floating Action Button (Add Files) above now playing bar on the right */}
         {!isQueueOpen && onOpenFiles && (
@@ -309,7 +309,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             title={currentTrack ? (language === 'ru' ? 'Нажмите, чтобы открыть сведения о треке' : 'Click to open track details') : undefined}
             className={`flex items-center gap-2.5 min-w-0 flex-1 ${currentTrack ? 'cursor-pointer group' : ''}`}
           >
-            <div className="w-11 h-11 min-w-[44px] min-h-[44px] max-w-[44px] max-h-[44px] rounded-xl overflow-hidden shrink-0 bg-md3-surface-container shadow-sm border border-md3-outline-variant/15 relative">
+            <div className="w-12 h-12 min-w-[48px] min-h-[48px] max-w-[48px] max-h-[48px] rounded-xl overflow-hidden shrink-0 bg-md3-surface-container shadow-sm border border-md3-outline-variant/15 relative">
               {currentTrack?.coverArt ? (
                 <img 
                   src={currentTrack.coverArt} 
@@ -318,7 +318,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-md3-primary/10 text-md3-primary">
-                  <Disc3 className={`w-5 h-5 ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }} />
+                  <Disc3 className={`w-6 h-6 ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }} />
                 </div>
               )}
             </div>
@@ -351,7 +351,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
                   onToggleFavorite(currentTrack.id, e);
                 }}
                 title={currentTrack.isFavorite ? t.controls.removeFromFavorites : t.controls.addToFavorites}
-                className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-red-500 transition-colors cursor-pointer"
+                className="p-2 rounded-full text-md3-on-surface-variant hover:text-red-500 transition-colors cursor-pointer"
               >
                 <Heart className={`w-5 h-5 transition-transform active:scale-125 ${currentTrack.isFavorite ? 'fill-red-500 text-red-500' : 'opacity-60'}`} />
               </button>
@@ -362,7 +362,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               onMouseDown={(e) => e.preventDefault()}
               onClick={onToggleQueue}
               title={t.controls.queue}
-              className={`relative p-1.5 rounded-full transition-all cursor-pointer ${
+              className={`relative p-2 rounded-full transition-all cursor-pointer ${
                 isQueueOpen 
                   ? 'bg-md3-primary text-md3-on-primary shadow-xs' 
                   : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
@@ -406,7 +406,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
         </div>
 
         {/* Tier 3: Controls row with enlarged buttons, Left = Equalizer & Discord, Right = Volume & Lyrics, Center = Playback */}
-        <div className="w-full flex items-center justify-between px-1">
+        <div className="w-full flex items-center justify-between px-0.5">
           {/* Left: Equalizer & Discord */}
           <div className="flex items-center gap-1.5 shrink-0">
             {onOpenEQ && (
@@ -415,9 +415,9 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={onOpenEQ}
                 title={t.controls.equalizer}
-                className="w-9 h-9 flex items-center justify-center rounded-full bg-md3-surface-container border border-md3-outline-variant/15 text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high transition-colors cursor-pointer shadow-xs"
+                className="w-10 h-10 flex items-center justify-center rounded-full bg-md3-surface-container border border-md3-outline-variant/15 text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high transition-colors cursor-pointer shadow-xs"
               >
-                <SlidersHorizontal className="w-4 h-4" />
+                <SlidersHorizontal className="w-4.5 h-4.5" />
               </button>
             )}
             {showDiscordButton && onToggleDiscord && (
@@ -429,29 +429,29 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
                   ? `Discord RPC: ${discordEnabled ? 'Включен [D]' : 'Выключен [D]'} (кликните для переключения)`
                   : `Discord RPC: ${discordEnabled ? 'Enabled [D]' : 'Disabled [D]'} (click to toggle)`
                 }
-                className={`w-9 h-9 flex items-center justify-center rounded-full transition-all cursor-pointer shadow-xs border ${
+                className={`w-10 h-10 flex items-center justify-center rounded-full transition-all cursor-pointer shadow-xs border ${
                   discordEnabled
                     ? 'bg-[#5865F2]/20 border-[#5865F2]/40 text-[#5865F2] font-bold shadow-sm'
                     : 'bg-md3-surface-container border-md3-outline-variant/15 text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
                 }`}
               >
-                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${discordEnabled ? 'bg-[#5865F2] animate-pulse' : 'bg-gray-400'}`} />
+                <span className={`w-3 h-3 rounded-full shrink-0 ${discordEnabled ? 'bg-[#5865F2] animate-pulse' : 'bg-gray-400'}`} />
               </button>
             )}
           </div>
 
           {/* Center: Enlarged Playback Controls (Mathematically centered) */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-2.5">
             <button
               tabIndex={-1}
               onMouseDown={(e) => e.preventDefault()}
               onClick={onToggleShuffle}
               title={isShuffled ? `${t.controls.shuffleOn}` : `${t.controls.shuffleOff}`}
-              className={`w-8 h-8 flex items-center justify-center rounded-full relative cursor-pointer ${
+              className={`w-9 h-9 flex items-center justify-center rounded-full relative cursor-pointer ${
                 isShuffled ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
               }`}
             >
-              <Shuffle className="w-4 h-4" />
+              <Shuffle className="w-4.5 h-4.5" />
               {isShuffled && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-md3-primary" />}
             </button>
 
@@ -460,9 +460,9 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               onMouseDown={(e) => e.preventDefault()}
               onClick={onPrev}
               title={language === 'ru' ? 'Предыдущий трек' : 'Previous Track'}
-              className="w-9 h-9 flex items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface cursor-pointer"
+              className="w-10 h-10 flex items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface cursor-pointer"
             >
-              <SkipBack className="w-4.5 h-4.5 fill-current" />
+              <SkipBack className="w-5 h-5 fill-current" />
             </button>
 
             {/* Enlarged Primary Play/Pause button */}
@@ -471,12 +471,12 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               onMouseDown={(e) => e.preventDefault()}
               onClick={onPlayPause}
               title={isPlaying ? `${t.controls.pause}` : `${t.controls.play}`}
-              className="w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-transform cursor-pointer"
+              className="w-12 h-12 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-transform cursor-pointer"
             >
               {isPlaying ? (
-                <Pause className="w-5.5 h-5.5 fill-current" />
+                <Pause className="w-6 h-6 fill-current" />
               ) : (
-                <Play className="w-5.5 h-5.5 fill-current ml-0.5" />
+                <Play className="w-6 h-6 fill-current ml-0.5" />
               )}
             </button>
 
@@ -485,9 +485,9 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               onMouseDown={(e) => e.preventDefault()}
               onClick={onNext}
               title={language === 'ru' ? 'Следующий трек' : 'Next Track'}
-              className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
+              className="w-10 h-10 flex items-center justify-center rounded-full text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container cursor-pointer"
             >
-              <SkipForward className="w-4.5 h-4.5 fill-current" />
+              <SkipForward className="w-5 h-5 fill-current" />
             </button>
 
             <button
@@ -495,11 +495,11 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               onMouseDown={(e) => e.preventDefault()}
               onClick={onToggleRepeat}
               title={`${t.controls.repeatPrefix}: ${repeatMode}`}
-              className={`w-8 h-8 flex items-center justify-center rounded-full relative cursor-pointer ${
+              className={`w-9 h-9 flex items-center justify-center rounded-full relative cursor-pointer ${
                 repeatMode !== 'off' ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
               }`}
             >
-              {repeatMode === 'one' ? <Repeat1 className="w-4 h-4" /> : <Repeat className="w-4 h-4" />}
+              {repeatMode === 'one' ? <Repeat1 className="w-4.5 h-4.5" /> : <Repeat className="w-4.5 h-4.5" />}
               {repeatMode !== 'off' && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-md3-primary" />}
             </button>
           </div>
@@ -519,18 +519,18 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
                 onClick={handleCompactVolumeStepClick}
                 onWheel={handleVolumeWheel}
                 title={`${t.controls.volume}: ${Math.round((isMuted ? 0 : volume) * 100)}% (клик: +25%, колёсико: громкость)`}
-                className={`w-9 h-9 flex items-center justify-center rounded-full bg-md3-surface-container border border-md3-outline-variant/15 transition-all cursor-pointer shadow-xs ${
+                className={`w-10 h-10 flex items-center justify-center rounded-full bg-md3-surface-container border border-md3-outline-variant/15 transition-all cursor-pointer shadow-xs ${
                   isMuted || volume === 0 
                     ? 'text-red-400 bg-red-500/10 border-red-500/20' 
                     : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
                 }`}
               >
                 {isMuted || volume === 0 ? (
-                  <VolumeX className="w-4 h-4 text-red-400" />
+                  <VolumeX className="w-4.5 h-4.5 text-red-400" />
                 ) : volume < 0.5 ? (
-                  <Volume1 className="w-4 h-4" />
+                  <Volume1 className="w-4.5 h-4.5" />
                 ) : (
-                  <Volume2 className="w-4 h-4" />
+                  <Volume2 className="w-4.5 h-4.5" />
                 )}
               </button>
 
@@ -588,7 +588,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               onClick={onOpenLyrics}
               disabled={!currentTrack}
               title={t.controls.lyrics}
-              className={`w-9 h-9 flex items-center justify-center rounded-full transition-all cursor-pointer shadow-xs ${
+              className={`w-10 h-10 flex items-center justify-center rounded-full transition-all cursor-pointer shadow-xs ${
                 !currentTrack
                   ? 'text-md3-on-surface-variant/30 cursor-not-allowed opacity-40 bg-md3-surface-container/50'
                   : currentTrack.lyrics && currentTrack.lyrics.trim().length > 0
@@ -596,7 +596,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
                   : 'bg-md3-surface-container border border-md3-outline-variant/15 text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
               }`}
             >
-              <Mic2 className="w-4 h-4" />
+              <Mic2 className="w-4.5 h-4.5" />
             </button>
           </div>
         </div>
