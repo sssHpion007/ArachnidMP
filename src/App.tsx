@@ -209,9 +209,22 @@ export const App: React.FC = () => {
   const selectedPlaylistIdRef = useRef<string | null>(null);
   const tracksRef = useRef<Track[]>(tracks);
   const currentTrackRef = useRef<Track | null>(currentTrack);
+  const discordEnabledRef = useRef<boolean>(discordEnabled);
+  const discordShowPlayIconRef = useRef<boolean>(discordShowPlayIcon);
+  const discordShowPauseIconRef = useRef<boolean>(discordShowPauseIcon);
+  const discordStatusModeRef = useRef<'listening' | 'listening_app'>(discordStatusMode);
+  const discordCustomClientIdRef = useRef<string>(discordCustomClientId);
   const lastPrevPressRef = useRef<number>(0);
   const pendingSeekTimeRef = useRef<number | null>(null);
   const seekDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    discordEnabledRef.current = discordEnabled;
+    discordShowPlayIconRef.current = discordShowPlayIcon;
+    discordShowPauseIconRef.current = discordShowPauseIcon;
+    discordStatusModeRef.current = discordStatusMode;
+    discordCustomClientIdRef.current = discordCustomClientId;
+  }, [discordEnabled, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId]);
 
   useEffect(() => {
     selectedPlaylistIdRef.current = selectedPlaylistId;
@@ -459,6 +472,25 @@ export const App: React.FC = () => {
       onEnded: () => handleTrackEndedRef.current(),
       onPlay: () => setIsPlaying(true),
       onPause: () => setIsPlaying(false),
+      onLoopRepeat: () => {
+        const cur = currentTrackRef.current;
+        if (discordEnabledRef.current && cur) {
+          discordRpc.updatePresence({
+            enabled: true,
+            trackName: cur.title,
+            artist: cur.artist,
+            album: cur.album,
+            duration: cur.duration || audioEngine.getDuration() || 0,
+            currentTime: 0,
+            isPlaying: true,
+            coverArt: cur.coverArt,
+            showPlayIcon: discordShowPlayIconRef.current,
+            showPauseIcon: discordShowPauseIconRef.current,
+            statusMode: discordStatusModeRef.current,
+            customClientId: discordCustomClientIdRef.current,
+          });
+        }
+      },
       onError: async (err) => {
         console.warn('AudioEngine playback error:', err);
         const cur = currentTrackRef.current;
@@ -1917,7 +1949,23 @@ export const App: React.FC = () => {
 
   const handleTrackEnded = () => {
     if (repeatMode === 'one') {
-      // Handled internally by audioEngine with crackle-free micro-ramp
+      const cur = currentTrackRef.current;
+      if (discordEnabledRef.current && cur) {
+        discordRpc.updatePresence({
+          enabled: true,
+          trackName: cur.title,
+          artist: cur.artist,
+          album: cur.album,
+          duration: cur.duration || audioEngine.getDuration() || 0,
+          currentTime: 0,
+          isPlaying: true,
+          coverArt: cur.coverArt,
+          showPlayIcon: discordShowPlayIconRef.current,
+          showPauseIcon: discordShowPauseIconRef.current,
+          statusMode: discordStatusModeRef.current,
+          customClientId: discordCustomClientIdRef.current,
+        });
+      }
       return;
     } else if (repeatMode === 'all') {
       handleNext();

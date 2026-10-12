@@ -2,6 +2,8 @@ use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
+use std::collections::HashMap;
+use base64::prelude::*;
 use serde_json::json;
 
 #[derive(Debug, Clone)]
@@ -17,6 +19,7 @@ pub struct ActivityData {
     pub end_timestamp: Option<i64>,
     pub status_display_type: Option<i32>,
     pub client_id: Option<String>,
+    pub status_mode: Option<String>,
 }
 
 pub struct DiscordService {
@@ -45,41 +48,28 @@ fn read_packet(stream: &mut IpcStream) -> std::io::Result<(u32, String)> {
     stream.read_exact(&mut header)?;
     let op = u32::from_le_bytes([header[0], header[1], header[2], header[3]]);
     let len = u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as usize;
-    if len > 1024 * 1024 {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "packet too large"));
+    if len > 65536 {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Packet too large"));
     }
-    let mut buf = vec![0u8; len];
-    stream.read_exact(&mut buf)?;
-    let s = String::from_utf8(buf).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    let mut body = vec![0u8; len];
+    stream.read_exact(&mut body)?;
+    let s = String::from_utf8(body).unwrap_or_default();
     Ok((op, s))
 }
 
 #[cfg(windows)]
-fn open_pipe(i: usize) -> std::io::Result<IpcStream> {
-    let pipe_name = format!(r"\\.\pipe\discord-ipc-{}", i);
-    OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(&pipe_name)
+fn open_pipe(index: u8) -> std::io::Result<IpcStream> {
+    let pipe_name = format!(r"\\.\pipe\discord-ipc-{}", index);
+    OpenOptions::new().read(true).write(true).open(&pipe_name)
 }
 
 #[cfg(not(windows))]
-fn open_pipe(i: usize) -> std::io::Result<IpcStream> {
-    let mut paths = Vec::new();
-    if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
-        paths.push(format!("{}/discord-ipc-{}", runtime_dir, i));
-    }
-    if let Ok(tmp) = std::env::var("TMPDIR") {
-        paths.push(format!("{}/discord-ipc-{}", tmp, i));
-    }
-    paths.push(format!("/tmp/discord-ipc-{}", i));
-
-    for p in paths {
-        if let Ok(stream) = std::os::unix::net::UnixStream::connect(p) {
-            return Ok(stream);
-        }
-    }
-    Err(std::io::Error::new(std::io::ErrorKind::NotFound, "No discord socket found"))
+fn open_pipe(index: u8) -> std::io::Result<IpcStream> {
+    let xdg = std::env::var("XDG_RUNTIME_DIR")
+        .or_else(|_| std::env::var("TMPDIR"))
+        .unwrap_or_else(|_| "/tmp".to_string());
+    let path = format!("{}/discord-ipc-{}", xdg, index);
+    std::os::unix::net::UnixStream::connect(path)
 }
 
 fn try_connect_client(client_id: &str) -> Option<IpcStream> {
@@ -105,17 +95,19 @@ fn try_connect_client(client_id: &str) -> Option<IpcStream> {
     None
 }
 
-fn establish_connection(requested_id: &str) -> Option<(IpcStream, String)> {
-    if let Some(stream) = try_connect_client(requested_id) {
-        return Some((stream, requested_id.to_string()));
-    }
-    // Fallbacks if requested ID fails (verified public IDs)
-    let fallbacks = ["1129859263741837373", "409394531948298250"];
-    for fb in fallbacks {
-        if fb != requested_id {
-            if let Some(stream) = try_connect_client(fb) {
-                return Some((stream, fb.to_string()));
-            }
+fn establish_connection(preferred_client_id: &str) -> Option<(IpcStream, String)> {
+    let fallback_ids = [
+        preferred_client_id,
+        "1129859263741837373", // Registered Discord Music Application
+        "1304561842858561637", // Arachnid Application ID
+    ];
+
+    for &cid in &fallback_ids {
+        if cid.trim().is_empty() {
+            continue;
+        }
+        if let Some(stream) = try_connect_client(cid) {
+            return Some((stream, cid.to_string()));
         }
     }
     None
@@ -134,6 +126,63 @@ fn sanitize_discord_string(s: &str) -> String {
     result
 }
 
+/**
+ * Uploads local embedded track artwork directly to uguu.se or imgur without browser CORS restrictions
+ */
+fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
+    // 1. Try uguu.se (global, fast, unblocked in Russia, no key required)
+    let boundary = "----ArachnidCoverBoundary7MA4YWxk";
+    let mut body = Vec::new();
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"files[]\"; filename=\"cover.jpg\"\r\n");
+    body.extend_from_slice(b"Content-Type: image/jpeg\r\n\r\n");
+    body.extend_from_slice(image_bytes);
+    body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
+
+    if let Ok(res) = ureq::post("https://uguu.se/upload")
+        .set("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
+        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        .timeout(std::time::Duration::from_secs(7))
+        .send_bytes(&body)
+    {
+        if let Ok(json_val) = res.into_json::<serde_json::Value>() {
+            if let Some(url) = json_val.pointer("/files/0/url").and_then(|v| v.as_str()) {
+                if !url.is_empty() {
+                    return Some(url.to_string());
+                }
+            }
+        }
+    }
+
+    // 2. Try api.imgur.com fallback (Client-ID 09bef4c058080cd)
+    let b64 = BASE64_STANDARD.encode(image_bytes);
+    let mut imgur_body = Vec::new();
+    imgur_body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    imgur_body.extend_from_slice(b"Content-Disposition: form-data; name=\"image\"\r\n\r\n");
+    imgur_body.extend_from_slice(b64.as_bytes());
+    imgur_body.extend_from_slice(format!("\r\n--{}\r\n", boundary).as_bytes());
+    imgur_body.extend_from_slice(b"Content-Disposition: form-data; name=\"type\"\r\n\r\nbase64\r\n");
+    imgur_body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
+
+    if let Ok(res) = ureq::post("https://api.imgur.com/3/upload")
+        .set("Authorization", "Client-ID 09bef4c058080cd")
+        .set("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
+        .set("User-Agent", "Mozilla/5.0")
+        .timeout(std::time::Duration::from_secs(7))
+        .send_bytes(&imgur_body)
+    {
+        if let Ok(json_val) = res.into_json::<serde_json::Value>() {
+            if let Some(url) = json_val.pointer("/data/link").and_then(|v| v.as_str()) {
+                if !url.is_empty() {
+                    return Some(url.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
 impl DiscordService {
     pub fn new() -> Self {
         let (tx, rx) = channel::<ActivityData>();
@@ -142,18 +191,19 @@ impl DiscordService {
             let mut active_stream: Option<IpcStream> = None;
             let mut active_client_id = String::new();
             let mut nonce = 0u64;
+            let mut cover_cache: HashMap<String, String> = HashMap::new();
 
             while let Ok(data) = rx.recv() {
-                // Drain newer updates to only process latest state
+                // Drain any extra pending messages to only process the latest state
                 let mut latest = data;
                 while let Ok(next) = rx.try_recv() {
                     latest = next;
                 }
 
-                nonce = nonce.wrapping_add(1);
+                nonce += 1;
 
                 if !latest.enabled {
-                    if let Some(mut stream) = active_stream.take() {
+                    if let Some(stream) = &mut active_stream {
                         let clear_activity = json!({
                             "cmd": "SET_ACTIVITY",
                             "args": {
@@ -163,20 +213,16 @@ impl DiscordService {
                             "nonce": format!("arachnid_clr_{}", nonce)
                         }).to_string();
 
-                        let _ = send_packet(&mut stream, 1, &clear_activity);
-                        let _ = read_packet(&mut stream);
+                        let _ = send_packet(stream, 1, &clear_activity);
+                        let _ = read_packet(stream);
                     }
                     continue;
                 }
 
-                let desired_client_id = latest.client_id
-                    .as_deref()
-                    .map(|s| s.trim())
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or("1304561842858561637");
+                let desired_client_id = latest.client_id.as_deref().unwrap_or("1129859263741837373");
 
-                // If connected with a different client_id, reconnect
-                if active_stream.is_some() && active_client_id != desired_client_id {
+                // Reconnect if the target client ID changed
+                if !active_client_id.is_empty() && active_client_id != desired_client_id {
                     active_stream = None;
                 }
 
@@ -189,7 +235,9 @@ impl DiscordService {
                 }
 
                 if let Some(stream) = &mut active_stream {
-                    let act_name = if latest.status_display_type == Some(2) {
+                    let is_listening_only = latest.status_mode.as_deref() == Some("listening");
+
+                    let act_name = if is_listening_only {
                         "\u{200b}"
                     } else {
                         "ArachnidMP"
@@ -200,16 +248,41 @@ impl DiscordService {
                         "name": act_name,
                         "details": sanitize_discord_string(&latest.details),
                         "state": sanitize_discord_string(&latest.state),
+                        // ALWAYS 2 (Details) so Discord displays the track name under the user's nickname in the member list!
+                        "status_display_type": 2,
                     });
 
                     // Assets
                     let mut assets = json!({});
+
                     if let Some(large_img) = &latest.large_image {
                         let trimmed = large_img.trim();
-                        if !trimmed.is_empty() {
+                        if trimmed.starts_with("data:image/") || trimmed.starts_with("data:;base64,") {
+                            let b64_clean = if let Some(idx) = trimmed.find(";base64,") {
+                                &trimmed[idx + 8..]
+                            } else {
+                                trimmed
+                            };
+                            let cache_key = format!("{}_{}_{}", latest.details, latest.state, trimmed.len());
+                            if let Some(cached_url) = cover_cache.get(&cache_key) {
+                                assets["large_image"] = json!(cached_url);
+                            } else if let Ok(bytes) = BASE64_STANDARD.decode(b64_clean.trim()) {
+                                if let Some(uploaded_url) = upload_raw_cover(&bytes) {
+                                    cover_cache.insert(cache_key, uploaded_url.clone());
+                                    assets["large_image"] = json!(uploaded_url);
+                                } else {
+                                    assets["large_image"] = json!("https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png");
+                                }
+                            } else {
+                                assets["large_image"] = json!("https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png");
+                            }
+                        } else if !trimmed.is_empty() {
                             assets["large_image"] = json!(trimmed);
                         }
+                    } else {
+                        assets["large_image"] = json!("https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png");
                     }
+
                     if let Some(large_txt) = &latest.large_text {
                         let clean = sanitize_discord_string(large_txt);
                         if !clean.is_empty() {
@@ -245,11 +318,6 @@ impl DiscordService {
                         activity["timestamps"] = timestamps;
                     } else {
                         activity["timestamps"] = json!(null);
-                    }
-
-                    // Status display type (0 = App Name, 1 = State / Artist, 2 = Details / Track)
-                    if let Some(sdt) = latest.status_display_type {
-                        activity["status_display_type"] = json!(sdt);
                     }
 
                     let set_activity = json!({

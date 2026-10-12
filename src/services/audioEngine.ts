@@ -45,6 +45,7 @@ class AudioEngine {
   private onPlayCallback?: () => void;
   private onPauseCallback?: () => void;
   private onErrorCallback?: (err: any) => void;
+  private onLoopRepeatCallback?: () => void;
 
   // Configuration
   private targetVolume: number = 0.85;
@@ -62,6 +63,7 @@ class AudioEngine {
   private lastPlayTimestamp: number = 0;
   private isScrubbing: boolean = false;
   private isHandlingEnd: boolean = false;
+  private lastLoopDetectedIteration: number = 0;
 
   constructor() {
     this.audio = new Audio();
@@ -115,6 +117,7 @@ class AudioEngine {
     onPlay?: () => void;
     onPause?: () => void;
     onError?: (err: any) => void;
+    onLoopRepeat?: () => void;
   }) {
     this.onTimeUpdateCallback = callbacks.onTimeUpdate;
     this.onDurationCallback = callbacks.onDuration;
@@ -122,6 +125,7 @@ class AudioEngine {
     this.onPlayCallback = callbacks.onPlay;
     this.onPauseCallback = callbacks.onPause;
     this.onErrorCallback = callbacks.onError;
+    this.onLoopRepeatCallback = callbacks.onLoopRepeat;
   }
 
   public setFadeConfig(mode: FadeMode, durationSec: number) {
@@ -463,7 +467,13 @@ class AudioEngine {
         if (this.isUsingWebAudio && this.currentBuffer && this.audioCtx) {
           const elapsed = Math.max(0, this.audioCtx.currentTime - this.playbackStartTime);
           if (this.bufferSource?.loop && dur > 0) {
-            curTime = (this.playbackPosition + elapsed) % dur;
+            const totalElapsed = this.playbackPosition + elapsed;
+            const currentIteration = Math.floor(totalElapsed / dur);
+            if (currentIteration > this.lastLoopDetectedIteration) {
+              this.lastLoopDetectedIteration = currentIteration;
+              this.onLoopRepeatCallback?.();
+            }
+            curTime = totalElapsed % dur;
           } else {
             curTime = Math.min(dur > 0 ? dur : Infinity, this.playbackPosition + elapsed);
             if (dur > 0 && curTime >= dur && !this.bufferSource?.loop) {
@@ -504,10 +514,12 @@ class AudioEngine {
       this.isHandlingEnd = false;
     }, 400);
 
+    this.lastLoopDetectedIteration = 0;
     this.playbackPosition = 0;
     this.startBufferPlayback(0, 0.020);
     this.onPlayCallback?.();
     this.onTimeUpdateCallback?.(0);
+    this.onLoopRepeatCallback?.();
   }
 
   private handleTrackEnded() {
@@ -518,12 +530,14 @@ class AudioEngine {
     }, 250);
 
     if (this.repeatMode === 'one') {
+      this.lastLoopDetectedIteration = 0;
       if (this.currentBuffer && this.audioCtx && this.fadeMode !== 'always') {
         // Sample-accurate hardware PCM loop restart with 20ms de-click ramp
         this.playbackPosition = 0;
         this.startBufferPlayback(0, 0.020);
         this.onPlayCallback?.();
         this.onTimeUpdateCallback?.(0);
+        this.onLoopRepeatCallback?.();
       } else {
         // Fallback to HTMLAudioElement with micro-fade in to avoid crackle
         try {
@@ -537,6 +551,7 @@ class AudioEngine {
         }).catch(() => {});
         this.onPlayCallback?.();
         this.onTimeUpdateCallback?.(0);
+        this.onLoopRepeatCallback?.();
       }
     } else {
       this.isPlaying = false;

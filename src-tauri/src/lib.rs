@@ -65,6 +65,7 @@ pub struct DiscordPresenceState {
     pub end_timestamp: Option<i64>,
     pub status_display_type: Option<i32>,
     pub client_id: Option<String>,
+    pub status_mode: Option<String>,
 }
 
 pub struct AppState {
@@ -285,6 +286,7 @@ fn update_discord_presence(presence: DiscordPresenceState, state: State<'_, AppS
         end_timestamp: presence.end_timestamp,
         status_display_type: presence.status_display_type,
         client_id: presence.client_id,
+        status_mode: presence.status_mode,
     });
     Ok("Discord presence update queued".to_string())
 }
