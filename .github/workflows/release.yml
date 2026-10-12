@@ -44,20 +44,6 @@ jobs:
             exit /b %ERRORLEVEL%
           )
 
-      - name: Publish Failure Log
-        if: failure()
-        uses: softprops/action-gh-release@v2
-        with:
-          files: build.log
-          tag_name: ${{ github.ref_name || 'v0.1.0' }}
-          name: Build Failed ${{ github.ref_name || 'v0.1.0' }}
-          draft: false
-          prerelease: true
-          body: |
-            Build failed on Windows runner. Log attached.
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Prepare Portable Artifacts
         shell: pwsh
         run: |
@@ -74,15 +60,13 @@ jobs:
           Get-ChildItem artifacts
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        shell: bash
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-        with:
-          files: artifacts/*
-          tag_name: ${{ github.ref_name || 'v0.1.0' }}
-          name: Arachnid Music Player ${{ github.ref_name || 'v0.1.0' }} [Windows]
-          draft: false
-          prerelease: false
-          generate_release_notes: false
-          body_path: RELEASE_NOTES.md
+        run: |
+          gh release delete "${{ github.ref_name }}" --yes --cleanup-tag=false || true
+          gh release create "${{ github.ref_name }}" artifacts/* \
+            --title "Arachnid Music Player ${{ github.ref_name }} [Windows]" \
+            --notes-file RELEASE_NOTES.md \
+            --latest
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
