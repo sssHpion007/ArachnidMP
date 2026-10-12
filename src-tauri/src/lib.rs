@@ -1435,11 +1435,79 @@ mod windows_process_grouping {
         ) -> i32;
         fn GetCurrentProcess() -> *mut std::ffi::c_void;
         fn SetProcessWorkingSetSize(hProcess: *mut std::ffi::c_void, dwMinimumWorkingSetSize: usize, dwMaximumWorkingSetSize: usize) -> i32;
+        fn CreateToolhelp32Snapshot(dwFlags: u32, th32ProcessID: u32) -> *mut std::ffi::c_void;
+        fn Process32FirstW(hSnapshot: *mut std::ffi::c_void, lppe: *mut PROCESSENTRY32W) -> i32;
+        fn Process32NextW(hSnapshot: *mut std::ffi::c_void, lppe: *mut PROCESSENTRY32W) -> i32;
+        fn OpenProcess(dwDesiredAccess: u32, bInheritHandle: i32, dwProcessId: u32) -> *mut std::ffi::c_void;
+        fn CloseHandle(hObject: *mut std::ffi::c_void) -> i32;
     }
+
+    #[repr(C)]
+    struct PROCESSENTRY32W {
+        dw_size: u32,
+        cnt_usage: u32,
+        th32_process_id: u32,
+        th32_default_heap_id: usize,
+        th32_module_id: u32,
+        cnt_threads: u32,
+        th32_parent_process_id: u32,
+        pc_pri_class_base: i32,
+        dw_flags: u32,
+        sz_exe_file: [u16; 260],
+    }
+
+    const TH32CS_SNAPPROCESS: u32 = 0x00000002;
+    const PROCESS_SET_QUOTA: u32 = 0x0100;
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
 
     pub fn trim_working_set() {
         unsafe {
+            // 1. Trim our own main process
             let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
+
+            // 2. Enumerate and trim all descendant WebView2 processes (browser, GPU, renderer)
+            let my_pid = std::process::id();
+            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if !snapshot.is_null() && snapshot as isize != -1 {
+                let mut pids_to_trim = std::collections::HashSet::new();
+                pids_to_trim.insert(my_pid);
+
+                let mut entries = Vec::new();
+                let mut pe: PROCESSENTRY32W = std::mem::zeroed();
+                pe.dw_size = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+                if Process32FirstW(snapshot, &mut pe) != 0 {
+                    loop {
+                        entries.push((pe.th32_process_id, pe.th32_parent_process_id));
+                        if Process32NextW(snapshot, &mut pe) == 0 {
+                            break;
+                        }
+                    }
+                }
+                let _ = CloseHandle(snapshot);
+
+                // Multi-pass to collect child and grandchild processes
+                let mut changed = true;
+                while changed {
+                    changed = false;
+                    for &(pid, ppid) in &entries {
+                        if pids_to_trim.contains(&ppid) && !pids_to_trim.contains(&pid) {
+                            pids_to_trim.insert(pid);
+                            changed = true;
+                        }
+                    }
+                }
+
+                for pid in pids_to_trim {
+                    if pid != my_pid {
+                        let h_proc = OpenProcess(PROCESS_SET_QUOTA | PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+                        if !h_proc.is_null() {
+                            let _ = SetProcessWorkingSetSize(h_proc, usize::MAX, usize::MAX);
+                            let _ = CloseHandle(h_proc);
+                        }
+                    }
+                }
+            }
         }
     }
 

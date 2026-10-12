@@ -187,6 +187,31 @@ fn run_player_thread(
     shared_state: Arc<Mutex<NativePlayerState>>,
     app_handle: Arc<Mutex<Option<AppHandle>>>,
 ) {
+    // Elevate audio thread priority to Real-Time / Pro Audio on Windows to eliminate buffer underruns
+    #[cfg(target_os = "windows")]
+    unsafe {
+        extern "system" {
+            fn GetCurrentThread() -> *mut std::ffi::c_void;
+            fn SetThreadPriority(hThread: *mut std::ffi::c_void, nPriority: i32) -> i32;
+            fn LoadLibraryA(lpLibFileName: *const u8) -> *mut std::ffi::c_void;
+            fn GetProcAddress(hModule: *mut std::ffi::c_void, lpProcName: *const u8) -> *mut std::ffi::c_void;
+        }
+
+        let _ = SetThreadPriority(GetCurrentThread(), 15); // THREAD_PRIORITY_TIME_CRITICAL
+
+        let avrt = LoadLibraryA(b"avrt.dll\0".as_ptr());
+        if !avrt.is_null() {
+            let func = GetProcAddress(avrt, b"AvSetMmThreadCharacteristicsW\0".as_ptr());
+            if !func.is_null() {
+                type AvSetMmThreadCharacteristicsWFn = unsafe extern "system" fn(*const u16, *mut u32) -> *mut std::ffi::c_void;
+                let av_set: AvSetMmThreadCharacteristicsWFn = std::mem::transmute(func);
+                let task_name: Vec<u16> = "Pro Audio\0".encode_utf16().collect();
+                let mut task_index = 0u32;
+                let _ = av_set(task_name.as_ptr(), &mut task_index);
+            }
+        }
+    }
+
     let output_result = OutputStream::try_default();
     let (_stream, stream_handle) = match output_result {
         Ok(s) => s,
@@ -196,7 +221,7 @@ fn run_player_thread(
         }
     };
 
-    let sink = match Sink::try_new(&stream_handle) {
+    let mut sink = match Sink::try_new(&stream_handle) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("NativePlayer: Failed to create Sink: {:?}", e);
@@ -358,25 +383,31 @@ fn run_player_thread(
                     let target_dur = Duration::from_secs_f64(safe_pos);
                     preloaded_next_loop = false;
 
-                    // Clean 45ms S-curve fade out to let hardware buffer drain completely
+                    // 1. Smooth 30ms fade out to zero so hardware buffer drains cleanly
                     if is_playing && !is_paused && current_volume > 0.005 {
-                        fade_sink_volume(&sink, current_volume, 0.0, 0.045);
+                        fade_sink_volume(&sink, current_volume, 0.0, 0.030);
                     }
-                    sink.set_volume(0.0);
+                    sink.stop();
 
-                    let seek_ok = sink.try_seek(target_dur).is_ok();
-                    if seek_ok {
-                        play_start_pos = safe_pos;
-                        play_start_instant = Instant::now();
-                    } else if let Some(ref path) = current_path {
-                        sink.stop();
+                    // 2. Re-create pristine Sink to wipe away any residual driver buffers
+                    if let Ok(new_sink) = Sink::try_new(&stream_handle) {
+                        sink = new_sink;
+                    }
+                    sink.set_volume(user_target_volume);
+
+                    // 3. Open fresh decoder, seek to target, and apply DSP sample-level fade_in
+                    if let Some(ref path) = current_path {
                         if let Ok(file) = File::open(path) {
-                            if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
+                            if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
                                 if safe_pos > 0.05 {
-                                    let skipped = decoder.skip_duration(target_dur);
-                                    sink.append(skipped);
+                                    if decoder.try_seek(target_dur).is_ok() {
+                                        sink.append(decoder.fade_in(Duration::from_millis(40)));
+                                    } else {
+                                        let skipped = decoder.skip_duration(target_dur);
+                                        sink.append(skipped.fade_in(Duration::from_millis(40)));
+                                    }
                                 } else {
-                                    sink.append(decoder);
+                                    sink.append(decoder.fade_in(Duration::from_millis(40)));
                                 }
 
                                 if !is_paused {
@@ -390,12 +421,7 @@ fn run_player_thread(
                         }
                     }
 
-                    // Clean 45ms S-curve fade in back to target volume
-                    if is_playing && !is_paused && user_target_volume > 0.005 {
-                        fade_sink_volume(&sink, 0.0, user_target_volume, 0.045);
-                    }
                     current_volume = user_target_volume;
-                    sink.set_volume(current_volume);
 
                     // Immediately update shared state and emit time-update
                     if let Ok(mut s) = shared_state.lock() {
@@ -536,7 +562,7 @@ fn run_player_thread(
                         }
                     }
                 }
-            } else if last_emit_instant.elapsed().as_millis() >= 60 {
+            } else if last_emit_instant.elapsed().as_millis() >= 250 {
                 last_emit_instant = Instant::now();
                 if let Ok(guard) = app_handle.lock() {
                     if let Some(ref handle) = *guard {
