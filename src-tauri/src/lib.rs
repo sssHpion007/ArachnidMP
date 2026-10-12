@@ -1540,6 +1540,10 @@ mod windows_process_grouping {
                     ProcessInformation: *const std::ffi::c_void,
                     ProcessInformationSize: u32,
                 ) -> i32;
+                fn SetPriorityClass(
+                    hProcess: *mut std::ffi::c_void,
+                    dwPriorityClass: u32,
+                ) -> i32;
             }
 
             #[repr(C)]
@@ -1561,6 +1565,10 @@ mod windows_process_grouping {
                 &throttling as *const _ as *const std::ffi::c_void,
                 std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
             );
+
+            // 4. Boost process priority to ABOVE_NORMAL_PRIORITY_CLASS (0x00008000)
+            // Ensures real-time WASAPI audio callbacks and player threads never starve when the window is minimized or occluded
+            let _ = SetPriorityClass(GetCurrentProcess(), 0x00008000);
         }
     }
 }
@@ -1584,10 +1592,15 @@ pub fn run() {
     {
         windows_process_grouping::setup_process_grouping();
 
-        std::env::set_var(
-            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-            "--enable-features=HardwareMediaKeyHandling,MediaSessionService --autoplay-policy=no-user-gesture-required",
-        );
+        let webview_args = "--enable-features=HardwareMediaKeyHandling,MediaSessionService \
+                            --autoplay-policy=no-user-gesture-required \
+                            --disable-background-timer-throttling \
+                            --disable-renderer-backgrounding \
+                            --disable-backgrounding-occluded-windows \
+                            --disable-features=CalculateNativeWinOcclusion";
+
+        std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", webview_args);
+        std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGS", webview_args);
     }
 
     tauri::Builder::default()

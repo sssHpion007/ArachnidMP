@@ -14,8 +14,38 @@ export const EQ_PRESETS = [
   { name: 'Classical / Jazz', values: [3, 2, 1, 1, -1, -1, 0, 2, 3, 4] },
 ];
 
-// Microscopic 44-byte silent WAV audio URI to bind Windows MediaSession / SMTC & Bluetooth headset keys with 0% CPU and 0 MB RAM
-const SILENT_AUDIO_URI = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+// Clean 2-second silent WAV blob URL to bind Windows MediaSession / SMTC & Bluetooth headset keys.
+// Using a 2-second buffer prevents Chromium from entering a high-frequency loop and avoids audio glitches when minimized.
+let cachedSilentAudioUrl: string | null = null;
+function getSilentAudioUrl(): string {
+  if (cachedSilentAudioUrl) return cachedSilentAudioUrl;
+  const sampleRate = 8000;
+  const numSamples = sampleRate * 2; // 2 seconds of pure silence
+  const buffer = new ArrayBuffer(44 + numSamples);
+  const view = new DataView(buffer);
+
+  // RIFF header
+  view.setUint32(0, 0x52494646, false); // "RIFF"
+  view.setUint32(4, 36 + numSamples, true);
+  view.setUint32(8, 0x57415645, false); // "WAVE"
+  // fmt subchunk
+  view.setUint32(12, 0x666d7420, false); // "fmt "
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // Mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate, true);
+  view.setUint16(32, 1, true);
+  view.setUint16(34, 8, true); // 8-bit
+  // data subchunk
+  view.setUint32(36, 0x64617461, false); // "data"
+  view.setUint32(40, numSamples, true);
+  new Uint8Array(buffer, 44).fill(128); // 128 is silence in 8-bit PCM
+
+  const blob = new Blob([buffer], { type: 'audio/wav' });
+  cachedSilentAudioUrl = URL.createObjectURL(blob);
+  return cachedSilentAudioUrl;
+}
 
 /**
  * High-Performance Native Audio Engine (Arachnid Architecture)
@@ -254,10 +284,11 @@ class AudioEngine {
         this.playbackPosition = 0;
         this.onPlayCallback?.();
 
-        // Bind Windows MediaSession / SMTC & Bluetooth headset keys via tiny silent loop (0% CPU, 0 MB RAM)
+        // Bind Windows MediaSession / SMTC & Bluetooth headset keys via smooth silent loop (0% CPU, 0 MB RAM)
         try {
-          if (this.audio.src !== SILENT_AUDIO_URI) {
-            this.audio.src = SILENT_AUDIO_URI;
+          const silentUrl = getSilentAudioUrl();
+          if (this.audio.src !== silentUrl) {
+            this.audio.src = silentUrl;
             this.audio.volume = 0.0001;
             this.audio.loop = true;
           }

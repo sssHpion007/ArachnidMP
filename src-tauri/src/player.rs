@@ -373,8 +373,13 @@ fn run_player_thread(
 
                                 let safe_offset = offset_secs.max(0.0);
                                 if safe_offset > 0.05 {
-                                    let skipped = decoder.skip_duration(Duration::from_secs_f64(safe_offset));
-                                    sink.append(skipped);
+                                    let offset_dur = Duration::from_secs_f64(safe_offset);
+                                    if decoder.try_seek(offset_dur).is_ok() {
+                                        sink.append(decoder);
+                                    } else {
+                                        let skipped = decoder.skip_duration(offset_dur);
+                                        sink.append(skipped);
+                                    }
                                     play_start_pos = safe_offset;
                                 } else {
                                     sink.append(decoder);
@@ -500,29 +505,28 @@ fn run_player_thread(
                     let safe_pos = position_secs.max(0.0).min(max_dur);
                     let target_dur = Duration::from_secs_f64(safe_pos);
                     preloaded_next_loop = false;
+                    active_volume_fade = None;
 
-                    // Mute sink immediately to eliminate MDCT aliasing and packet discontinuity noise (buzz / hum / glass stepping sound)
-                    sink.set_volume(0.0);
+                    // Immediately flush CPAL playback queue and silence the hardware output.
+                    // Rodio's sink.try_seek must NEVER be called while the sink is running because it
+                    // delegates demuxing and disk I/O to the real-time CPAL WASAPI callback thread.
+                    // Blocking that real-time callback causes WASAPI to starve and loop its
+                    // hardware ring-buffer chunk (~10ms), producing the harsh granular buzz.
+                    sink.stop();
+                    sink.set_volume(user_target_volume);
 
-                    // 1. Try native in-place seek on current Sink first
-                    let sought_in_place = sink.try_seek(target_dur).is_ok();
-
-                    // 2. Fallback if format does not support in-place seek
-                    if !sought_in_place {
-                        sink.stop();
-                        if let Some(ref path) = current_path {
-                            if let Ok(file) = File::open(path) {
-                                if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
-                                    if safe_pos > 0.05 {
-                                        if decoder.try_seek(target_dur).is_err() {
-                                            let skipped = decoder.skip_duration(target_dur);
-                                            sink.append(skipped);
-                                        } else {
-                                            sink.append(decoder);
-                                        }
+                    if let Some(ref path) = current_path {
+                        if let Ok(file) = File::open(path) {
+                            if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
+                                if safe_pos > 0.05 {
+                                    if decoder.try_seek(target_dur).is_ok() {
+                                        sink.append(decoder.fade_in(Duration::from_millis(30)));
                                     } else {
-                                        sink.append(decoder);
+                                        let skipped = decoder.skip_duration(target_dur);
+                                        sink.append(skipped.fade_in(Duration::from_millis(30)));
                                     }
+                                } else {
+                                    sink.append(decoder.fade_in(Duration::from_millis(30)));
                                 }
                             }
                         }
@@ -536,10 +540,6 @@ fn run_player_thread(
 
                     play_start_pos = safe_pos;
                     play_start_instant = Instant::now();
-
-                    // Smoothly ramp volume back up from 0.0 to target volume over 40ms.
-                    // This creates an imperceptible S-curve that completely swallows the MDCT boundary resonance.
-                    active_volume_fade = Some((Instant::now(), 0.0, user_target_volume, Duration::from_millis(40)));
 
                     // Immediately update shared state and emit time-update
                     if let Ok(mut s) = shared_state.lock() {
