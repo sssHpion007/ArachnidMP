@@ -4,7 +4,7 @@ use rodio::{Decoder, OutputStream, Sink, Source};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufReader;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -21,6 +21,32 @@ pub struct GlitchReport {
     pub time_secs: f64,
 }
 
+pub const STATE_PLAYING: u8 = 0;
+pub const STATE_FADING_OUT: u8 = 1;
+pub const STATE_SILENT: u8 = 2;
+pub const STATE_FADING_IN: u8 = 3;
+
+#[derive(Clone, Debug)]
+pub struct SourceControl {
+    state: Arc<AtomicU8>,
+}
+
+impl SourceControl {
+    pub fn new() -> Self {
+        Self {
+            state: Arc::new(AtomicU8::new(STATE_FADING_IN)),
+        }
+    }
+
+    pub fn fade_out(&self) {
+        self.state.store(STATE_FADING_OUT, Ordering::SeqCst);
+    }
+
+    pub fn fade_in(&self) {
+        self.state.store(STATE_FADING_IN, Ordering::SeqCst);
+    }
+}
+
 pub struct SafeAudioSource<I> {
     inner: I,
     channels: u16,
@@ -28,11 +54,10 @@ pub struct SafeAudioSource<I> {
     curr_channel: usize,
     prev_samples: [i16; 8],
     samples_yielded: u64,
-    fade_in_pos: usize,
-    fade_in_len: usize,
-    fade_out_signal: Arc<AtomicBool>,
-    fade_out_pos: usize,
-    fade_out_len: usize,
+    control: SourceControl,
+    last_state: u8,
+    fade_pos: usize,
+    fade_len: usize,
     glitch_tx: Sender<GlitchReport>,
 }
 
@@ -40,10 +65,10 @@ impl<I> SafeAudioSource<I>
 where
     I: Source<Item = i16>,
 {
-    pub fn new(inner: I, glitch_tx: Sender<GlitchReport>) -> (Self, Arc<AtomicBool>) {
+    pub fn new(inner: I, glitch_tx: Sender<GlitchReport>) -> (Self, SourceControl) {
         let channels = inner.channels().max(1);
         let sample_rate = inner.sample_rate();
-        let fade_out_signal = Arc::new(AtomicBool::new(false));
+        let control = SourceControl::new();
         // 256 samples per channel (~5.3ms at 48kHz): optimal S-curve zero-crossing anti-click ramp
         let ramp_len = (channels as usize) * 256;
         let source = Self {
@@ -53,14 +78,13 @@ where
             curr_channel: 0,
             prev_samples: [0; 8],
             samples_yielded: 0,
-            fade_in_pos: 0,
-            fade_in_len: ramp_len,
-            fade_out_signal: Arc::clone(&fade_out_signal),
-            fade_out_pos: 0,
-            fade_out_len: ramp_len,
+            control: control.clone(),
+            last_state: STATE_FADING_IN,
+            fade_pos: 0,
+            fade_len: ramp_len,
             glitch_tx,
         };
-        (source, fade_out_signal)
+        (source, control)
     }
 }
 
@@ -77,25 +101,38 @@ where
         self.curr_channel += 1;
         self.samples_yielded += 1;
 
-        let mut factor = 1.0f32;
-
-        // Startup micro-fade in from exact zero
-        if self.fade_in_pos < self.fade_in_len {
-            let t = (self.fade_in_pos as f32) / (self.fade_in_len as f32);
-            factor *= t * t * (3.0 - 2.0 * t);
-            self.fade_in_pos += 1;
+        let cur_state = self.control.state.load(Ordering::Relaxed);
+        if cur_state != self.last_state {
+            self.last_state = cur_state;
+            self.fade_pos = 0;
         }
 
-        // Active micro-fade out to exact zero on seek/pause/stop
-        if self.fade_out_signal.load(Ordering::Relaxed) {
-            if self.fade_out_pos < self.fade_out_len {
-                let t = 1.0 - (self.fade_out_pos as f32) / (self.fade_out_len as f32);
-                factor *= t * t * (3.0 - 2.0 * t);
-                self.fade_out_pos += 1;
-            } else {
-                factor = 0.0;
+        let factor = match cur_state {
+            STATE_FADING_IN => {
+                if self.fade_pos < self.fade_len {
+                    let t = (self.fade_pos as f32) / (self.fade_len as f32);
+                    self.fade_pos += 1;
+                    t * t * (3.0 - 2.0 * t) // S-curve ramp from 0.0 to 1.0
+                } else {
+                    self.control.state.store(STATE_PLAYING, Ordering::Relaxed);
+                    self.last_state = STATE_PLAYING;
+                    1.0
+                }
             }
-        }
+            STATE_FADING_OUT => {
+                if self.fade_pos < self.fade_len {
+                    let t = 1.0 - (self.fade_pos as f32) / (self.fade_len as f32);
+                    self.fade_pos += 1;
+                    t * t * (3.0 - 2.0 * t) // S-curve ramp from 1.0 down to 0.0
+                } else {
+                    self.control.state.store(STATE_SILENT, Ordering::Relaxed);
+                    self.last_state = STATE_SILENT;
+                    0.0
+                }
+            }
+            STATE_SILENT => 0.0,
+            _ => 1.0, // STATE_PLAYING
+        };
 
         let sample = (raw as f32 * factor) as i16;
 
@@ -155,7 +192,9 @@ where
 
     #[inline]
     fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
-        self.fade_in_pos = 0;
+        self.control.fade_in();
+        self.last_state = STATE_FADING_IN;
+        self.fade_pos = 0;
         self.prev_samples = [0; 8];
         self.inner.try_seek(pos)
     }
@@ -342,10 +381,10 @@ fn append_safe_source<S: Source<Item = i16> + Send + 'static>(
     sink: &Sink,
     src: S,
     glitch_tx: Sender<GlitchReport>,
-) -> Arc<AtomicBool> {
-    let (safe_src, fade_sig) = SafeAudioSource::new(src, glitch_tx);
+) -> SourceControl {
+    let (safe_src, ctrl) = SafeAudioSource::new(src, glitch_tx);
     sink.append(safe_src);
-    fade_sig
+    ctrl
 }
 
 fn ramp_sink_volume(sink: &Sink, from: f32, to: f32, duration_ms: u64) {
@@ -432,8 +471,8 @@ fn run_player_thread(
     let mut active_volume_fade: Option<(Instant, f32, f32, Duration)> = None;
 
     let (glitch_tx, glitch_rx) = channel::<GlitchReport>();
-    let mut current_fade_out: Option<Arc<AtomicBool>> = None;
-    let mut preloaded_fade_out: Option<Arc<AtomicBool>> = None;
+    let mut current_control: Option<SourceControl> = None;
+    let mut preloaded_control: Option<SourceControl> = None;
 
     let mut fade_mode = "track_change_and_pause".to_string();
     let mut fade_duration = 2.0f64;
@@ -469,12 +508,12 @@ fn run_player_thread(
                                             let target_dur = Duration::from_secs_f64(cur_pos);
                                             if decoder.try_seek(target_dur).is_err() {
                                                 let skipped = decoder.skip_duration(target_dur);
-                                                current_fade_out = Some(append_safe_source(&sink, skipped, glitch_tx.clone()));
+                                                current_control = Some(append_safe_source(&sink, skipped, glitch_tx.clone()));
                                             } else {
-                                                current_fade_out = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                                current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
                                             }
                                         } else {
-                                            current_fade_out = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                            current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
                                         }
 
                                         if !is_paused && is_playing {
@@ -575,14 +614,14 @@ fn run_player_thread(
                                 if safe_offset > 0.05 {
                                     let offset_dur = Duration::from_secs_f64(safe_offset);
                                     if decoder.try_seek(offset_dur).is_ok() {
-                                        current_fade_out = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                        current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
                                     } else {
                                         let skipped = decoder.skip_duration(offset_dur);
-                                        current_fade_out = Some(append_safe_source(&sink, skipped, glitch_tx.clone()));
+                                        current_control = Some(append_safe_source(&sink, skipped, glitch_tx.clone()));
                                     }
                                     play_start_pos = safe_offset;
                                 } else {
-                                    current_fade_out = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                    current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
                                     play_start_pos = 0.0;
                                 }
 
@@ -622,8 +661,8 @@ fn run_player_thread(
                     active_volume_fade = None;
                     is_scrub_holding = false;
                     if is_playing && !is_paused {
-                        if let Some(ref fade_out) = current_fade_out {
-                            fade_out.store(true, Ordering::SeqCst);
+                        if let Some(ref ctrl) = current_control {
+                            ctrl.fade_out();
                             std::thread::sleep(Duration::from_millis(6));
                         }
                         if fade_mode != "off" && fade_duration > 0.05 && current_volume > 0.01 {
@@ -663,12 +702,12 @@ fn run_player_thread(
                                                         let target_dur = Duration::from_secs_f64(play_start_pos);
                                                         if decoder.try_seek(target_dur).is_err() {
                                                             let skipped = decoder.skip_duration(target_dur);
-                                                            current_fade_out = Some(append_safe_source(&sink, skipped, glitch_tx.clone()));
+                                                            current_control = Some(append_safe_source(&sink, skipped, glitch_tx.clone()));
                                                         } else {
-                                                            current_fade_out = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                                            current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
                                                         }
                                                     } else {
-                                                        current_fade_out = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                                        current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
                                                     }
                                                 }
                                             }
@@ -681,6 +720,10 @@ fn run_player_thread(
                         is_paused = false;
                         play_start_instant = Instant::now();
                         sink.play();
+
+                        if let Some(ref ctrl) = current_control {
+                            ctrl.fade_in();
+                        }
 
                         if fade_mode != "off" && fade_duration > 0.05 && user_target_volume > 0.01 {
                             let fade_in_dur = (fade_duration.min(2.0).max(0.08) * 1000.0) as u64;
@@ -695,8 +738,8 @@ fn run_player_thread(
                 PlayerCmd::Stop => {
                     active_volume_fade = None;
                     is_scrub_holding = false;
-                    if let Some(ref fade_out) = current_fade_out {
-                        fade_out.store(true, Ordering::SeqCst);
+                    if let Some(ref ctrl) = current_control {
+                        ctrl.fade_out();
                         std::thread::sleep(Duration::from_millis(6));
                     }
                     if is_playing && !is_paused && current_volume > 0.005 {
@@ -709,13 +752,14 @@ fn run_player_thread(
                     current_path = None;
                     play_start_pos = 0.0;
                     preloaded_next_loop = false;
+                    current_control = None;
                     logger::log("AUDIO", "STOP", "Playback stopped and queue cleared");
                 }
                 PlayerCmd::ScrubHold => {
                     active_volume_fade = None;
                     if is_playing && !is_paused && !is_scrub_holding {
-                        if let Some(ref fade_out) = current_fade_out {
-                            fade_out.store(true, Ordering::SeqCst);
+                        if let Some(ref ctrl) = current_control {
+                            ctrl.fade_out();
                             std::thread::sleep(Duration::from_millis(6));
                         }
                         ramp_sink_volume(&sink, current_volume, 0.0, 10);
@@ -732,6 +776,9 @@ fn run_player_thread(
                         is_scrub_holding = false;
                         if is_playing && !is_paused {
                             sink.play();
+                            if let Some(ref ctrl) = current_control {
+                                ctrl.fade_in();
+                            }
                             ramp_sink_volume(&sink, 0.0, user_target_volume, 10);
                             current_volume = user_target_volume;
                             logger::log("AUDIO", "SEEK", "ScrubCancel: audio resumed from pre-scrub position");
@@ -752,8 +799,8 @@ fn run_player_thread(
                     logger::log("AUDIO", "SEEK", &format!("Seek requested: target={:.3}s (safe={:.3}s, total_dur={:.3}s, is_paused={}, should_resume={})", position_secs, safe_pos, current_duration, is_paused, should_resume));
 
                     // Micro-ramp to silence before switching source to prevent waveform step discontinuity
-                    if let Some(ref fade_out) = current_fade_out {
-                        fade_out.store(true, Ordering::SeqCst);
+                    if let Some(ref ctrl) = current_control {
+                        ctrl.fade_out();
                         std::thread::sleep(Duration::from_millis(6));
                     }
                     if is_playing && should_resume && current_volume > 0.01 {
@@ -771,12 +818,12 @@ fn run_player_thread(
                                 if safe_pos > 0.05 {
                                     if decoder.try_seek(target_dur).is_err() {
                                         let skipped = decoder.skip_duration(target_dur);
-                                        current_fade_out = Some(append_safe_source(&sink, skipped, glitch_tx.clone()));
+                                        current_control = Some(append_safe_source(&sink, skipped, glitch_tx.clone()));
                                     } else {
-                                        current_fade_out = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                        current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
                                     }
                                 } else {
-                                    current_fade_out = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                    current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
                                 }
 
                                 // Skip previous playing sound(s) so the sink seamlessly advances to the seeked source
@@ -885,7 +932,7 @@ fn run_player_thread(
                 if let Some(ref path) = current_path {
                     if let Ok(file) = File::open(path) {
                         if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
-                            preloaded_fade_out = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                            preloaded_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
                             preloaded_next_loop = true;
                             logger::log("AUDIO", "REPEAT", "Preloaded next loop into gapless sink queue");
                         }
@@ -897,7 +944,7 @@ fn run_player_thread(
             if preloaded_next_loop && sink.len() == 1 {
                 // The first source finished and seamlessly transitioned to the preloaded second source with ZERO gap!
                 preloaded_next_loop = false;
-                current_fade_out = preloaded_fade_out.take();
+                current_control = preloaded_control.take();
                 play_start_pos = 0.0;
                 play_start_instant = Instant::now();
                 logger::log("AUDIO", "REPEAT", "Seamless loop transition completed");
@@ -924,7 +971,7 @@ fn run_player_thread(
                     if let Some(ref path) = current_path {
                         if let Ok(file) = File::open(path) {
                             if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
-                                current_fade_out = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
                                 sink.play();
                                 play_start_pos = 0.0;
                                 play_start_instant = Instant::now();
@@ -954,7 +1001,7 @@ fn run_player_thread(
                     is_paused = false;
                     play_start_pos = 0.0;
                     preloaded_next_loop = false;
-                    current_fade_out = None;
+                    current_control = None;
 
                     if let Ok(mut s) = shared_state.lock() {
                         s.track_ended = true;
