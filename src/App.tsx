@@ -294,12 +294,17 @@ export const App: React.FC = () => {
         if (rawJson) {
           const parsed = JSON.parse(rawJson);
           if (parsed.tracks && Array.isArray(parsed.tracks)) {
-            // Re-convert native paths to fresh asset URLs
+            // Re-convert native paths and cover paths to fresh asset URLs
             const hydrated = parsed.tracks.map((t: Track) => {
-              if (t.path && isTauri()) {
-                return { ...t, src: convertFileSrc(t.path) };
+              let coverArt = t.coverArt;
+              if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+                coverArt = convertFileSrc(coverArt);
               }
-              return t;
+              return {
+                ...t,
+                src: t.path && isTauri() ? convertFileSrc(t.path) : t.src,
+                coverArt,
+              };
             });
             setTracks(hydrated);
             verifyTracksExistence(hydrated);
@@ -317,12 +322,16 @@ export const App: React.FC = () => {
                       if (!t.path) return t;
                       const r = refreshedMap.get(t.path.toLowerCase());
                       if (!r) return t;
+                      let refreshedCover = r.cover_art;
+                      if (refreshedCover && !refreshedCover.startsWith('http') && !refreshedCover.startsWith('data:') && isTauri()) {
+                        refreshedCover = convertFileSrc(refreshedCover);
+                      }
                       return {
                         ...t,
                         title: t.title === 'Unknown' || !t.title ? r.title : t.title,
                         artist: t.artist === 'Unknown Artist' || !t.artist ? r.artist : t.artist,
                         album: t.album === 'Unknown Album' || !t.album ? r.album : t.album,
-                        coverArt: t.coverArt || r.cover_art || undefined,
+                        coverArt: t.coverArt || refreshedCover || undefined,
                         lyrics: t.lyrics || r.lyrics || undefined,
                         genre: t.genre || r.genre || undefined,
                         year: t.year || r.year || undefined,
@@ -451,6 +460,22 @@ export const App: React.FC = () => {
       }, 150);
       return () => clearTimeout(timer);
     }
+  }, []);
+
+  // Automated background memory optimization (trims cold working set pages in Windows)
+  useEffect(() => {
+    if (!isTauri()) return;
+    const interval = setInterval(() => {
+      invoke('trim_memory').catch(() => {});
+    }, 60000);
+    const handleBlur = () => {
+      invoke('trim_memory').catch(() => {});
+    };
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('blur', handleBlur);
+    };
   }, []);
 
   // Prevent default browser right-click menu
@@ -1663,31 +1688,37 @@ export const App: React.FC = () => {
       const rawTracks = await invoke<any[]>('read_audio_files', { paths });
       if (!rawTracks || rawTracks.length === 0) return;
 
-      const newTracks: Track[] = rawTracks.map(t => ({
-        id: t.id,
-        path: t.path,
-        title: t.title,
-        artist: t.artist,
-        album: t.album,
-        duration: t.duration_seconds || 0,
-        src: convertFileSrc(t.path),
-        coverArt: t.cover_art || undefined,
-        genre: t.genre || undefined,
-        year: t.year || undefined,
-        trackNumber: t.track_number || undefined,
-        trackTotal: t.track_total || undefined,
-        format: t.format,
-        fileSize: t.file_size,
-        lyrics: t.lyrics || undefined,
-        composer: t.composer || undefined,
-        contentGroup: t.content_group || undefined,
-        comment: t.comment || undefined,
-        conductor: t.conductor || undefined,
-        lyricist: t.lyricist || undefined,
-        dateAdded: Date.now(),
-        playCount: 0,
-        isFavorite: false,
-      }));
+      const newTracks: Track[] = rawTracks.map(t => {
+        let coverArt = t.cover_art || undefined;
+        if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+          coverArt = convertFileSrc(coverArt);
+        }
+        return {
+          id: t.id,
+          path: t.path,
+          title: t.title,
+          artist: t.artist,
+          album: t.album,
+          duration: t.duration_seconds || 0,
+          src: convertFileSrc(t.path),
+          coverArt,
+          genre: t.genre || undefined,
+          year: t.year || undefined,
+          trackNumber: t.track_number || undefined,
+          trackTotal: t.track_total || undefined,
+          format: t.format,
+          fileSize: t.file_size,
+          lyrics: t.lyrics || undefined,
+          composer: t.composer || undefined,
+          contentGroup: t.content_group || undefined,
+          comment: t.comment || undefined,
+          conductor: t.conductor || undefined,
+          lyricist: t.lyricist || undefined,
+          dateAdded: Date.now(),
+          playCount: 0,
+          isFavorite: false,
+        };
+      });
 
       processImportedTracks(newTracks);
     } catch (err) {

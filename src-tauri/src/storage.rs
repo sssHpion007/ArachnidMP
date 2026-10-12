@@ -1,6 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
+use base64::prelude::*;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 pub fn get_portable_base_dir() -> PathBuf {
     if let Ok(exe_path) = std::env::current_exe() {
@@ -11,14 +14,63 @@ pub fn get_portable_base_dir() -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
+pub fn get_covers_dir() -> PathBuf {
+    get_portable_base_dir().join("config").join("covers")
+}
+
+pub fn save_cover_bytes(bytes: &[u8], mime: &str) -> Option<String> {
+    if bytes.is_empty() {
+        return None;
+    }
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    let hash = format!("{:016x}", hasher.finish());
+
+    let ext = match mime.to_lowercase().as_str() {
+        "image/png" | "png" => "png",
+        "image/webp" | "webp" => "webp",
+        _ => "jpg",
+    };
+
+    let covers_dir = get_covers_dir();
+    let _ = fs::create_dir_all(&covers_dir);
+    let filename = format!("{}.{}", hash, ext);
+    let file_path = covers_dir.join(&filename);
+
+    if !file_path.exists() {
+        let _ = fs::write(&file_path, bytes);
+    }
+
+    Some(file_path.to_string_lossy().to_string())
+}
+
+pub fn save_base64_cover(data_uri: &str) -> Option<String> {
+    if !data_uri.starts_with("data:image/") {
+        return None;
+    }
+    let parts: Vec<&str> = data_uri.splitn(2, ";base64,").collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let mime = parts[0].trim_start_matches("data:");
+    let b64_clean: String = parts[1].chars().filter(|c| !c.is_whitespace()).collect();
+    if let Ok(bytes) = BASE64_STANDARD.decode(&b64_clean) {
+        save_cover_bytes(&bytes, mime)
+    } else {
+        None
+    }
+}
+
 /// Initialize the modular directory structure on startup
 pub fn init_storage_structure(base_dir: &Path) {
     let config_dir = base_dir.join("config");
+    let covers_dir = config_dir.join("covers");
     let playlists_dir = base_dir.join("playlists");
     let themes_dir = base_dir.join("themes");
     let locales_dir = base_dir.join("locales");
 
     let _ = fs::create_dir_all(&config_dir);
+    let _ = fs::create_dir_all(&covers_dir);
     let _ = fs::create_dir_all(&playlists_dir);
     let _ = fs::create_dir_all(&themes_dir);
     let _ = fs::create_dir_all(&locales_dir);
@@ -347,8 +399,28 @@ pub fn save_modular_data(data: &Value) -> Result<bool, String> {
 
     // 2. Save Tracks / Library Cache
     if let Some(tracks) = data.get("tracks") {
+        let base_dir = get_portable_base_dir();
+        let mut clean_tracks = tracks.clone();
+        if let Some(arr) = clean_tracks.as_array_mut() {
+            for track in arr {
+                if let Some(cover_val) = track.get("coverArt").and_then(|c| c.as_str()) {
+                    let mut final_cover = cover_val.to_string();
+                    if final_cover.starts_with("data:image/") {
+                        if let Some(disk_path) = save_base64_cover(&final_cover) {
+                            final_cover = disk_path;
+                        }
+                    }
+                    let path_obj = Path::new(&final_cover);
+                    if let Ok(rel) = path_obj.strip_prefix(&base_dir) {
+                        track["coverArt"] = json!(rel.to_string_lossy().replace('\\', "/"));
+                    } else if !final_cover.starts_with("http") && !final_cover.starts_with("data:") {
+                        track["coverArt"] = json!(final_cover);
+                    }
+                }
+            }
+        }
         let library_path = config_dir.join("library.json");
-        let library_json = json!({ "tracks": tracks });
+        let library_json = json!({ "tracks": clean_tracks });
         let library_str = serde_json::to_string_pretty(&library_json)
             .map_err(|e| format!("Failed to serialize library: {}", e))?;
         fs::write(&library_path, library_str)
@@ -444,7 +516,24 @@ pub fn load_modular_data() -> Result<Option<String>, String> {
         if let Ok(content) = fs::read_to_string(&library_path) {
             if let Ok(val) = serde_json::from_str::<Value>(&content) {
                 if let Some(tracks) = val.get("tracks") {
-                    combined["tracks"] = tracks.clone();
+                    let mut tracks_val = tracks.clone();
+                    if let Some(arr) = tracks_val.as_array_mut() {
+                        for track in arr {
+                            if let Some(cover_val) = track.get("coverArt").and_then(|c| c.as_str()) {
+                                if cover_val.starts_with("data:image/") {
+                                    if let Some(disk_path) = save_base64_cover(cover_val) {
+                                        track["coverArt"] = json!(disk_path);
+                                    }
+                                } else if !cover_val.starts_with("http") {
+                                    let full = base_dir.join(cover_val);
+                                    if full.exists() {
+                                        track["coverArt"] = json!(full.to_string_lossy().to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    combined["tracks"] = tracks_val;
                 }
             }
         }

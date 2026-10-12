@@ -206,8 +206,9 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
                         Some(m) => m.as_str(),
                         None => "image/jpeg",
                     };
-                    let b64 = BASE64_STANDARD.encode(pic.data());
-                    cover_art = Some(format!("data:{};base64,{}", mime, b64));
+                    if let Some(saved_path) = storage::save_cover_bytes(pic.data(), mime) {
+                        cover_art = Some(saved_path);
+                    }
                 }
             }
         }
@@ -1148,7 +1149,16 @@ fn show_window(window: tauri::Window) -> Result<(), String> {
 
 #[tauri::command]
 fn minimize_window(window: tauri::Window) -> Result<(), String> {
-    window.minimize().map_err(|e| e.to_string())
+    window.minimize().map_err(|e| e.to_string())?;
+    #[cfg(target_os = "windows")]
+    windows_process::trim_working_set();
+    Ok(())
+}
+
+#[tauri::command]
+fn trim_memory() {
+    #[cfg(target_os = "windows")]
+    windows_process::trim_working_set();
 }
 
 #[tauri::command]
@@ -1422,6 +1432,13 @@ mod windows_process_grouping {
             cbJobObjectInformationLength: u32,
         ) -> i32;
         fn GetCurrentProcess() -> *mut std::ffi::c_void;
+        fn SetProcessWorkingSetSize(hProcess: *mut std::ffi::c_void, dwMinimumWorkingSetSize: usize, dwMaximumWorkingSetSize: usize) -> i32;
+    }
+
+    pub fn trim_working_set() {
+        unsafe {
+            let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
+        }
     }
 
     pub fn setup_process_grouping() {
@@ -1510,7 +1527,8 @@ pub fn run() {
             save_cover_image,
             check_file_exists,
             batch_check_files_exist,
-            pick_single_audio_file
+            pick_single_audio_file,
+            trim_memory
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arachnid application");

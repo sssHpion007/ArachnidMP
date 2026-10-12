@@ -8,19 +8,20 @@ const PAUSED_ICON_URL = 'https://raw.githubusercontent.com/FozerG/WinYandexMusic
  * Compresses any arbitrary base64 cover art image to a lightweight 384x384 JPEG (~25KB)
  * for lightning-fast transfer over Tauri IPC and swift upload to Discord-compatible hosts.
  */
-function compressCoverForDiscord(dataUrl: string, maxSize = 384): Promise<string> {
+function compressCoverForDiscord(imageUrl: string, maxSize = 384): Promise<string> {
   return new Promise((resolve) => {
     try {
-      if (!dataUrl || !dataUrl.startsWith('data:')) {
-        resolve(dataUrl);
+      if (!imageUrl || (!imageUrl.startsWith('data:') && !imageUrl.includes('asset.localhost') && !imageUrl.startsWith('asset:'))) {
+        resolve(imageUrl);
         return;
       }
       const img = new Image();
+      img.crossOrigin = 'anonymous';
       img.onload = () => {
         let width = img.naturalWidth || img.width;
         let height = img.naturalHeight || img.height;
         if (width <= 0 || height <= 0) {
-          resolve(dataUrl);
+          resolve(imageUrl);
           return;
         }
         if (width > maxSize || height > maxSize) {
@@ -41,12 +42,12 @@ function compressCoverForDiscord(dataUrl: string, maxSize = 384): Promise<string
           resolve(canvas.toDataURL('image/jpeg', 0.85));
           return;
         }
-        resolve(dataUrl);
+        resolve(imageUrl);
       };
-      img.onerror = () => resolve(dataUrl);
-      img.src = dataUrl;
-    } catch (_) {
-      resolve(dataUrl);
+      img.onerror = () => resolve(imageUrl);
+      img.src = imageUrl;
+    } catch {
+      resolve(imageUrl);
     }
   });
 }
@@ -108,7 +109,11 @@ class DiscordRpcService {
     let coverArt = DEFAULT_LOGO_URL;
     if (info.coverArt && info.coverArt.trim().length > 0) {
       if (info.coverArt.startsWith('http://') || info.coverArt.startsWith('https://')) {
-        coverArt = info.coverArt.trim();
+        if (info.coverArt.includes('asset.localhost')) {
+          coverArt = await compressCoverForDiscord(info.coverArt, 384);
+        } else {
+          coverArt = info.coverArt.trim();
+        }
       } else if (info.coverArt.startsWith('data:')) {
         coverArt = await compressCoverForDiscord(info.coverArt, 384);
       } else {
