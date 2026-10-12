@@ -513,35 +513,49 @@ fn run_player_thread(
 
                     logger::log("AUDIO", "SEEK", &format!("Seek requested: target={:.3}s (safe={:.3}s, total_dur={:.3}s, is_paused={})", position_secs, safe_pos, current_duration, is_paused));
 
-                    // Fast in-place seek on active Sink (native Rodio/Symphonia demuxer seek)
-                    let seek_res = sink.try_seek(target_dur);
-                    logger::log("AUDIO", "SEEK", &format!("sink.try_seek({:.3}s) -> {:?} in {:.2}ms", safe_pos, seek_res, t0.elapsed().as_secs_f64() * 1000.0));
+                    let mut seek_done = false;
 
-                    if seek_res.is_err() {
-                        sink.stop();
-                        if let Some(ref path) = current_path {
-                            if let Ok(file) = File::open(path) {
-                                if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
-                                    if safe_pos > 0.05 {
+                    // Gapless queue transition: append new decoder and skip previous sound (same mechanism as repeat loop)
+                    if let Some(ref path) = current_path {
+                        if let Ok(file) = File::open(path) {
+                            if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
+                                let prev_count = sink.len();
+
+                                if safe_pos > 0.05 {
+                                    if decoder.try_seek(target_dur).is_err() {
                                         let skipped = decoder.skip_duration(target_dur);
                                         sink.append(skipped);
                                     } else {
                                         sink.append(decoder);
                                     }
+                                } else {
+                                    sink.append(decoder);
                                 }
+
+                                // Skip previous playing sound(s) so the sink seamlessly advances to the seeked source
+                                for _ in 0..prev_count {
+                                    sink.skip_one();
+                                }
+
+                                if !is_paused {
+                                    sink.play();
+                                } else {
+                                    sink.pause();
+                                }
+
+                                seek_done = true;
                             }
                         }
-                        if !is_paused {
-                            sink.play();
-                        } else {
-                            sink.pause();
-                        }
+                    }
+
+                    if !seek_done {
+                        let _ = sink.try_seek(target_dur);
                     }
 
                     play_start_pos = safe_pos;
                     play_start_instant = Instant::now();
 
-                    logger::log("AUDIO", "SEEK", &format!("Seek pipeline completed in {:.2}ms", t0.elapsed().as_secs_f64() * 1000.0));
+                    logger::log("AUDIO", "SEEK", &format!("Seek queue transition completed in {:.2}ms (sink_len={})", t0.elapsed().as_secs_f64() * 1000.0, sink.len()));
 
                     // Immediately update shared state and emit time-update
                     if let Ok(mut s) = shared_state.lock() {

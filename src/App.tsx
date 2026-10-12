@@ -226,6 +226,7 @@ export const App: React.FC = () => {
   const lastPrevPressRef = useRef<number>(0);
   const pendingSeekTimeRef = useRef<number | null>(null);
   const seekDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wasPlayingBeforeArrowRef = useRef<boolean>(false);
 
   useEffect(() => {
     discordEnabledRef.current = discordEnabled;
@@ -1474,6 +1475,13 @@ export const App: React.FC = () => {
         const baseTime = pendingSeekTimeRef.current !== null ? pendingSeekTimeRef.current : audioEngine.getCurrentTime();
         const nextTime = Math.max(0, Math.min(dur > 0 ? dur : Infinity, baseTime - 5));
 
+        if (pendingSeekTimeRef.current === null) {
+          wasPlayingBeforeArrowRef.current = isPlaying;
+          if (isPlaying) {
+            audioEngine.pause();
+          }
+        }
+
         pendingSeekTimeRef.current = nextTime;
         setCurrentTime(nextTime);
         audioEngine.setScrubbing(true);
@@ -1486,15 +1494,25 @@ export const App: React.FC = () => {
           pendingSeekTimeRef.current = null;
           if (finalTime !== null) {
             audioEngine.seek(finalTime);
+            if (wasPlayingBeforeArrowRef.current) {
+              audioEngine.resume();
+            }
           }
           audioEngine.setScrubbing(false);
-        }, 160);
+        }, 220);
       } else if ((e.code === 'ArrowRight' || e.key === 'ArrowRight') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
         const dur = duration > 0 ? duration : audioEngine.getDuration();
         const baseTime = pendingSeekTimeRef.current !== null ? pendingSeekTimeRef.current : audioEngine.getCurrentTime();
         const nextTime = Math.max(0, Math.min(dur > 0 ? dur : Infinity, baseTime + 5));
 
+        if (pendingSeekTimeRef.current === null) {
+          wasPlayingBeforeArrowRef.current = isPlaying;
+          if (isPlaying) {
+            audioEngine.pause();
+          }
+        }
+
         pendingSeekTimeRef.current = nextTime;
         setCurrentTime(nextTime);
         audioEngine.setScrubbing(true);
@@ -1507,9 +1525,12 @@ export const App: React.FC = () => {
           pendingSeekTimeRef.current = null;
           if (finalTime !== null) {
             audioEngine.seek(finalTime);
+            if (wasPlayingBeforeArrowRef.current) {
+              audioEngine.resume();
+            }
           }
           audioEngine.setScrubbing(false);
-        }, 160);
+        }, 220);
       // Ctrl + Arrow Left / Right: Previous / Next track
       } else if ((e.code === 'ArrowRight' || e.key === 'ArrowRight') && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();

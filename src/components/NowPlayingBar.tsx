@@ -98,6 +98,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   const startPointerXRef = useRef<number>(0);
   const progressBarRef = useRef<HTMLDivElement>(null);
   const animFrameRef = useRef<number | null>(null);
+  const wasPlayingBeforeDragRef = useRef<boolean>(false);
   const [isCompactVolHovered, setIsCompactVolHovered] = useState<boolean>(false);
   const volHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -229,11 +230,17 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
     isPointerDownRef.current = true;
     startPointerXRef.current = e.clientX;
     isScrubbingRef.current = false;
+    wasPlayingBeforeDragRef.current = isPlaying;
+
+    // Immediately pause audio when user starts interacting with the timeline
+    if (isPlaying) {
+      audioEngine.pause();
+    }
 
     const rect = progressBarRef.current.getBoundingClientRect();
     const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const targetTime = pos * safeDuration;
-    logger.audio('TIMELINE', `pointerdown: targetSec=${targetTime.toFixed(3)}s, clientX=${e.clientX}`);
+    logger.audio('TIMELINE', `pointerdown: targetSec=${targetTime.toFixed(3)}s, clientX=${e.clientX}, wasPlaying=${wasPlayingBeforeDragRef.current}`);
     setScrubPosition(targetTime);
     setHoverSeekPos(e.clientX - rect.left);
     setHoverSeekTime(targetTime);
@@ -286,12 +293,18 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
       if (wasScrubbing) {
         audioEngine.setScrubbing(false);
       }
-      logger.audio('TIMELINE', `pointerup: seeking to ${targetTime.toFixed(3)}s (wasScrubbing=${wasScrubbing})`);
+      logger.audio('TIMELINE', `pointerup: seeking to ${targetTime.toFixed(3)}s (wasScrubbing=${wasScrubbing}, resume=${wasPlayingBeforeDragRef.current})`);
       onSeek(targetTime);
+      if (wasPlayingBeforeDragRef.current) {
+        audioEngine.resume();
+      }
     } else {
       setScrubPosition(null);
       if (wasScrubbing) {
         audioEngine.setScrubbing(false);
+      }
+      if (wasPlayingBeforeDragRef.current) {
+        audioEngine.resume();
       }
     }
   };
@@ -309,6 +322,9 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
     setOptimisticSeekTime(null);
     if (wasScrubbing) {
       audioEngine.setScrubbing(false);
+    }
+    if (wasPlayingBeforeDragRef.current) {
+      audioEngine.resume();
     }
   };
 
