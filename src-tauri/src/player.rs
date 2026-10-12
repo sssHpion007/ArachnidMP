@@ -1,5 +1,5 @@
 use rodio::{Decoder, OutputStream, Sink, Source};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -28,7 +28,7 @@ pub enum PlayerCmd {
     },
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct NativePlayerState {
     pub is_playing: bool,
     pub is_paused: bool,
@@ -36,6 +36,8 @@ pub struct NativePlayerState {
     pub duration: f64,
     pub volume: f32,
     pub repeat_one: bool,
+    pub track_ended: bool,
+    pub loop_repeated: bool,
     pub current_path: Option<String>,
 }
 
@@ -48,34 +50,51 @@ impl Default for NativePlayerState {
             duration: 0.0,
             volume: 1.0,
             repeat_one: false,
+            track_ended: false,
+            loop_repeated: false,
             current_path: None,
         }
     }
 }
 
 pub struct NativePlayer {
-    sender: Sender<PlayerCmd>,
+    sender: Mutex<Sender<PlayerCmd>>,
     state: Arc<Mutex<NativePlayerState>>,
+    app_handle: Arc<Mutex<Option<AppHandle>>>,
 }
 
 impl NativePlayer {
-    pub fn new(app_handle: AppHandle) -> Self {
+    pub fn new() -> Self {
         let (tx, rx) = channel::<PlayerCmd>();
         let state = Arc::new(Mutex::new(NativePlayerState::default()));
-        let thread_state = Arc::clone(&state);
+        let app_handle = Arc::new(Mutex::new(None));
 
-        std::thread::spawn(move || {
-            run_player_thread(rx, thread_state, app_handle);
-        });
+        let thread_state = Arc::clone(&state);
+        let thread_app = Arc::clone(&app_handle);
+
+        std::thread::Builder::new()
+            .name("arachnid-native-audio".into())
+            .spawn(move || {
+                run_player_thread(rx, thread_state, thread_app);
+            })
+            .expect("Failed to spawn native audio thread");
 
         Self {
-            sender: tx,
+            sender: Mutex::new(tx),
             state,
+            app_handle,
+        }
+    }
+
+    pub fn set_app_handle(&self, app: AppHandle) {
+        if let Ok(mut handle) = self.app_handle.lock() {
+            *handle = Some(app);
         }
     }
 
     pub fn play(&self, path: String, offset_secs: f64, volume: f32, duration_hint: Option<f64>) -> Result<(), String> {
-        self.sender
+        let sender = self.sender.lock().map_err(|e| e.to_string())?;
+        sender
             .send(PlayerCmd::Play {
                 path,
                 offset_secs,
@@ -86,44 +105,59 @@ impl NativePlayer {
     }
 
     pub fn pause(&self) -> Result<(), String> {
-        self.sender.send(PlayerCmd::Pause).map_err(|e| e.to_string())
+        let sender = self.sender.lock().map_err(|e| e.to_string())?;
+        sender.send(PlayerCmd::Pause).map_err(|e| e.to_string())
     }
 
     pub fn resume(&self) -> Result<(), String> {
-        self.sender.send(PlayerCmd::Resume).map_err(|e| e.to_string())
+        let sender = self.sender.lock().map_err(|e| e.to_string())?;
+        sender.send(PlayerCmd::Resume).map_err(|e| e.to_string())
     }
 
     pub fn stop(&self) -> Result<(), String> {
-        self.sender.send(PlayerCmd::Stop).map_err(|e| e.to_string())
+        let sender = self.sender.lock().map_err(|e| e.to_string())?;
+        sender.send(PlayerCmd::Stop).map_err(|e| e.to_string())
     }
 
     pub fn seek(&self, position_secs: f64) -> Result<(), String> {
-        self.sender
+        let sender = self.sender.lock().map_err(|e| e.to_string())?;
+        sender
             .send(PlayerCmd::Seek { position_secs })
             .map_err(|e| e.to_string())
     }
 
     pub fn set_volume(&self, volume: f32) -> Result<(), String> {
-        self.sender
+        let sender = self.sender.lock().map_err(|e| e.to_string())?;
+        sender
             .send(PlayerCmd::SetVolume { volume })
             .map_err(|e| e.to_string())
     }
 
     pub fn set_repeat_one(&self, repeat_one: bool) -> Result<(), String> {
-        self.sender
+        let sender = self.sender.lock().map_err(|e| e.to_string())?;
+        sender
             .send(PlayerCmd::SetRepeatOne { repeat_one })
             .map_err(|e| e.to_string())
     }
 
     pub fn get_state(&self) -> NativePlayerState {
-        self.state.lock().unwrap().clone()
+        let mut s = self.state.lock().unwrap();
+        let ended = s.track_ended;
+        let looped = s.loop_repeated;
+        s.track_ended = false;
+        s.loop_repeated = false;
+
+        let mut res = s.clone();
+        res.track_ended = ended;
+        res.loop_repeated = looped;
+        res
     }
 }
 
 fn run_player_thread(
     rx: Receiver<PlayerCmd>,
     shared_state: Arc<Mutex<NativePlayerState>>,
-    app_handle: AppHandle,
+    app_handle: Arc<Mutex<Option<AppHandle>>>,
 ) {
     let output_result = OutputStream::try_default();
     let (_stream, stream_handle) = match output_result {
@@ -149,7 +183,7 @@ fn run_player_thread(
     let mut current_duration = 0.0;
     let mut play_start_pos = 0.0;
     let mut play_start_instant = Instant::now();
-    let mut current_volume = 1.0;
+    let mut current_volume = 1.0f32;
     let mut last_emit_instant = Instant::now();
 
     loop {
@@ -287,7 +321,16 @@ fn run_player_thread(
                                 sink.play();
                                 play_start_pos = 0.0;
                                 play_start_instant = Instant::now();
-                                let _ = app_handle.emit("audio://loop-repeat", ());
+
+                                if let Ok(mut s) = shared_state.lock() {
+                                    s.loop_repeated = true;
+                                }
+
+                                if let Ok(guard) = app_handle.lock() {
+                                    if let Some(ref handle) = *guard {
+                                        let _ = handle.emit("audio://loop-repeat", ());
+                                    }
+                                }
                             }
                         }
                     }
@@ -295,18 +338,30 @@ fn run_player_thread(
                     is_playing = false;
                     is_paused = false;
                     play_start_pos = 0.0;
-                    let _ = app_handle.emit("audio://track-ended", ());
+
+                    if let Ok(mut s) = shared_state.lock() {
+                        s.track_ended = true;
+                    }
+
+                    if let Ok(guard) = app_handle.lock() {
+                        if let Some(ref handle) = *guard {
+                            let _ = handle.emit("audio://track-ended", ());
+                        }
+                    }
                 }
             } else if last_emit_instant.elapsed().as_millis() >= 80 {
-                // Emit time update smoothly at ~12.5 FPS
                 last_emit_instant = Instant::now();
-                let _ = app_handle.emit(
-                    "audio://time-update",
-                    serde_json::json!({
-                        "position": current_pos,
-                        "duration": current_duration,
-                    }),
-                );
+                if let Ok(guard) = app_handle.lock() {
+                    if let Some(ref handle) = *guard {
+                        let _ = handle.emit(
+                            "audio://time-update",
+                            serde_json::json!({
+                                "position": current_pos,
+                                "duration": current_duration,
+                            }),
+                        );
+                    }
+                }
             }
         }
 

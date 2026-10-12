@@ -50,6 +50,7 @@ class AudioEngine {
   private repeatMode: 'off' | 'all' | 'one' = 'all';
   private isScrubbing: boolean = false;
   private visualizerDataCache = new Uint8Array(16);
+  private nativePoller: number | null = null;
 
   constructor() {
     this.audio = new Audio();
@@ -220,6 +221,7 @@ class AudioEngine {
         this.isUsingNative = true;
         this.isPlaying = true;
         this.playbackPosition = 0;
+        this.startNativePoller();
         this.onPlayCallback?.();
 
         // Keep silent HTMLAudio playing to preserve Windows MediaSession (lock screen / SMTC / Bluetooth)
@@ -233,10 +235,12 @@ class AudioEngine {
       } catch (err) {
         console.warn('Native player failed, falling back to browser audio:', err);
         this.isUsingNative = false;
+        this.stopNativePoller();
       }
     }
 
     // Browser audio fallback
+    this.stopNativePoller();
     this.isUsingNative = false;
     this.audio.src = src;
     this.audio.currentTime = 0;
@@ -258,6 +262,7 @@ class AudioEngine {
   public async pause(): Promise<void> {
     if (!this.isPlaying) return;
     this.isPlaying = false;
+    this.stopNativePoller();
 
     if (this.isUsingNative && isTauri()) {
       try {
@@ -279,6 +284,7 @@ class AudioEngine {
       try {
         await invoke('native_resume');
         this.isPlaying = true;
+        this.startNativePoller();
         this.onPlayCallback?.();
         try {
           this.audio.play().catch(() => {});
@@ -300,6 +306,7 @@ class AudioEngine {
   public stop(): void {
     this.isPlaying = false;
     this.playbackPosition = 0;
+    this.stopNativePoller();
 
     if (this.isUsingNative && isTauri()) {
       invoke('native_stop').catch(() => {});
@@ -309,6 +316,53 @@ class AudioEngine {
       this.audio.pause();
       this.audio.currentTime = 0;
     } catch (_) {}
+  }
+
+  private startNativePoller() {
+    this.stopNativePoller();
+    this.nativePoller = window.setInterval(async () => {
+      if (!this.isPlaying || !this.isUsingNative) {
+        this.stopNativePoller();
+        return;
+      }
+      try {
+        const state = await invoke<{
+          is_playing: boolean;
+          is_paused: boolean;
+          position: number;
+          duration: number;
+          track_ended: boolean;
+          loop_repeated: boolean;
+        }>('native_get_state');
+
+        if (!this.isScrubbing) {
+          this.playbackPosition = state.position;
+          this.onTimeUpdateCallback?.(state.position);
+          if (state.duration > 0 && (!this.currentTrackDuration || this.currentTrackDuration <= 0)) {
+            this.currentTrackDuration = state.duration;
+            this.onDurationCallback?.(state.duration);
+          }
+        }
+
+        if (state.loop_repeated) {
+          this.playbackPosition = 0;
+          this.onLoopRepeatCallback?.();
+          this.onTimeUpdateCallback?.(0);
+        } else if (state.track_ended) {
+          this.isPlaying = false;
+          this.playbackPosition = 0;
+          this.stopNativePoller();
+          this.onEndCallback?.();
+        }
+      } catch (_) {}
+    }, 60);
+  }
+
+  private stopNativePoller() {
+    if (this.nativePoller !== null) {
+      clearInterval(this.nativePoller);
+      this.nativePoller = null;
+    }
   }
 
   public seek(seconds: number): void {

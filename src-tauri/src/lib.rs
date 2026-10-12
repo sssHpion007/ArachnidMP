@@ -72,6 +72,7 @@ pub struct DiscordPresenceState {
 
 pub struct AppState {
     pub discord: discord::DiscordService,
+    pub player: player::NativePlayer,
 }
 
 #[tauri::command]
@@ -1497,12 +1498,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(AppState {
             discord: discord::DiscordService::new(),
-        })
-        .setup(|app| {
-            use tauri::Manager;
-            let player = Arc::new(player::NativePlayer::new(app.handle().clone()));
-            app.manage(player);
-            Ok(())
+            player: player::NativePlayer::new(),
         })
         .invoke_handler(tauri::generate_handler![
             get_app_version,
@@ -1902,47 +1898,49 @@ fn load_locale_file(language: String) -> Result<Option<String>, String> {
 
 #[tauri::command]
 fn native_play(
-    state: tauri::State<'_, Arc<player::NativePlayer>>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
     path: String,
     offset_secs: Option<f64>,
     volume: Option<f32>,
     duration_hint: Option<f64>,
 ) -> Result<(), String> {
-    state.play(path, offset_secs.unwrap_or(0.0), volume.unwrap_or(1.0), duration_hint)
+    state.player.set_app_handle(app);
+    state.player.play(path, offset_secs.unwrap_or(0.0), volume.unwrap_or(1.0), duration_hint)
 }
 
 #[tauri::command]
-fn native_pause(state: tauri::State<'_, Arc<player::NativePlayer>>) -> Result<(), String> {
-    state.pause()
+fn native_pause(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.player.pause()
 }
 
 #[tauri::command]
-fn native_resume(state: tauri::State<'_, Arc<player::NativePlayer>>) -> Result<(), String> {
-    state.resume()
+fn native_resume(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.player.resume()
 }
 
 #[tauri::command]
-fn native_stop(state: tauri::State<'_, Arc<player::NativePlayer>>) -> Result<(), String> {
-    state.stop()
+fn native_stop(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.player.stop()
 }
 
 #[tauri::command]
-fn native_seek(state: tauri::State<'_, Arc<player::NativePlayer>>, seconds: f64) -> Result<(), String> {
-    state.seek(seconds)
+fn native_seek(state: tauri::State<'_, AppState>, seconds: f64) -> Result<(), String> {
+    state.player.seek(seconds)
 }
 
 #[tauri::command]
-fn native_set_volume(state: tauri::State<'_, Arc<player::NativePlayer>>, volume: f32) -> Result<(), String> {
-    state.set_volume(volume)
+fn native_set_volume(state: tauri::State<'_, AppState>, volume: f32) -> Result<(), String> {
+    state.player.set_volume(volume)
 }
 
 #[tauri::command]
-fn native_set_repeat_one(state: tauri::State<'_, Arc<player::NativePlayer>>, repeat_one: bool) -> Result<(), String> {
-    state.set_repeat_one(repeat_one)
+fn native_set_repeat_one(state: tauri::State<'_, AppState>, repeat_one: bool) -> Result<(), String> {
+    state.player.set_repeat_one(repeat_one)
 }
 
 #[tauri::command]
-fn native_get_state(state: tauri::State<'_, Arc<player::NativePlayer>>) -> player::NativePlayerState {
-    state.get_state()
+fn native_get_state(state: tauri::State<'_, AppState>) -> player::NativePlayerState {
+    state.player.get_state()
 }
 
