@@ -1,6 +1,6 @@
 [package]
 name = "arachnid"
-version = "0.3.98"
+version = "0.3.99"
 description = "Arachnid Music Player - Modern Material You 3 Player with MusicBee Power"
 authors = ["sssHpion007"]
 edition = "2021"
@@ -21,4 +21,4 @@ walkdir = "2.4"
 base64 = "0.22"
 rfd = "0.15"
 ureq = { version = "2.10", default-features = false, features = ["tls", "native-certs"] }
-rodio = { version = "0.22", default-features = false, features = ["symphonia-all"] }
+rodio = { version = "0.20", features = ["symphonia-all"] }

@@ -4,7 +4,6 @@ mod player;
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::Arc;
 use tauri::State;
 use base64::prelude::*;
 use lofty::config::{ParseOptions, ParsingMode, WriteOptions};
