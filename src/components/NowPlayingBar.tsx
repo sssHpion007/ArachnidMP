@@ -96,6 +96,45 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   const progressBarRef = useRef<HTMLDivElement>(null);
   const animFrameRef = useRef<number | null>(null);
   const [isCompactVolHovered, setIsCompactVolHovered] = useState<boolean>(false);
+  const volHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleVolMouseEnter = () => {
+    if (volHoverTimeoutRef.current) {
+      clearTimeout(volHoverTimeoutRef.current);
+      volHoverTimeoutRef.current = null;
+    }
+    setIsCompactVolHovered(true);
+  };
+
+  const handleVolMouseLeave = () => {
+    if (volHoverTimeoutRef.current) {
+      clearTimeout(volHoverTimeoutRef.current);
+    }
+    volHoverTimeoutRef.current = setTimeout(() => {
+      setIsCompactVolHovered(false);
+    }, 200);
+  };
+
+  const handleVolumeWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const step = 0.05;
+    const delta = e.deltaY < 0 ? step : -step;
+    const currentVol = isMuted ? 0 : volume;
+    const newVol = Math.max(0, Math.min(1, Math.round((currentVol + delta) * 100) / 100));
+    if (isMuted && delta > 0) {
+      onToggleMute();
+    }
+    onVolumeChange(newVol);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (volHoverTimeoutRef.current) {
+        clearTimeout(volHoverTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleCompactVolumeStepClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -470,14 +509,16 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             {/* Volume Button with hover vertical slider */}
             <div 
               className="relative flex items-center justify-center"
-              onMouseEnter={() => setIsCompactVolHovered(true)}
-              onMouseLeave={() => setIsCompactVolHovered(false)}
+              onMouseEnter={handleVolMouseEnter}
+              onMouseLeave={handleVolMouseLeave}
+              onWheel={handleVolumeWheel}
             >
               <button
                 tabIndex={-1}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={handleCompactVolumeStepClick}
-                title={`${t.controls.volume}: ${Math.round((isMuted ? 0 : volume) * 100)}% (клик: +25%)`}
+                onWheel={handleVolumeWheel}
+                title={`${t.controls.volume}: ${Math.round((isMuted ? 0 : volume) * 100)}% (клик: +25%, колёсико: громкость)`}
                 className={`w-9 h-9 flex items-center justify-center rounded-full bg-md3-surface-container border border-md3-outline-variant/15 transition-all cursor-pointer shadow-xs ${
                   isMuted || volume === 0 
                     ? 'text-red-400 bg-red-500/10 border-red-500/20' 
@@ -493,45 +534,50 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
                 )}
               </button>
 
-              {/* Floating Vertical Volume Slider Popup on Hover */}
+              {/* Floating Vertical Volume Slider Popup on Hover strictly centered above button */}
               {isCompactVolHovered && (
                 <div 
-                  className="absolute bottom-full mb-2 -right-2 flex flex-col items-center p-3 bg-md3-surface-container-high/95 backdrop-blur-xl border border-md3-outline-variant/30 rounded-2xl shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150"
+                  className="absolute bottom-full left-1/2 -translate-x-1/2 pb-2 z-50 select-none animate-in fade-in zoom-in-95 duration-150"
+                  onMouseEnter={handleVolMouseEnter}
+                  onMouseLeave={handleVolMouseLeave}
+                  onWheel={handleVolumeWheel}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <span className="text-[11px] font-mono font-bold text-md3-primary mb-2 select-none">
-                    {Math.round((isMuted ? 0 : volume) * 100)}%
-                  </span>
-                  <div className="h-28 flex items-center justify-center py-1">
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.01"
+                  <div className="flex flex-col items-center p-3 bg-md3-surface-container-high/95 backdrop-blur-xl border border-md3-outline-variant/30 rounded-2xl shadow-2xl min-w-[56px]">
+                    <span className="text-[11px] font-mono font-bold text-md3-primary mb-2 select-none">
+                      {Math.round((isMuted ? 0 : volume) * 100)}%
+                    </span>
+                    <div className="h-28 flex items-center justify-center py-1">
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        tabIndex={-1}
+                        value={isMuted ? 0 : volume}
+                        onChange={(e) => {
+                          if (isMuted) onToggleMute();
+                          onVolumeChange(parseFloat(e.target.value));
+                        }}
+                        onInput={(e) => {
+                          if (isMuted) onToggleMute();
+                          onVolumeChange(parseFloat((e.target as HTMLInputElement).value));
+                        }}
+                        title={`${t.controls.volume}: ${Math.round((isMuted ? 0 : volume) * 100)}%`}
+                        style={{ writingMode: 'vertical-lr', direction: 'rtl', height: '100px', width: '20px' }}
+                        className="accent-md3-primary cursor-pointer outline-none"
+                      />
+                    </div>
+                    <button
                       tabIndex={-1}
-                      value={isMuted ? 0 : volume}
-                      onChange={(e) => {
-                        if (isMuted) onToggleMute();
-                        onVolumeChange(parseFloat(e.target.value));
-                      }}
-                      onInput={(e) => {
-                        if (isMuted) onToggleMute();
-                        onVolumeChange(parseFloat((e.target as HTMLInputElement).value));
-                      }}
-                      title={`${t.controls.volume}: ${Math.round((isMuted ? 0 : volume) * 100)}%`}
-                      style={{ writingMode: 'vertical-lr', direction: 'rtl', height: '100px', width: '20px' }}
-                      className="accent-md3-primary cursor-pointer outline-none"
-                    />
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={onToggleMute}
+                      title={isMuted ? t.controls.unmute : t.controls.mute}
+                      className="mt-2 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-md3-surface-container text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-highest transition-colors cursor-pointer"
+                    >
+                      {isMuted ? 'Muted' : 'Mute'}
+                    </button>
                   </div>
-                  <button
-                    tabIndex={-1}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={onToggleMute}
-                    title={isMuted ? t.controls.unmute : t.controls.mute}
-                    className="mt-2 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-md3-surface-container text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-highest transition-colors cursor-pointer"
-                  >
-                    {isMuted ? 'Muted' : 'Mute'}
-                  </button>
                 </div>
               )}
             </div>
@@ -777,7 +823,10 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
         </div>
 
         {/* Volume controls with smooth slider */}
-        <div className="flex items-center gap-1.5 group shrink-0">
+        <div 
+          onWheel={handleVolumeWheel}
+          className="flex items-center gap-1.5 group shrink-0"
+        >
           <button
             tabIndex={-1}
             onMouseDown={(e) => e.preventDefault()}
