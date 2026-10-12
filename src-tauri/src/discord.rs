@@ -145,10 +145,12 @@ fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
         .timeout(std::time::Duration::from_secs(7))
         .send_bytes(&body)
     {
-        if let Ok(json_val) = res.into_json::<serde_json::Value>() {
-            if let Some(url) = json_val.pointer("/files/0/url").and_then(|v| v.as_str()) {
-                if !url.is_empty() {
-                    return Some(url.to_string());
+        if let Ok(body_str) = res.into_string() {
+            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&body_str) {
+                if let Some(url) = json_val.pointer("/files/0/url").and_then(|v| v.as_str()) {
+                    if !url.is_empty() {
+                        return Some(url.to_string());
+                    }
                 }
             }
         }
@@ -171,10 +173,12 @@ fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
         .timeout(std::time::Duration::from_secs(7))
         .send_bytes(&imgur_body)
     {
-        if let Ok(json_val) = res.into_json::<serde_json::Value>() {
-            if let Some(url) = json_val.pointer("/data/link").and_then(|v| v.as_str()) {
-                if !url.is_empty() {
-                    return Some(url.to_string());
+        if let Ok(body_str) = res.into_string() {
+            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&body_str) {
+                if let Some(url) = json_val.pointer("/data/link").and_then(|v| v.as_str()) {
+                    if !url.is_empty() {
+                        return Some(url.to_string());
+                    }
                 }
             }
         }
