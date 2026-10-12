@@ -26,6 +26,10 @@ pub enum PlayerCmd {
     SetRepeatOne {
         repeat_one: bool,
     },
+    SetFadeConfig {
+        mode: String,
+        duration_secs: f64,
+    },
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -140,6 +144,16 @@ impl NativePlayer {
             .map_err(|e| e.to_string())
     }
 
+    pub fn set_fade_config(&self, mode: String, duration_secs: f64) -> Result<(), String> {
+        let sender = self.sender.lock().map_err(|e| e.to_string())?;
+        sender
+            .send(PlayerCmd::SetFadeConfig {
+                mode,
+                duration_secs,
+            })
+            .map_err(|e| e.to_string())
+    }
+
     pub fn get_state(&self) -> NativePlayerState {
         let mut s = self.state.lock().unwrap();
         let ended = s.track_ended;
@@ -152,6 +166,20 @@ impl NativePlayer {
         res.loop_repeated = looped;
         res
     }
+}
+
+fn fade_sink_volume(sink: &Sink, from: f32, to: f32, duration_secs: f64) {
+    let dur_ms = (duration_secs * 1000.0).max(20.0).min(5000.0) as u64;
+    let step_ms = 15u64;
+    let steps = (dur_ms / step_ms).max(2);
+    for i in 1..=steps {
+        let t = i as f32 / steps as f32;
+        let smooth_t = t * t * (3.0 - 2.0 * t);
+        let vol = from + (to - from) * smooth_t;
+        sink.set_volume(vol.clamp(0.0, 1.0));
+        std::thread::sleep(Duration::from_millis(step_ms));
+    }
+    sink.set_volume(to.clamp(0.0, 1.0));
 }
 
 fn run_player_thread(
@@ -183,29 +211,43 @@ fn run_player_thread(
     let mut current_duration = 0.0;
     let mut play_start_pos = 0.0;
     let mut play_start_instant = Instant::now();
+    let mut user_target_volume = 1.0f32;
     let mut current_volume = 1.0f32;
     let mut last_emit_instant = Instant::now();
+    let mut preloaded_next_loop = false;
+
+    let mut fade_mode = "track_change_and_pause".to_string();
+    let mut fade_duration = 2.0f64;
 
     loop {
         // 1. Process all pending commands
         while let Ok(cmd) = rx.try_recv() {
             match cmd {
+                PlayerCmd::SetFadeConfig { mode, duration_secs } => {
+                    fade_mode = mode;
+                    fade_duration = duration_secs.max(0.1);
+                }
                 PlayerCmd::Play {
                     path,
                     offset_secs,
                     volume,
                     duration_hint,
                 } => {
-                    if is_playing && !is_paused && current_volume > 0.005 {
-                        let fade_steps = 3;
-                        for i in (0..fade_steps).rev() {
-                            sink.set_volume(current_volume * (i as f32 / fade_steps as f32));
-                            std::thread::sleep(Duration::from_millis(2));
+                    user_target_volume = volume;
+                    preloaded_next_loop = false;
+
+                    // Smooth fade out of previous track if currently playing
+                    if is_playing && !is_paused && current_volume > 0.01 {
+                        if fade_mode != "off" && fade_duration > 0.05 {
+                            let fade_out_dur = fade_duration.min(0.6).max(0.08);
+                            fade_sink_volume(&sink, current_volume, 0.0, fade_out_dur);
+                        } else {
+                            fade_sink_volume(&sink, current_volume, 0.0, 0.035);
                         }
                     }
+
                     sink.stop();
-                    current_volume = volume;
-                    sink.set_volume(volume);
+                    sink.set_volume(0.0);
 
                     if let Some(dh) = duration_hint {
                         if dh > 0.0 {
@@ -233,11 +275,22 @@ fn run_player_thread(
                                     play_start_pos = 0.0;
                                 }
 
-                                sink.play();
-                                is_playing = true;
-                                is_paused = false;
                                 current_path = Some(path);
                                 play_start_instant = Instant::now();
+                                is_playing = true;
+                                is_paused = false;
+
+                                sink.play();
+
+                                if fade_mode != "off" && fade_duration > 0.05 && user_target_volume > 0.01 {
+                                    let fade_in_dur = fade_duration.min(2.0).max(0.08);
+                                    fade_sink_volume(&sink, 0.0, user_target_volume, fade_in_dur);
+                                } else {
+                                    fade_sink_volume(&sink, 0.0, user_target_volume, 0.035);
+                                }
+
+                                current_volume = user_target_volume;
+                                sink.set_volume(current_volume);
                             }
                             Err(e) => {
                                 eprintln!("NativePlayer: Decode error: {:?}", e);
@@ -254,14 +307,14 @@ fn run_player_thread(
                 }
                 PlayerCmd::Pause => {
                     if is_playing && !is_paused {
-                        if current_volume > 0.005 {
-                            let fade_steps = 3;
-                            for i in (0..fade_steps).rev() {
-                                sink.set_volume(current_volume * (i as f32 / fade_steps as f32));
-                                std::thread::sleep(Duration::from_millis(2));
-                            }
+                        if fade_mode != "off" && fade_duration > 0.05 && current_volume > 0.01 {
+                            let fade_out_dur = fade_duration.min(1.0).max(0.08);
+                            fade_sink_volume(&sink, current_volume, 0.0, fade_out_dur);
+                        } else {
+                            fade_sink_volume(&sink, current_volume, 0.0, 0.035);
                         }
                         sink.pause();
+                        current_volume = user_target_volume;
                         sink.set_volume(current_volume);
                         is_paused = true;
                         let elapsed = play_start_instant.elapsed().as_secs_f64();
@@ -270,49 +323,46 @@ fn run_player_thread(
                 }
                 PlayerCmd::Resume => {
                     if is_playing && is_paused {
-                        sink.set_volume(0.0);
-                        sink.play();
                         is_paused = false;
                         play_start_instant = Instant::now();
-                        if current_volume > 0.005 {
-                            let fade_steps = 3;
-                            for i in 1..=fade_steps {
-                                sink.set_volume(current_volume * (i as f32 / fade_steps as f32));
-                                std::thread::sleep(Duration::from_millis(2));
-                            }
+                        if fade_mode != "off" && fade_duration > 0.05 && user_target_volume > 0.01 {
+                            sink.set_volume(0.0);
+                            sink.play();
+                            let fade_in_dur = fade_duration.min(2.0).max(0.08);
+                            fade_sink_volume(&sink, 0.0, user_target_volume, fade_in_dur);
+                        } else {
+                            sink.set_volume(0.0);
+                            sink.play();
+                            fade_sink_volume(&sink, 0.0, user_target_volume, 0.035);
                         }
+                        current_volume = user_target_volume;
                         sink.set_volume(current_volume);
                     }
                 }
                 PlayerCmd::Stop => {
                     if is_playing && !is_paused && current_volume > 0.005 {
-                        let fade_steps = 3;
-                        for i in (0..fade_steps).rev() {
-                            sink.set_volume(current_volume * (i as f32 / fade_steps as f32));
-                            std::thread::sleep(Duration::from_millis(2));
-                        }
+                        fade_sink_volume(&sink, current_volume, 0.0, 0.035);
                     }
                     sink.stop();
+                    current_volume = user_target_volume;
                     sink.set_volume(current_volume);
                     is_playing = false;
                     is_paused = false;
                     current_path = None;
                     play_start_pos = 0.0;
+                    preloaded_next_loop = false;
                 }
                 PlayerCmd::Seek { position_secs } => {
                     let max_dur = if current_duration > 0.1 { current_duration - 0.05 } else { position_secs };
                     let safe_pos = position_secs.max(0.0).min(max_dur);
                     let target_dur = Duration::from_secs_f64(safe_pos);
+                    preloaded_next_loop = false;
 
-                    // Micro-fade envelope (12ms out) to eliminate pops and crackles
+                    // Clean 45ms S-curve fade out to let hardware buffer drain completely
                     if is_playing && !is_paused && current_volume > 0.005 {
-                        let fade_steps = 4;
-                        for i in (0..fade_steps).rev() {
-                            sink.set_volume(current_volume * (i as f32 / fade_steps as f32));
-                            std::thread::sleep(Duration::from_millis(3));
-                        }
-                        sink.set_volume(0.0);
+                        fade_sink_volume(&sink, current_volume, 0.0, 0.045);
                     }
+                    sink.set_volume(0.0);
 
                     let seek_ok = sink.try_seek(target_dur).is_ok();
                     if seek_ok {
@@ -340,14 +390,11 @@ fn run_player_thread(
                         }
                     }
 
-                    // Micro-fade envelope (15ms in) back to target volume
-                    if is_playing && !is_paused && current_volume > 0.005 {
-                        let fade_steps = 5;
-                        for i in 1..=fade_steps {
-                            sink.set_volume(current_volume * (i as f32 / fade_steps as f32));
-                            std::thread::sleep(Duration::from_millis(3));
-                        }
+                    // Clean 45ms S-curve fade in back to target volume
+                    if is_playing && !is_paused && user_target_volume > 0.005 {
+                        fade_sink_volume(&sink, 0.0, user_target_volume, 0.045);
                     }
+                    current_volume = user_target_volume;
                     sink.set_volume(current_volume);
 
                     // Immediately update shared state and emit time-update
@@ -367,6 +414,7 @@ fn run_player_thread(
                     }
                 }
                 PlayerCmd::SetVolume { volume } => {
+                    user_target_volume = volume;
                     current_volume = volume;
                     sink.set_volume(volume);
                 }
@@ -376,17 +424,64 @@ fn run_player_thread(
             }
         }
 
-        // 2. Monitor playback position and track end
+        // 2. Monitor playback position, fade-out, and track end
         if is_playing && !is_paused {
             let elapsed = play_start_instant.elapsed().as_secs_f64();
             let current_pos = play_start_pos + elapsed;
 
-            // Check if track reached end:
-            // Crucial: Only rely on sink.empty(), or a generous safety fallback past the duration
-            // NEVER cut off early with (current_pos >= current_duration) which severed the last 200-500ms!
-            let is_ended = sink.empty() || (current_duration > 1.0 && current_pos >= current_duration + 2.0);
+            // End-of-track fade out
+            let should_fade_at_end = (fade_mode == "always") || (fade_mode == "track_change_and_pause" && !repeat_one);
+            if should_fade_at_end && fade_duration > 0.1 && current_duration > fade_duration {
+                let remaining = current_duration - current_pos;
+                if remaining <= fade_duration && remaining >= 0.0 {
+                    let t = (remaining / fade_duration) as f32;
+                    let smooth_t = t * t * (3.0 - 2.0 * t);
+                    current_volume = user_target_volume * smooth_t;
+                    sink.set_volume(current_volume);
+                } else if current_volume < user_target_volume {
+                    current_volume = user_target_volume;
+                    sink.set_volume(current_volume);
+                }
+            }
 
-            if is_ended {
+            // Seamless repeat pre-loading:
+            // When 1.5s remain and repeat_one is active, preload and append next loop into sink queue!
+            if repeat_one && !preloaded_next_loop && current_duration > 3.0 && current_pos >= current_duration - 1.5 {
+                if let Some(ref path) = current_path {
+                    if let Ok(file) = File::open(path) {
+                        if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
+                            sink.append(decoder);
+                            preloaded_next_loop = true;
+                        }
+                    }
+                }
+            }
+
+            // Check if track reached end or looped
+            if preloaded_next_loop && sink.len() == 1 {
+                // The first source finished and seamlessly transitioned to the preloaded second source with ZERO gap!
+                preloaded_next_loop = false;
+                play_start_pos = 0.0;
+                play_start_instant = Instant::now();
+
+                if let Ok(mut s) = shared_state.lock() {
+                    s.loop_repeated = true;
+                    s.position = 0.0;
+                }
+
+                if let Ok(guard) = app_handle.lock() {
+                    if let Some(ref handle) = *guard {
+                        let _ = handle.emit("audio://loop-repeat", ());
+                        let _ = handle.emit(
+                            "audio://time-update",
+                            serde_json::json!({
+                                "position": 0.0,
+                                "duration": current_duration,
+                            }),
+                        );
+                    }
+                }
+            } else if sink.empty() || (current_duration > 1.0 && current_pos >= current_duration + 2.0) {
                 if repeat_one {
                     if let Some(ref path) = current_path {
                         if let Ok(file) = File::open(path) {
@@ -420,6 +515,7 @@ fn run_player_thread(
                     is_playing = false;
                     is_paused = false;
                     play_start_pos = 0.0;
+                    preloaded_next_loop = false;
 
                     if let Ok(mut s) = shared_state.lock() {
                         s.track_ended = true;
@@ -474,6 +570,6 @@ fn run_player_thread(
             }
         }
 
-        std::thread::sleep(Duration::from_millis(30));
+        std::thread::sleep(Duration::from_millis(20));
     }
 }

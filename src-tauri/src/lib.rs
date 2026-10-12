@@ -1539,6 +1539,7 @@ pub fn run() {
             native_seek,
             native_set_volume,
             native_set_repeat_one,
+            native_set_fade_config,
             native_get_state
         ])
         .run(tauri::generate_context!())
@@ -1936,6 +1937,11 @@ fn native_set_volume(state: tauri::State<'_, AppState>, volume: f32) -> Result<(
 #[tauri::command]
 fn native_set_repeat_one(state: tauri::State<'_, AppState>, repeat_one: bool) -> Result<(), String> {
     state.player.set_repeat_one(repeat_one)
+}
+
+#[tauri::command]
+fn native_set_fade_config(state: tauri::State<'_, AppState>, mode: String, duration_secs: f64) -> Result<(), String> {
+    state.player.set_fade_config(mode, duration_secs)
 }
 
 #[tauri::command]

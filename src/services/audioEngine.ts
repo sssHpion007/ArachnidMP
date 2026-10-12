@@ -162,6 +162,13 @@ class AudioEngine {
   public setFadeConfig(mode: FadeMode, durationSec: number) {
     this.fadeMode = mode;
     this.fadeDuration = Math.max(0.2, durationSec);
+
+    if (isTauri()) {
+      invoke('native_set_fade_config', {
+        mode: this.fadeMode,
+        durationSecs: this.fadeDuration,
+      }).catch(() => {});
+    }
   }
 
   public setRepeatMode(mode: 'off' | 'all' | 'one') {
@@ -224,6 +231,11 @@ class AudioEngine {
     // Attempt native Rust playback first if on Tauri and file path exists
     if (isTauri() && nativePath) {
       try {
+        await invoke('native_set_fade_config', {
+          mode: this.fadeMode,
+          durationSecs: this.fadeDuration,
+        }).catch(() => {});
+
         await invoke('native_play', {
           path: nativePath,
           offsetSecs: 0.0,
