@@ -90,6 +90,33 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   language = 'ru',
 }) => {
   const [hoveredTrackId, setHoveredTrackId] = useState<string | null>(null);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const [isCompact, setIsCompact] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth < 768);
+
+  useEffect(() => {
+    const checkWidth = () => {
+      if (tableContainerRef.current) {
+        const width = tableContainerRef.current.clientWidth;
+        setIsCompact(width < 720 || window.innerWidth < 768);
+      } else {
+        setIsCompact(window.innerWidth < 768);
+      }
+    };
+
+    checkWidth();
+    window.addEventListener('resize', checkWidth);
+
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && tableContainerRef.current) {
+      ro = new ResizeObserver(() => checkWidth());
+      ro.observe(tableContainerRef.current);
+    }
+
+    return () => {
+      window.removeEventListener('resize', checkWidth);
+      ro?.disconnect();
+    };
+  }, []);
 
   // Pointer-based Drag & Drop Engine for Smooth Track Reordering
   const [dragState, setDragState] = useState<TrackDragState | null>(null);
@@ -285,12 +312,17 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   };
 
   const selectedCount = selectedTrackIds.size;
-  const gridCols = isReorderable
-    ? 'grid-cols-[56px_minmax(200px,2fr)_minmax(140px,1.5fr)_minmax(140px,1.5fr)_90px_70px_48px]'
-    : 'grid-cols-[48px_minmax(200px,2fr)_minmax(140px,1.5fr)_minmax(140px,1.5fr)_90px_70px_48px]';
+  const gridCols = isCompact
+    ? (isReorderable
+        ? 'grid-cols-[50px_minmax(0,1fr)_54px_40px]'
+        : 'grid-cols-[44px_minmax(0,1fr)_54px_40px]')
+    : (isReorderable
+        ? 'grid-cols-[56px_minmax(200px,2fr)_minmax(140px,1.5fr)_minmax(140px,1.5fr)_90px_70px_48px]'
+        : 'grid-cols-[48px_minmax(200px,2fr)_minmax(140px,1.5fr)_minmax(140px,1.5fr)_90px_70px_48px]');
 
   return (
     <div 
+      ref={tableContainerRef}
       onDragOver={handleTableDragOver}
       onDrop={handleTableDrop}
       className="flex-1 flex flex-col h-full min-h-0 bg-md3-surface select-none relative"
@@ -308,32 +340,36 @@ export const TrackTable: React.FC<TrackTableProps> = ({
         </div>
         <div 
           onClick={() => onSortChange('title')} 
-          className="flex items-center gap-1 cursor-pointer hover:text-md3-primary"
+          className="flex items-center gap-1 cursor-pointer hover:text-md3-primary min-w-0"
         >
           <span>{language === 'ru' ? 'Название' : 'Title'}</span>
           {sortBy === 'title' && <ArrowUpDown className="w-3 h-3 text-md3-primary" />}
         </div>
-        <div 
-          onClick={() => onSortChange('artist')} 
-          className="flex items-center gap-1 cursor-pointer hover:text-md3-primary"
-        >
-          <span>{language === 'ru' ? 'Исполнитель' : 'Artist'}</span>
-          {sortBy === 'artist' && <ArrowUpDown className="w-3 h-3 text-md3-primary" />}
-        </div>
-        <div 
-          onClick={() => onSortChange('album')} 
-          className="flex items-center gap-1 cursor-pointer hover:text-md3-primary"
-        >
-          <span>{language === 'ru' ? 'Альбом' : 'Album'}</span>
-          {sortBy === 'album' && <ArrowUpDown className="w-3 h-3 text-md3-primary" />}
-        </div>
-        <div 
-          onClick={() => onSortChange('genre')} 
-          className="flex items-center gap-1 cursor-pointer hover:text-md3-primary"
-        >
-          <span>{language === 'ru' ? 'Жанр' : 'Genre'}</span>
-          {sortBy === 'genre' && <ArrowUpDown className="w-3 h-3 text-md3-primary" />}
-        </div>
+        {!isCompact && (
+          <>
+            <div 
+              onClick={() => onSortChange('artist')} 
+              className="flex items-center gap-1 cursor-pointer hover:text-md3-primary"
+            >
+              <span>{language === 'ru' ? 'Исполнитель' : 'Artist'}</span>
+              {sortBy === 'artist' && <ArrowUpDown className="w-3 h-3 text-md3-primary" />}
+            </div>
+            <div 
+              onClick={() => onSortChange('album')} 
+              className="flex items-center gap-1 cursor-pointer hover:text-md3-primary"
+            >
+              <span>{language === 'ru' ? 'Альбом' : 'Album'}</span>
+              {sortBy === 'album' && <ArrowUpDown className="w-3 h-3 text-md3-primary" />}
+            </div>
+            <div 
+              onClick={() => onSortChange('genre')} 
+              className="flex items-center gap-1 cursor-pointer hover:text-md3-primary"
+            >
+              <span>{language === 'ru' ? 'Жанр' : 'Genre'}</span>
+              {sortBy === 'genre' && <ArrowUpDown className="w-3 h-3 text-md3-primary" />}
+            </div>
+          </>
+        )}
         <div 
           onClick={() => onSortChange('duration')} 
           className="flex items-center justify-end gap-1 cursor-pointer hover:text-md3-primary pr-2"
@@ -398,7 +434,9 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                   }
                 }}
                 onContextMenu={(e) => onOpenContextMenu(e, track)}
-                className={`relative grid ${gridCols} items-center px-4 py-2 cursor-pointer transition-colors duration-150 ${
+                className={`relative grid ${gridCols} items-center px-4 ${
+                  isCompact ? 'py-2.5 sm:py-3' : 'py-2'
+                } cursor-pointer transition-colors duration-150 ${
                   isBeingDragged
                     ? 'opacity-30 bg-md3-primary-container/20 border-dashed border border-md3-primary/30'
                     : isSelected
@@ -429,11 +467,11 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                       className="text-md3-on-surface-variant/40 hover:text-md3-primary p-0.5 cursor-grab active:cursor-grabbing transition-colors shrink-0"
                       title="Зажмите и перетащите для изменения порядка треков"
                     >
-                      <GripVertical className="w-3.5 h-3.5" />
+                      <GripVertical className={isCompact ? "w-4 h-4" : "w-3.5 h-3.5"} />
                     </div>
                   )}
 
-                  <div className="w-7 h-7 flex items-center justify-center shrink-0">
+                  <div className={`${isCompact ? 'w-8 h-8' : 'w-7 h-7'} flex items-center justify-center shrink-0`}>
                     {isHovered || isSelected ? (
                       <button
                         onClick={(e) => {
@@ -446,16 +484,16 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                             onPlayTrack(track);
                           }
                         }}
-                        className="w-7 h-7 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-sm hover:scale-110 transition-transform"
+                        className={`${isCompact ? 'w-8 h-8' : 'w-7 h-7'} rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-sm hover:scale-110 transition-transform`}
                       >
                         {isCurrent && isPlaying ? (
-                          <Pause className="w-3.5 h-3.5 fill-current" />
+                          <Pause className={isCompact ? "w-4 h-4 fill-current" : "w-3.5 h-3.5 fill-current"} />
                         ) : (
-                          <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                          <Play className={isCompact ? "w-4 h-4 fill-current ml-0.5" : "w-3.5 h-3.5 fill-current ml-0.5"} />
                         )}
                       </button>
                     ) : isCurrent ? (
-                      <div className="flex items-center gap-0.5 h-3.5">
+                      <div className={`flex items-center gap-0.5 ${isCompact ? 'h-4' : 'h-3.5'}`}>
                         <span className="w-1 bg-md3-primary rounded-full animate-bounce [animation-delay:0ms] h-full" />
                         <span className="w-1 bg-md3-primary rounded-full animate-bounce [animation-delay:150ms] h-2/3" />
                         <span className="w-1 bg-md3-primary rounded-full animate-bounce [animation-delay:300ms] h-full" />
@@ -466,20 +504,20 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                   </div>
                 </div>
 
-                {/* Title + Cover */}
+                {/* Title + Cover (+ Artist in compact mode) */}
                 <div className="flex items-center gap-3 min-w-0 pr-3">
-                  <div className="w-9 h-9 rounded-xl overflow-hidden shrink-0 bg-md3-surface-container-highest shadow-sm relative group">
+                  <div className={`${isCompact ? 'w-11 h-11 sm:w-12 sm:h-12' : 'w-9 h-9'} rounded-xl overflow-hidden shrink-0 bg-md3-surface-container-highest shadow-sm relative group`}>
                     {track.coverArt ? (
                       <img src={track.coverArt} alt={track.title} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-md3-primary/60 bg-md3-primary/10">
-                        <Disc3 className="w-5 h-5" />
+                        <Disc3 className={isCompact ? "w-6 h-6" : "w-5 h-5"} />
                       </div>
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <p className={`text-sm font-semibold truncate ${
+                      <p className={`${isCompact ? 'text-[15px]' : 'text-sm'} font-semibold truncate ${
                         track.isMissing 
                           ? 'text-amber-500/90 dark:text-amber-400/90' 
                           : isCurrent 
@@ -502,26 +540,33 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-md3-on-surface-variant/70 truncate md:hidden">
-                      {track.artist}
-                    </p>
+                    {isCompact && (
+                      <p className="text-xs text-md3-on-surface-variant/80 font-medium truncate mt-0.5">
+                        {track.artist}
+                      </p>
+                    )}
                   </div>
                 </div>
 
-                {/* Artist */}
-                <div className="text-xs text-md3-on-surface-variant font-medium truncate pr-3">
-                  {track.artist}
-                </div>
+                {/* Other info columns only in standard view */}
+                {!isCompact && (
+                  <>
+                    {/* Artist */}
+                    <div className="text-xs text-md3-on-surface-variant font-medium truncate pr-3">
+                      {track.artist}
+                    </div>
 
-                {/* Album */}
-                <div className="text-xs text-md3-on-surface-variant/80 truncate pr-3">
-                  {track.album}
-                </div>
+                    {/* Album */}
+                    <div className="text-xs text-md3-on-surface-variant/80 truncate pr-3">
+                      {track.album}
+                    </div>
 
-                {/* Genre */}
-                <div className="text-xs text-md3-on-surface-variant/70 truncate pr-2">
-                  {track.genre || '—'}
-                </div>
+                    {/* Genre */}
+                    <div className="text-xs text-md3-on-surface-variant/70 truncate pr-2">
+                      {track.genre || '—'}
+                    </div>
+                  </>
+                )}
 
                 {/* Duration */}
                 <div className="text-xs font-mono text-md3-on-surface-variant/80 text-right pr-2">
@@ -532,10 +577,10 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                 <div className="flex items-center justify-center gap-1">
                   <button
                     onClick={(e) => onToggleFavorite(track.id, e)}
-                    className="p-1 rounded-full text-md3-on-surface-variant hover:text-red-500 transition-colors"
+                    className={`${isCompact ? 'p-1.5' : 'p-1'} rounded-full text-md3-on-surface-variant hover:text-red-500 transition-colors`}
                   >
                     <Heart
-                      className={`w-4 h-4 ${
+                      className={`${isCompact ? 'w-4.5 h-4.5' : 'w-4 h-4'} ${
                         track.isFavorite ? 'fill-red-500 text-red-500' : 'opacity-40 hover:opacity-100'
                       }`}
                     />
