@@ -127,12 +127,44 @@ fn sanitize_discord_string(s: &str) -> String {
 }
 
 /**
- * Uploads local embedded track artwork directly to uguu.se or imgur without browser CORS restrictions
+ * 1. Russian domestic image host (ultra-fast for RU users, zero blocks, no API key)
  */
-fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
-    // 1. Try uguu.se (global, fast, unblocked in Russia, no key required)
-    let boundary = "----ArachnidCoverBoundary7MA4YWxk";
-    let mut body = Vec::new();
+fn upload_to_img24(image_bytes: &[u8]) -> Option<String> {
+    let boundary = "----ArachnidCoverUpload7MA4YWxk";
+    let mut body = Vec::with_capacity(image_bytes.len() + 256);
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"inputfile\"; filename=\"cover.jpg\"\r\n");
+    body.extend_from_slice(b"Content-Type: image/jpeg\r\n\r\n");
+    body.extend_from_slice(image_bytes);
+    body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
+
+    if let Ok(res) = ureq::post("https://i-mg24.ru/")
+        .set("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
+        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        .timeout(std::time::Duration::from_secs(8))
+        .send_bytes(&body)
+    {
+        if let Ok(html) = res.into_string() {
+            if let Some(pos) = html.find("https://i-mg24.ru/images/") {
+                let tail = &html[pos..];
+                if let Some(end_pos) = tail.find('"') {
+                    let url = &tail[..end_pos];
+                    if !url.is_empty() {
+                        return Some(url.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/**
+ * 2. International fast temporary host (Pomf / Uguu)
+ */
+fn upload_to_uguu(image_bytes: &[u8]) -> Option<String> {
+    let boundary = "----ArachnidCoverUpload7MA4YWxk";
+    let mut body = Vec::with_capacity(image_bytes.len() + 256);
     body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
     body.extend_from_slice(b"Content-Disposition: form-data; name=\"files[]\"; filename=\"cover.jpg\"\r\n");
     body.extend_from_slice(b"Content-Type: image/jpeg\r\n\r\n");
@@ -142,7 +174,7 @@ fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
     if let Ok(res) = ureq::post("https://uguu.se/upload")
         .set("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
         .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-        .timeout(std::time::Duration::from_secs(7))
+        .timeout(std::time::Duration::from_secs(8))
         .send_bytes(&body)
     {
         if let Ok(body_str) = res.into_string() {
@@ -155,23 +187,29 @@ fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
             }
         }
     }
+    None
+}
 
-    // 2. Try api.imgur.com fallback (Client-ID 09bef4c058080cd)
+/**
+ * 3. Imgur fallback
+ */
+fn upload_to_imgur(image_bytes: &[u8]) -> Option<String> {
+    let boundary = "----ArachnidCoverUpload7MA4YWxk";
     let b64 = BASE64_STANDARD.encode(image_bytes);
-    let mut imgur_body = Vec::new();
-    imgur_body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
-    imgur_body.extend_from_slice(b"Content-Disposition: form-data; name=\"image\"\r\n\r\n");
-    imgur_body.extend_from_slice(b64.as_bytes());
-    imgur_body.extend_from_slice(format!("\r\n--{}\r\n", boundary).as_bytes());
-    imgur_body.extend_from_slice(b"Content-Disposition: form-data; name=\"type\"\r\n\r\nbase64\r\n");
-    imgur_body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
+    let mut body = Vec::with_capacity(b64.len() + 256);
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"image\"\r\n\r\n");
+    body.extend_from_slice(b64.as_bytes());
+    body.extend_from_slice(format!("\r\n--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"type\"\r\n\r\nbase64\r\n");
+    body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
 
     if let Ok(res) = ureq::post("https://api.imgur.com/3/upload")
         .set("Authorization", "Client-ID 09bef4c058080cd")
         .set("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
-        .set("User-Agent", "Mozilla/5.0")
-        .timeout(std::time::Duration::from_secs(7))
-        .send_bytes(&imgur_body)
+        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        .timeout(std::time::Duration::from_secs(8))
+        .send_bytes(&body)
     {
         if let Ok(body_str) = res.into_string() {
             if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&body_str) {
@@ -183,7 +221,22 @@ fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
             }
         }
     }
+    None
+}
 
+/**
+ * Uploads local embedded track artwork using multi-tier hosting strategy
+ */
+fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
+    if let Some(url) = upload_to_img24(image_bytes) {
+        return Some(url);
+    }
+    if let Some(url) = upload_to_uguu(image_bytes) {
+        return Some(url);
+    }
+    if let Some(url) = upload_to_imgur(image_bytes) {
+        return Some(url);
+    }
     None
 }
 
@@ -261,16 +314,19 @@ impl DiscordService {
 
                     if let Some(large_img) = &latest.large_image {
                         let trimmed = large_img.trim();
-                        if trimmed.starts_with("data:image/") || trimmed.starts_with("data:;base64,") {
-                            let b64_clean = if let Some(idx) = trimmed.find(";base64,") {
+                        if trimmed.starts_with("data:") {
+                            let b64_part = if let Some(idx) = trimmed.find(";base64,") {
                                 &trimmed[idx + 8..]
                             } else {
                                 trimmed
                             };
-                            let cache_key = format!("{}_{}_{}", latest.details, latest.state, trimmed.len());
+                            // Filter out any whitespace/newlines to ensure clean decoding
+                            let b64_clean: String = b64_part.chars().filter(|c| !c.is_whitespace()).collect();
+                            let cache_key = format!("{}_{}_{}", latest.details, latest.state, b64_clean.len());
+
                             if let Some(cached_url) = cover_cache.get(&cache_key) {
                                 assets["large_image"] = json!(cached_url);
-                            } else if let Ok(bytes) = BASE64_STANDARD.decode(b64_clean.trim()) {
+                            } else if let Ok(bytes) = BASE64_STANDARD.decode(&b64_clean) {
                                 if let Some(uploaded_url) = upload_raw_cover(&bytes) {
                                     cover_cache.insert(cache_key, uploaded_url.clone());
                                     assets["large_image"] = json!(uploaded_url);

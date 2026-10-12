@@ -4,6 +4,53 @@ const DEFAULT_LOGO_URL = 'https://raw.githubusercontent.com/sssHpion007/Arachnid
 const PLAYING_ICON_URL = 'https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png';
 const PAUSED_ICON_URL = 'https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png';
 
+/**
+ * Compresses any arbitrary base64 cover art image to a lightweight 384x384 JPEG (~25KB)
+ * for lightning-fast transfer over Tauri IPC and swift upload to Discord-compatible hosts.
+ */
+function compressCoverForDiscord(dataUrl: string, maxSize = 384): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      if (!dataUrl || !dataUrl.startsWith('data:')) {
+        resolve(dataUrl);
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        let width = img.naturalWidth || img.width;
+        let height = img.naturalHeight || img.height;
+        if (width <= 0 || height <= 0) {
+          resolve(dataUrl);
+          return;
+        }
+        if (width > maxSize || height > maxSize) {
+          if (width > height) {
+            height = Math.round((height * maxSize) / width);
+            width = maxSize;
+          } else {
+            width = Math.round((width * maxSize) / height);
+            height = maxSize;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+          return;
+        }
+        resolve(dataUrl);
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    } catch (_) {
+      resolve(dataUrl);
+    }
+  });
+}
+
 class DiscordRpcService {
   private currentPresence: DiscordPresenceInfo | null = null;
   private listeners: ((info: DiscordPresenceInfo | null) => void)[] = [];
@@ -57,6 +104,18 @@ class DiscordRpcService {
       return;
     }
 
+    // Prepare optimized cover art
+    let coverArt = DEFAULT_LOGO_URL;
+    if (info.coverArt && info.coverArt.trim().length > 0) {
+      if (info.coverArt.startsWith('http://') || info.coverArt.startsWith('https://')) {
+        coverArt = info.coverArt.trim();
+      } else if (info.coverArt.startsWith('data:')) {
+        coverArt = await compressCoverForDiscord(info.coverArt, 384);
+      } else {
+        coverArt = info.coverArt.trim();
+      }
+    }
+
     if (requestId !== this.activeRequestId) return;
 
     // Small badges (Play and Pause icons)
@@ -99,10 +158,6 @@ class DiscordRpcService {
     if (!clientId) {
       clientId = statusMode === 'listening' ? '1129859263741837373' : '1304561842858561637';
     }
-
-    // Cover art: pass the exact embedded cover art from the audio file (data:image/... or http)
-    // The native Rust backend uploads it natively without CORS to uguu.se / imgur and caches it!
-    const coverArt = info.coverArt && info.coverArt.trim().length > 0 ? info.coverArt.trim() : DEFAULT_LOGO_URL;
 
     try {
       await tauriCore.invoke('update_discord_presence', {
