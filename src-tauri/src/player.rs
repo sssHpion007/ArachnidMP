@@ -7,6 +7,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
+use crate::logger;
 
 pub enum PlayerCmd {
     Play {
@@ -325,6 +326,8 @@ fn run_player_thread(
                     preloaded_next_loop = false;
                     active_volume_fade = None;
 
+                    logger::log("AUDIO", "PLAYER", &format!("Play command received: {:?} (offset={:.3}s, vol={:.2})", path, offset_secs, volume));
+
                     // Immediately ensure we are routing to the active default audio device
                     if let Some(dev) = rodio::cpal::default_host().default_output_device() {
                         if let Ok(name) = dev.name() {
@@ -501,35 +504,51 @@ fn run_player_thread(
                     preloaded_next_loop = false;
                 }
                 PlayerCmd::Seek { position_secs } => {
+                    let t0 = Instant::now();
                     let max_dur = if current_duration > 0.1 { current_duration - 0.05 } else { position_secs };
                     let safe_pos = position_secs.max(0.0).min(max_dur);
                     let target_dur = Duration::from_secs_f64(safe_pos);
                     preloaded_next_loop = false;
                     active_volume_fade = None;
 
+                    logger::log("AUDIO", "SEEK", &format!("Seek requested: target={:.3}s (safe={:.3}s, total_dur={:.3}s, is_paused={})", position_secs, safe_pos, current_duration, is_paused));
+
                     // Immediately flush CPAL playback queue and silence the hardware output.
-                    // Rodio's sink.try_seek must NEVER be called while the sink is running because it
-                    // delegates demuxing and disk I/O to the real-time CPAL WASAPI callback thread.
-                    // Blocking that real-time callback causes WASAPI to starve and loop its
-                    // hardware ring-buffer chunk (~10ms), producing the harsh granular buzz.
                     sink.stop();
                     sink.set_volume(user_target_volume);
 
                     if let Some(ref path) = current_path {
-                        if let Ok(file) = File::open(path) {
-                            if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
-                                if safe_pos > 0.05 {
-                                    if decoder.try_seek(target_dur).is_ok() {
-                                        sink.append(decoder.fade_in(Duration::from_millis(30)));
+                        let t_file = Instant::now();
+                        match File::open(path) {
+                            Ok(file) => match Decoder::new(BufReader::new(file)) {
+                                Ok(mut decoder) => {
+                                    let open_elapsed = t_file.elapsed().as_secs_f64() * 1000.0;
+                                    let t_seek = Instant::now();
+                                    if safe_pos > 0.05 {
+                                        let seek_res = decoder.try_seek(target_dur);
+                                        let seek_elapsed = t_seek.elapsed().as_secs_f64() * 1000.0;
+                                        logger::log("AUDIO", "SEEK", &format!("Decoder try_seek({:.3}s) -> {:?} in {:.2}ms (file opened in {:.2}ms)", safe_pos, seek_res, seek_elapsed, open_elapsed));
+                                        if seek_res.is_ok() {
+                                            sink.append(decoder.fade_in(Duration::from_millis(30)));
+                                        } else {
+                                            logger::log("WARN", "SEEK", "Format returned SeekError, falling back to skip_duration");
+                                            let skipped = decoder.skip_duration(target_dur);
+                                            sink.append(skipped.fade_in(Duration::from_millis(30)));
+                                        }
                                     } else {
-                                        let skipped = decoder.skip_duration(target_dur);
-                                        sink.append(skipped.fade_in(Duration::from_millis(30)));
+                                        sink.append(decoder.fade_in(Duration::from_millis(30)));
                                     }
-                                } else {
-                                    sink.append(decoder.fade_in(Duration::from_millis(30)));
                                 }
+                                Err(e) => {
+                                    logger::log("ERROR", "SEEK", &format!("Failed to create decoder for {:?}: {:?}", path, e));
+                                }
+                            },
+                            Err(e) => {
+                                logger::log("ERROR", "SEEK", &format!("Failed to open file {:?}: {:?}", path, e));
                             }
                         }
+                    } else {
+                        logger::log("WARN", "SEEK", "Seek requested but current_path is None");
                     }
 
                     if !is_paused {
@@ -540,6 +559,8 @@ fn run_player_thread(
 
                     play_start_pos = safe_pos;
                     play_start_instant = Instant::now();
+
+                    logger::log("AUDIO", "SEEK", &format!("Seek pipeline completed in {:.2}ms", t0.elapsed().as_secs_f64() * 1000.0));
 
                     // Immediately update shared state and emit time-update
                     if let Ok(mut s) = shared_state.lock() {

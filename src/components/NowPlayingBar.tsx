@@ -21,6 +21,7 @@ import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 import { audioEngine } from '../services/audioEngine';
 import { AppLanguage, getTranslations } from '../i18n';
+import { logger } from '../services/logger';
 
 interface NowPlayingBarProps {
   currentTrack: Track | null;
@@ -232,6 +233,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
     const rect = progressBarRef.current.getBoundingClientRect();
     const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const targetTime = pos * safeDuration;
+    logger.audio('TIMELINE', `pointerdown: targetSec=${targetTime.toFixed(3)}s, clientX=${e.clientX}`);
     setScrubPosition(targetTime);
     setHoverSeekPos(e.clientX - rect.left);
     setHoverSeekTime(targetTime);
@@ -284,6 +286,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
       if (wasScrubbing) {
         audioEngine.setScrubbing(false);
       }
+      logger.audio('TIMELINE', `pointerup: seeking to ${targetTime.toFixed(3)}s (wasScrubbing=${wasScrubbing})`);
       onSeek(targetTime);
     } else {
       setScrubPosition(null);

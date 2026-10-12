@@ -1,6 +1,7 @@
 import { FadeMode } from '../types/music';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { logger } from './logger';
 
 export const EQ_FREQUENCIES = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 
@@ -391,6 +392,8 @@ class AudioEngine {
     const dur = this.getDuration();
     const maxSafe = dur > 0.1 ? dur - 0.05 : seconds;
     const safeSec = Math.max(0, Math.min(maxSafe, seconds));
+
+    logger.audio('AUDIO_ENGINE', `seek(${seconds.toFixed(3)}s) -> safeSec=${safeSec.toFixed(3)}s, isUsingNative=${this.isUsingNative}, isPlaying=${this.isPlaying}`);
 
     this.playbackPosition = safeSec;
     this.latchedPosition = safeSec;

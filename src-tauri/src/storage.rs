@@ -18,6 +18,10 @@ pub fn get_covers_dir() -> PathBuf {
     get_portable_base_dir().join("config").join("covers")
 }
 
+pub fn get_logs_dir() -> PathBuf {
+    get_portable_base_dir().join("config").join("logs")
+}
+
 pub fn save_cover_bytes(bytes: &[u8], mime: &str) -> Option<String> {
     if bytes.is_empty() {
         return None;
@@ -68,9 +72,11 @@ pub fn init_storage_structure(base_dir: &Path) {
     let playlists_dir = base_dir.join("playlists");
     let themes_dir = base_dir.join("themes");
     let locales_dir = base_dir.join("locales");
+    let logs_dir = config_dir.join("logs");
 
     let _ = fs::create_dir_all(&config_dir);
     let _ = fs::create_dir_all(&covers_dir);
+    let _ = fs::create_dir_all(&logs_dir);
     let _ = fs::create_dir_all(&playlists_dir);
     let _ = fs::create_dir_all(&themes_dir);
     let _ = fs::create_dir_all(&locales_dir);

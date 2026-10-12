@@ -1,6 +1,7 @@
 mod discord;
 mod storage;
 mod player;
+mod logger;
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -1604,6 +1605,11 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .setup(|app| {
+            logger::set_app_handle(app.handle().clone());
+            logger::log("INFO", "SYSTEM", &format!("Arachnid Music Player v{} started", get_app_version()));
+            Ok(())
+        })
         .manage(AppState {
             discord: discord::DiscordService::new(),
             player: player::NativePlayer::new(),
@@ -1649,7 +1655,11 @@ pub fn run() {
             native_set_volume,
             native_set_repeat_one,
             native_set_fade_config,
-            native_get_state
+            native_get_state,
+            logger::get_recent_logs,
+            logger::client_log,
+            logger::save_logs_snapshot,
+            logger::open_logs_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arachnid application");

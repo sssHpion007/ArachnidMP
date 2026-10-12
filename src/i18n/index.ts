@@ -125,6 +125,11 @@ export interface Translations {
     openLocalesFolder: string;
     shortcuts: string;
     shortcutsDesc: string;
+    logs: string;
+    logsDesc: string;
+    saveLogs: string;
+    logsFolder: string;
+    autoScroll: string;
     about: string;
     aboutDesc: string;
     done: string;
@@ -306,6 +311,11 @@ export const RU_TRANSLATIONS: Translations = {
     openLocalesFolder: 'Открыть папку локализации',
     shortcuts: 'Горячие клавиши',
     shortcutsDesc: 'Список клавиатурных комбинаций для быстрого управления',
+    logs: 'Журнал работы (Логи)',
+    logsDesc: 'Просмотр событий и аудиотрассировки в реальном времени',
+    saveLogs: 'Сохранить',
+    logsFolder: 'Папка',
+    autoScroll: 'Автопрокрутка',
     about: 'О программе',
     aboutDesc: 'Модульный аудиоплеер с поддержкой gapless loop, Discord RPC и тем оформления',
     done: 'Готово',
@@ -487,6 +497,11 @@ export const EN_TRANSLATIONS: Translations = {
     openLocalesFolder: 'Open Locales Folder',
     shortcuts: 'Keyboard Shortcuts',
     shortcutsDesc: 'List of keyboard shortcuts for quick player control',
+    logs: 'Application Logs',
+    logsDesc: 'Real-time event and audio diagnostics view',
+    saveLogs: 'Save',
+    logsFolder: 'Folder',
+    autoScroll: 'Auto-scroll',
     about: 'About Arachnid',
     aboutDesc: 'Modular audio player with gapless looping, Discord RPC, and customizable themes',
     done: 'Done',

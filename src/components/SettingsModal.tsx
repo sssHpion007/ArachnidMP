@@ -163,13 +163,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   themeToggles,
   onToggleThemeOption,
 }) => {
-  const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes' | 'discord'>('main');
+  const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes' | 'discord' | 'logs'>('main');
   const [isPaletteModalOpen, setIsPaletteModalOpen] = useState<boolean>(false);
   const [themeToDelete, setThemeToDelete] = useState<CustomThemeInfo | null>(null);
   const updateSectionRef = useRef<HTMLDivElement>(null);
   const releaseNotesContainerRef = useRef<HTMLDivElement>(null);
   const mainSettingsContainerRef = useRef<HTMLDivElement>(null);
   const mainScrollTopRef = useRef<number>(0);
+
+  // Real-time Logs state
+  const [logs, setLogs] = useState<string[]>([]);
+  const [autoScroll, setAutoScroll] = useState<boolean>(true);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const logsScrollRef = useRef<HTMLDivElement>(null);
 
   const handleOpenUpdateSettings = () => {
     setIsUpdateSettingsOpen(true);
@@ -210,6 +216,43 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       }
     }
   }, [currentView, latestRelease]);
+
+  // Real-time logs subscriber and initial fetch
+  useEffect(() => {
+    if (currentView !== 'logs') return;
+
+    if (isTauri()) {
+      invoke<string[]>('get_recent_logs')
+        .then((lines) => {
+          if (Array.isArray(lines)) {
+            setLogs(lines);
+          }
+        })
+        .catch(() => {});
+
+      let unlistenFn: (() => void) | undefined;
+      listen<{ line: string }>('log://new-entry', (event) => {
+        if (event.payload?.line) {
+          setLogs((prev) => [...prev.slice(-499), event.payload.line]);
+        }
+      })
+        .then((unlisten) => {
+          unlistenFn = unlisten;
+        })
+        .catch(() => {});
+
+      return () => {
+        unlistenFn?.();
+      };
+    }
+  }, [currentView]);
+
+  // Auto-scroll logs to bottom
+  useEffect(() => {
+    if (currentView === 'logs' && autoScroll && logsScrollRef.current) {
+      logsScrollRef.current.scrollTop = logsScrollRef.current.scrollHeight;
+    }
+  }, [logs, currentView, autoScroll]);
 
   const t = getTranslations(language);
 
@@ -354,8 +397,75 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setCurrentView('shortcuts');
   };
 
+  const handleOpenLogs = () => {
+    if (mainSettingsContainerRef.current) {
+      mainScrollTopRef.current = mainSettingsContainerRef.current.scrollTop;
+    }
+    setCurrentView('logs');
+  };
+
+  const handleSaveLogsSnapshot = async () => {
+    if (!isTauri()) return;
+    try {
+      const filename = await invoke<string>('save_logs_snapshot');
+      setSaveStatus(filename);
+      setTimeout(() => setSaveStatus(null), 4000);
+    } catch (err) {
+      console.error('Failed to save logs snapshot:', err);
+    }
+  };
+
+  const handleOpenLogsFolder = async () => {
+    if (!isTauri()) return;
+    try {
+      await invoke('open_logs_folder');
+    } catch (err) {
+      console.error('Failed to open logs folder:', err);
+    }
+  };
+
   const handleBackToMain = () => {
     setCurrentView('main');
+    setTimeout(() => {
+      if (mainSettingsContainerRef.current && mainScrollTopRef.current > 0) {
+        mainSettingsContainerRef.current.scrollTop = mainScrollTopRef.current;
+      }
+    }, 10);
+  };
+
+  const renderFormattedLogLine = (line: string) => {
+    const match = line.match(/^(\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?\])\s*(\[[A-Z]+\])\s*(\[[A-Z0-9_-]+\])\s*(.*)$/);
+    if (!match) {
+      return <span className="text-zinc-300 font-mono text-[11px]">{line}</span>;
+    }
+    const [, timestamp, level, tag, message] = match;
+    const levelText = level.replace(/[\[\]]/g, '');
+
+    let levelColor = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+    if (levelText === 'ERROR') {
+      levelColor = 'text-red-400 bg-red-500/15 border-red-500/30 font-bold';
+    } else if (levelText === 'WARN') {
+      levelColor = 'text-amber-400 bg-amber-500/15 border-amber-500/30 font-bold';
+    } else if (levelText === 'AUDIO') {
+      levelColor = 'text-cyan-400 bg-cyan-500/15 border-cyan-500/30 font-bold';
+    }
+
+    const isAudioOrSeek = tag.includes('SEEK') || tag.includes('TIMELINE') || tag.includes('PLAYER') || tag.includes('AUDIO');
+
+    return (
+      <div className="flex items-start gap-2 py-0.5 hover:bg-white/5 rounded px-1 transition-colors leading-relaxed">
+        <span className="text-zinc-500 shrink-0 select-none text-[10px] font-mono">{timestamp}</span>
+        <span className={`px-1.5 py-0.2 rounded text-[10px] border shrink-0 font-mono ${levelColor}`}>
+          {levelText}
+        </span>
+        <span className={`text-[10px] font-bold shrink-0 font-mono ${isAudioOrSeek ? 'text-amber-300' : 'text-zinc-400'}`}>
+          {tag}
+        </span>
+        <span className="text-zinc-200 flex-1 break-all font-mono text-[11px]">
+          {message}
+        </span>
+      </div>
+    );
   };
 
   const handleMarkdownClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -474,6 +584,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ? t.settings.releaseNotes
                   : currentView === 'discord'
                   ? t.settings.discordRpc
+                  : currentView === 'logs'
+                  ? t.settings.logs
                   : t.settings.title}
               </h3>
               <p className="text-xs text-md3-on-surface-variant">
@@ -483,6 +595,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ? (latestRelease?.tagName ? `${latestRelease.name || latestRelease.tagName}` : (language === 'ru' ? 'Что нового в обновлении' : "What's new in update"))
                   : currentView === 'discord'
                   ? t.settings.discordSettingsDesc
+                  : currentView === 'logs'
+                  ? t.settings.logsDesc
                   : t.settings.subtitle}
               </p>
             </div>
@@ -1085,6 +1199,100 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </p>
               </div>
             )}
+          </div>
+        ) : currentView === 'logs' ? (
+          /* Real-Time Logs View */
+          <div key="view-logs" className="p-6 space-y-4 flex flex-col flex-1 overflow-hidden">
+            {/* Action Bar: Save button and Folder button */}
+            <div className="flex items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-2">
+                {/* 1. Кнопка "Сохранить" */}
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={handleSaveLogsSnapshot}
+                  className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-md3-primary text-md3-on-primary hover:bg-md3-primary/90 text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 outline-none focus:outline-none"
+                  title={language === 'ru' ? 'Сохранить лог в файл с текущей датой и временем' : 'Save logs snapshot with current timestamp'}
+                >
+                  <Download className="w-4 h-4 shrink-0" />
+                  <span>{t.settings.saveLogs}</span>
+                </button>
+
+                {/* 2. Кнопка "Папка" */}
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={handleOpenLogsFolder}
+                  className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-md3-surface-container-high hover:bg-md3-surface-container-highest text-md3-on-surface border border-md3-outline-variant/30 text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 outline-none focus:outline-none"
+                  title={language === 'ru' ? 'Открыть папку логов (config/logs)' : 'Open logs folder (config/logs)'}
+                >
+                  <FolderOpen className="w-4 h-4 text-md3-primary shrink-0" />
+                  <span>{t.settings.logsFolder}</span>
+                </button>
+              </div>
+
+              {/* Status and Tools on the right */}
+              <div className="flex items-center gap-2">
+                {saveStatus && (
+                  <span className="text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2.5 py-1 rounded-xl animate-in fade-in flex items-center gap-1.5 shadow-xs">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span className="truncate max-w-[200px]">{saveStatus}</span>
+                  </span>
+                )}
+
+                {/* Auto-scroll Toggle */}
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setAutoScroll((v) => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all cursor-pointer outline-none focus:outline-none ${
+                    autoScroll
+                      ? 'bg-md3-primary/10 border-md3-primary/30 text-md3-primary font-semibold'
+                      : 'bg-md3-surface border-md3-outline-variant/20 text-md3-on-surface-variant'
+                  }`}
+                  title={language === 'ru' ? 'Автоматическая прокрутка к последней записи' : 'Auto-scroll to latest log'}
+                >
+                  <div className={`w-2 h-2 rounded-full ${autoScroll ? 'bg-emerald-400 animate-pulse' : 'bg-md3-outline-variant'}`} />
+                  <span>{t.settings.autoScroll}</span>
+                </button>
+
+                {/* Clear console view button */}
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setLogs([])}
+                  className="p-2 rounded-xl bg-md3-surface hover:bg-md3-surface-container-high text-md3-on-surface-variant hover:text-red-400 border border-md3-outline-variant/20 transition-all cursor-pointer outline-none focus:outline-none"
+                  title={language === 'ru' ? 'Очистить экран' : 'Clear screen'}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Real-time Console Log Area */}
+            <div
+              ref={logsScrollRef}
+              className="flex-1 bg-black/60 rounded-3xl border border-md3-outline-variant/25 p-4 font-mono text-[11px] leading-relaxed overflow-y-auto custom-scrollbar select-text text-zinc-300 min-h-[380px] max-h-[58vh] shadow-inner"
+            >
+              {logs.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-zinc-500 italic gap-2 py-16">
+                  <FileText className="w-8 h-8 text-zinc-600 animate-pulse" />
+                  <span>{language === 'ru' ? 'Ожидание событий... Воспроизведите трек или переместите таймлайн.' : 'Waiting for events... Play a track or seek on the timeline.'}</span>
+                </div>
+              ) : (
+                <div className="space-y-0.5">
+                  {logs.map((line, idx) => (
+                    <div key={idx} className="break-all whitespace-pre-wrap">
+                      {renderFormattedLogLine(line)}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           /* Main Settings View */
@@ -1810,6 +2018,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                     <div className="text-[11px] text-md3-on-surface-variant">
                       {t.settings.shortcutsDesc}
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-md3-on-surface-variant group-hover:text-md3-primary group-hover:translate-x-0.5 transition-all" />
+              </button>
+            </div>
+
+            {/* 6b. Button to Open Application Logs Menu */}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleOpenLogs}
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-md3-surface-container-high/60 hover:bg-md3-surface-container-high border border-md3-outline-variant/20 hover:border-md3-primary/40 transition-all cursor-pointer group shadow-xs"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div className="text-left">
+                    <div className="text-xs font-bold text-md3-on-surface group-hover:text-md3-primary transition-colors">
+                      {t.settings.logs}
+                    </div>
+                    <div className="text-[11px] text-md3-on-surface-variant">
+                      {t.settings.logsDesc}
                     </div>
                   </div>
                 </div>
