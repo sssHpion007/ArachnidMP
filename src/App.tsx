@@ -2962,6 +2962,9 @@ export const App: React.FC = () => {
         onToggleFavorite={handleToggleFavorite}
         onOpenFiles={handleOpenFiles}
         onOpenEQ={() => setIsEQOpen(true)}
+        discordEnabled={discordEnabled}
+        onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
+        showDiscordButton={showDiscordButton}
         onOpenTrackDetails={(t) => setTrackDetailsTarget(t)}
         onOpenLyrics={() => {
           if (currentTrack) setIsLyricsOpen(true);

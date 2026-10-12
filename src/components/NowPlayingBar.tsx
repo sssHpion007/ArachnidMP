@@ -48,6 +48,9 @@ interface NowPlayingBarProps {
   onOpenEQ?: () => void;
   onOpenTrackDetails?: (track: Track) => void;
   onOpenLyrics?: () => void;
+  discordEnabled?: boolean;
+  onToggleDiscord?: () => void;
+  showDiscordButton?: boolean;
 }
 
 export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
@@ -76,6 +79,9 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   onOpenEQ,
   onOpenTrackDetails,
   onOpenLyrics,
+  discordEnabled = true,
+  onToggleDiscord,
+  showDiscordButton = true,
 }) => {
   const t = getTranslations(language);
   const [windowWidth, setWindowWidth] = useState<number>(window.innerWidth);
@@ -89,6 +95,29 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   const startPointerXRef = useRef<number>(0);
   const progressBarRef = useRef<HTMLDivElement>(null);
   const animFrameRef = useRef<number | null>(null);
+  const [isCompactVolHovered, setIsCompactVolHovered] = useState<boolean>(false);
+
+  const handleCompactVolumeStepClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const currentPct = isMuted ? 0 : Math.round(volume * 100);
+    let nextPct: number;
+    if (currentPct >= 95) {
+      nextPct = 0;
+    } else if (currentPct < 20) {
+      nextPct = 25;
+    } else if (currentPct < 45) {
+      nextPct = 50;
+    } else if (currentPct < 70) {
+      nextPct = 75;
+    } else {
+      nextPct = 100;
+    }
+    if (isMuted && nextPct > 0) {
+      onToggleMute();
+    }
+    onVolumeChange(nextPct / 100);
+  };
 
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
@@ -337,10 +366,10 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
           </span>
         </div>
 
-        {/* Tier 3: Controls row with enlarged buttons, Left = Equalizer, Right = Lyrics, Center = Playback */}
+        {/* Tier 3: Controls row with enlarged buttons, Left = Equalizer & Discord, Right = Volume & Lyrics, Center = Playback */}
         <div className="w-full flex items-center justify-between px-1">
-          {/* Left: Equalizer */}
-          <div className="flex items-center shrink-0">
+          {/* Left: Equalizer & Discord */}
+          <div className="flex items-center gap-1.5 shrink-0">
             {onOpenEQ && (
               <button
                 tabIndex={-1}
@@ -350,6 +379,24 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
                 className="w-9 h-9 flex items-center justify-center rounded-full bg-md3-surface-container border border-md3-outline-variant/15 text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high transition-colors cursor-pointer shadow-xs"
               >
                 <SlidersHorizontal className="w-4 h-4" />
+              </button>
+            )}
+            {showDiscordButton && onToggleDiscord && (
+              <button
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={onToggleDiscord}
+                title={language === 'ru'
+                  ? `Discord RPC: ${discordEnabled ? 'Включен [D]' : 'Выключен [D]'} (кликните для переключения)`
+                  : `Discord RPC: ${discordEnabled ? 'Enabled [D]' : 'Disabled [D]'} (click to toggle)`
+                }
+                className={`w-9 h-9 flex items-center justify-center rounded-full transition-all cursor-pointer shadow-xs border ${
+                  discordEnabled
+                    ? 'bg-[#5865F2]/20 border-[#5865F2]/40 text-[#5865F2] font-bold shadow-sm'
+                    : 'bg-md3-surface-container border-md3-outline-variant/15 text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
+                }`}
+              >
+                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${discordEnabled ? 'bg-[#5865F2] animate-pulse' : 'bg-gray-400'}`} />
               </button>
             )}
           </div>
@@ -418,8 +465,77 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             </button>
           </div>
 
-          {/* Right: Lyrics Button */}
-          <div className="flex items-center shrink-0">
+          {/* Right: Lyrics Button & Volume Button with Popover */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Volume Button with hover vertical slider */}
+            <div 
+              className="relative flex items-center justify-center"
+              onMouseEnter={() => setIsCompactVolHovered(true)}
+              onMouseLeave={() => setIsCompactVolHovered(false)}
+            >
+              <button
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleCompactVolumeStepClick}
+                title={`${t.controls.volume}: ${Math.round((isMuted ? 0 : volume) * 100)}% (клик: +25%)`}
+                className={`w-9 h-9 flex items-center justify-center rounded-full bg-md3-surface-container border border-md3-outline-variant/15 transition-all cursor-pointer shadow-xs ${
+                  isMuted || volume === 0 
+                    ? 'text-red-400 bg-red-500/10 border-red-500/20' 
+                    : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high'
+                }`}
+              >
+                {isMuted || volume === 0 ? (
+                  <VolumeX className="w-4 h-4 text-red-400" />
+                ) : volume < 0.5 ? (
+                  <Volume1 className="w-4 h-4" />
+                ) : (
+                  <Volume2 className="w-4 h-4" />
+                )}
+              </button>
+
+              {/* Floating Vertical Volume Slider Popup on Hover */}
+              {isCompactVolHovered && (
+                <div 
+                  className="absolute bottom-full mb-2 -right-2 flex flex-col items-center p-3 bg-md3-surface-container-high/95 backdrop-blur-xl border border-md3-outline-variant/30 rounded-2xl shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <span className="text-[11px] font-mono font-bold text-md3-primary mb-2 select-none">
+                    {Math.round((isMuted ? 0 : volume) * 100)}%
+                  </span>
+                  <div className="h-28 flex items-center justify-center py-1">
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      tabIndex={-1}
+                      value={isMuted ? 0 : volume}
+                      onChange={(e) => {
+                        if (isMuted) onToggleMute();
+                        onVolumeChange(parseFloat(e.target.value));
+                      }}
+                      onInput={(e) => {
+                        if (isMuted) onToggleMute();
+                        onVolumeChange(parseFloat((e.target as HTMLInputElement).value));
+                      }}
+                      title={`${t.controls.volume}: ${Math.round((isMuted ? 0 : volume) * 100)}%`}
+                      style={{ writingMode: 'vertical-lr', direction: 'rtl', height: '100px', width: '20px' }}
+                      className="accent-md3-primary cursor-pointer outline-none"
+                    />
+                  </div>
+                  <button
+                    tabIndex={-1}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={onToggleMute}
+                    title={isMuted ? t.controls.unmute : t.controls.mute}
+                    className="mt-2 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-md3-surface-container text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-highest transition-colors cursor-pointer"
+                  >
+                    {isMuted ? 'Muted' : 'Mute'}
+                  </button>
+                </div>
+              )}
+            </div>
+
             <button
               tabIndex={-1}
               onMouseDown={(e) => e.preventDefault()}
@@ -437,42 +553,6 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               <Mic2 className="w-4 h-4" />
             </button>
           </div>
-        </div>
-
-        {/* Tier 4: Volume Controls with smooth slider */}
-        <div className="w-full flex items-center justify-center gap-2 px-3 pt-0.5">
-          <button
-            tabIndex={-1}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onToggleMute}
-            title={isMuted ? t.controls.unmute : `${t.controls.volume}: ${Math.round(volume * 100)}%`}
-            className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer shrink-0"
-          >
-            {isMuted || volume === 0 ? (
-              <VolumeX className="w-3.5 h-3.5 text-red-400" />
-            ) : volume < 0.5 ? (
-              <Volume1 className="w-3.5 h-3.5" />
-            ) : (
-              <Volume2 className="w-3.5 h-3.5" />
-            )}
-          </button>
-
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            tabIndex={-1}
-            value={isMuted ? 0 : volume}
-            onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-            onInput={(e) => onVolumeChange(parseFloat((e.target as HTMLInputElement).value))}
-            title={`${t.controls.volume}: ${Math.round((isMuted ? 0 : volume) * 100)}%`}
-            className="flex-1 max-w-[280px] accent-md3-primary h-1.5 rounded-full bg-md3-surface-container-highest cursor-pointer outline-none"
-          />
-
-          <span className="text-[10px] font-mono text-md3-on-surface-variant/70 w-8 text-right shrink-0">
-            {Math.round((isMuted ? 0 : volume) * 100)}%
-          </span>
         </div>
       </footer>
     );

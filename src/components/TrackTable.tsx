@@ -460,7 +460,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                   </div>
                 )}
 
-                {/* Index / Grip / Play Button */}
+                {/* Index / Grip */}
                 <div className="flex items-center justify-center gap-1">
                   {isReorderable && (
                     <div
@@ -472,19 +472,53 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                   )}
 
                   <div className={`${isCompact ? 'w-8 h-8' : 'w-7 h-7'} flex items-center justify-center shrink-0`}>
-                    {isHovered || isSelected ? (
+                    {isCurrent && isPlaying ? (
+                      <div className={`flex items-center gap-0.5 ${isCompact ? 'h-4' : 'h-3.5'}`}>
+                        <span className="w-1 bg-md3-primary rounded-full animate-bounce [animation-delay:0ms] h-full" />
+                        <span className="w-1 bg-md3-primary rounded-full animate-bounce [animation-delay:150ms] h-2/3" />
+                        <span className="w-1 bg-md3-primary rounded-full animate-bounce [animation-delay:300ms] h-full" />
+                      </div>
+                    ) : (
+                      <span className={`text-xs font-mono ${isCurrent ? 'text-md3-primary font-bold' : 'text-md3-on-surface-variant/60'}`}>
+                        {idx + 1}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Title + Cover (+ Artist in compact mode) */}
+                <div className="flex items-center gap-3 min-w-0 pr-3">
+                  <div className={`${isCompact ? 'w-11 h-11 sm:w-12 sm:h-12' : 'w-9 h-9'} rounded-xl overflow-hidden shrink-0 bg-md3-surface-container-highest shadow-sm relative group/cover`}>
+                    {track.coverArt ? (
+                      <img src={track.coverArt} alt={track.title} className="w-full h-full object-cover transition-transform duration-200 group-hover/cover:scale-105" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-md3-primary/60 bg-md3-primary/10">
+                        <Disc3 className={isCompact ? "w-6 h-6" : "w-5 h-5"} />
+                      </div>
+                    )}
+
+                    {/* Interactive Play/Pause button directly on the cover art */}
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (track.isMissing && onRelocateTrack) {
+                          onRelocateTrack(track);
+                        } else if (isCurrent && onTogglePlayPause) {
+                          onTogglePlayPause();
+                        } else {
+                          onPlayTrack(track);
+                        }
+                      }}
+                      title={isCurrent && isPlaying ? (language === 'ru' ? 'Пауза' : 'Pause') : (language === 'ru' ? 'Слушать' : 'Play')}
+                      className={`absolute inset-0 flex items-center justify-center transition-all cursor-pointer ${
+                        isHovered || isSelected || isCurrent
+                          ? 'bg-black/45 opacity-100 backdrop-blur-[1px]'
+                          : 'opacity-0 pointer-events-none'
+                      }`}
+                    >
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (track.isMissing && onRelocateTrack) {
-                            onRelocateTrack(track);
-                          } else if (isCurrent && onTogglePlayPause) {
-                            onTogglePlayPause();
-                          } else {
-                            onPlayTrack(track);
-                          }
-                        }}
-                        className={`${isCompact ? 'w-8 h-8' : 'w-7 h-7'} rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-sm hover:scale-110 transition-transform`}
+                        type="button"
+                        className={`${isCompact ? 'w-8 h-8' : 'w-7 h-7'} rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-md hover:scale-110 active:scale-95 transition-transform`}
                       >
                         {isCurrent && isPlaying ? (
                           <Pause className={isCompact ? "w-4 h-4 fill-current" : "w-3.5 h-3.5 fill-current"} />
@@ -492,28 +526,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                           <Play className={isCompact ? "w-4 h-4 fill-current ml-0.5" : "w-3.5 h-3.5 fill-current ml-0.5"} />
                         )}
                       </button>
-                    ) : isCurrent ? (
-                      <div className={`flex items-center gap-0.5 ${isCompact ? 'h-4' : 'h-3.5'}`}>
-                        <span className="w-1 bg-md3-primary rounded-full animate-bounce [animation-delay:0ms] h-full" />
-                        <span className="w-1 bg-md3-primary rounded-full animate-bounce [animation-delay:150ms] h-2/3" />
-                        <span className="w-1 bg-md3-primary rounded-full animate-bounce [animation-delay:300ms] h-full" />
-                      </div>
-                    ) : (
-                      <span className="text-xs font-mono text-md3-on-surface-variant/60">{idx + 1}</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Title + Cover (+ Artist in compact mode) */}
-                <div className="flex items-center gap-3 min-w-0 pr-3">
-                  <div className={`${isCompact ? 'w-11 h-11 sm:w-12 sm:h-12' : 'w-9 h-9'} rounded-xl overflow-hidden shrink-0 bg-md3-surface-container-highest shadow-sm relative group`}>
-                    {track.coverArt ? (
-                      <img src={track.coverArt} alt={track.title} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-md3-primary/60 bg-md3-primary/10">
-                        <Disc3 className={isCompact ? "w-6 h-6" : "w-5 h-5"} />
-                      </div>
-                    )}
+                    </div>
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 min-w-0">
