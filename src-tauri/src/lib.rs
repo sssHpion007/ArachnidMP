@@ -1592,6 +1592,10 @@ pub fn run() {
 
     #[cfg(target_os = "windows")]
     {
+        let webview_dir = storage::get_webview_dir();
+        let _ = std::fs::create_dir_all(&webview_dir);
+        std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", &webview_dir);
+
         windows_process_grouping::setup_process_grouping();
 
         let webview_args = "--enable-features=HardwareMediaKeyHandling,MediaSessionService \
