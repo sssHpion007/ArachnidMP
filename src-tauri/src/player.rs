@@ -363,7 +363,7 @@ fn run_player_thread(
 
                     match File::open(&path) {
                         Ok(file) => match Decoder::new(BufReader::new(file)) {
-                            Ok(decoder) => {
+                            Ok(mut decoder) => {
                                 if let Some(dur) = decoder.total_duration() {
                                     let secs = dur.as_secs_f64();
                                     if secs > 0.0 {

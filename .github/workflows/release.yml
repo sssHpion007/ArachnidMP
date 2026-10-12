@@ -36,13 +36,16 @@ jobs:
         run: npm run build
 
       - name: Build Tauri Desktop Portable
-        shell: cmd
+        shell: pwsh
         run: |
-          call npx tauri build --no-bundle > build.log 2>&1
-          if %ERRORLEVEL% neq 0 (
-            type build.log
-            exit /b %ERRORLEVEL%
-          )
+          npx tauri build --no-bundle 2>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE -ne 0) {
+            "### ❌ Tauri Build Failed (Last 150 lines):" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            Get-Content build.log -Tail 150 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            exit 1
+          }
 
       - name: Prepare Portable Artifacts
         shell: pwsh
