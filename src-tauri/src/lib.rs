@@ -1548,6 +1548,7 @@ mod windows_process_grouping {
             }
 
             #[repr(C)]
+            #[allow(non_snake_case)]
             struct PROCESS_POWER_THROTTLING_STATE {
                 Version: u32,
                 ControlMask: u32,

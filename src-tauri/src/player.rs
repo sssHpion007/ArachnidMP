@@ -528,7 +528,6 @@ fn run_player_thread(
                         sink = new_sink;
                     }
                     sink.set_volume(0.0);
-                    current_volume = 0.0;
 
                     if let Some(ref path) = current_path {
                         let t_file = Instant::now();
