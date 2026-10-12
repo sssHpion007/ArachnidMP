@@ -82,15 +82,7 @@ jobs:
           name: Arachnid Music Player ${{ github.ref_name || 'v0.1.0' }} [Windows]
           draft: false
           prerelease: false
-          generate_release_notes: true
-          body: |
-            ## Arachnid Music Player ${{ github.ref_name || 'v0.1.0' }} [Windows] 🎵
-
-            ### 🚀 Скачать портативную версию:
-            * **Arachnid-Portable.exe** — Одиночный запускаемый файл плеера (рекомендуется для бесшовного обновления на месте).
-            * **Arachnid-${{ github.ref_name || 'v0.1.0' }}-Windows-Portable.zip** — Архив с исполняемым файлом. Установка не требуется!
-
-            ---
-            **Платформа:** Windows | **Теги:** `#windows` `#portable` `#music-player`
+          generate_release_notes: false
+          body_path: RELEASE_NOTES.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

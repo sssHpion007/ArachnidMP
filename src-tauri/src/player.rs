@@ -1,7 +1,7 @@
+use rodio::cpal::traits::{DeviceTrait, HostTrait};
 use rodio::{Decoder, OutputStream, Sink, Source};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::BufReader;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -213,13 +213,18 @@ fn run_player_thread(
     }
 
     let output_result = OutputStream::try_default();
-    let (_stream, stream_handle) = match output_result {
+    let (mut _stream, mut stream_handle) = match output_result {
         Ok(s) => s,
         Err(e) => {
             eprintln!("NativePlayer: Failed to open default audio output: {:?}", e);
             return;
         }
     };
+
+    let mut current_device_name: Option<String> = rodio::cpal::default_host()
+        .default_output_device()
+        .and_then(|d| d.name().ok());
+    let mut last_device_check = Instant::now();
 
     let mut sink = match Sink::try_new(&stream_handle) {
         Ok(s) => s,
@@ -281,7 +286,7 @@ fn run_player_thread(
                     }
 
                     match File::open(&path) {
-                        Ok(file) => match Decoder::new(BufReader::new(file)) {
+                        Ok(file) => match Decoder::try_from(file) {
                             Ok(decoder) => {
                                 if let Some(dur) = decoder.total_duration() {
                                     let secs = dur.as_secs_f64();
@@ -383,9 +388,9 @@ fn run_player_thread(
                     let target_dur = Duration::from_secs_f64(safe_pos);
                     preloaded_next_loop = false;
 
-                    // 1. Smooth 30ms fade out to zero so hardware buffer drains cleanly
+                    // 1. Smooth 25ms fade out to zero so hardware buffer drains cleanly
                     if is_playing && !is_paused && current_volume > 0.005 {
-                        fade_sink_volume(&sink, current_volume, 0.0, 0.030);
+                        fade_sink_volume(&sink, current_volume, 0.0, 0.025);
                     }
                     sink.stop();
 
@@ -395,19 +400,19 @@ fn run_player_thread(
                     }
                     sink.set_volume(user_target_volume);
 
-                    // 3. Open fresh decoder, seek to target, and apply DSP sample-level fade_in
+                    // 3. Open fresh decoder with file metadata (enables fast hardware seeking)
                     if let Some(ref path) = current_path {
                         if let Ok(file) = File::open(path) {
-                            if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
+                            if let Ok(mut decoder) = Decoder::try_from(file) {
                                 if safe_pos > 0.05 {
                                     if decoder.try_seek(target_dur).is_ok() {
-                                        sink.append(decoder.fade_in(Duration::from_millis(40)));
+                                        sink.append(decoder.fade_in(Duration::from_millis(35)));
                                     } else {
                                         let skipped = decoder.skip_duration(target_dur);
-                                        sink.append(skipped.fade_in(Duration::from_millis(40)));
+                                        sink.append(skipped.fade_in(Duration::from_millis(35)));
                                     }
                                 } else {
-                                    sink.append(decoder.fade_in(Duration::from_millis(40)));
+                                    sink.append(decoder.fade_in(Duration::from_millis(35)));
                                 }
 
                                 if !is_paused {
@@ -450,10 +455,52 @@ fn run_player_thread(
             }
         }
 
-        // 2. Monitor playback position, fade-out, and track end
+        // 2. Monitor playback position, fade-out, audio device migration, and track end
         if is_playing && !is_paused {
             let elapsed = play_start_instant.elapsed().as_secs_f64();
             let current_pos = play_start_pos + elapsed;
+
+            // Check if default audio device changed (e.g. headphones plugged in or unplugged)
+            if last_device_check.elapsed().as_millis() >= 1000 {
+                last_device_check = Instant::now();
+                if let Some(dev) = rodio::cpal::default_host().default_output_device() {
+                    if let Ok(name) = dev.name() {
+                        if current_device_name.as_deref() != Some(&name) {
+                            current_device_name = Some(name);
+                            if let Ok((new_stream, new_handle)) = OutputStream::try_default() {
+                                _stream = new_stream;
+                                stream_handle = new_handle;
+                                sink.stop();
+                                if let Ok(new_sink) = Sink::try_new(&stream_handle) {
+                                    sink = new_sink;
+                                }
+                                sink.set_volume(user_target_volume);
+
+                                if let Some(ref path) = current_path {
+                                    if let Ok(file) = File::open(path) {
+                                        if let Ok(mut decoder) = Decoder::try_from(file) {
+                                            if current_pos > 0.05 {
+                                                let target_dur = Duration::from_secs_f64(current_pos);
+                                                if decoder.try_seek(target_dur).is_ok() {
+                                                    sink.append(decoder.fade_in(Duration::from_millis(30)));
+                                                } else {
+                                                    let skipped = decoder.skip_duration(target_dur);
+                                                    sink.append(skipped.fade_in(Duration::from_millis(30)));
+                                                }
+                                            } else {
+                                                sink.append(decoder.fade_in(Duration::from_millis(30)));
+                                            }
+                                            sink.play();
+                                            play_start_pos = current_pos;
+                                            play_start_instant = Instant::now();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // End-of-track fade out
             let should_fade_at_end = (fade_mode == "always") || (fade_mode == "track_change_and_pause" && !repeat_one);
@@ -475,7 +522,7 @@ fn run_player_thread(
             if repeat_one && !preloaded_next_loop && current_duration > 3.0 && current_pos >= current_duration - 1.5 {
                 if let Some(ref path) = current_path {
                     if let Ok(file) = File::open(path) {
-                        if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
+                        if let Ok(decoder) = Decoder::try_from(file) {
                             sink.append(decoder);
                             preloaded_next_loop = true;
                         }
@@ -511,7 +558,7 @@ fn run_player_thread(
                 if repeat_one {
                     if let Some(ref path) = current_path {
                         if let Ok(file) = File::open(path) {
-                            if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
+                            if let Ok(decoder) = Decoder::try_from(file) {
                                 sink.append(decoder);
                                 sink.play();
                                 play_start_pos = 0.0;

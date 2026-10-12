@@ -14,6 +14,9 @@ export const EQ_PRESETS = [
   { name: 'Classical / Jazz', values: [3, 2, 1, 1, -1, -1, 0, 2, 3, 4] },
 ];
 
+// Microscopic 44-byte silent WAV audio URI to bind Windows MediaSession / SMTC & Bluetooth headset keys with 0% CPU and 0 MB RAM
+const SILENT_AUDIO_URI = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
 /**
  * High-Performance Native Audio Engine (Arachnid Architecture)
  *
@@ -251,11 +254,16 @@ class AudioEngine {
         this.playbackPosition = 0;
         this.onPlayCallback?.();
 
-        // Completely stop and unload HTMLAudio in desktop mode to eliminate redundant decoding & memory usage
+        // Bind Windows MediaSession / SMTC & Bluetooth headset keys via tiny silent loop (0% CPU, 0 MB RAM)
         try {
-          this.audio.pause();
-          this.audio.removeAttribute('src');
-          this.audio.load();
+          if (this.audio.src !== SILENT_AUDIO_URI) {
+            this.audio.src = SILENT_AUDIO_URI;
+            this.audio.volume = 0.0001;
+            this.audio.loop = true;
+          }
+          if (autoPlay) {
+            this.audio.play().catch(() => {});
+          }
         } catch (_) {}
         return;
       } catch (err) {
@@ -291,6 +299,9 @@ class AudioEngine {
       try {
         await invoke('native_pause');
       } catch (_) {}
+      try {
+        this.audio.pause();
+      } catch (_) {}
       this.onPauseCallback?.();
       return;
     }
@@ -309,6 +320,9 @@ class AudioEngine {
       try {
         await invoke('native_resume');
         this.isPlaying = true;
+        try {
+          this.audio.play().catch(() => {});
+        } catch (_) {}
         this.onPlayCallback?.();
         return;
       } catch (_) {}
@@ -330,6 +344,9 @@ class AudioEngine {
 
     if (this.isUsingNative && isTauri()) {
       invoke('native_stop').catch(() => {});
+      try {
+        this.audio.pause();
+      } catch (_) {}
       return;
     }
 
