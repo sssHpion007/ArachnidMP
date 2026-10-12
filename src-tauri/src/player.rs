@@ -513,56 +513,29 @@ fn run_player_thread(
 
                     logger::log("AUDIO", "SEEK", &format!("Seek requested: target={:.3}s (safe={:.3}s, total_dur={:.3}s, is_paused={})", position_secs, safe_pos, current_duration, is_paused));
 
-                    // 1. Smoothly silence the current playing audio before stopping to avoid DC offset click
-                    if is_playing && !is_paused && current_volume > 0.01 {
-                        sink.set_volume(0.0);
-                        std::thread::sleep(Duration::from_millis(5));
-                    }
+                    // Fast in-place seek on active Sink (native Rodio/Symphonia demuxer seek)
+                    let seek_res = sink.try_seek(target_dur);
+                    logger::log("AUDIO", "SEEK", &format!("sink.try_seek({:.3}s) -> {:?} in {:.2}ms", safe_pos, seek_res, t0.elapsed().as_secs_f64() * 1000.0));
 
-                    // 2. Stop the current sound on the persistent sink (NEVER recreate Sink, which causes multi-stream phasing)
-                    sink.stop();
-
-                    if let Some(ref path) = current_path {
-                        let t_file = Instant::now();
-                        match File::open(path) {
-                            Ok(file) => match Decoder::new(BufReader::new(file)) {
-                                Ok(mut decoder) => {
-                                    let open_elapsed = t_file.elapsed().as_secs_f64() * 1000.0;
-                                    let t_seek = Instant::now();
+                    if seek_res.is_err() {
+                        sink.stop();
+                        if let Some(ref path) = current_path {
+                            if let Ok(file) = File::open(path) {
+                                if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
                                     if safe_pos > 0.05 {
-                                        let seek_res = decoder.try_seek(target_dur);
-                                        let seek_elapsed = t_seek.elapsed().as_secs_f64() * 1000.0;
-                                        logger::log("AUDIO", "SEEK", &format!("Decoder try_seek({:.3}s) -> {:?} in {:.2}ms (file opened in {:.2}ms)", safe_pos, seek_res, seek_elapsed, open_elapsed));
-                                        if seek_res.is_ok() {
-                                            sink.append(decoder.fade_in(Duration::from_millis(3)));
-                                        } else {
-                                            logger::log("WARN", "SEEK", "Format returned SeekError, falling back to skip_duration");
-                                            let skipped = decoder.skip_duration(target_dur);
-                                            sink.append(skipped.fade_in(Duration::from_millis(3)));
-                                        }
+                                        let skipped = decoder.skip_duration(target_dur);
+                                        sink.append(skipped);
                                     } else {
-                                        sink.append(decoder.fade_in(Duration::from_millis(3)));
+                                        sink.append(decoder);
                                     }
                                 }
-                                Err(e) => {
-                                    logger::log("ERROR", "SEEK", &format!("Failed to create decoder for {:?}: {:?}", path, e));
-                                }
-                            },
-                            Err(e) => {
-                                logger::log("ERROR", "SEEK", &format!("Failed to open file {:?}: {:?}", path, e));
                             }
                         }
-                    } else {
-                        logger::log("WARN", "SEEK", "Seek requested but current_path is None");
-                    }
-
-                    sink.set_volume(user_target_volume);
-                    current_volume = user_target_volume;
-
-                    if !is_paused {
-                        sink.play();
-                    } else {
-                        sink.pause();
+                        if !is_paused {
+                            sink.play();
+                        } else {
+                            sink.pause();
+                        }
                     }
 
                     play_start_pos = safe_pos;
