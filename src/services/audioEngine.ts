@@ -79,10 +79,14 @@ class AudioEngine {
     });
 
     this.audio.addEventListener('ended', () => {
-      if (this.repeatMode === 'one') {
-        this.onLoopRepeatCallback?.();
-        this.audio.currentTime = 0;
-        this.audio.play().catch(() => {});
+      if (this.isUsingWebAudio) {
+        // Web Audio is actively playing! Keep HTMLAudio playing silently to maintain Windows SMTC & Bluetooth headphone controls!
+        if (this.repeatMode === 'one') {
+          this.audio.currentTime = 0;
+          this.audio.play().catch(() => {});
+        }
+      } else if (this.repeatMode === 'one') {
+        this.handleTrackEnded();
       } else {
         this.handleTrackEnded();
       }
@@ -137,7 +141,29 @@ class AudioEngine {
   public setRepeatMode(mode: 'off' | 'all' | 'one') {
     if (this.repeatMode === mode) return;
     this.repeatMode = mode;
-    this.audio.loop = (mode === 'one' && this.fadeMode !== 'always');
+
+    if (mode === 'one') {
+      this.audio.loop = false;
+      if (this.currentTrackSrc && !this.currentBuffer && this.fadeMode !== 'always') {
+        this.preloadBuffer(this.currentTrackSrc, this.playRequestId);
+      }
+    } else {
+      this.audio.loop = false;
+      if (this.isUsingWebAudio && this.bufferSource && this.audioCtx) {
+        const curPos = this.getCurrentTime();
+        this.playbackPosition = curPos;
+        this.stopBufferSource(0.018);
+        this.isUsingWebAudio = false;
+        try {
+          this.audio.currentTime = curPos;
+          this.audio.volume = this.getEffectiveVolume();
+          if (this.isPlaying && this.audio.paused) {
+            this.audio.play().catch(() => {});
+          }
+        } catch (_) {}
+      }
+      this.currentBuffer = null;
+    }
   }
 
   public setScrubbing(isScrubbing: boolean): void {
@@ -299,11 +325,37 @@ class AudioEngine {
   }
 
   /**
-   * Zero-overhead streaming mode: audio streams natively via HTMLAudioElement without allocating
-   * multi-hundred-megabyte PCM buffers and JSON number arrays in JavaScript heap.
+   * Preloads and decodes PCM buffer in background ONLY when repeatMode === 'one'.
+   * Uses browser native fetch() on asset:// streaming protocol, bypassing IPC and JSON serialization completely!
    */
-  private async preloadBuffer(_src: string, _path?: string, _reqId?: number): Promise<void> {
-    return;
+  private async preloadBuffer(src: string, reqId?: number): Promise<void> {
+    if (!src || this.repeatMode !== 'one') return;
+    try {
+      const ctx = this.getOrCreateAudioContext();
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+
+      const response = await fetch(src);
+      const arrayBuffer = await response.arrayBuffer();
+
+      if (reqId !== undefined && this.playRequestId !== reqId) return;
+      if (this.repeatMode !== 'one') return;
+
+      const decodedBuffer = await ctx.decodeAudioData(arrayBuffer);
+
+      if (reqId !== undefined && this.playRequestId !== reqId) return;
+      if (this.repeatMode !== 'one') return;
+
+      if (this.currentTrackSrc === src) {
+        this.currentBuffer = decodedBuffer;
+        this.currentTrackDuration = decodedBuffer.duration;
+        this.onDurationCallback?.(decodedBuffer.duration);
+      }
+    } catch (e) {
+      console.warn('Web Audio PCM preload error:', e);
+      this.currentBuffer = null;
+    }
   }
 
   /**
@@ -449,6 +501,14 @@ class AudioEngine {
           }
           this.lastRecordedAudioTime = curTime;
           this.playbackPosition = curTime;
+
+          // Seamless loop transition: switch to Web Audio buffer 60ms BEFORE HTMLAudioElement reaches EOF
+          // This eliminates the browser hardware buffer starvation pop that happens on the first repeat!
+          if (this.repeatMode === 'one' && this.currentBuffer && this.audioCtx && dur > 0.5) {
+            if (curTime >= dur - 0.060 && !this.isHandlingEnd) {
+              this.handleLoopRepeat();
+            }
+          }
         }
 
         const safeTime = Math.max(0, Math.min(dur > 0 ? dur : Infinity, curTime));
@@ -573,8 +633,13 @@ class AudioEngine {
     // Load HTMLAudioElement for instant streaming playback
     this.audio.src = src;
     this.audio.currentTime = 0;
-    this.audio.loop = (this.repeatMode === 'one' && this.fadeMode !== 'always');
+    this.audio.loop = false; // Web Audio buffer provides seamless, crackle-free looping
     this.audio.load();
+
+    // Prepare Web Audio buffer in background ONLY when repeatMode === 'one' (zero IPC overhead!)
+    if (this.repeatMode === 'one' && this.fadeMode !== 'always') {
+      this.preloadBuffer(src, reqId);
+    }
 
     if (autoPlay) {
       const initialVol = this.fadeMode !== 'off' && (isDifferent || isTrackChange) ? 0 : this.getEffectiveVolume();
@@ -728,12 +793,20 @@ class AudioEngine {
   }
 
   public getCurrentTime(): number {
+    if (this.isUsingWebAudio && this.currentBuffer && this.audioCtx) {
+      const dur = this.currentBuffer.duration;
+      const elapsed = Math.max(0, this.audioCtx.currentTime - this.playbackStartTime);
+      if (this.bufferSource?.loop && dur > 0) {
+        return Math.max(0, Math.min(dur, (this.playbackPosition + elapsed) % dur));
+      }
+      return Math.max(0, Math.min(dur > 0 ? dur : Infinity, this.playbackPosition + elapsed));
+    }
     const dur = this.currentTrackDuration || this.audio.duration;
     return Math.max(0, Math.min(dur || Infinity, this.isPlaying ? this.audio.currentTime : this.playbackPosition));
   }
 
   public getDuration(): number {
-    return this.currentTrackDuration || this.audio.duration || 0;
+    return this.currentTrackDuration || this.currentBuffer?.duration || this.audio.duration || 0;
   }
 }
 
