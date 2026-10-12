@@ -2,6 +2,7 @@ use rodio::cpal::traits::{DeviceTrait, HostTrait};
 use rodio::{Decoder, OutputStream, Sink, Source};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
+use std::io::BufReader;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -286,7 +287,7 @@ fn run_player_thread(
                     }
 
                     match File::open(&path) {
-                        Ok(file) => match Decoder::try_from(file) {
+                        Ok(file) => match Decoder::new(BufReader::new(file)) {
                             Ok(decoder) => {
                                 if let Some(dur) = decoder.total_duration() {
                                     let secs = dur.as_secs_f64();
@@ -388,45 +389,41 @@ fn run_player_thread(
                     let target_dur = Duration::from_secs_f64(safe_pos);
                     preloaded_next_loop = false;
 
-                    // 1. Smooth 25ms fade out to zero so hardware buffer drains cleanly
-                    if is_playing && !is_paused && current_volume > 0.005 {
-                        fade_sink_volume(&sink, current_volume, 0.0, 0.025);
-                    }
-                    sink.stop();
+                    // 1. First try native in-place seek on current Sink (0-5ms, crackle-free)
+                    let sought_in_place = sink.try_seek(target_dur).is_ok();
 
-                    // 2. Re-create pristine Sink to wipe away any residual driver buffers
-                    if let Ok(new_sink) = Sink::try_new(&stream_handle) {
-                        sink = new_sink;
-                    }
-                    sink.set_volume(user_target_volume);
+                    // 2. Fallback if format does not support in-place seek
+                    if !sought_in_place {
+                        sink.stop();
+                        sink.set_volume(user_target_volume);
 
-                    // 3. Open fresh decoder with file metadata (enables fast hardware seeking)
-                    if let Some(ref path) = current_path {
-                        if let Ok(file) = File::open(path) {
-                            if let Ok(mut decoder) = Decoder::try_from(file) {
-                                if safe_pos > 0.05 {
-                                    if decoder.try_seek(target_dur).is_ok() {
-                                        sink.append(decoder.fade_in(Duration::from_millis(35)));
+                        if let Some(ref path) = current_path {
+                            if let Ok(file) = File::open(path) {
+                                if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
+                                    if safe_pos > 0.05 {
+                                        if decoder.try_seek(target_dur).is_ok() {
+                                            sink.append(decoder.fade_in(Duration::from_millis(35)));
+                                        } else {
+                                            let skipped = decoder.skip_duration(target_dur);
+                                            sink.append(skipped.fade_in(Duration::from_millis(35)));
+                                        }
                                     } else {
-                                        let skipped = decoder.skip_duration(target_dur);
-                                        sink.append(skipped.fade_in(Duration::from_millis(35)));
+                                        sink.append(decoder.fade_in(Duration::from_millis(35)));
                                     }
-                                } else {
-                                    sink.append(decoder.fade_in(Duration::from_millis(35)));
                                 }
-
-                                if !is_paused {
-                                    sink.play();
-                                } else {
-                                    sink.pause();
-                                }
-                                play_start_pos = safe_pos;
-                                play_start_instant = Instant::now();
                             }
                         }
                     }
 
+                    if !is_paused {
+                        sink.play();
+                    } else {
+                        sink.pause();
+                    }
+
                     current_volume = user_target_volume;
+                    play_start_pos = safe_pos;
+                    play_start_instant = Instant::now();
 
                     // Immediately update shared state and emit time-update
                     if let Ok(mut s) = shared_state.lock() {
@@ -478,7 +475,7 @@ fn run_player_thread(
 
                                 if let Some(ref path) = current_path {
                                     if let Ok(file) = File::open(path) {
-                                        if let Ok(mut decoder) = Decoder::try_from(file) {
+                                        if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
                                             if current_pos > 0.05 {
                                                 let target_dur = Duration::from_secs_f64(current_pos);
                                                 if decoder.try_seek(target_dur).is_ok() {
@@ -522,7 +519,7 @@ fn run_player_thread(
             if repeat_one && !preloaded_next_loop && current_duration > 3.0 && current_pos >= current_duration - 1.5 {
                 if let Some(ref path) = current_path {
                     if let Ok(file) = File::open(path) {
-                        if let Ok(decoder) = Decoder::try_from(file) {
+                        if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
                             sink.append(decoder);
                             preloaded_next_loop = true;
                         }
@@ -558,7 +555,7 @@ fn run_player_thread(
                 if repeat_one {
                     if let Some(ref path) = current_path {
                         if let Ok(file) = File::open(path) {
-                            if let Ok(decoder) = Decoder::try_from(file) {
+                            if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
                                 sink.append(decoder);
                                 sink.play();
                                 play_start_pos = 0.0;
