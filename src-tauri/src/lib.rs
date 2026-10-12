@@ -1,5 +1,6 @@
 mod discord;
 mod storage;
+mod player;
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -1492,9 +1493,17 @@ pub fn run() {
         );
     }
 
+    let audio_player = player::AudioPlayer::new();
+    let audio_player_for_setup = audio_player.clone();
+
     tauri::Builder::default()
         .manage(AppState {
             discord: discord::DiscordService::new(),
+        })
+        .manage(audio_player)
+        .setup(move |app| {
+            audio_player_for_setup.start_worker(app.handle().clone());
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_app_version,
@@ -1528,7 +1537,15 @@ pub fn run() {
             check_file_exists,
             batch_check_files_exist,
             pick_single_audio_file,
-            trim_memory
+            trim_memory,
+            player::native_player_play,
+            player::native_player_pause,
+            player::native_player_resume,
+            player::native_player_stop,
+            player::native_player_seek,
+            player::native_player_set_volume,
+            player::native_player_set_repeat_mode,
+            player::native_player_get_time
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arachnid application");
@@ -1623,7 +1640,7 @@ fn open_app_folder(subfolder: Option<String>) -> Result<(), String> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = open::that(&target);
+        let _ = std::process::Command::new("xdg-open").arg(&target).spawn();
     }
     Ok(())
 }
@@ -1643,7 +1660,7 @@ fn open_url(url: String) -> Result<(), String> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = open::that(&url);
+        let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
     }
     Ok(())
 }
