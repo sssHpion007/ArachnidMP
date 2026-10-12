@@ -4,7 +4,6 @@ use rodio::{Decoder, OutputStream, Sink, Source};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufReader;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -21,32 +20,6 @@ pub struct GlitchReport {
     pub time_secs: f64,
 }
 
-pub const STATE_PLAYING: u8 = 0;
-pub const STATE_FADING_OUT: u8 = 1;
-pub const STATE_SILENT: u8 = 2;
-pub const STATE_FADING_IN: u8 = 3;
-
-#[derive(Clone, Debug)]
-pub struct SourceControl {
-    state: Arc<AtomicU8>,
-}
-
-impl SourceControl {
-    pub fn new() -> Self {
-        Self {
-            state: Arc::new(AtomicU8::new(STATE_FADING_IN)),
-        }
-    }
-
-    pub fn fade_out(&self) {
-        self.state.store(STATE_FADING_OUT, Ordering::SeqCst);
-    }
-
-    pub fn fade_in(&self) {
-        self.state.store(STATE_FADING_IN, Ordering::SeqCst);
-    }
-}
-
 pub struct SafeAudioSource<I> {
     inner: I,
     channels: u16,
@@ -54,10 +27,8 @@ pub struct SafeAudioSource<I> {
     curr_channel: usize,
     prev_samples: [i16; 8],
     samples_yielded: u64,
-    control: SourceControl,
-    last_state: u8,
-    fade_pos: usize,
-    fade_len: usize,
+    fade_in_pos: usize,
+    fade_in_len: usize,
     glitch_tx: Sender<GlitchReport>,
 }
 
@@ -65,26 +36,22 @@ impl<I> SafeAudioSource<I>
 where
     I: Source<Item = i16>,
 {
-    pub fn new(inner: I, glitch_tx: Sender<GlitchReport>) -> (Self, SourceControl) {
+    pub fn new(inner: I, glitch_tx: Sender<GlitchReport>) -> Self {
         let channels = inner.channels().max(1);
         let sample_rate = inner.sample_rate();
-        let control = SourceControl::new();
-        // 256 samples per channel (~5.3ms at 48kHz): optimal S-curve zero-crossing anti-click ramp
+        // 256 samples per channel (~5.3ms at 48kHz): startup S-curve zero-crossing anti-click ramp
         let ramp_len = (channels as usize) * 256;
-        let source = Self {
+        Self {
             inner,
             channels,
             sample_rate,
             curr_channel: 0,
             prev_samples: [0; 8],
             samples_yielded: 0,
-            control: control.clone(),
-            last_state: STATE_FADING_IN,
-            fade_pos: 0,
-            fade_len: ramp_len,
+            fade_in_pos: 0,
+            fade_in_len: ramp_len,
             glitch_tx,
-        };
-        (source, control)
+        }
     }
 }
 
@@ -101,40 +68,14 @@ where
         self.curr_channel += 1;
         self.samples_yielded += 1;
 
-        let cur_state = self.control.state.load(Ordering::Relaxed);
-        if cur_state != self.last_state {
-            self.last_state = cur_state;
-            self.fade_pos = 0;
-        }
-
-        let factor = match cur_state {
-            STATE_FADING_IN => {
-                if self.fade_pos < self.fade_len {
-                    let t = (self.fade_pos as f32) / (self.fade_len as f32);
-                    self.fade_pos += 1;
-                    t * t * (3.0 - 2.0 * t) // S-curve ramp from 0.0 to 1.0
-                } else {
-                    self.control.state.store(STATE_PLAYING, Ordering::Relaxed);
-                    self.last_state = STATE_PLAYING;
-                    1.0
-                }
-            }
-            STATE_FADING_OUT => {
-                if self.fade_pos < self.fade_len {
-                    let t = 1.0 - (self.fade_pos as f32) / (self.fade_len as f32);
-                    self.fade_pos += 1;
-                    t * t * (3.0 - 2.0 * t) // S-curve ramp from 1.0 down to 0.0
-                } else {
-                    self.control.state.store(STATE_SILENT, Ordering::Relaxed);
-                    self.last_state = STATE_SILENT;
-                    0.0
-                }
-            }
-            STATE_SILENT => 0.0,
-            _ => 1.0, // STATE_PLAYING
+        let sample = if self.fade_in_pos < self.fade_in_len {
+            let t = (self.fade_in_pos as f32) / (self.fade_in_len as f32);
+            let factor = t * t * (3.0 - 2.0 * t);
+            self.fade_in_pos += 1;
+            (raw as f32 * factor) as i16
+        } else {
+            raw
         };
-
-        let sample = (raw as f32 * factor) as i16;
 
         // Real-time step discontinuity (pop/click) detection
         let prev = self.prev_samples[ch];
@@ -192,9 +133,7 @@ where
 
     #[inline]
     fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
-        self.control.fade_in();
-        self.last_state = STATE_FADING_IN;
-        self.fade_pos = 0;
+        self.fade_in_pos = 0;
         self.prev_samples = [0; 8];
         self.inner.try_seek(pos)
     }
@@ -381,10 +320,9 @@ fn append_safe_source<S: Source<Item = i16> + Send + 'static>(
     sink: &Sink,
     src: S,
     glitch_tx: Sender<GlitchReport>,
-) -> SourceControl {
-    let (safe_src, ctrl) = SafeAudioSource::new(src, glitch_tx);
+) {
+    let safe_src = SafeAudioSource::new(src, glitch_tx);
     sink.append(safe_src);
-    ctrl
 }
 
 fn ramp_sink_volume(sink: &Sink, from: f32, to: f32, duration_ms: u64) {
@@ -471,8 +409,6 @@ fn run_player_thread(
     let mut active_volume_fade: Option<(Instant, f32, f32, Duration)> = None;
 
     let (glitch_tx, glitch_rx) = channel::<GlitchReport>();
-    let mut current_control: Option<SourceControl> = None;
-    let mut preloaded_control: Option<SourceControl> = None;
 
     let mut fade_mode = "track_change_and_pause".to_string();
     let mut fade_duration = 2.0f64;
@@ -508,12 +444,12 @@ fn run_player_thread(
                                             let target_dur = Duration::from_secs_f64(cur_pos);
                                             if decoder.try_seek(target_dur).is_err() {
                                                 let skipped = decoder.skip_duration(target_dur);
-                                                current_control = Some(append_safe_source(&sink, skipped, glitch_tx.clone()));
+                                                append_safe_source(&sink, skipped, glitch_tx.clone());
                                             } else {
-                                                current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                                append_safe_source(&sink, decoder, glitch_tx.clone());
                                             }
                                         } else {
-                                            current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                            append_safe_source(&sink, decoder, glitch_tx.clone());
                                         }
 
                                         if !is_paused && is_playing {
@@ -561,10 +497,6 @@ fn run_player_thread(
                                 if let Ok((new_stream, new_handle)) = OutputStream::try_default() {
                                     _stream = new_stream;
                                     stream_handle = new_handle;
-                                    sink.stop();
-                                    if let Ok(new_sink) = Sink::try_new(&stream_handle) {
-                                        sink = new_sink;
-                                    }
                                 }
                             }
                         }
@@ -581,6 +513,9 @@ fn run_player_thread(
                     }
 
                     sink.stop();
+                    if let Ok(new_sink) = Sink::try_new(&stream_handle) {
+                        sink = new_sink;
+                    }
                     sink.set_volume(0.0);
 
                     if let Some(dh) = duration_hint {
@@ -614,14 +549,14 @@ fn run_player_thread(
                                 if safe_offset > 0.05 {
                                     let offset_dur = Duration::from_secs_f64(safe_offset);
                                     if decoder.try_seek(offset_dur).is_ok() {
-                                        current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                        append_safe_source(&sink, decoder, glitch_tx.clone());
                                     } else {
                                         let skipped = decoder.skip_duration(offset_dur);
-                                        current_control = Some(append_safe_source(&sink, skipped, glitch_tx.clone()));
+                                        append_safe_source(&sink, skipped, glitch_tx.clone());
                                     }
                                     play_start_pos = safe_offset;
                                 } else {
-                                    current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                    append_safe_source(&sink, decoder, glitch_tx.clone());
                                     play_start_pos = 0.0;
                                 }
 
@@ -636,7 +571,7 @@ fn run_player_thread(
                                     let fade_in_dur = (fade_duration.min(2.0).max(0.08) * 1000.0) as u64;
                                     ramp_sink_volume(&sink, 0.0, user_target_volume, fade_in_dur);
                                 } else {
-                                    ramp_sink_volume(&sink, 0.0, user_target_volume, 10);
+                                    ramp_sink_volume(&sink, 0.0, user_target_volume, 15);
                                 }
 
                                 current_volume = user_target_volume;
@@ -661,22 +596,18 @@ fn run_player_thread(
                     active_volume_fade = None;
                     is_scrub_holding = false;
                     if is_playing && !is_paused {
-                        if let Some(ref ctrl) = current_control {
-                            ctrl.fade_out();
-                            std::thread::sleep(Duration::from_millis(6));
-                        }
                         if fade_mode != "off" && fade_duration > 0.05 && current_volume > 0.01 {
-                            let fade_out_dur = (fade_duration.min(1.0).max(0.08) * 1000.0) as u64;
+                            let fade_out_dur = (fade_duration.min(2.0).max(0.08) * 1000.0) as u64;
                             ramp_sink_volume(&sink, current_volume, 0.0, fade_out_dur);
                         } else {
-                            ramp_sink_volume(&sink, current_volume, 0.0, 10);
+                            ramp_sink_volume(&sink, current_volume, 0.0, 15);
                         }
                         sink.pause();
                         current_volume = 0.0;
                         is_paused = true;
                         let elapsed = play_start_instant.elapsed().as_secs_f64();
                         play_start_pos = (play_start_pos + elapsed).min(if current_duration > 0.0 { current_duration } else { f64::MAX });
-                        logger::log("AUDIO", "PAUSE", &format!("Paused at pos={:.3}s (faded to exact zero)", play_start_pos));
+                        logger::log("AUDIO", "PAUSE", &format!("Paused at pos={:.3}s (smoothly faded to zero)", play_start_pos));
                     }
                 }
                 PlayerCmd::Resume => {
@@ -702,12 +633,12 @@ fn run_player_thread(
                                                         let target_dur = Duration::from_secs_f64(play_start_pos);
                                                         if decoder.try_seek(target_dur).is_err() {
                                                             let skipped = decoder.skip_duration(target_dur);
-                                                            current_control = Some(append_safe_source(&sink, skipped, glitch_tx.clone()));
+                                                            append_safe_source(&sink, skipped, glitch_tx.clone());
                                                         } else {
-                                                            current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                                            append_safe_source(&sink, decoder, glitch_tx.clone());
                                                         }
                                                     } else {
-                                                        current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                                        append_safe_source(&sink, decoder, glitch_tx.clone());
                                                     }
                                                 }
                                             }
@@ -719,31 +650,25 @@ fn run_player_thread(
 
                         is_paused = false;
                         play_start_instant = Instant::now();
+                        sink.set_volume(0.0);
                         sink.play();
-
-                        if let Some(ref ctrl) = current_control {
-                            ctrl.fade_in();
-                        }
 
                         if fade_mode != "off" && fade_duration > 0.05 && user_target_volume > 0.01 {
                             let fade_in_dur = (fade_duration.min(2.0).max(0.08) * 1000.0) as u64;
                             ramp_sink_volume(&sink, 0.0, user_target_volume, fade_in_dur);
                         } else {
-                            ramp_sink_volume(&sink, 0.0, user_target_volume, 10);
+                            ramp_sink_volume(&sink, 0.0, user_target_volume, 15);
                         }
                         current_volume = user_target_volume;
+                        sink.set_volume(current_volume);
                         logger::log("AUDIO", "RESUME", &format!("Resumed from pos={:.3}s (vol={:.2})", play_start_pos, user_target_volume));
                     }
                 }
                 PlayerCmd::Stop => {
                     active_volume_fade = None;
                     is_scrub_holding = false;
-                    if let Some(ref ctrl) = current_control {
-                        ctrl.fade_out();
-                        std::thread::sleep(Duration::from_millis(6));
-                    }
                     if is_playing && !is_paused && current_volume > 0.005 {
-                        ramp_sink_volume(&sink, current_volume, 0.0, 10);
+                        ramp_sink_volume(&sink, current_volume, 0.0, 15);
                     }
                     sink.stop();
                     current_volume = 0.0;
@@ -752,16 +677,11 @@ fn run_player_thread(
                     current_path = None;
                     play_start_pos = 0.0;
                     preloaded_next_loop = false;
-                    current_control = None;
                     logger::log("AUDIO", "STOP", "Playback stopped and queue cleared");
                 }
                 PlayerCmd::ScrubHold => {
                     active_volume_fade = None;
                     if is_playing && !is_paused && !is_scrub_holding {
-                        if let Some(ref ctrl) = current_control {
-                            ctrl.fade_out();
-                            std::thread::sleep(Duration::from_millis(6));
-                        }
                         ramp_sink_volume(&sink, current_volume, 0.0, 10);
                         sink.pause();
                         current_volume = 0.0;
@@ -775,11 +695,9 @@ fn run_player_thread(
                     if is_scrub_holding {
                         is_scrub_holding = false;
                         if is_playing && !is_paused {
+                            sink.set_volume(0.0);
                             sink.play();
-                            if let Some(ref ctrl) = current_control {
-                                ctrl.fade_in();
-                            }
-                            ramp_sink_volume(&sink, 0.0, user_target_volume, 10);
+                            ramp_sink_volume(&sink, 0.0, user_target_volume, 15);
                             current_volume = user_target_volume;
                             logger::log("AUDIO", "SEEK", "ScrubCancel: audio resumed from pre-scrub position");
                         }
@@ -798,46 +716,44 @@ fn run_player_thread(
 
                     logger::log("AUDIO", "SEEK", &format!("Seek requested: target={:.3}s (safe={:.3}s, total_dur={:.3}s, is_paused={}, should_resume={})", position_secs, safe_pos, current_duration, is_paused, should_resume));
 
-                    // Micro-ramp to silence before switching source to prevent waveform step discontinuity
-                    if let Some(ref ctrl) = current_control {
-                        ctrl.fade_out();
-                        std::thread::sleep(Duration::from_millis(6));
-                    }
-                    if is_playing && should_resume && current_volume > 0.01 {
+                    // Option B: Micro-ramp old playing audio to 0.0 over 8ms so there is no speaker click/pop
+                    if is_playing && current_volume > 0.01 {
                         ramp_sink_volume(&sink, current_volume, 0.0, 8);
                     }
+                    sink.stop();
+
+                    // Discard old sink queue and create fresh Sink instance
+                    if let Ok(new_sink) = Sink::try_new(&stream_handle) {
+                        sink = new_sink;
+                    }
+                    sink.set_volume(0.0);
 
                     let mut seek_done = false;
 
-                    // Gapless queue transition: append new decoder and skip previous sound
+                    // Open fresh decoder at seek target position
                     if let Some(ref path) = current_path {
                         if let Ok(file) = File::open(path) {
                             if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
-                                let prev_count = sink.len();
-
                                 if safe_pos > 0.05 {
                                     if decoder.try_seek(target_dur).is_err() {
                                         let skipped = decoder.skip_duration(target_dur);
-                                        current_control = Some(append_safe_source(&sink, skipped, glitch_tx.clone()));
+                                        append_safe_source(&sink, skipped, glitch_tx.clone());
                                     } else {
-                                        current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                        append_safe_source(&sink, decoder, glitch_tx.clone());
                                     }
                                 } else {
-                                    current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
-                                }
-
-                                // Skip previous playing sound(s) so the sink seamlessly advances to the seeked source
-                                for _ in 0..prev_count {
-                                    sink.skip_one();
+                                    append_safe_source(&sink, decoder, glitch_tx.clone());
                                 }
 
                                 if should_resume {
                                     sink.play();
-                                    ramp_sink_volume(&sink, 0.0, user_target_volume, 10);
+                                    ramp_sink_volume(&sink, 0.0, user_target_volume, 15);
                                     current_volume = user_target_volume;
+                                    sink.set_volume(current_volume);
                                 } else {
                                     sink.pause();
                                     current_volume = 0.0;
+                                    sink.set_volume(0.0);
                                 }
 
                                 seek_done = true;
@@ -849,18 +765,20 @@ fn run_player_thread(
                         let _ = sink.try_seek(target_dur);
                         if should_resume {
                             sink.play();
-                            ramp_sink_volume(&sink, 0.0, user_target_volume, 10);
+                            ramp_sink_volume(&sink, 0.0, user_target_volume, 15);
                             current_volume = user_target_volume;
+                            sink.set_volume(current_volume);
                         } else {
                             sink.pause();
                             current_volume = 0.0;
+                            sink.set_volume(0.0);
                         }
                     }
 
                     play_start_pos = safe_pos;
                     play_start_instant = Instant::now();
 
-                    logger::log("AUDIO", "SEEK", &format!("Seek queue transition completed in {:.2}ms (sink_len={})", t0.elapsed().as_secs_f64() * 1000.0, sink.len()));
+                    logger::log("AUDIO", "SEEK", &format!("Seek completed in {:.2}ms (fresh sink created)", t0.elapsed().as_secs_f64() * 1000.0));
 
                     // Immediately update shared state and emit time-update
                     if let Ok(mut s) = shared_state.lock() {
@@ -932,7 +850,7 @@ fn run_player_thread(
                 if let Some(ref path) = current_path {
                     if let Ok(file) = File::open(path) {
                         if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
-                            preloaded_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                            append_safe_source(&sink, decoder, glitch_tx.clone());
                             preloaded_next_loop = true;
                             logger::log("AUDIO", "REPEAT", "Preloaded next loop into gapless sink queue");
                         }
@@ -944,7 +862,6 @@ fn run_player_thread(
             if preloaded_next_loop && sink.len() == 1 {
                 // The first source finished and seamlessly transitioned to the preloaded second source with ZERO gap!
                 preloaded_next_loop = false;
-                current_control = preloaded_control.take();
                 play_start_pos = 0.0;
                 play_start_instant = Instant::now();
                 logger::log("AUDIO", "REPEAT", "Seamless loop transition completed");
@@ -971,7 +888,7 @@ fn run_player_thread(
                     if let Some(ref path) = current_path {
                         if let Ok(file) = File::open(path) {
                             if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
-                                current_control = Some(append_safe_source(&sink, decoder, glitch_tx.clone()));
+                                append_safe_source(&sink, decoder, glitch_tx.clone());
                                 sink.play();
                                 play_start_pos = 0.0;
                                 play_start_instant = Instant::now();
@@ -1001,7 +918,6 @@ fn run_player_thread(
                     is_paused = false;
                     play_start_pos = 0.0;
                     preloaded_next_loop = false;
-                    current_control = None;
 
                     if let Ok(mut s) = shared_state.lock() {
                         s.track_ended = true;
