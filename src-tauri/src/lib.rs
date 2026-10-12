@@ -1175,8 +1175,9 @@ fn toggle_maximize_window(window: tauri::Window) -> Result<bool, String> {
 }
 
 #[tauri::command]
-fn close_window(window: tauri::Window) -> Result<(), String> {
-    window.close().map_err(|e| e.to_string())
+fn close_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    app_handle.exit(0);
+    std::process::exit(0);
 }
 
 #[tauri::command]
@@ -1610,6 +1611,11 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .on_window_event(|_window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                std::process::exit(0);
+            }
+        })
         .setup(|app| {
             logger::set_app_handle(app.handle().clone());
             logger::log("INFO", "SYSTEM", &format!("Arachnid Music Player v{} started", get_app_version()));
