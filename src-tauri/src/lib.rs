@@ -1,8 +1,10 @@
 mod discord;
 mod storage;
+mod player;
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::sync::Arc;
 use tauri::State;
 use base64::prelude::*;
 use lofty::config::{ParseOptions, ParsingMode, WriteOptions};
@@ -1496,6 +1498,12 @@ pub fn run() {
         .manage(AppState {
             discord: discord::DiscordService::new(),
         })
+        .setup(|app| {
+            use tauri::Manager;
+            let player = Arc::new(player::NativePlayer::new(app.handle().clone()));
+            app.manage(player);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             update_discord_presence,
@@ -1528,7 +1536,15 @@ pub fn run() {
             check_file_exists,
             batch_check_files_exist,
             pick_single_audio_file,
-            trim_memory
+            trim_memory,
+            native_play,
+            native_pause,
+            native_resume,
+            native_stop,
+            native_seek,
+            native_set_volume,
+            native_set_repeat_one,
+            native_get_state
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arachnid application");
@@ -1623,7 +1639,7 @@ fn open_app_folder(subfolder: Option<String>) -> Result<(), String> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = open::that(&target);
+        let _ = std::process::Command::new("xdg-open").arg(&target).spawn();
     }
     Ok(())
 }
@@ -1643,7 +1659,7 @@ fn open_url(url: String) -> Result<(), String> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = open::that(&url);
+        let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
     }
     Ok(())
 }
@@ -1883,3 +1899,50 @@ fn load_locale_file(language: String) -> Result<Option<String>, String> {
         Ok(None)
     }
 }
+
+#[tauri::command]
+fn native_play(
+    state: tauri::State<'_, Arc<player::NativePlayer>>,
+    path: String,
+    offset_secs: Option<f64>,
+    volume: Option<f32>,
+    duration_hint: Option<f64>,
+) -> Result<(), String> {
+    state.play(path, offset_secs.unwrap_or(0.0), volume.unwrap_or(1.0), duration_hint)
+}
+
+#[tauri::command]
+fn native_pause(state: tauri::State<'_, Arc<player::NativePlayer>>) -> Result<(), String> {
+    state.pause()
+}
+
+#[tauri::command]
+fn native_resume(state: tauri::State<'_, Arc<player::NativePlayer>>) -> Result<(), String> {
+    state.resume()
+}
+
+#[tauri::command]
+fn native_stop(state: tauri::State<'_, Arc<player::NativePlayer>>) -> Result<(), String> {
+    state.stop()
+}
+
+#[tauri::command]
+fn native_seek(state: tauri::State<'_, Arc<player::NativePlayer>>, seconds: f64) -> Result<(), String> {
+    state.seek(seconds)
+}
+
+#[tauri::command]
+fn native_set_volume(state: tauri::State<'_, Arc<player::NativePlayer>>, volume: f32) -> Result<(), String> {
+    state.set_volume(volume)
+}
+
+#[tauri::command]
+fn native_set_repeat_one(state: tauri::State<'_, Arc<player::NativePlayer>>, repeat_one: bool) -> Result<(), String> {
+    state.set_repeat_one(repeat_one)
+}
+
+#[tauri::command]
+fn native_get_state(state: tauri::State<'_, Arc<player::NativePlayer>>) -> player::NativePlayerState {
+    state.get_state()
+}
+

@@ -1,4 +1,3 @@
-use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
