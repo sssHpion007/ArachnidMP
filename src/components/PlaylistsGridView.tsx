@@ -1052,20 +1052,22 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
           </div>
 
           {/* Action Buttons inside folder */}
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto">
             <button
               onClick={() => onCreateFolder(currentFolder.id, currentFolder.groupId)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all"
+              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3.5 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
+              title={language === 'ru' ? "Создать подпапку" : "Create subfolder"}
             >
               <FolderPlus className="w-4 h-4 text-md3-primary" />
-              <span>Новая подпапка</span>
+              <span className="hidden sm:inline">{language === 'ru' ? 'Новая подпапка' : 'New Subfolder'}</span>
             </button>
             <button
               onClick={() => onCreatePlaylist(currentFolder.id, currentFolder.groupId)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 shadow-md transition-all"
+              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-4 sm:py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 shadow-md transition-all cursor-pointer"
+              title={language === 'ru' ? "Создать плейлист" : "Create playlist"}
             >
               <Plus className="w-4 h-4" />
-              <span>Новый плейлист</span>
+              <span className="hidden sm:inline">{language === 'ru' ? 'Новый плейлист' : 'New Playlist'}</span>
             </button>
           </div>
         </div>
@@ -1136,12 +1138,12 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
       )}
 
       {/* Top Bar with Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-md3-outline-variant/15">
-        <div>
-          <h2 className="text-xl font-bold text-md3-on-surface">
+      <div className="flex items-center justify-between gap-3 mb-6 pb-4 border-b border-md3-outline-variant/15">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-xl font-bold text-md3-on-surface truncate">
             {language === 'ru' ? 'Плейлисты' : 'Playlists'}
           </h2>
-          <p className="text-xs text-md3-on-surface-variant mt-0.5">
+          <p className="text-xs text-md3-on-surface-variant mt-0.5 truncate">
             {playlists.length} {language === 'ru'
               ? (playlists.length === 1 ? 'плейлист' : playlists.length < 5 ? 'плейлиста' : 'плейлистов')
               : (playlists.length === 1 ? 'playlist' : 'playlists')
@@ -1158,31 +1160,32 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         </div>
 
         {/* Global Toolbar Buttons */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto">
           <button
             onClick={onCreateGroup}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
+            className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3.5 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
             title={language === 'ru' ? "Создать группу плейлистов" : "Create playlist group"}
           >
             <Layers className="w-4 h-4 text-md3-primary" />
-            <span>{language === 'ru' ? 'Новая группа' : 'New Group'}</span>
+            <span className="hidden sm:inline">{language === 'ru' ? 'Новая группа' : 'New Group'}</span>
           </button>
 
           <button
             onClick={() => onCreateFolder(null, null)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
+            className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3.5 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
             title={language === 'ru' ? "Создать папку" : "Create folder"}
           >
             <FolderPlus className="w-4 h-4 text-md3-primary" />
-            <span>{language === 'ru' ? 'Новая папка' : 'New Folder'}</span>
+            <span className="hidden sm:inline">{language === 'ru' ? 'Новая папка' : 'New Folder'}</span>
           </button>
 
           <button
             onClick={() => onCreatePlaylist(null, null)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 shadow-md transition-all cursor-pointer"
+            className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-4 sm:py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 shadow-md transition-all cursor-pointer"
+            title={language === 'ru' ? "Создать плейлист" : "Create playlist"}
           >
             <Plus className="w-4 h-4" />
-            <span>{language === 'ru' ? 'Новый плейлист' : 'New Playlist'}</span>
+            <span className="hidden sm:inline">{language === 'ru' ? 'Новый плейлист' : 'New Playlist'}</span>
           </button>
         </div>
       </div>

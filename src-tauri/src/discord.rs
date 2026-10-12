@@ -376,6 +376,13 @@ impl DiscordService {
                             timestamps["end"] = json!(ts_end);
                         }
                         activity["timestamps"] = timestamps;
+
+                        // Session identity for Discord client to reliably detect new loop iterations
+                        if let Some(ts_start) = latest.start_timestamp {
+                            activity["party"] = json!({
+                                "id": format!("arachnid_play_{}_{}", sanitize_discord_string(&latest.details), ts_start)
+                            });
+                        }
                     } else {
                         activity["timestamps"] = json!(null);
                     }

@@ -64,6 +64,7 @@ class AudioEngine {
   private isScrubbing: boolean = false;
   private isHandlingEnd: boolean = false;
   private lastLoopDetectedIteration: number = 0;
+  private lastRecordedAudioTime: number = 0;
 
   constructor() {
     this.audio = new Audio();
@@ -482,6 +483,14 @@ class AudioEngine {
           }
         } else if (!this.audio.paused) {
           curTime = Math.min(dur > 0 ? dur : Infinity, this.audio.currentTime);
+
+          if (this.repeatMode === 'one' && dur > 1.0) {
+            // Detect if native audio element looped and jumped back to start
+            if (this.lastRecordedAudioTime > dur - 2.0 && curTime < 1.0) {
+              this.onLoopRepeatCallback?.();
+            }
+          }
+          this.lastRecordedAudioTime = curTime;
           this.playbackPosition = curTime;
 
           // Seamless loop transition: switch to Web Audio buffer 60ms BEFORE HTMLAudioElement reaches EOF
@@ -515,7 +524,11 @@ class AudioEngine {
     }, 400);
 
     this.lastLoopDetectedIteration = 0;
+    this.lastRecordedAudioTime = 0;
     this.playbackPosition = 0;
+    if (this.audioCtx) {
+      this.playbackStartTime = this.audioCtx.currentTime;
+    }
     this.startBufferPlayback(0, 0.020);
     this.onPlayCallback?.();
     this.onTimeUpdateCallback?.(0);
@@ -531,9 +544,13 @@ class AudioEngine {
 
     if (this.repeatMode === 'one') {
       this.lastLoopDetectedIteration = 0;
+      this.lastRecordedAudioTime = 0;
+      this.playbackPosition = 0;
+      if (this.audioCtx) {
+        this.playbackStartTime = this.audioCtx.currentTime;
+      }
       if (this.currentBuffer && this.audioCtx && this.fadeMode !== 'always') {
         // Sample-accurate hardware PCM loop restart with 20ms de-click ramp
-        this.playbackPosition = 0;
         this.startBufferPlayback(0, 0.020);
         this.onPlayCallback?.();
         this.onTimeUpdateCallback?.(0);
@@ -542,9 +559,8 @@ class AudioEngine {
         // Fallback to HTMLAudioElement with micro-fade in to avoid crackle
         try {
           this.audio.volume = 0;
+          this.audio.currentTime = 0;
         } catch (_) {}
-        this.playbackPosition = 0;
-        this.audio.currentTime = 0;
         this.audio.play().then(() => {
           this.isPlaying = true;
           this.performFade(this.getEffectiveVolume(), 0.05);
