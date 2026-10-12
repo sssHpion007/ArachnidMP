@@ -246,11 +246,68 @@ fn run_player_thread(
     let mut current_volume = 1.0f32;
     let mut last_emit_instant = Instant::now();
     let mut preloaded_next_loop = false;
+    let mut active_volume_fade: Option<(Instant, f32, f32, Duration)> = None;
 
     let mut fade_mode = "track_change_and_pause".to_string();
     let mut fade_duration = 2.0f64;
 
     loop {
+        // Fast default audio device check (75ms polling + called on Play / Resume)
+        // Detects headphone connection/disconnection almost instantly and seamlessly migrates the stream
+        if last_device_check.elapsed().as_millis() >= 75 {
+            last_device_check = Instant::now();
+            if let Some(dev) = rodio::cpal::default_host().default_output_device() {
+                if let Ok(name) = dev.name() {
+                    if current_device_name.as_deref() != Some(&name) {
+                        current_device_name = Some(name);
+                        if let Ok((new_stream, new_handle)) = OutputStream::try_default() {
+                            _stream = new_stream;
+                            stream_handle = new_handle;
+                            sink.stop();
+                            if let Ok(new_sink) = Sink::try_new(&stream_handle) {
+                                sink = new_sink;
+                            }
+                            sink.set_volume(0.0);
+
+                            if let Some(ref path) = current_path {
+                                if let Ok(file) = File::open(path) {
+                                    if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
+                                        let cur_pos = if is_playing && !is_paused {
+                                            play_start_pos + play_start_instant.elapsed().as_secs_f64()
+                                        } else {
+                                            play_start_pos
+                                        };
+
+                                        if cur_pos > 0.05 {
+                                            let target_dur = Duration::from_secs_f64(cur_pos);
+                                            if decoder.try_seek(target_dur).is_err() {
+                                                let skipped = decoder.skip_duration(target_dur);
+                                                sink.append(skipped);
+                                            } else {
+                                                sink.append(decoder);
+                                            }
+                                        } else {
+                                            sink.append(decoder);
+                                        }
+
+                                        if !is_paused && is_playing {
+                                            sink.play();
+                                            active_volume_fade = Some((Instant::now(), 0.0, user_target_volume, Duration::from_millis(30)));
+                                        } else {
+                                            sink.pause();
+                                        }
+
+                                        play_start_pos = cur_pos;
+                                        play_start_instant = Instant::now();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // 1. Process all pending commands
         while let Ok(cmd) = rx.try_recv() {
             match cmd {
@@ -266,6 +323,24 @@ fn run_player_thread(
                 } => {
                     user_target_volume = volume;
                     preloaded_next_loop = false;
+                    active_volume_fade = None;
+
+                    // Immediately ensure we are routing to the active default audio device
+                    if let Some(dev) = rodio::cpal::default_host().default_output_device() {
+                        if let Ok(name) = dev.name() {
+                            if current_device_name.as_deref() != Some(&name) {
+                                current_device_name = Some(name);
+                                if let Ok((new_stream, new_handle)) = OutputStream::try_default() {
+                                    _stream = new_stream;
+                                    stream_handle = new_handle;
+                                    sink.stop();
+                                    if let Ok(new_sink) = Sink::try_new(&stream_handle) {
+                                        sink = new_sink;
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     // Smooth fade out of previous track if currently playing
                     if is_playing && !is_paused && current_volume > 0.01 {
@@ -337,6 +412,7 @@ fn run_player_thread(
                     }
                 }
                 PlayerCmd::Pause => {
+                    active_volume_fade = None;
                     if is_playing && !is_paused {
                         if fade_mode != "off" && fade_duration > 0.05 && current_volume > 0.01 {
                             let fade_out_dur = fade_duration.min(1.0).max(0.08);
@@ -353,7 +429,42 @@ fn run_player_thread(
                     }
                 }
                 PlayerCmd::Resume => {
+                    active_volume_fade = None;
                     if is_playing && is_paused {
+                        // Immediately ensure we are routing to the active default audio device
+                        if let Some(dev) = rodio::cpal::default_host().default_output_device() {
+                            if let Ok(name) = dev.name() {
+                                if current_device_name.as_deref() != Some(&name) {
+                                    current_device_name = Some(name);
+                                    if let Ok((new_stream, new_handle)) = OutputStream::try_default() {
+                                        _stream = new_stream;
+                                        stream_handle = new_handle;
+                                        sink.stop();
+                                        if let Ok(new_sink) = Sink::try_new(&stream_handle) {
+                                            sink = new_sink;
+                                        }
+                                        if let Some(ref path) = current_path {
+                                            if let Ok(file) = File::open(path) {
+                                                if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
+                                                    if play_start_pos > 0.05 {
+                                                        let target_dur = Duration::from_secs_f64(play_start_pos);
+                                                        if decoder.try_seek(target_dur).is_err() {
+                                                            let skipped = decoder.skip_duration(target_dur);
+                                                            sink.append(skipped);
+                                                        } else {
+                                                            sink.append(decoder);
+                                                        }
+                                                    } else {
+                                                        sink.append(decoder);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         is_paused = false;
                         play_start_instant = Instant::now();
                         if fade_mode != "off" && fade_duration > 0.05 && user_target_volume > 0.01 {
@@ -371,6 +482,7 @@ fn run_player_thread(
                     }
                 }
                 PlayerCmd::Stop => {
+                    active_volume_fade = None;
                     if is_playing && !is_paused && current_volume > 0.005 {
                         fade_sink_volume(&sink, current_volume, 0.0, 0.035);
                     }
@@ -389,26 +501,27 @@ fn run_player_thread(
                     let target_dur = Duration::from_secs_f64(safe_pos);
                     preloaded_next_loop = false;
 
-                    // 1. First try native in-place seek on current Sink (0-5ms, crackle-free)
+                    // Mute sink immediately to eliminate MDCT aliasing and packet discontinuity noise (buzz / hum / glass stepping sound)
+                    sink.set_volume(0.0);
+
+                    // 1. Try native in-place seek on current Sink first
                     let sought_in_place = sink.try_seek(target_dur).is_ok();
 
                     // 2. Fallback if format does not support in-place seek
                     if !sought_in_place {
                         sink.stop();
-                        sink.set_volume(user_target_volume);
-
                         if let Some(ref path) = current_path {
                             if let Ok(file) = File::open(path) {
                                 if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
                                     if safe_pos > 0.05 {
-                                        if decoder.try_seek(target_dur).is_ok() {
-                                            sink.append(decoder.fade_in(Duration::from_millis(35)));
-                                        } else {
+                                        if decoder.try_seek(target_dur).is_err() {
                                             let skipped = decoder.skip_duration(target_dur);
-                                            sink.append(skipped.fade_in(Duration::from_millis(35)));
+                                            sink.append(skipped);
+                                        } else {
+                                            sink.append(decoder);
                                         }
                                     } else {
-                                        sink.append(decoder.fade_in(Duration::from_millis(35)));
+                                        sink.append(decoder);
                                     }
                                 }
                             }
@@ -421,9 +534,12 @@ fn run_player_thread(
                         sink.pause();
                     }
 
-                    current_volume = user_target_volume;
                     play_start_pos = safe_pos;
                     play_start_instant = Instant::now();
+
+                    // Smoothly ramp volume back up from 0.0 to target volume over 40ms.
+                    // This creates an imperceptible S-curve that completely swallows the MDCT boundary resonance.
+                    active_volume_fade = Some((Instant::now(), 0.0, user_target_volume, Duration::from_millis(40)));
 
                     // Immediately update shared state and emit time-update
                     if let Ok(mut s) = shared_state.lock() {
@@ -443,8 +559,10 @@ fn run_player_thread(
                 }
                 PlayerCmd::SetVolume { volume } => {
                     user_target_volume = volume;
-                    current_volume = volume;
-                    sink.set_volume(volume);
+                    if active_volume_fade.is_none() {
+                        current_volume = volume;
+                        sink.set_volume(volume);
+                    }
                 }
                 PlayerCmd::SetRepeatOne { repeat_one: rep } => {
                     repeat_one = rep;
@@ -452,52 +570,25 @@ fn run_player_thread(
             }
         }
 
-        // 2. Monitor playback position, fade-out, audio device migration, and track end
+        // 2. Monitor playback position, active volume fade, and track end
+        if let Some((start_time, from_vol, to_vol, dur)) = active_volume_fade {
+            let elapsed = start_time.elapsed();
+            if elapsed >= dur {
+                sink.set_volume(to_vol);
+                current_volume = to_vol;
+                active_volume_fade = None;
+            } else {
+                let t = elapsed.as_secs_f32() / dur.as_secs_f32();
+                let smooth_t = t * t * (3.0 - 2.0 * t);
+                let vol = from_vol + (to_vol - from_vol) * smooth_t;
+                sink.set_volume(vol.clamp(0.0, 1.0));
+                current_volume = vol;
+            }
+        }
+
         if is_playing && !is_paused {
             let elapsed = play_start_instant.elapsed().as_secs_f64();
             let current_pos = play_start_pos + elapsed;
-
-            // Check if default audio device changed (e.g. headphones plugged in or unplugged)
-            if last_device_check.elapsed().as_millis() >= 1000 {
-                last_device_check = Instant::now();
-                if let Some(dev) = rodio::cpal::default_host().default_output_device() {
-                    if let Ok(name) = dev.name() {
-                        if current_device_name.as_deref() != Some(&name) {
-                            current_device_name = Some(name);
-                            if let Ok((new_stream, new_handle)) = OutputStream::try_default() {
-                                _stream = new_stream;
-                                stream_handle = new_handle;
-                                sink.stop();
-                                if let Ok(new_sink) = Sink::try_new(&stream_handle) {
-                                    sink = new_sink;
-                                }
-                                sink.set_volume(user_target_volume);
-
-                                if let Some(ref path) = current_path {
-                                    if let Ok(file) = File::open(path) {
-                                        if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
-                                            if current_pos > 0.05 {
-                                                let target_dur = Duration::from_secs_f64(current_pos);
-                                                if decoder.try_seek(target_dur).is_ok() {
-                                                    sink.append(decoder.fade_in(Duration::from_millis(30)));
-                                                } else {
-                                                    let skipped = decoder.skip_duration(target_dur);
-                                                    sink.append(skipped.fade_in(Duration::from_millis(30)));
-                                                }
-                                            } else {
-                                                sink.append(decoder.fade_in(Duration::from_millis(30)));
-                                            }
-                                            sink.play();
-                                            play_start_pos = current_pos;
-                                            play_start_instant = Instant::now();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
 
             // End-of-track fade out
             let should_fade_at_end = (fade_mode == "always") || (fade_mode == "track_change_and_pause" && !repeat_one);
@@ -640,6 +731,6 @@ fn run_player_thread(
             }
         }
 
-        std::thread::sleep(Duration::from_millis(20));
+        std::thread::sleep(Duration::from_millis(10));
     }
 }

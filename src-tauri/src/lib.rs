@@ -1152,8 +1152,6 @@ fn show_window(window: tauri::Window) -> Result<(), String> {
 #[tauri::command]
 fn minimize_window(window: tauri::Window) -> Result<(), String> {
     window.minimize().map_err(|e| e.to_string())?;
-    #[cfg(target_os = "windows")]
-    windows_process_grouping::trim_working_set();
     Ok(())
 }
 
@@ -1533,6 +1531,36 @@ mod windows_process_grouping {
                 );
                 let _ = AssignProcessToJobObject(job, GetCurrentProcess());
             }
+
+            // 3. Prevent Windows 10/11 EcoQoS (Efficiency Mode / CPU Power Throttling) from throttling audio when minimized
+            extern "system" {
+                fn SetProcessInformation(
+                    hProcess: *mut std::ffi::c_void,
+                    ProcessInformationClass: u32,
+                    ProcessInformation: *const std::ffi::c_void,
+                    ProcessInformationSize: u32,
+                ) -> i32;
+            }
+
+            #[repr(C)]
+            struct PROCESS_POWER_THROTTLING_STATE {
+                Version: u32,
+                ControlMask: u32,
+                StateMask: u32,
+            }
+
+            let throttling = PROCESS_POWER_THROTTLING_STATE {
+                Version: 1,
+                ControlMask: 0x1 | 0x4, // PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
+                StateMask: 0,           // 0 = Turn off throttling
+            };
+
+            let _ = SetProcessInformation(
+                GetCurrentProcess(),
+                4, // ProcessPowerThrottling
+                &throttling as *const _ as *const std::ffi::c_void,
+                std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+            );
         }
     }
 }
