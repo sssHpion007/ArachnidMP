@@ -1151,14 +1151,14 @@ fn show_window(window: tauri::Window) -> Result<(), String> {
 fn minimize_window(window: tauri::Window) -> Result<(), String> {
     window.minimize().map_err(|e| e.to_string())?;
     #[cfg(target_os = "windows")]
-    windows_process::trim_working_set();
+    windows_process_grouping::trim_working_set();
     Ok(())
 }
 
 #[tauri::command]
 fn trim_memory() {
     #[cfg(target_os = "windows")]
-    windows_process::trim_working_set();
+    windows_process_grouping::trim_working_set();
 }
 
 #[tauri::command]
