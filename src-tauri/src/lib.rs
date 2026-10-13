@@ -1176,7 +1176,22 @@ fn toggle_maximize_window(window: tauri::Window) -> Result<bool, String> {
 
 #[tauri::command]
 fn close_window(app_handle: tauri::AppHandle) -> Result<(), String> {
-    app_handle.exit(0);
+    let _ = app_handle;
+    clean_exit();
+    Ok(())
+}
+
+fn clean_exit() {
+    #[cfg(target_os = "windows")]
+    {
+        // 1. Move working directory out of application folder to %TEMP%
+        // so no handle remains open to the application directory
+        let _ = std::env::set_current_dir(std::env::temp_dir());
+
+        // 2. Proactively terminate any descendant processes (WebView2 browser, GPU, renderers)
+        windows_process_grouping::terminate_all_child_processes();
+    }
+
     std::process::exit(0);
 }
 
@@ -1511,6 +1526,57 @@ mod windows_process_grouping {
         }
     }
 
+    pub fn terminate_all_child_processes() {
+        unsafe {
+            let my_pid = std::process::id();
+            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if !snapshot.is_null() && snapshot as isize != -1 {
+                let mut pids_to_kill = std::collections::HashSet::new();
+                pids_to_kill.insert(my_pid);
+
+                let mut entries = Vec::new();
+                let mut pe: PROCESSENTRY32W = std::mem::zeroed();
+                pe.dw_size = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+                if Process32FirstW(snapshot, &mut pe) != 0 {
+                    loop {
+                        entries.push((pe.th32_process_id, pe.th32_parent_process_id));
+                        if Process32NextW(snapshot, &mut pe) == 0 {
+                            break;
+                        }
+                    }
+                }
+                let _ = CloseHandle(snapshot);
+
+                // Multi-pass to collect child and grandchild processes
+                let mut changed = true;
+                while changed {
+                    changed = false;
+                    for &(pid, ppid) in &entries {
+                        if pids_to_kill.contains(&ppid) && !pids_to_kill.contains(&pid) {
+                            pids_to_kill.insert(pid);
+                            changed = true;
+                        }
+                    }
+                }
+
+                extern "system" {
+                    fn TerminateProcess(hProcess: *mut std::ffi::c_void, uExitCode: u32) -> i32;
+                }
+
+                for pid in pids_to_kill {
+                    if pid != my_pid {
+                        let h_proc = OpenProcess(0x0001 /* PROCESS_TERMINATE */, 0, pid);
+                        if !h_proc.is_null() {
+                            let _ = TerminateProcess(h_proc, 0);
+                            let _ = CloseHandle(h_proc);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub fn setup_process_grouping() {
         // 1. Set explicit Application User Model ID for Windows Task Manager & Taskbar grouping
         let app_id: Vec<u16> = "Arachnid.MusicPlayer\0".encode_utf16().collect();
@@ -1520,11 +1586,12 @@ mod windows_process_grouping {
 
         // 2. Put main process and any child processes (like msedgewebview2.exe) in a dedicated Job Object
         // This groups them cleanly in Windows Task Manager and ensures child processes cleanly close on exit
+        static mut PROCESS_JOB: *mut std::ffi::c_void = std::ptr::null_mut();
         unsafe {
             let job = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
             if !job.is_null() {
                 let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-                info.basic_limit_information.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | 0x00000800 | 0x00001000;
+                info.basic_limit_information.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
                 let _ = SetInformationJobObject(
                     job,
                     JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
@@ -1532,6 +1599,7 @@ mod windows_process_grouping {
                     std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
                 );
                 let _ = AssignProcessToJobObject(job, GetCurrentProcess());
+                PROCESS_JOB = job;
             }
 
             // 3. Prevent Windows 10/11 EcoQoS (Efficiency Mode / CPU Power Throttling) from throttling audio when minimized
@@ -1608,8 +1676,11 @@ pub fn run() {
 
     tauri::Builder::default()
         .on_window_event(|_window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                std::process::exit(0);
+            match event {
+                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed => {
+                    clean_exit();
+                }
+                _ => {}
             }
         })
         .setup(|app| {

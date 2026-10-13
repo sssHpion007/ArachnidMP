@@ -89,10 +89,10 @@ export const TitleBar: React.FC = () => {
   const handleClose = useCallback(async () => {
     if (!isTauri()) return;
     try {
-      await getCurrentWindow().close();
+      await invoke('close_window');
     } catch (_) {
       try {
-        await invoke('close_window');
+        await getCurrentWindow().close();
       } catch (err) {
         console.error('Failed to close window:', err);
       }
