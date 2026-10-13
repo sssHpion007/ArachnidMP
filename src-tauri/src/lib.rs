@@ -1178,10 +1178,9 @@ fn toggle_maximize_window(window: tauri::Window) -> Result<bool, String> {
 fn close_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     let _ = app_handle;
     clean_exit();
-    Ok(())
 }
 
-fn clean_exit() {
+fn clean_exit() -> ! {
     #[cfg(target_os = "windows")]
     {
         // 1. Move working directory out of application folder to %TEMP%
@@ -1547,9 +1546,12 @@ mod windows_process_grouping {
 
                 if Process32FirstW(snapshot, &mut pe) != 0 {
                     loop {
-                        let name = String::from_utf16_lossy(&pe.sz_exe_file)
-                            .trim_matches('\0')
-                            .to_lowercase();
+                        let len = pe
+                            .sz_exe_file
+                            .iter()
+                            .position(|&c| c == 0)
+                            .unwrap_or(pe.sz_exe_file.len());
+                        let name = String::from_utf16_lossy(&pe.sz_exe_file[..len]).to_lowercase();
                         entries.push((pe.th32_process_id, pe.th32_parent_process_id, name));
                         if Process32NextW(snapshot, &mut pe) == 0 {
                             break;
