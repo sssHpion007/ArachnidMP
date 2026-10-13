@@ -3377,8 +3377,8 @@ export const App: React.FC = () => {
         isOpen={!!deleteFolderTarget}
         title={language === 'ru' ? "Удалить папку" : "Delete Folder"}
         message={language === 'ru'
-          ? `Вы уверены, что хотите удалить папку «${deleteFolderTarget?.name}»? Все плейлисты и треки внутри сохранятся и будут перемещены наружу.`
-          : `Are you sure you want to delete the folder "${deleteFolderTarget?.name}"? All playlists and tracks inside will be preserved and moved outside.`
+          ? "Вы уверены, что хотите удалить выбранную папку? Все вложенные плейлисты и треки сохранятся и будут перемещены наружу."
+          : "Are you sure you want to delete this folder? All playlists and tracks inside will be preserved and moved outside."
         }
         confirmLabel={language === 'ru' ? "Удалить" : "Delete"}
         cancelLabel={language === 'ru' ? "Отмена" : "Cancel"}
@@ -3392,8 +3392,8 @@ export const App: React.FC = () => {
         isOpen={!!clearPlaylistTarget}
         title={language === 'ru' ? "Очистить плейлист" : "Clear Playlist"}
         message={language === 'ru'
-          ? `Вы уверены, что хотите удалить все треки из плейлиста «${clearPlaylistTarget?.name}»? Все композиции останутся в вашей медиатеке.`
-          : `Are you sure you want to remove all tracks from the playlist "${clearPlaylistTarget?.name}"? All files will remain in your library.`
+          ? "Вы уверены, что хотите удалить все треки из этого плейлиста? Сами файлы останутся в вашей медиатеке."
+          : "Are you sure you want to remove all tracks from this playlist? All audio files will remain in your library."
         }
         confirmLabel={language === 'ru' ? "Очистить" : "Clear"}
         cancelLabel={language === 'ru' ? "Отмена" : "Cancel"}
@@ -3407,8 +3407,8 @@ export const App: React.FC = () => {
         isOpen={!!deletePlaylistTarget}
         title={language === 'ru' ? "Удалить плейлист" : "Delete Playlist"}
         message={language === 'ru'
-          ? `Вы уверены, что хотите безвозвратно удалить плейлист «${deletePlaylistTarget?.name}»? Сами треки останутся в вашей библиотеке.`
-          : `Are you sure you want to delete the playlist "${deletePlaylistTarget?.name}"? The audio files will remain in your library.`
+          ? "Вы уверены, что хотите безвозвратно удалить этот плейлист? Сами треки останутся в вашей библиотеке."
+          : "Are you sure you want to delete this playlist? The audio files will remain in your library."
         }
         confirmLabel={language === 'ru' ? "Удалить" : "Delete"}
         cancelLabel={language === 'ru' ? "Отмена" : "Cancel"}
@@ -3428,12 +3428,12 @@ export const App: React.FC = () => {
         message={
           selectedPlaylistId
             ? (language === 'ru'
-                ? `Вы уверены, что хотите удалить выбранные треки (${deleteTracksTarget?.length || 0} шт.) из этого плейлиста? Сами файлы останутся в вашей медиатеке.`
-                : `Are you sure you want to remove selected tracks (${deleteTracksTarget?.length || 0}) from this playlist? The files will remain in your library.`
+                ? "Вы уверены, что хотите удалить выбранные композиции из этого плейлиста? Сами файлы останутся в вашей медиатеке."
+                : "Are you sure you want to remove selected tracks from this playlist? The files will remain in your library."
               )
             : (language === 'ru'
-                ? `Вы уверены, что хотите удалить выбранные треки (${deleteTracksTarget?.length || 0} шт.) из медиатеки плеера?`
-                : `Are you sure you want to remove selected tracks (${deleteTracksTarget?.length || 0}) from the library?`
+                ? "Вы уверены, что хотите удалить выбранные композиции из медиатеки плеера?"
+                : "Are you sure you want to remove selected tracks from the library?"
               )
         }
         confirmLabel={language === 'ru' ? "Удалить" : "Delete"}

@@ -103,7 +103,7 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [isOpen, onClose]);
 
-  const { isRendered, isVisible } = useModalAnimation(isOpen, 200);
+  const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen, 200);
 
   if (!isRendered) return null;
 
@@ -127,15 +127,11 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({
   return (
     <div
       onClick={onClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 transition-opacity duration-200 ease-out select-none cursor-pointer ${
-        isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
-      }`}
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 select-none cursor-pointer ${backdropClass}`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-2xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/30 overflow-hidden flex flex-col cursor-default transition-all duration-200 ease-out ${
-          isVisible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-3'
-        }`}
+        className={`w-full max-w-2xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/30 overflow-hidden flex flex-col cursor-default ${dialogClass}`}
       >
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-md3-outline-variant/20 flex items-center justify-between bg-md3-surface-container-high shrink-0">

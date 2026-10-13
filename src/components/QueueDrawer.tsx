@@ -3,6 +3,7 @@ import { X, Trash2, Shuffle, Music, Play, ArrowUp, ArrowDown, GripVertical, Aler
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage } from '../i18n';
+import { useDrawerAnimation } from '../utils/useModalAnimation';
 
 interface QueueDrawerProps {
   isOpen: boolean;
@@ -209,12 +210,14 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
     };
   }, [dragState, queue.length, onMoveQueueTrack]);
 
-  if (!isOpen) return null;
+  const { isRendered, drawerClass } = useDrawerAnimation(isOpen, 180);
+
+  if (!isRendered) return null;
 
   return (
     <aside 
       style={{ bottom: compactMode ? '196px' : '96px' }}
-      className="fixed top-7 right-0 w-full sm:w-80 lg:w-96 bg-md3-surface-container shadow-2xl border-l border-md3-outline-variant/30 z-40 flex flex-col animate-in slide-in-from-right duration-200 select-none"
+      className={`fixed top-7 right-0 w-full sm:w-80 lg:w-96 bg-md3-surface-container shadow-2xl border-l border-md3-outline-variant/30 z-40 flex flex-col select-none ${drawerClass}`}
     >
       {/* Header */}
       <div className="p-4 border-b border-md3-outline-variant/20 flex items-center justify-between">

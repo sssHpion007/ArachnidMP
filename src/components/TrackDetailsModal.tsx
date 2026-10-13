@@ -66,7 +66,7 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
       .filter((g) => g.length > 0);
   }, [track?.genre]);
 
-  const { isRendered, isVisible } = useModalAnimation(isOpen && !!track, 200);
+  const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen && !!track, 200);
 
   if (!isRendered || !track) return null;
 
@@ -107,14 +107,10 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
   return (
     <div
       onClick={onClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md transition-opacity duration-200 ease-out select-none cursor-pointer ${
-        isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
-      }`}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md select-none cursor-pointer ${backdropClass}`}
     >
       <div
-        className={`w-full max-w-xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col max-h-[90vh] cursor-default transition-all duration-200 ease-out ${
-          isVisible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-3'
-        }`}
+        className={`w-full max-w-xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col max-h-[90vh] cursor-default ${dialogClass}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

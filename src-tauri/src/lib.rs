@@ -1219,7 +1219,7 @@ async fn download_and_install_update(
             let total_size = response
                 .header("Content-Length")
                 .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(11_650_000);
+                .unwrap_or(0);
 
             let mut reader = response.into_reader();
             let mut file = std::fs::File::create(&temp_update_file)
@@ -1240,7 +1240,11 @@ async fn download_and_install_update(
                     .map_err(|e| format!("Failed writing to disk: {}", e))?;
                 downloaded += n as u64;
 
-                let percent = ((downloaded as f64 / total_size as f64) * 100.0).min(100.0) as u32;
+                let percent = if total_size > 0 {
+                    ((downloaded as f64 / total_size as f64) * 100.0).min(100.0) as u32
+                } else {
+                    0
+                };
                 if percent != last_percent {
                     last_percent = percent;
                     let _ = window.emit(

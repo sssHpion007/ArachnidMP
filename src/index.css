@@ -235,3 +235,141 @@ input[type=range]::-webkit-slider-runnable-track {
   scrollbar-width: none !important;
 }
 
+/* ========================================================
+   ARACHNID HARDWARE-ACCELERATED ANIMATIONS
+   ======================================================== */
+
+/* 1. Modal Animations */
+@keyframes modalBackdropEnter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes modalBackdropExit {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes modalContentEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.93) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+@keyframes modalContentExit {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+  }
+}
+
+.anim-modal-backdrop-in {
+  animation: modalBackdropEnter 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.anim-modal-backdrop-out {
+  animation: modalBackdropExit 180ms ease-in forwards;
+}
+.anim-modal-content-in {
+  animation: modalContentEnter 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+.anim-modal-content-out {
+  animation: modalContentExit 180ms ease-in forwards;
+  will-change: transform, opacity;
+}
+
+/* 2. Curtain / Dropdown Floating Animations */
+@keyframes curtainEnter {
+  from {
+    opacity: 0;
+    transform: scaleY(0.85) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1) translateY(0);
+  }
+}
+@keyframes curtainExit {
+  from {
+    opacity: 1;
+    transform: scaleY(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scaleY(0.9) translateY(-6px);
+  }
+}
+.anim-curtain-in {
+  transform-origin: top;
+  animation: curtainEnter 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+.anim-curtain-out {
+  transform-origin: top;
+  animation: curtainExit 150ms ease-in forwards;
+  will-change: transform, opacity;
+}
+
+/* 3. Sub-view Navigation Slide Animations */
+@keyframes viewSlideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes viewSlideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.anim-view-slide-right {
+  animation: viewSlideInRight 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+.anim-view-slide-left {
+  animation: viewSlideInLeft 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+/* 4. Queue Drawer Slide Animations */
+@keyframes drawerSlideIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes drawerSlideOut {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+.anim-drawer-in {
+  animation: drawerSlideIn 240ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform;
+}
+.anim-drawer-out {
+  animation: drawerSlideOut 200ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  will-change: transform;
+}
+
+

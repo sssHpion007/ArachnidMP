@@ -51,7 +51,8 @@ import { listen } from '@tauri-apps/api/event';
 
 export type ColorSchemeMode = 'dynamic' | 'system' | 'custom';
 
-import { useModalAnimation } from '../utils/useModalAnimation';
+import { CURRENT_APP_VERSION } from '../utils/version';
+import { useModalAnimation, useCurtainAnimation } from '../utils/useModalAnimation';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -175,7 +176,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const mainSettingsContainerRef = useRef<HTMLDivElement>(null);
   const mainScrollTopRef = useRef<number>(0);
 
-  const { isRendered, isVisible } = useModalAnimation(isOpen, 200);
+  const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen, 200);
+
+  // Accordion (шторка) open/closed states with animated hooks
+  const [isThemeCurtainOpen, setIsThemeCurtainOpen] = useState<boolean>(false);
+  const [isLangCurtainOpen, setIsLangCurtainOpen] = useState<boolean>(false);
+  const [isUpdateSettingsOpen, setIsUpdateSettingsOpen] = useState<boolean>(false);
+  const [updateViewDirection, setUpdateViewDirection] = useState<'forward' | 'backward'>('forward');
+
+  const { isRendered: isThemeCurtainRendered, curtainClass: themeCurtainClass } = useCurtainAnimation(isThemeCurtainOpen, 160);
+  const { isRendered: isLangCurtainRendered, curtainClass: langCurtainClass } = useCurtainAnimation(isLangCurtainOpen, 160);
+
+  // Theme Mode segmented control indicator
+  const themeModeContainerRef = useRef<HTMLDivElement>(null);
+  const themeModeRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+  const [themeModeIndicatorStyle, setThemeModeIndicatorStyle] = useState<{ left: number; width: number; height: number; opacity: number }>({
+    left: 0,
+    width: 0,
+    height: 0,
+    opacity: 0,
+  });
+
+  const updateThemeModeIndicator = () => {
+    const el = themeModeRefs.current[themeMode];
+    if (el) {
+      setThemeModeIndicatorStyle({
+        left: el.offsetLeft,
+        width: el.offsetWidth,
+        height: el.offsetHeight,
+        opacity: 1,
+      });
+    }
+  };
+
+  useEffect(() => {
+    updateThemeModeIndicator();
+    const timer = setTimeout(updateThemeModeIndicator, 40);
+    return () => clearTimeout(timer);
+  }, [themeMode, currentView, isOpen]);
+
+  useEffect(() => {
+    if (themeModeContainerRef.current && window.ResizeObserver) {
+      const ro = new ResizeObserver(() => updateThemeModeIndicator());
+      ro.observe(themeModeContainerRef.current);
+      return () => ro.disconnect();
+    }
+  }, []);
 
   // Real-time Logs state
   const [logs, setLogs] = useState<string[]>([]);
@@ -184,23 +230,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const logsScrollRef = useRef<HTMLDivElement>(null);
 
   const handleOpenUpdateSettings = () => {
+    setUpdateViewDirection('forward');
     setIsUpdateSettingsOpen(true);
   };
 
   const handleCloseUpdateSettings = () => {
+    setUpdateViewDirection('backward');
     setIsUpdateSettingsOpen(false);
   };
 
-  // Accordion (шторка) open/closed states
-  const [isThemeCurtainOpen, setIsThemeCurtainOpen] = useState<boolean>(false);
-  const [isLangCurtainOpen, setIsLangCurtainOpen] = useState<boolean>(false);
-  const [isUpdateSettingsOpen, setIsUpdateSettingsOpen] = useState<boolean>(false);
-
   // App version & Update checker state
-  const [appVersion, setAppVersion] = useState<string>('0.3.63');
+  const [appVersion, setAppVersion] = useState<string>(CURRENT_APP_VERSION);
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'upToDate' | 'available' | 'downloading' | 'installing' | 'error'>('idle');
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
-  const [downloadStats, setDownloadStats] = useState<{ received: string; total: string }>({ received: '0', total: '0' });
+  const [downloadStats, setDownloadStats] = useState<{ received: string; total: string }>({ received: '0.0', total: '0.0' });
   const [installError, setInstallError] = useState<string | null>(null);
   const [latestRelease, setLatestRelease] = useState<{
     tagName: string;
@@ -340,7 +383,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
     setUpdateStatus('downloading');
     setDownloadProgress(0);
-    setDownloadStats({ received: '0.0', total: '11.6' });
+    setDownloadStats({ received: '0.0', total: '0.0' });
     setInstallError(null);
 
     try {
@@ -608,14 +651,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   return (
     <div 
       onClick={handleClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity duration-200 ease-out select-none cursor-pointer ${
-        isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
-      }`}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm select-none cursor-pointer ${backdropClass}`}
     >
       <div 
-        className={`w-full max-w-xl bg-md3-surface-container rounded-3xl border border-md3-outline-variant/30 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-md3-on-surface cursor-default transition-all duration-200 ease-out ${
-          isVisible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-3'
-        }`}
+        className={`w-full max-w-xl bg-md3-surface-container rounded-3xl border border-md3-outline-variant/30 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-md3-on-surface cursor-default ${dialogClass}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -689,7 +728,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Content */}
         {currentView === 'shortcuts' ? (
           /* Keyboard Shortcuts View (100% Fully Localized) */
-          <div key="view-shortcuts" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 animate-in fade-in slide-in-from-right-4 duration-200 ease-out">
+          <div key="view-shortcuts" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 anim-view-slide-right">
             {/* Playback & Volume */}
             <div className="space-y-3">
               <div className="text-xs font-bold uppercase tracking-wider text-md3-primary flex items-center gap-2">
@@ -880,7 +919,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         ) : currentView === 'discord' ? (
           /* Dedicated Discord Integration Settings View */
-          <div key="view-discord" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 animate-in fade-in slide-in-from-right-4 duration-200 ease-out">
+          <div key="view-discord" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 anim-view-slide-right">
             {/* 1. Master Discord Toggle Card */}
             <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col gap-3">
               <div className="flex items-center justify-between">
@@ -1186,7 +1225,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         ) : currentView === 'release_notes' ? (
           /* Formatted Markdown Release Notes View */
-          <div key="view-release-notes" ref={releaseNotesContainerRef} className="p-6 space-y-4 overflow-y-auto custom-scrollbar flex-1 animate-in fade-in slide-in-from-right-4 duration-200 ease-out">
+          <div key="view-release-notes" ref={releaseNotesContainerRef} className="p-6 space-y-4 overflow-y-auto custom-scrollbar flex-1 anim-view-slide-right">
             {latestRelease ? (
               <div className="space-y-4 animate-in fade-in duration-200">
                 {/* Meta Header Card */}
@@ -1262,7 +1301,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         ) : currentView === 'logs' ? (
           /* Real-Time Logs View */
-          <div key="view-logs" className="p-6 space-y-4 flex flex-col flex-1 overflow-hidden animate-in fade-in slide-in-from-right-4 duration-200 ease-out">
+          <div key="view-logs" className="p-6 space-y-4 flex flex-col flex-1 overflow-hidden anim-view-slide-right">
             {/* Action Bar: Save button and Folder button */}
             <div className="flex items-center justify-between gap-3 shrink-0">
               <div className="flex items-center gap-2">
@@ -1356,7 +1395,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         ) : (
           /* Main Settings View */
-          <div key="view-main-settings" ref={mainSettingsContainerRef} className={`p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 ${navDirection === 'backward' ? 'animate-in fade-in slide-in-from-left-4 duration-200 ease-out' : ''}`}>
+          <div key="view-main-settings" ref={mainSettingsContainerRef} className={`p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 ${navDirection === 'backward' ? 'anim-view-slide-left' : ''}`}>
             
             {/* 1. Section: Appearance (Внешний вид) */}
             <div className="space-y-4">
@@ -1415,13 +1454,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
 
                   {/* Раскрывающаяся шторка со списком тем: Material You первая, далее темы по алфавиту без разделения */}
-                  {isThemeCurtainOpen && (
+                  {isThemeCurtainRendered && (
                     <>
                       <div 
                         className="fixed inset-0 z-40" 
                         onClick={() => setIsThemeCurtainOpen(false)} 
                       />
-                      <div className="absolute left-0 right-0 top-full mt-2 z-50 p-2.5 rounded-2xl bg-md3-surface-container-high/95 backdrop-blur-xl border border-md3-outline-variant/30 shadow-2xl space-y-2 animate-in fade-in zoom-in-98 slide-in-from-top-2 duration-200 origin-top">
+                      <div className={`absolute left-0 right-0 top-full mt-2 z-50 p-2.5 rounded-2xl bg-md3-surface-container-high/95 backdrop-blur-xl border border-md3-outline-variant/30 shadow-2xl space-y-2 origin-top ${themeCurtainClass}`}>
                         <div className="max-h-64 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
                           {/* 1. Material You (По умолчанию) - ВСЕГДА ПЕРВАЯ, НЕУДАЛЯЕМАЯ */}
                           <button
@@ -1549,44 +1588,73 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {t.settings.standardThemeSettings}
                   </div>
 
-                  {/* Theme Mode Buttons (Dark / AMOLED / Light) */}
-                  <div className="grid grid-cols-3 gap-3">
+                  {/* Theme Mode Segmented Control (Dark / AMOLED / Light) with sliding glowing pill */}
+                  <div
+                    ref={themeModeContainerRef}
+                    className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
+                  >
+                    {/* Smooth sliding glow pill indicator */}
+                    <div
+                      className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                      style={{
+                        left: `${themeModeIndicatorStyle.left}px`,
+                        width: `${themeModeIndicatorStyle.width}px`,
+                        height: `${themeModeIndicatorStyle.height}px`,
+                        opacity: themeModeIndicatorStyle.opacity,
+                        boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
+                      }}
+                    />
+
+                    {/* Dark */}
                     <button
+                      ref={(el) => { themeModeRefs.current['dark'] = el; }}
+                      tabIndex={-1}
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => onSetThemeMode('dark')}
-                      className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all cursor-pointer ${
+                      className={`relative z-10 flex-1 py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                         themeMode === 'dark'
-                          ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-semibold shadow-xs'
-                          : 'border-md3-outline-variant/30 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
+                          ? 'text-md3-on-primary font-bold'
+                          : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'
                       }`}
                     >
-                      <Moon className="w-5 h-5" />
-                      <span className="text-xs">{t.settings.dark}</span>
+                      <Moon className={`w-4 h-4 shrink-0 ${themeMode === 'dark' ? 'text-md3-on-primary' : ''}`} />
+                      <span>{t.settings.dark}</span>
                     </button>
 
+                    {/* AMOLED */}
                     <button
+                      ref={(el) => { themeModeRefs.current['amoled'] = el; }}
+                      tabIndex={-1}
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => onSetThemeMode('amoled')}
-                      className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all cursor-pointer ${
+                      className={`relative z-10 flex-1 py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                         themeMode === 'amoled'
-                          ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-semibold shadow-xs'
-                          : 'border-md3-outline-variant/30 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
+                          ? 'text-md3-on-primary font-bold'
+                          : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'
                       }`}
                     >
-                      <div className="w-5 h-5 rounded-full bg-black border border-white/40 flex items-center justify-center text-[10px] text-white font-bold">
+                      <div className={`w-3.5 h-3.5 rounded-full bg-black border flex items-center justify-center text-[7px] font-bold shrink-0 ${
+                        themeMode === 'amoled' ? 'border-white/80 text-white' : 'border-white/40 text-white/80'
+                      }`}>
                         ●
                       </div>
-                      <span className="text-xs">{t.settings.amoled}</span>
+                      <span>{t.settings.amoled}</span>
                     </button>
 
+                    {/* Light */}
                     <button
+                      ref={(el) => { themeModeRefs.current['light'] = el; }}
+                      tabIndex={-1}
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => onSetThemeMode('light')}
-                      className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all cursor-pointer ${
+                      className={`relative z-10 flex-1 py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                         themeMode === 'light'
-                          ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-semibold shadow-xs'
-                          : 'border-md3-outline-variant/30 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
+                          ? 'text-md3-on-primary font-bold'
+                          : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'
                       }`}
                     >
-                      <Sun className="w-5 h-5 text-amber-500" />
-                      <span className="text-xs">{t.settings.light}</span>
+                      <Sun className={`w-4 h-4 shrink-0 ${themeMode === 'light' ? 'text-md3-on-primary' : 'text-amber-500'}`} />
+                      <span>{t.settings.light}</span>
                     </button>
                   </div>
 
@@ -2032,10 +2100,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 {/* Раскрывающаяся шторка поверх содержимого */}
-                {isLangCurtainOpen && (
+                {isLangCurtainRendered && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setIsLangCurtainOpen(false)} />
-                    <div className="absolute left-0 right-0 top-full mt-2 z-50 p-2.5 rounded-2xl bg-md3-surface-container-high/95 backdrop-blur-xl border border-md3-outline-variant/30 shadow-2xl space-y-2 animate-in fade-in zoom-in-98 slide-in-from-top-2 duration-200 origin-top">
+                    <div className={`absolute left-0 right-0 top-full mt-2 z-50 p-2.5 rounded-2xl bg-md3-surface-container-high/95 backdrop-blur-xl border border-md3-outline-variant/30 shadow-2xl space-y-2 origin-top ${langCurtainClass}`}>
                       <div className="max-h-48 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
                         
                         {/* Русский */}
@@ -2142,7 +2210,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 {isUpdateSettingsOpen ? (
                   /* Auto-Update Settings View inside this container */
-                  <div className="flex flex-col gap-3.5 animate-in fade-in duration-200">
+                  <div key="auto-update-settings" className="flex flex-col gap-3.5 anim-view-slide-right">
                     {/* Top Row: Back button + Title on the left, Toggle on the right */}
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
@@ -2244,7 +2312,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 ) : (
                   /* Standard About Application & Updates View */
-                  <>
+                  <div key="about-and-updates" className={`flex flex-col gap-3.5 ${updateViewDirection === 'backward' ? 'anim-view-slide-left' : ''}`}>
                     <div className="flex items-center gap-4">
                       <img
                         src="/app-logo.png"
@@ -2354,7 +2422,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                   <span>{t.settings.downloadingUpdate}</span>
                                 </div>
                                 <span className="font-mono text-[11px]">
-                                  {downloadProgress}% {downloadStats.total !== '0' ? `(${downloadStats.received} / ${downloadStats.total} MB)` : ''}
+                                  {downloadProgress}% {downloadStats.total !== '0' && downloadStats.total !== '0.0' ? `(${downloadStats.received} / ${downloadStats.total} MB)` : ''}
                                 </span>
                               </div>
                               <div className="w-full bg-md3-surface-container-high rounded-full h-2.5 overflow-hidden p-0.5">
@@ -2422,7 +2490,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                       </div>
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
             </div>
@@ -2448,8 +2516,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         title={t.settings.themeDelete}
         message={
           language === 'ru'
-            ? `Вы уверены, что хотите удалить тему «${themeToDelete?.name}»? Файлы темы будут безвозвратно удалены из папки themes/.`
-            : `Are you sure you want to delete the theme "${themeToDelete?.name}"? The theme files will be permanently deleted from the themes/ folder.`
+            ? 'Вы уверены, что хотите удалить эту тему? Файлы темы будут безвозвратно удалены из папки themes/.'
+            : 'Are you sure you want to delete this theme? The theme files will be permanently deleted from the themes/ folder.'
         }
         confirmLabel={t.settings.themeDelete}
         cancelLabel={language === 'ru' ? 'Отмена' : 'Cancel'}

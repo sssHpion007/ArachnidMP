@@ -36,15 +36,13 @@ export const ThemePaletteModal: React.FC<ThemePaletteModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  const { isRendered, isVisible } = useModalAnimation(isOpen && !!theme, 200);
+  const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen && !!theme, 200);
 
   if (!isRendered || !theme) return null;
 
   return (
     <div
-      className={`fixed inset-0 z-[60] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 transition-opacity duration-200 ease-out select-none cursor-pointer ${
-        isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
-      }`}
+      className={`fixed inset-0 z-[60] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 select-none cursor-pointer ${backdropClass}`}
       onClick={(e) => {
         if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
           onClose();
@@ -54,9 +52,7 @@ export const ThemePaletteModal: React.FC<ThemePaletteModalProps> = ({
       <div
         ref={modalRef}
         onClick={(e) => e.stopPropagation()}
-        className={`max-w-xl w-full max-h-[85vh] rounded-3xl bg-md3-surface border border-md3-outline-variant/30 shadow-2xl flex flex-col overflow-hidden cursor-default transition-all duration-200 ease-out ${
-          isVisible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-3'
-        }`}
+        className={`max-w-xl w-full max-h-[85vh] rounded-3xl bg-md3-surface border border-md3-outline-variant/30 shadow-2xl flex flex-col overflow-hidden cursor-default ${dialogClass}`}
       >
         {/* Header */}
         <div className="p-5 border-b border-md3-outline-variant/15 flex items-center justify-between shrink-0 bg-md3-surface-container-low">
