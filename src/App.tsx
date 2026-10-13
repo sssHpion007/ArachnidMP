@@ -2913,11 +2913,6 @@ export const App: React.FC = () => {
                       {language === 'ru' ? 'Назад' : 'Back'}
                     </span>
                   </div>
-
-                  {/* Subtle corner arrow badge for quick visual affordance */}
-                  <div className="absolute bottom-1.5 left-1.5 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center shadow-xs backdrop-blur-xs group-hover:opacity-0 transition-opacity">
-                    <ArrowLeft className="w-3 h-3 stroke-[2.5]" />
-                  </div>
                 </div>
 
                 <div className="min-w-0 flex-1">
@@ -3131,6 +3126,7 @@ export const App: React.FC = () => {
         queueIndex={queueIndex}
         currentTrack={currentTrack}
         language={language}
+        isCompact={windowWidth < 780}
         onPlayQueueTrack={(idx) => {
           playQueueIndex(idx);
         }}

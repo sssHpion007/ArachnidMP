@@ -51,6 +51,7 @@ export interface Translations {
     themeCurtainSelect: string;
     themeStandard: string;
     themeStandardDesc: string;
+    defaultBadge: string;
     standardThemeSettings: string;
     themePaletteBtn: string;
     themePaletteBtnDesc: string;
@@ -235,8 +236,9 @@ export const RU_TRANSLATIONS: Translations = {
     light: 'Светлая',
     themeStyle: 'Стиль оформления темы',
     themeCurtainSelect: 'Выберите тему оформления...',
-    themeStandard: 'Стандартная (По умолчанию)',
+    themeStandard: 'Material You',
     themeStandardDesc: 'Адаптивная системная палитра',
+    defaultBadge: 'По умолчанию',
     standardThemeSettings: 'Настройки стандартной темы',
     themePaletteBtn: 'Настройка палитры',
     themePaletteBtnDesc: 'Настройка индивидуальных цветов элементов интерфейса',
@@ -311,7 +313,7 @@ export const RU_TRANSLATIONS: Translations = {
     openLocalesFolder: 'Открыть папку локализации',
     shortcuts: 'Горячие клавиши',
     shortcutsDesc: 'Список клавиатурных комбинаций для быстрого управления',
-    logs: 'Журнал работы (Логи)',
+    logs: 'Журнал событий',
     logsDesc: 'Просмотр событий и аудиотрассировки в реальном времени',
     saveLogs: 'Сохранить',
     logsFolder: 'Папка',
@@ -421,8 +423,9 @@ export const EN_TRANSLATIONS: Translations = {
     light: 'Light',
     themeStyle: 'Theme Style',
     themeCurtainSelect: 'Select a theme style...',
-    themeStandard: 'Standard (Default)',
+    themeStandard: 'Material You',
     themeStandardDesc: 'Adaptive system palette',
+    defaultBadge: 'Default',
     standardThemeSettings: 'Default Theme Settings',
     themePaletteBtn: 'Palette Settings',
     themePaletteBtnDesc: 'Customize individual interface element colors',
@@ -497,7 +500,7 @@ export const EN_TRANSLATIONS: Translations = {
     openLocalesFolder: 'Open Locales Folder',
     shortcuts: 'Keyboard Shortcuts',
     shortcutsDesc: 'List of keyboard shortcuts for quick player control',
-    logs: 'Application Logs',
+    logs: 'Event Log',
     logsDesc: 'Real-time event and audio diagnostics view',
     saveLogs: 'Save',
     logsFolder: 'Folder',

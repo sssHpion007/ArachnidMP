@@ -19,6 +19,7 @@ import {
   Radio,
   Download
 } from 'lucide-react';
+import { useModalAnimation } from '../utils/useModalAnimation';
 import { Track } from '../types/music';
 import { AppLanguage } from '../i18n';
 import { downloadCoverImage } from '../services/tagEditor';
@@ -439,18 +440,24 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [isOpen, applyArtist, applyAlbum, applyGenre, applyYear, applyCover, activeExtraFields, applyExtraFields, artistValue, albumValue, genreValue, yearValue, titleValue, trackNumValue, trackTotalValue, coverArtPreview, extraFieldValues, onClose]);
 
-  if (!isOpen || selectedTracks.length === 0) return null;
+  const { isRendered, isVisible } = useModalAnimation(isOpen && selectedTracks.length > 0, 200);
+
+  if (!isRendered || selectedTracks.length === 0) return null;
 
   const availableExtraDefs = extraFieldDefs.filter(d => !activeExtraFields.has(d.key));
 
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-150 select-none cursor-pointer"
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 transition-opacity duration-200 ease-out select-none cursor-pointer ${
+        isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+      }`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-2xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/30 overflow-hidden flex flex-col max-h-[90vh] cursor-default"
+        className={`w-full max-w-2xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/30 overflow-hidden flex flex-col max-h-[90vh] cursor-default transition-all duration-200 ease-out ${
+          isVisible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-3'
+        }`}
       >
         {/* Header */}
         <div className="p-5 border-b border-md3-outline-variant/20 flex items-center justify-between bg-md3-surface-container-high/60 shrink-0">

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Track } from '../types/music';
 import { AppLanguage } from '../i18n';
+import { useModalAnimation } from '../utils/useModalAnimation';
 
 interface LyricsModalProps {
   isOpen: boolean;
@@ -145,7 +146,9 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [isOpen, isEditing, onClose]);
 
-  if (!isOpen || !track) return null;
+  const { isRendered, isVisible } = useModalAnimation(isOpen && !!track, 200);
+
+  if (!isRendered || !track) return null;
 
   const handleSave = () => {
     onSaveLyrics(track.id, editedText.trim(), isInstrumental, editedLyricist.trim());
@@ -179,10 +182,14 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-150 select-none cursor-pointer"
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md transition-opacity duration-200 ease-out select-none cursor-pointer ${
+        isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+      }`}
     >
       <div
-        className="w-full max-w-2xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col h-[85vh] max-h-[720px] animate-in zoom-in-95 duration-200 cursor-default"
+        className={`w-full max-w-2xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col h-[85vh] max-h-[720px] cursor-default transition-all duration-200 ease-out ${
+          isVisible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-3'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

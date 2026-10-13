@@ -51,6 +51,8 @@ import { listen } from '@tauri-apps/api/event';
 
 export type ColorSchemeMode = 'dynamic' | 'system' | 'custom';
 
+import { useModalAnimation } from '../utils/useModalAnimation';
+
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -164,12 +166,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onToggleThemeOption,
 }) => {
   const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes' | 'discord' | 'logs'>('main');
+  const [navDirection, setNavDirection] = useState<'forward' | 'backward'>('forward');
   const [isPaletteModalOpen, setIsPaletteModalOpen] = useState<boolean>(false);
   const [themeToDelete, setThemeToDelete] = useState<CustomThemeInfo | null>(null);
   const updateSectionRef = useRef<HTMLDivElement>(null);
+  const updateCardRef = useRef<HTMLDivElement>(null);
   const releaseNotesContainerRef = useRef<HTMLDivElement>(null);
   const mainSettingsContainerRef = useRef<HTMLDivElement>(null);
   const mainScrollTopRef = useRef<number>(0);
+
+  const { isRendered, isVisible } = useModalAnimation(isOpen, 200);
 
   // Real-time Logs state
   const [logs, setLogs] = useState<string[]>([]);
@@ -380,6 +386,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     window.open(url, '_blank');
   };
 
+  const handleClose = () => {
+    setCurrentView('main');
+    setIsThemeCurtainOpen(false);
+    setIsLangCurtainOpen(false);
+    setIsUpdateSettingsOpen(false);
+    onClose();
+  };
+
   const handleOpenReleaseNotes = async () => {
     if (mainSettingsContainerRef.current) {
       mainScrollTopRef.current = mainSettingsContainerRef.current.scrollTop;
@@ -387,6 +401,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (!latestRelease) {
       handleCheckUpdates();
     }
+    setNavDirection('forward');
     setCurrentView('release_notes');
   };
 
@@ -394,6 +409,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (mainSettingsContainerRef.current) {
       mainScrollTopRef.current = mainSettingsContainerRef.current.scrollTop;
     }
+    setNavDirection('forward');
     setCurrentView('shortcuts');
   };
 
@@ -401,6 +417,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (mainSettingsContainerRef.current) {
       mainScrollTopRef.current = mainSettingsContainerRef.current.scrollTop;
     }
+    setNavDirection('forward');
     setCurrentView('logs');
   };
 
@@ -425,6 +442,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleBackToMain = () => {
+    setNavDirection('backward');
     setCurrentView('main');
     setTimeout(() => {
       if (mainSettingsContainerRef.current && mainScrollTopRef.current > 0) {
@@ -498,11 +516,49 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (isOpen) {
       setCurrentView('main');
       setIsUpdateSettingsOpen(false);
+      setIsThemeCurtainOpen(false);
+      setIsLangCurtainOpen(false);
       onRefreshCustomThemes();
+    } else {
+      setCurrentView('main');
+      setIsThemeCurtainOpen(false);
+      setIsLangCurtainOpen(false);
     }
   }, [isOpen]);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (updateStatus !== 'idle' && updateStatus !== 'checking' && updateCardRef.current && mainSettingsContainerRef.current) {
+      const timer = setTimeout(() => {
+        updateCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [updateStatus]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isThemeCurtainOpen) {
+          setIsThemeCurtainOpen(false);
+          return;
+        }
+        if (isLangCurtainOpen) {
+          setIsLangCurtainOpen(false);
+          return;
+        }
+        if (currentView !== 'main') {
+          handleBackToMain();
+          return;
+        }
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [isOpen, currentView, isThemeCurtainOpen, isLangCurtainOpen]);
+
+  if (!isRendered) return null;
 
   const handleOpenThemesFolder = () => {
     if (isTauri()) {
@@ -543,7 +599,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const getActiveThemeBadge = () => {
-    if (appTheme === 'default') return null;
+    if (appTheme === 'default') return t.settings.defaultBadge;
     if (activeCustomTheme?.author) return activeCustomTheme.author;
     if (activeCustomTheme?.is_folder) return language === 'ru' ? 'Папка' : 'Folder';
     return 'CSS';
@@ -551,11 +607,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div 
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 cursor-pointer"
+      onClick={handleClose}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity duration-200 ease-out select-none cursor-pointer ${
+        isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+      }`}
     >
       <div 
-        className="w-full max-w-xl bg-md3-surface-container rounded-3xl border border-md3-outline-variant/30 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-md3-on-surface cursor-default"
+        className={`w-full max-w-xl bg-md3-surface-container rounded-3xl border border-md3-outline-variant/30 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-md3-on-surface cursor-default transition-all duration-200 ease-out ${
+          isVisible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-3'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -618,7 +678,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
 
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface cursor-pointer outline-none focus:outline-none"
             >
               <X className="w-5 h-5" />
@@ -629,7 +689,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Content */}
         {currentView === 'shortcuts' ? (
           /* Keyboard Shortcuts View (100% Fully Localized) */
-          <div key="view-shortcuts" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1">
+          <div key="view-shortcuts" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 animate-in fade-in slide-in-from-right-4 duration-200 ease-out">
             {/* Playback & Volume */}
             <div className="space-y-3">
               <div className="text-xs font-bold uppercase tracking-wider text-md3-primary flex items-center gap-2">
@@ -820,7 +880,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         ) : currentView === 'discord' ? (
           /* Dedicated Discord Integration Settings View */
-          <div key="view-discord" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1">
+          <div key="view-discord" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 animate-in fade-in slide-in-from-right-4 duration-200 ease-out">
             {/* 1. Master Discord Toggle Card */}
             <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col gap-3">
               <div className="flex items-center justify-between">
@@ -1126,7 +1186,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         ) : currentView === 'release_notes' ? (
           /* Formatted Markdown Release Notes View */
-          <div key="view-release-notes" ref={releaseNotesContainerRef} className="p-6 space-y-4 overflow-y-auto custom-scrollbar flex-1">
+          <div key="view-release-notes" ref={releaseNotesContainerRef} className="p-6 space-y-4 overflow-y-auto custom-scrollbar flex-1 animate-in fade-in slide-in-from-right-4 duration-200 ease-out">
             {latestRelease ? (
               <div className="space-y-4 animate-in fade-in duration-200">
                 {/* Meta Header Card */}
@@ -1202,7 +1262,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         ) : currentView === 'logs' ? (
           /* Real-Time Logs View */
-          <div key="view-logs" className="p-6 space-y-4 flex flex-col flex-1 overflow-hidden">
+          <div key="view-logs" className="p-6 space-y-4 flex flex-col flex-1 overflow-hidden animate-in fade-in slide-in-from-right-4 duration-200 ease-out">
             {/* Action Bar: Save button and Folder button */}
             <div className="flex items-center justify-between gap-3 shrink-0">
               <div className="flex items-center gap-2">
@@ -1296,7 +1356,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         ) : (
           /* Main Settings View */
-          <div key="view-main-settings" ref={mainSettingsContainerRef} className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1">
+          <div key="view-main-settings" ref={mainSettingsContainerRef} className={`p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 ${navDirection === 'backward' ? 'animate-in fade-in slide-in-from-left-4 duration-200 ease-out' : ''}`}>
             
             {/* 1. Section: Appearance (Внешний вид) */}
             <div className="space-y-4">
@@ -1323,143 +1383,160 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 {/* Шторка trigger card */}
-                <div className="rounded-2xl border border-md3-outline-variant/20 bg-md3-surface overflow-hidden transition-all shadow-xs">
-                  <button
-                    onClick={() => setIsThemeCurtainOpen(!isThemeCurtainOpen)}
-                    className="w-full p-3.5 flex items-center justify-between text-left cursor-pointer hover:bg-md3-surface-container-high/60 transition-colors"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-8 h-8 rounded-xl bg-md3-primary/15 text-md3-primary flex items-center justify-center shrink-0">
-                        <Palette className="w-4 h-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-md3-on-surface truncate">
-                            {getActiveThemeLabel()}
-                          </span>
-                          {getActiveThemeBadge() && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-md3-primary/15 text-md3-primary font-mono shrink-0">
-                              {getActiveThemeBadge()}
-                            </span>
-                          )}
+                <div className="relative z-30">
+                  <div className="rounded-2xl border border-md3-outline-variant/20 bg-md3-surface shadow-xs">
+                    <button
+                      type="button"
+                      onClick={() => setIsThemeCurtainOpen(!isThemeCurtainOpen)}
+                      className="w-full p-3.5 flex items-center justify-between text-left cursor-pointer hover:bg-md3-surface-container-high/60 transition-colors rounded-2xl"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-md3-primary/15 text-md3-primary flex items-center justify-center shrink-0">
+                          <Palette className="w-4 h-4" />
                         </div>
-                        <span className="text-[11px] text-md3-on-surface-variant truncate block">
-                          {appTheme === 'default' ? t.settings.themeStandardDesc : (activeCustomTheme?.description || t.settings.themeCurtainSelect)}
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronDown className={`w-4 h-4 text-md3-on-surface-variant transition-transform duration-200 shrink-0 ml-2 ${isThemeCurtainOpen ? 'rotate-180 text-md3-primary' : ''}`} />
-                  </button>
-
-                  {/* Раскрывающаяся шторка со списком тем: Стандартная первая, далее темы по алфавиту без разделения */}
-                  {isThemeCurtainOpen && (
-                    <div className="border-t border-md3-outline-variant/20 p-2.5 bg-md3-surface-container-low/70 space-y-2 animate-in fade-in duration-200">
-                      <div className="max-h-64 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
-                        {/* 1. Стандартная (По умолчанию) - ВСЕГДА ПЕРВАЯ, НЕУДАЛЯЕМАЯ */}
-                        <button
-                          onClick={() => {
-                            onSetAppTheme('default');
-                            setIsThemeCurtainOpen(false);
-                          }}
-                          className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
-                            appTheme === 'default'
-                              ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                              : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="w-3.5 h-3.5 rounded-full bg-[#8b5cf6] shrink-0 shadow-xs" />
-                            <div className="min-w-0">
-                              <div className="text-xs font-semibold text-md3-on-surface truncate">
-                                {t.settings.themeStandard}
-                              </div>
-                              <div className="text-[10px] text-md3-on-surface-variant truncate">
-                                {t.settings.themeStandardDesc}
-                              </div>
-                            </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-md3-on-surface truncate">
+                              {getActiveThemeLabel()}
+                            </span>
+                            {getActiveThemeBadge() && (
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-md3-primary/15 text-md3-primary font-medium shrink-0">
+                                {getActiveThemeBadge()}
+                              </span>
+                            )}
                           </div>
-                          {appTheme === 'default' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
-                        </button>
+                          <span className="text-[11px] text-md3-on-surface-variant truncate block">
+                            {appTheme === 'default' ? t.settings.themeStandardDesc : (activeCustomTheme?.description || t.settings.themeCurtainSelect)}
+                          </span>
+                        </div>
+                      </div>
+                      <ChevronDown className={`w-4 h-4 text-md3-on-surface-variant transition-transform duration-200 shrink-0 ml-2 ${isThemeCurtainOpen ? 'rotate-180 text-md3-primary' : ''}`} />
+                    </button>
+                  </div>
 
-                        {/* 2. Пользовательские темы из themes/ (в алфавитном порядке) */}
-                        {customThemesList.map((ct) => {
-                          const isActive = appTheme === `custom:${ct.id}` || appTheme === `custom:${ct.css_filename}`;
-                          return (
-                            <div
-                              key={ct.id}
-                              onClick={() => {
-                                onSetAppTheme(`custom:${ct.id}`);
-                                setIsThemeCurtainOpen(false);
-                              }}
-                              className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
-                                isActive
-                                  ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                                  : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
-                                {ct.is_folder ? (
-                                  <Folder className="w-3.5 h-3.5 text-md3-primary shrink-0" />
-                                ) : (
-                                  <FileCode className="w-3.5 h-3.5 text-md3-primary shrink-0" />
-                                )}
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-xs font-semibold text-md3-on-surface truncate">
-                                      {ct.name}
-                                    </span>
-                                    {ct.author && (
-                                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-md3-surface-container-high text-md3-on-surface-variant font-mono">
-                                        {ct.author}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="text-[10px] text-md3-on-surface-variant truncate">
-                                    {ct.description}
-                                  </div>
+                  {/* Раскрывающаяся шторка со списком тем: Material You первая, далее темы по алфавиту без разделения */}
+                  {isThemeCurtainOpen && (
+                    <>
+                      <div 
+                        className="fixed inset-0 z-40" 
+                        onClick={() => setIsThemeCurtainOpen(false)} 
+                      />
+                      <div className="absolute left-0 right-0 top-full mt-2 z-50 p-2.5 rounded-2xl bg-md3-surface-container-high/95 backdrop-blur-xl border border-md3-outline-variant/30 shadow-2xl space-y-2 animate-in fade-in zoom-in-98 slide-in-from-top-2 duration-200 origin-top">
+                        <div className="max-h-64 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
+                          {/* 1. Material You (По умолчанию) - ВСЕГДА ПЕРВАЯ, НЕУДАЛЯЕМАЯ */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onSetAppTheme('default');
+                              setIsThemeCurtainOpen(false);
+                            }}
+                            className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
+                              appTheme === 'default'
+                                ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                                : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-3.5 h-3.5 rounded-full bg-[#8b5cf6] shrink-0 shadow-xs" />
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-semibold text-md3-on-surface truncate">
+                                    {t.settings.themeStandard}
+                                  </span>
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-md3-primary/15 text-md3-primary font-medium shrink-0">
+                                    {t.settings.defaultBadge}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-md3-on-surface-variant truncate">
+                                  {t.settings.themeStandardDesc}
                                 </div>
                               </div>
-
-                              <div className="flex items-center gap-1 shrink-0">
-                                {isActive && <Check className="w-4 h-4 text-md3-primary mr-1 shrink-0" />}
-                                <button
-                                  tabIndex={-1}
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setThemeToDelete(ct);
-                                  }}
-                                  className="p-1 rounded-lg text-md3-on-surface-variant hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                                  title={t.settings.themeDelete}
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
                             </div>
-                          );
-                        })}
-                      </div>
+                            {appTheme === 'default' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
+                          </button>
 
-                      {/* Нижняя панель шторки: Открыть папку + Обновить */}
-                      <div className="pt-2 border-t border-md3-outline-variant/15 flex items-center justify-between px-1">
-                        <button
-                          onClick={handleOpenThemesFolder}
-                          className="flex items-center gap-1.5 text-[11px] font-medium text-md3-primary hover:underline cursor-pointer"
-                        >
-                          <FolderOpen className="w-3 h-3" />
-                          <span>{t.settings.openThemesFolder}</span>
-                        </button>
+                          {/* 2. Пользовательские темы из themes/ (в алфавитном порядке) */}
+                          {customThemesList.map((ct) => {
+                            const isActive = appTheme === `custom:${ct.id}` || appTheme === `custom:${ct.css_filename}`;
+                            return (
+                              <div
+                                key={ct.id}
+                                onClick={() => {
+                                  onSetAppTheme(`custom:${ct.id}`);
+                                  setIsThemeCurtainOpen(false);
+                                }}
+                                className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
+                                  isActive
+                                    ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                                    : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
+                                  {ct.is_folder ? (
+                                    <Folder className="w-3.5 h-3.5 text-md3-primary shrink-0" />
+                                  ) : (
+                                    <FileCode className="w-3.5 h-3.5 text-md3-primary shrink-0" />
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-xs font-semibold text-md3-on-surface truncate">
+                                        {ct.name}
+                                      </span>
+                                      {ct.author && (
+                                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-md3-surface-container-high text-md3-on-surface-variant font-mono">
+                                          {ct.author}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[10px] text-md3-on-surface-variant truncate">
+                                      {ct.description}
+                                    </div>
+                                  </div>
+                                </div>
 
-                        <button
-                          onClick={onRefreshCustomThemes}
-                          className="flex items-center gap-1 text-[11px] font-medium text-md3-on-surface-variant hover:text-md3-primary cursor-pointer p-1 rounded hover:bg-md3-surface"
-                          title={t.settings.reloadThemes}
-                        >
-                          <RefreshCw className="w-3 h-3" />
-                          <span>{t.settings.reloadThemes}</span>
-                        </button>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {isActive && <Check className="w-4 h-4 text-md3-primary mr-1 shrink-0" />}
+                                  <button
+                                    tabIndex={-1}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setThemeToDelete(ct);
+                                    }}
+                                    className="p-1 rounded-lg text-md3-on-surface-variant hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                    title={t.settings.themeDelete}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Нижняя панель шторки: Открыть папку + Обновить */}
+                        <div className="pt-2 border-t border-md3-outline-variant/15 flex items-center justify-between px-1">
+                          <button
+                            type="button"
+                            onClick={handleOpenThemesFolder}
+                            className="flex items-center gap-1.5 text-[11px] font-medium text-md3-primary hover:underline cursor-pointer"
+                          >
+                            <FolderOpen className="w-3 h-3" />
+                            <span>{t.settings.openThemesFolder}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={onRefreshCustomThemes}
+                            className="flex items-center gap-1 text-[11px] font-medium text-md3-on-surface-variant hover:text-md3-primary cursor-pointer p-1 rounded hover:bg-md3-surface"
+                            title={t.settings.reloadThemes}
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                            <span>{t.settings.reloadThemes}</span>
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    </>
                   )}
                 </div>
               </div>
@@ -1931,73 +2008,81 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </p>
 
               {/* Шторка trigger card */}
-              <div className="rounded-2xl border border-md3-outline-variant/20 bg-md3-surface overflow-hidden transition-all shadow-xs">
-                <button
-                  tabIndex={-1}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => setIsLangCurtainOpen(!isLangCurtainOpen)}
-                  className="w-full p-3.5 flex items-center justify-between text-left cursor-pointer hover:bg-md3-surface-container-high/60 transition-colors outline-none focus:outline-none"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center shrink-0">
-                      <Globe className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-md3-on-surface">
-                        {language === 'ru' ? 'Русский' : 'English'}
+              <div className="relative z-20">
+                <div className="rounded-2xl border border-md3-outline-variant/20 bg-md3-surface shadow-xs">
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setIsLangCurtainOpen(!isLangCurtainOpen)}
+                    className="w-full p-3.5 flex items-center justify-between text-left cursor-pointer hover:bg-md3-surface-container-high/60 transition-colors rounded-2xl outline-none focus:outline-none"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center shrink-0">
+                        <Globe className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-md3-on-surface">
+                          {language === 'ru' ? 'Русский' : 'English'}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <ChevronDown className={`w-4 h-4 text-md3-on-surface-variant transition-transform duration-200 shrink-0 ${isLangCurtainOpen ? 'rotate-180 text-md3-primary' : ''}`} />
-                </button>
+                    <ChevronDown className={`w-4 h-4 text-md3-on-surface-variant transition-transform duration-200 shrink-0 ${isLangCurtainOpen ? 'rotate-180 text-md3-primary' : ''}`} />
+                  </button>
+                </div>
 
-                {/* Раскрывающаяся шторка с плавной прокруткой */}
+                {/* Раскрывающаяся шторка поверх содержимого */}
                 {isLangCurtainOpen && (
-                  <div className="border-t border-md3-outline-variant/20 p-2.5 bg-md3-surface-container-low/70 space-y-2 animate-in fade-in duration-200">
-                    <div className="max-h-48 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
-                      
-                      {/* Русский */}
-                      <button
-                        tabIndex={-1}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          onSetLanguage('ru');
-                          setIsLangCurtainOpen(false);
-                        }}
-                        className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left outline-none focus:outline-none ${
-                          language === 'ru'
-                            ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                            : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <span className="text-xs font-bold text-md3-on-surface">Русский</span>
-                        </div>
-                        {language === 'ru' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
-                      </button>
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setIsLangCurtainOpen(false)} />
+                    <div className="absolute left-0 right-0 top-full mt-2 z-50 p-2.5 rounded-2xl bg-md3-surface-container-high/95 backdrop-blur-xl border border-md3-outline-variant/30 shadow-2xl space-y-2 animate-in fade-in zoom-in-98 slide-in-from-top-2 duration-200 origin-top">
+                      <div className="max-h-48 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
+                        
+                        {/* Русский */}
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            onSetLanguage('ru');
+                            setIsLangCurtainOpen(false);
+                          }}
+                          className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left outline-none focus:outline-none ${
+                            language === 'ru'
+                              ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                              : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-xs font-bold text-md3-on-surface">Русский</span>
+                          </div>
+                          {language === 'ru' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
+                        </button>
 
-                      {/* English */}
-                      <button
-                        tabIndex={-1}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          onSetLanguage('en');
-                          setIsLangCurtainOpen(false);
-                        }}
-                        className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left outline-none focus:outline-none ${
-                          language === 'en'
-                            ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                            : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <span className="text-xs font-bold text-md3-on-surface">English</span>
-                        </div>
-                        {language === 'en' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
-                      </button>
+                        {/* English */}
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            onSetLanguage('en');
+                            setIsLangCurtainOpen(false);
+                          }}
+                          className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left outline-none focus:outline-none ${
+                            language === 'en'
+                              ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                              : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-xs font-bold text-md3-on-surface">English</span>
+                          </div>
+                          {language === 'en' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
+                        </button>
 
+                      </div>
                     </div>
-                  </div>
+                  </>
                 )}
               </div>
             </div>
@@ -2051,7 +2136,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             {/* 7. About Application & Updates Card */}
             <div ref={updateSectionRef} className="pt-2">
-              <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col gap-3.5 transition-all">
+              <div 
+                ref={updateCardRef}
+                className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col gap-3.5 transition-all duration-300"
+              >
                 {isUpdateSettingsOpen ? (
                   /* Auto-Update Settings View inside this container */
                   <div className="flex flex-col gap-3.5 animate-in fade-in duration-200">
@@ -2222,106 +2310,117 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Status: Up to date (Clean notification without duplicate button) */}
-                      {updateStatus === 'upToDate' && (
-                        <div className="flex items-center gap-2 p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium animate-in fade-in">
-                          <CheckCircle2 className="w-4 h-4 shrink-0" />
-                          <span>{t.settings.latestVersionInstalled} (v{appVersion})</span>
-                        </div>
-                      )}
-
-                      {/* Status: Error */}
-                      {updateStatus === 'error' && (
-                        <div className="flex items-center justify-between p-2.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs animate-in fade-in">
-                          <div className="flex items-center gap-2">
-                            <AlertCircle className="w-4 h-4 shrink-0" />
-                            <span>{installError || t.settings.failedCheckUpdates}</span>
-                          </div>
-                          <button
-                            tabIndex={-1}
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={handleCheckUpdates}
-                            className="text-[11px] underline font-bold cursor-pointer hover:text-red-300"
-                          >
-                            {t.settings.retryCheck}
-                          </button>
-                        </div>
-                      )}
-
-                      {/* Status: Downloading */}
-                      {updateStatus === 'downloading' && (
-                        <div className="p-3.5 rounded-2xl bg-md3-primary/10 border border-md3-primary/30 space-y-2.5 animate-in fade-in duration-200">
-                          <div className="flex items-center justify-between text-xs font-semibold text-md3-primary">
-                            <div className="flex items-center gap-2">
-                              <Download className="w-4 h-4 animate-bounce" />
-                              <span>{t.settings.downloadingUpdate}</span>
+                      {/* Smooth animated height container for update status messages */}
+                      <div 
+                        className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${
+                          updateStatus !== 'idle' && updateStatus !== 'checking' 
+                            ? 'grid-rows-[1fr] opacity-100' 
+                            : 'grid-rows-[0fr] opacity-0'
+                        }`}
+                      >
+                        <div className="overflow-hidden space-y-2.5">
+                          {/* Status: Up to date (Clean notification without duplicate button) */}
+                          {updateStatus === 'upToDate' && (
+                            <div className="flex items-center gap-2 p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium animate-in fade-in">
+                              <CheckCircle2 className="w-4 h-4 shrink-0" />
+                              <span>{t.settings.latestVersionInstalled} (v{appVersion})</span>
                             </div>
-                            <span className="font-mono text-[11px]">
-                              {downloadProgress}% {downloadStats.total !== '0' ? `(${downloadStats.received} / ${downloadStats.total} MB)` : ''}
-                            </span>
-                          </div>
-                          <div className="w-full bg-md3-surface-container-high rounded-full h-2.5 overflow-hidden p-0.5">
-                            <div
-                              className="bg-md3-primary h-full rounded-full transition-all duration-150"
-                              style={{ width: `${Math.max(4, downloadProgress)}%` }}
-                            />
-                          </div>
-                        </div>
-                      )}
+                          )}
 
-                      {/* Status: Installing */}
-                      {updateStatus === 'installing' && (
-                        <div className="flex items-center gap-2.5 p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-xs font-semibold animate-in fade-in">
-                          <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
-                          <span>{t.settings.installingUpdate}</span>
-                        </div>
-                      )}
-
-                      {/* Status: Update Available */}
-                      {updateStatus === 'available' && latestRelease && (
-                        <div className="p-3.5 rounded-2xl bg-md3-primary/10 border border-md3-primary/30 space-y-2.5 animate-in fade-in duration-200">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                              <span className="text-xs font-bold text-md3-primary">
-                                {t.settings.updateAvailable}: {latestRelease.tagName}
-                              </span>
-                            </div>
-                            {latestRelease.publishedAt && (
-                              <span className="text-[10px] text-md3-on-surface-variant font-mono">
-                                {new Date(latestRelease.publishedAt).toLocaleDateString(language === 'ru' ? 'ru-RU' : 'en-US')}
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-2 pt-1 flex-wrap">
-                            {/* 1. In-place auto update & restart button */}
-                            <button
-                              tabIndex={-1}
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={handleInstallUpdate}
-                              className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md hover:scale-102 active:scale-95 transition-all cursor-pointer outline-none focus:outline-none"
-                            >
-                              <Sparkles className="w-3.5 h-3.5" />
-                              <span>{t.settings.installUpdate}</span>
-                            </button>
-
-                            {/* 2. Direct browser link to download exe if needed */}
-                            {latestRelease.downloadUrl && (
+                          {/* Status: Error */}
+                          {updateStatus === 'error' && (
+                            <div className="flex items-center justify-between p-2.5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs animate-in fade-in">
+                              <div className="flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4 shrink-0" />
+                                <span>{installError || t.settings.failedCheckUpdates}</span>
+                              </div>
                               <button
                                 tabIndex={-1}
                                 onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => handleDownloadUpdate(latestRelease.downloadUrl!)}
-                                className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-md3-surface-container hover:bg-md3-surface-container-high text-md3-on-surface text-xs font-medium border border-md3-outline-variant/20 transition-all cursor-pointer outline-none focus:outline-none"
-                                title={t.settings.downloadAsset}
+                                onClick={handleCheckUpdates}
+                                className="text-[11px] underline font-bold cursor-pointer hover:text-red-300"
                               >
-                                <Download className="w-3.5 h-3.5 text-md3-primary" />
-                                <span>{t.settings.downloadAsset}</span>
+                                {t.settings.retryCheck}
                               </button>
-                            )}
-                          </div>
+                            </div>
+                          )}
+
+                          {/* Status: Downloading */}
+                          {updateStatus === 'downloading' && (
+                            <div className="p-3.5 rounded-2xl bg-md3-primary/10 border border-md3-primary/30 space-y-2.5 animate-in fade-in duration-200">
+                              <div className="flex items-center justify-between text-xs font-semibold text-md3-primary">
+                                <div className="flex items-center gap-2">
+                                  <Download className="w-4 h-4 animate-bounce" />
+                                  <span>{t.settings.downloadingUpdate}</span>
+                                </div>
+                                <span className="font-mono text-[11px]">
+                                  {downloadProgress}% {downloadStats.total !== '0' ? `(${downloadStats.received} / ${downloadStats.total} MB)` : ''}
+                                </span>
+                              </div>
+                              <div className="w-full bg-md3-surface-container-high rounded-full h-2.5 overflow-hidden p-0.5">
+                                <div
+                                  className="bg-md3-primary h-full rounded-full transition-all duration-150"
+                                  style={{ width: `${Math.max(4, downloadProgress)}%` }}
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Status: Installing */}
+                          {updateStatus === 'installing' && (
+                            <div className="flex items-center gap-2.5 p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-xs font-semibold animate-in fade-in">
+                              <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+                              <span>{t.settings.installingUpdate}</span>
+                            </div>
+                          )}
+
+                          {/* Status: Update Available */}
+                          {updateStatus === 'available' && latestRelease && (
+                            <div className="p-3.5 rounded-2xl bg-md3-primary/10 border border-md3-primary/30 space-y-2.5 animate-in fade-in duration-200">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                                  <span className="text-xs font-bold text-md3-primary">
+                                    {t.settings.updateAvailable}: {latestRelease.tagName}
+                                  </span>
+                                </div>
+                                {latestRelease.publishedAt && (
+                                  <span className="text-[10px] text-md3-on-surface-variant font-mono">
+                                    {new Date(latestRelease.publishedAt).toLocaleDateString(language === 'ru' ? 'ru-RU' : 'en-US')}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2 pt-1 flex-wrap">
+                                {/* 1. In-place auto update & restart button */}
+                                <button
+                                  tabIndex={-1}
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={handleInstallUpdate}
+                                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md hover:scale-102 active:scale-95 transition-all cursor-pointer outline-none focus:outline-none"
+                                >
+                                  <Sparkles className="w-3.5 h-3.5" />
+                                  <span>{t.settings.installUpdate}</span>
+                                </button>
+
+                                {/* 2. Direct browser link to download exe if needed */}
+                                {latestRelease.downloadUrl && (
+                                  <button
+                                    tabIndex={-1}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => handleDownloadUpdate(latestRelease.downloadUrl!)}
+                                    className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-md3-surface-container hover:bg-md3-surface-container-high text-md3-on-surface text-xs font-medium border border-md3-outline-variant/20 transition-all cursor-pointer outline-none focus:outline-none"
+                                    title={t.settings.downloadAsset}
+                                  >
+                                    <Download className="w-3.5 h-3.5 text-md3-primary" />
+                                    <span>{t.settings.downloadAsset}</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
                   </>
                 )}

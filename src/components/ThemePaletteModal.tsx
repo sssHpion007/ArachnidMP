@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Palette, X, RotateCcw, Check, SlidersHorizontal } from 'lucide-react';
 import { CustomThemeInfo, ThemePaletteItem } from '../types/theme';
 import { AppLanguage, getTranslations } from '../i18n';
+import { useModalAnimation } from '../utils/useModalAnimation';
 
 interface ThemePaletteModalProps {
   isOpen: boolean;
@@ -35,11 +36,15 @@ export const ThemePaletteModal: React.FC<ThemePaletteModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  if (!isOpen || !theme) return null;
+  const { isRendered, isVisible } = useModalAnimation(isOpen && !!theme, 200);
+
+  if (!isRendered || !theme) return null;
 
   return (
     <div
-      className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200"
+      className={`fixed inset-0 z-[60] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 transition-opacity duration-200 ease-out select-none cursor-pointer ${
+        isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+      }`}
       onClick={(e) => {
         if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
           onClose();
@@ -48,7 +53,10 @@ export const ThemePaletteModal: React.FC<ThemePaletteModalProps> = ({
     >
       <div
         ref={modalRef}
-        className="max-w-xl w-full max-h-[85vh] rounded-3xl bg-md3-surface border border-md3-outline-variant/30 shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+        className={`max-w-xl w-full max-h-[85vh] rounded-3xl bg-md3-surface border border-md3-outline-variant/30 shadow-2xl flex flex-col overflow-hidden cursor-default transition-all duration-200 ease-out ${
+          isVisible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-3'
+        }`}
       >
         {/* Header */}
         <div className="p-5 border-b border-md3-outline-variant/15 flex items-center justify-between shrink-0 bg-md3-surface-container-low">

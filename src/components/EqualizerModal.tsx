@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, SlidersHorizontal, RotateCcw } from 'lucide-react';
 import { EQ_FREQUENCIES, EQ_PRESETS, audioEngine } from '../services/audioEngine';
 import { AppLanguage } from '../i18n';
+import { useModalAnimation } from '../utils/useModalAnimation';
 
 interface EqualizerModalProps {
   isOpen: boolean;
@@ -102,7 +103,9 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  const { isRendered, isVisible } = useModalAnimation(isOpen, 200);
+
+  if (!isRendered) return null;
 
   const handleBandChange = (index: number, val: number) => {
     const updated = [...eqValues];
@@ -124,11 +127,15 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-150 select-none cursor-pointer"
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 transition-opacity duration-200 ease-out select-none cursor-pointer ${
+        isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+      }`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-2xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/30 overflow-hidden flex flex-col cursor-default"
+        className={`w-full max-w-2xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/30 overflow-hidden flex flex-col cursor-default transition-all duration-200 ease-out ${
+          isVisible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-3'
+        }`}
       >
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-md3-outline-variant/20 flex items-center justify-between bg-md3-surface-container-high shrink-0">

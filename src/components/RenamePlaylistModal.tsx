@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Edit3, X, Check } from 'lucide-react';
 import { Playlist } from '../types/music';
+import { useModalAnimation } from '../utils/useModalAnimation';
 
 interface RenamePlaylistModalProps {
   isOpen: boolean;
@@ -43,7 +44,9 @@ export const RenamePlaylistModal: React.FC<RenamePlaylistModalProps> = ({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [isOpen, onClose]);
 
-  if (!isOpen || !playlist) return null;
+  const { isRendered, isVisible } = useModalAnimation(isOpen && !!playlist, 200);
+
+  if (!isRendered || !playlist) return null;
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -55,10 +58,14 @@ export const RenamePlaylistModal: React.FC<RenamePlaylistModalProps> = ({
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-150 select-none cursor-pointer"
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md transition-opacity duration-200 ease-out select-none cursor-pointer ${
+        isVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+      }`}
     >
       <div
-        className="w-full max-w-md bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 cursor-default"
+        className={`w-full max-w-md bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col cursor-default transition-all duration-200 ease-out ${
+          isVisible ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-3'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
