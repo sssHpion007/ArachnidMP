@@ -342,6 +342,17 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
 }) => {
   // Navigation state: current folder view (null = root)
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [folderNavDirection, setFolderNavDirection] = useState<'forward' | 'backward'>('forward');
+
+  const handleOpenFolder = (folderId: string) => {
+    setFolderNavDirection('forward');
+    setCurrentFolderId(folderId);
+  };
+
+  const handleGoBackFolder = (targetFolderId: string | null) => {
+    setFolderNavDirection('backward');
+    setCurrentFolderId(targetFolderId);
+  };
 
   // Pointer-based Drag State (100% bypasses Windows OS DnD bugs and 🚫 cursor)
   const [dragState, setDragState] = useState<DragState | null>(null);
@@ -754,7 +765,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         }}
         onClick={() => {
           if (!dragState?.isDragging) {
-            setCurrentFolderId(folder.id);
+            handleOpenFolder(folder.id);
           }
         }}
         onContextMenu={(e) => {
@@ -964,7 +975,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     const CurrentFolderIcon = getFolderIconComponent(currentFolder.icon);
 
     return (
-      <div className="flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none">
+      <div key={`folder-view-${currentFolderId}`} className={`flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none ${folderNavDirection === 'forward' ? 'anim-view-slide-right' : 'anim-view-slide-left'}`}>
         {/* Floating Drag Ghost element */}
         {dragState && dragState.isDragging && (
           <div
@@ -987,11 +998,11 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-md3-outline-variant/15">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setCurrentFolderId(currentFolder.parentId || null)}
-              className="w-10 h-10 rounded-full flex items-center justify-center bg-md3-surface-container hover:bg-md3-surface-container-high text-md3-on-surface transition-colors shadow-xs"
-              title="Назад"
+              onClick={() => handleGoBackFolder(currentFolder.parentId || null)}
+              className="w-10 h-10 rounded-2xl flex items-center justify-center bg-md3-surface hover:bg-md3-surface-container-high text-md3-primary border border-md3-outline-variant/20 transition-all shadow-xs cursor-pointer hover:scale-105 active:scale-95"
+              title={language === 'ru' ? 'Назад' : 'Back'}
             >
-              <ArrowLeft className="w-5 h-5" />
+              <ArrowLeft className="w-5 h-5 text-md3-primary" />
             </button>
 
             <div>
@@ -999,12 +1010,12 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
               <div className="flex items-center gap-1.5 text-xs text-md3-on-surface-variant flex-wrap mb-1">
                 <button
                   data-crumb-id="root"
-                  onClick={() => setCurrentFolderId(null)}
+                  onClick={() => handleGoBackFolder(null)}
                   className={`hover:text-md3-primary transition-colors px-1.5 py-0.5 rounded-md ${
                     hoveredCrumbId === 'root' ? 'bg-md3-primary/20 text-md3-primary font-bold ring-1 ring-md3-primary' : ''
                   }`}
                 >
-                  Все плейлисты
+                  {language === 'ru' ? 'Все плейлисты' : 'All Playlists'}
                 </button>
 
                 {breadcrumbs.map((crumb, idx) => {
@@ -1015,7 +1026,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                       <button
                         data-crumb-id={crumb.id}
                         disabled={isLast}
-                        onClick={() => setCurrentFolderId(crumb.id)}
+                        onClick={() => handleGoBackFolder(crumb.id)}
                         className={`truncate max-w-[140px] px-1.5 py-0.5 rounded-md ${
                           isLast
                             ? 'font-bold text-md3-on-surface'
@@ -1120,7 +1131,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   const hasGroups = groups.length > 0;
 
   return (
-    <div className="flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none">
+    <div key="playlists-root-view" className={`flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none ${folderNavDirection === 'backward' ? 'anim-view-slide-left' : ''}`}>
       {/* Floating Drag Ghost element */}
       {dragState && dragState.isDragging && (
         <div

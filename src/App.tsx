@@ -100,6 +100,7 @@ export const App: React.FC = () => {
   const [selectedAlbum, setSelectedAlbum] = useState<string | null>(null);
   const [selectedArtist, setSelectedArtist] = useState<string | null>(null);
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+  const [detailNavDirection, setDetailNavDirection] = useState<'forward' | 'backward'>('forward');
   const [currentView, setCurrentView] = useState<MainViewType>('tracks');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortBy, setSortBy] = useState<string>('title');
@@ -1220,6 +1221,7 @@ export const App: React.FC = () => {
   }, [currentDetail, currentView, nonIsolatedTracks.length, language]);
 
   const handleBackToGrid = () => {
+    setDetailNavDirection('backward');
     setSelectedPlaylistId(null);
     setSelectedAlbum(null);
     setSelectedArtist(null);
@@ -2372,6 +2374,7 @@ export const App: React.FC = () => {
   };
 
   const handleSelectPlaylist = (id: string) => {
+    setDetailNavDirection('forward');
     setSelectedPlaylistId(id);
     setSortBy('custom');
     setSortOrder('asc');
@@ -2882,24 +2885,36 @@ export const App: React.FC = () => {
       <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-md3-surface overflow-hidden">
         {/* If a sub-view is active (Album, Artist, Genre, or Playlist) */}
         {currentDetail ? (
-          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div key={`detail-${currentDetail.title}`} className={`flex-1 flex flex-col min-h-0 overflow-hidden ${detailNavDirection === 'forward' ? 'anim-view-slide-right' : ''}`}>
             {/* Header Banner */}
             <div className="px-4 sm:px-6 py-4 sm:py-5 bg-md3-surface-container-low border-b border-md3-outline-variant/15 flex items-center justify-between shrink-0 gap-3 select-none">
-              <div className="flex items-center gap-3.5 sm:gap-4.5 min-w-0 flex-1">
-                {/* Cover art with built-in Back button & hover arrow */}
+              <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
+                {/* Dedicated Round Back Button */}
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={handleBackToGrid}
+                  className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-md3-surface hover:bg-md3-surface-container-high text-md3-primary border border-md3-outline-variant/20 flex items-center justify-center transition-all cursor-pointer outline-none focus:outline-none shrink-0 shadow-xs hover:scale-105 active:scale-95 group/back"
+                  title={language === 'ru' ? 'Назад (нажмите для возврата)' : 'Back (click to return)'}
+                >
+                  <ArrowLeft className="w-5 h-5 text-md3-primary group-hover/back:-translate-x-0.5 transition-transform" />
+                </button>
+
+                {/* Cover art with built-in Back button & hover overlay */}
                 <div 
                   onClick={handleBackToGrid}
                   title={language === 'ru' ? 'Назад (нажмите для возврата)' : 'Back (click to return)'}
                   className="relative group w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden shadow-md shrink-0 border border-md3-outline-variant/20 cursor-pointer select-none bg-md3-surface-container-high transition-transform active:scale-95"
                 >
-                  <div className="w-full h-full bg-md3-primary/10 text-md3-primary flex items-center justify-center absolute inset-0">
+                  <div className="w-full h-full bg-md3-primary/10 text-md3-primary flex items-center justify-center absolute inset-0 z-0">
                     {currentDetail.icon}
                   </div>
                   {currentDetail.coverArt && (
                     <img 
                       src={currentDetail.coverArt} 
                       alt={currentDetail.title} 
-                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 relative z-[1]" 
+                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 relative z-0" 
                       onError={(e) => {
                         e.currentTarget.style.display = 'none';
                       }}
@@ -2907,7 +2922,7 @@ export const App: React.FC = () => {
                   )}
 
                   {/* Built-in back button overlay appearing on hover */}
-                  <div className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white backdrop-blur-[2px]">
+                  <div className="absolute inset-0 z-10 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white backdrop-blur-[2px]">
                     <ArrowLeft className="w-6 h-6 stroke-[2.5] drop-shadow-md transition-transform group-hover:-translate-x-0.5" />
                     <span className="text-[10px] font-bold mt-1 tracking-wider uppercase drop-shadow-sm">
                       {language === 'ru' ? 'Назад' : 'Back'}
@@ -2986,55 +3001,60 @@ export const App: React.FC = () => {
             />
           </div>
         ) : currentView === 'playlists' ? (
-          <PlaylistsGridView
-            playlists={playlists}
-            folders={playlistFolders}
-            groups={playlistGroups}
-            tracks={tracks}
-            searchQuery={searchQuery}
-            language={language}
-            onSelectPlaylist={handleSelectPlaylist}
-            onCreatePlaylist={handleCreatePlaylist}
-            onCreateFolder={handleOpenCreateFolder}
-            onCreateGroup={() => {
-              setEditingGroupTarget(null);
-              setIsCreateGroupOpen(true);
-            }}
-            onPlayPlaylist={handlePlayPlaylist}
-            onPlayFolder={handlePlayFolder}
-            onOpenPlaylistContextMenu={(e, pl) => {
-              e.preventDefault();
-              setPlaylistContextMenu({ x: e.clientX, y: e.clientY, playlist: pl });
-            }}
-            onOpenFolderContextMenu={(e, folder) => {
-              e.preventDefault();
-              setFolderContextMenu({ x: e.clientX, y: e.clientY, folder });
-            }}
-            onToggleGroupCollapse={handleToggleGroupCollapse}
-            onMoveGroup={handleMoveGroup}
-            onReorderGroups={handleReorderGroups}
-            onRenameGroup={(grp) => {
-              setEditingGroupTarget(grp);
-              setIsCreateGroupOpen(true);
-            }}
-            onEditGroup={(grp) => {
-              setEditingGroupTarget(grp);
-              setIsCreateGroupOpen(true);
-            }}
-            onDeleteGroup={handleDeleteGroup}
-            onMovePlaylistToFolder={handleMovePlaylistToFolder}
-            onMovePlaylistToGroup={handleMovePlaylistToGroup}
-            onMoveFolderToFolder={handleMoveFolderToFolder}
-            onMoveFolderToGroup={handleMoveFolderToGroup}
-            onReorderPlaylists={setPlaylists}
-            onEditFolder={(folder) => setEditingFolderTarget(folder)}
-          />
+          <div key="playlists-grid-view" className={`flex-1 flex flex-col min-h-0 overflow-hidden ${detailNavDirection === 'backward' ? 'anim-view-slide-left' : ''}`}>
+            <PlaylistsGridView
+              playlists={playlists}
+              folders={playlistFolders}
+              groups={playlistGroups}
+              tracks={tracks}
+              searchQuery={searchQuery}
+              language={language}
+              onSelectPlaylist={handleSelectPlaylist}
+              onCreatePlaylist={handleCreatePlaylist}
+              onCreateFolder={handleOpenCreateFolder}
+              onCreateGroup={() => {
+                setEditingGroupTarget(null);
+                setIsCreateGroupOpen(true);
+              }}
+              onPlayPlaylist={handlePlayPlaylist}
+              onPlayFolder={handlePlayFolder}
+              onOpenPlaylistContextMenu={(e, pl) => {
+                e.preventDefault();
+                setPlaylistContextMenu({ x: e.clientX, y: e.clientY, playlist: pl });
+              }}
+              onOpenFolderContextMenu={(e, folder) => {
+                e.preventDefault();
+                setFolderContextMenu({ x: e.clientX, y: e.clientY, folder });
+              }}
+              onToggleGroupCollapse={handleToggleGroupCollapse}
+              onMoveGroup={handleMoveGroup}
+              onReorderGroups={handleReorderGroups}
+              onRenameGroup={(grp) => {
+                setEditingGroupTarget(grp);
+                setIsCreateGroupOpen(true);
+              }}
+              onEditGroup={(grp) => {
+                setEditingGroupTarget(grp);
+                setIsCreateGroupOpen(true);
+              }}
+              onDeleteGroup={handleDeleteGroup}
+              onMovePlaylistToFolder={handleMovePlaylistToFolder}
+              onMovePlaylistToGroup={handleMovePlaylistToGroup}
+              onMoveFolderToFolder={handleMoveFolderToFolder}
+              onMoveFolderToGroup={handleMoveFolderToGroup}
+              onReorderPlaylists={setPlaylists}
+              onEditFolder={(folder) => setEditingFolderTarget(folder)}
+            />
+          </div>
         ) : currentView === 'albums' ? (
           <AlbumsGridView
             tracks={nonIsolatedTracks}
             searchQuery={searchQuery}
             language={language}
-            onSelectAlbum={(alb) => setSelectedAlbum(alb)}
+            onSelectAlbum={(alb) => {
+              setDetailNavDirection('forward');
+              setSelectedAlbum(alb);
+            }}
             onPlayAlbum={handlePlayAlbum}
           />
         ) : currentView === 'artists' ? (
@@ -3042,7 +3062,10 @@ export const App: React.FC = () => {
             tracks={nonIsolatedTracks}
             searchQuery={searchQuery}
             language={language}
-            onSelectArtist={(art) => setSelectedArtist(art)}
+            onSelectArtist={(art) => {
+              setDetailNavDirection('forward');
+              setSelectedArtist(art);
+            }}
             onPlayArtist={handlePlayArtist}
           />
         ) : currentView === 'genres' ? (
@@ -3050,7 +3073,10 @@ export const App: React.FC = () => {
             tracks={nonIsolatedTracks}
             searchQuery={searchQuery}
             language={language}
-            onSelectGenre={(gen) => setSelectedGenre(gen)}
+            onSelectGenre={(gen) => {
+              setDetailNavDirection('forward');
+              setSelectedGenre(gen);
+            }}
             onPlayGenre={handlePlayGenre}
           />
         ) : (

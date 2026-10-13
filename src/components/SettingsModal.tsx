@@ -9,6 +9,8 @@ import {
   Moon, 
   Sun,
   Volume2,
+  VolumeX,
+  Repeat,
   Clock,
   LayoutGrid,
   Music,
@@ -219,6 +221,78 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (themeModeContainerRef.current && window.ResizeObserver) {
       const ro = new ResizeObserver(() => updateThemeModeIndicator());
       ro.observe(themeModeContainerRef.current);
+      return () => ro.disconnect();
+    }
+  }, []);
+
+  // Color Scheme Mode segmented control indicator (Dynamic / System / Custom)
+  const colorSchemeContainerRef = useRef<HTMLDivElement>(null);
+  const colorSchemeRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+  const [colorSchemeIndicatorStyle, setColorSchemeIndicatorStyle] = useState<{ left: number; width: number; height: number; opacity: number }>({
+    left: 0,
+    width: 0,
+    height: 0,
+    opacity: 0,
+  });
+
+  const updateColorSchemeIndicator = () => {
+    const el = colorSchemeRefs.current[colorSchemeMode];
+    if (el) {
+      setColorSchemeIndicatorStyle({
+        left: el.offsetLeft,
+        width: el.offsetWidth,
+        height: el.offsetHeight,
+        opacity: 1,
+      });
+    }
+  };
+
+  useEffect(() => {
+    updateColorSchemeIndicator();
+    const timer = setTimeout(updateColorSchemeIndicator, 40);
+    return () => clearTimeout(timer);
+  }, [colorSchemeMode, appTheme, currentView, isOpen]);
+
+  useEffect(() => {
+    if (colorSchemeContainerRef.current && window.ResizeObserver) {
+      const ro = new ResizeObserver(() => updateColorSchemeIndicator());
+      ro.observe(colorSchemeContainerRef.current);
+      return () => ro.disconnect();
+    }
+  }, []);
+
+  // Fade Mode segmented control indicator (Off / Change & Pause / Always)
+  const fadeModeContainerRef = useRef<HTMLDivElement>(null);
+  const fadeModeRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+  const [fadeModeIndicatorStyle, setFadeModeIndicatorStyle] = useState<{ left: number; width: number; height: number; opacity: number }>({
+    left: 0,
+    width: 0,
+    height: 0,
+    opacity: 0,
+  });
+
+  const updateFadeModeIndicator = () => {
+    const el = fadeModeRefs.current[fadeMode];
+    if (el) {
+      setFadeModeIndicatorStyle({
+        left: el.offsetLeft,
+        width: el.offsetWidth,
+        height: el.offsetHeight,
+        opacity: 1,
+      });
+    }
+  };
+
+  useEffect(() => {
+    updateFadeModeIndicator();
+    const timer = setTimeout(updateFadeModeIndicator, 40);
+    return () => clearTimeout(timer);
+  }, [fadeMode, currentView, isOpen]);
+
+  useEffect(() => {
+    if (fadeModeContainerRef.current && window.ResizeObserver) {
+      const ro = new ResizeObserver(() => updateFadeModeIndicator());
+      ro.observe(fadeModeContainerRef.current);
       return () => ro.disconnect();
     }
   }, []);
@@ -1661,44 +1735,73 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {/* Material 3 Color Palette */}
                   <div className="space-y-2.5 pt-1">
                     <div className="text-xs font-semibold text-md3-on-surface">{t.settings.colorPalette}</div>
-                    <div className="grid grid-cols-3 gap-2.5">
+                    
+                    {/* Color Scheme Mode Segmented Control (Dynamic / System / Custom) with sliding glowing pill */}
+                    <div
+                      ref={colorSchemeContainerRef}
+                      className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
+                    >
+                      {/* Smooth sliding glow pill indicator */}
+                      <div
+                        className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                        style={{
+                          left: `${colorSchemeIndicatorStyle.left}px`,
+                          width: `${colorSchemeIndicatorStyle.width}px`,
+                          height: `${colorSchemeIndicatorStyle.height}px`,
+                          opacity: colorSchemeIndicatorStyle.opacity,
+                          boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
+                        }}
+                      />
+
+                      {/* Dynamic */}
                       <button
+                        ref={(el) => { colorSchemeRefs.current['dynamic'] = el; }}
+                        tabIndex={-1}
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={() => onSetColorSchemeMode('dynamic')}
-                        className={`p-3 rounded-2xl border flex flex-col items-center gap-1.5 transition-all text-center cursor-pointer ${
+                        className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                           colorSchemeMode === 'dynamic'
-                            ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                            : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
+                            ? 'text-md3-on-primary font-bold'
+                            : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'
                         }`}
+                        title={t.settings.paletteDynamicDesc}
                       >
-                        <Sparkles className="w-4 h-4" />
-                        <span className="text-xs">{t.settings.paletteDynamic}</span>
-                        <span className="text-[10px] opacity-70">{t.settings.paletteDynamicDesc}</span>
+                        <Sparkles className={`w-4 h-4 shrink-0 ${colorSchemeMode === 'dynamic' ? 'text-md3-on-primary' : 'text-md3-primary'}`} />
+                        <span className="truncate">{t.settings.paletteDynamic}</span>
                       </button>
 
+                      {/* System */}
                       <button
+                        ref={(el) => { colorSchemeRefs.current['system'] = el; }}
+                        tabIndex={-1}
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={() => onSetColorSchemeMode('system')}
-                        className={`p-3 rounded-2xl border flex flex-col items-center gap-1.5 transition-all text-center cursor-pointer ${
+                        className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                           colorSchemeMode === 'system'
-                            ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                            : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
+                            ? 'text-md3-on-primary font-bold'
+                            : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'
                         }`}
+                        title={t.settings.paletteSystemDesc}
                       >
-                        <Monitor className="w-4 h-4" />
-                        <span className="text-xs">{t.settings.paletteSystem}</span>
-                        <span className="text-[10px] opacity-70">{t.settings.paletteSystemDesc}</span>
+                        <Monitor className={`w-4 h-4 shrink-0 ${colorSchemeMode === 'system' ? 'text-md3-on-primary' : ''}`} />
+                        <span className="truncate">{t.settings.paletteSystem}</span>
                       </button>
 
+                      {/* Custom */}
                       <button
+                        ref={(el) => { colorSchemeRefs.current['custom'] = el; }}
+                        tabIndex={-1}
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={() => onSetColorSchemeMode('custom')}
-                        className={`p-3 rounded-2xl border flex flex-col items-center gap-1.5 transition-all text-center cursor-pointer ${
+                        className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                           colorSchemeMode === 'custom'
-                            ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                            : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
+                            ? 'text-md3-on-primary font-bold'
+                            : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'
                         }`}
+                        title={t.settings.paletteCustomDesc}
                       >
-                        <Palette className="w-4 h-4" />
-                        <span className="text-xs">{t.settings.paletteCustom}</span>
-                        <span className="text-[10px] opacity-70">{t.settings.paletteCustomDesc}</span>
+                        <Palette className={`w-4 h-4 shrink-0 ${colorSchemeMode === 'custom' ? 'text-md3-on-primary' : ''}`} />
+                        <span className="truncate">{t.settings.paletteCustom}</span>
                       </button>
                     </div>
 
@@ -1907,42 +2010,72 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              {/* Fade Modes */}
-              <div className="grid grid-cols-3 gap-2.5">
+              {/* Fade Modes Segmented Control (Off / Change & Pause / Always) with sliding glowing pill */}
+              <div
+                ref={fadeModeContainerRef}
+                className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
+              >
+                {/* Smooth sliding glow pill indicator */}
+                <div
+                  className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                  style={{
+                    left: `${fadeModeIndicatorStyle.left}px`,
+                    width: `${fadeModeIndicatorStyle.width}px`,
+                    height: `${fadeModeIndicatorStyle.height}px`,
+                    opacity: fadeModeIndicatorStyle.opacity,
+                    boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
+                  }}
+                />
+
+                {/* Off */}
                 <button
+                  ref={(el) => { fadeModeRefs.current['off'] = el; }}
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => onSetFadeMode('off')}
-                  className={`p-3 rounded-2xl border flex flex-col items-start gap-1 transition-all text-left cursor-pointer ${
+                  className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                     fadeMode === 'off'
-                      ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                      : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
+                      ? 'text-md3-on-primary font-bold'
+                      : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'
                   }`}
+                  title={t.settings.crossfadeOffDesc}
                 >
-                  <span className="text-xs">{t.settings.crossfadeOff}</span>
-                  <span className="text-[10px] opacity-70">{t.settings.crossfadeOffDesc}</span>
+                  <VolumeX className={`w-4 h-4 shrink-0 ${fadeMode === 'off' ? 'text-md3-on-primary' : ''}`} />
+                  <span className="truncate">{t.settings.crossfadeOff}</span>
                 </button>
 
+                {/* Track Change & Pause */}
                 <button
+                  ref={(el) => { fadeModeRefs.current['track_change_and_pause'] = el; }}
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => onSetFadeMode('track_change_and_pause')}
-                  className={`p-3 rounded-2xl border flex flex-col items-start gap-1 transition-all text-left cursor-pointer ${
+                  className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                     fadeMode === 'track_change_and_pause'
-                      ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                      : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
+                      ? 'text-md3-on-primary font-bold'
+                      : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'
                   }`}
+                  title={t.settings.crossfadeChangePauseDesc}
                 >
-                  <span className="text-xs">{t.settings.crossfadeChangePause}</span>
-                  <span className="text-[10px] opacity-70">{t.settings.crossfadeChangePauseDesc}</span>
+                  <Volume2 className={`w-4 h-4 shrink-0 ${fadeMode === 'track_change_and_pause' ? 'text-md3-on-primary' : ''}`} />
+                  <span className="truncate">{t.settings.crossfadeChangePause}</span>
                 </button>
 
+                {/* Always */}
                 <button
+                  ref={(el) => { fadeModeRefs.current['always'] = el; }}
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => onSetFadeMode('always')}
-                  className={`p-3 rounded-2xl border flex flex-col items-start gap-1 transition-all text-left cursor-pointer ${
+                  className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                     fadeMode === 'always'
-                      ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                      : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:bg-md3-surface-container-high'
+                      ? 'text-md3-on-primary font-bold'
+                      : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'
                   }`}
+                  title={t.settings.crossfadeAlwaysDesc}
                 >
-                  <span className="text-xs">{t.settings.crossfadeAlways}</span>
-                  <span className="text-[10px] opacity-70">{t.settings.crossfadeAlwaysDesc}</span>
+                  <Repeat className={`w-4 h-4 shrink-0 ${fadeMode === 'always' ? 'text-md3-on-primary' : ''}`} />
+                  <span className="truncate">{t.settings.crossfadeAlways}</span>
                 </button>
               </div>
 
