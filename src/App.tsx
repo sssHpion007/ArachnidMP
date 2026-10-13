@@ -314,7 +314,7 @@ export const App: React.FC = () => {
             if (isTauri()) {
               const pathsToRefresh = hydrated
                 .filter(t => t.path && (!t.coverArt || t.title === 'Unknown' || t.artist === 'Unknown Artist'))
-                .slice(0, 50)
+                .slice(0, 500)
                 .map(t => t.path as string);
               if (pathsToRefresh.length > 0) {
                 invoke<any[]>('read_audio_files', { paths: pathsToRefresh }).then(refreshed => {
@@ -347,10 +347,14 @@ export const App: React.FC = () => {
           }
           if (parsed.playlists && Array.isArray(parsed.playlists) && parsed.playlists.length > 0) {
             setPlaylists(parsed.playlists.map((p: Playlist) => {
-              if (p.id === 'pl_favorites') {
-                return { ...p, name: 'Избранное' };
+              let coverArt = p.coverArt;
+              if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+                coverArt = convertFileSrc(coverArt);
               }
-              return p;
+              if (p.id === 'pl_favorites') {
+                return { ...p, name: 'Избранное', coverArt };
+              }
+              return { ...p, coverArt };
             }));
           }
           if (parsed.playlistFolders && Array.isArray(parsed.playlistFolders)) {
@@ -878,7 +882,7 @@ export const App: React.FC = () => {
     return () => {
       if (unlisten) unlisten();
     };
-  }, [tracks]);
+  }, []);
 
   // Web Browser Drag and Drop fallback
   useEffect(() => {
@@ -931,6 +935,12 @@ export const App: React.FC = () => {
       e.preventDefault();
       dragCounterRef.current = 0;
       setIsDraggingFile(false);
+
+      // In Tauri desktop, native onDragDropEvent already handles external file drops.
+      // Running both causes duplicate processing, 2x track copies, and system stutter.
+      if (isTauri()) {
+        return;
+      }
 
       if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
         const droppedFiles = Array.from(e.dataTransfer.files);
@@ -1639,51 +1649,66 @@ export const App: React.FC = () => {
     visibleTabs,
   ]);
 
+  const pendingTauriPathsRef = useRef<Set<string>>(new Set());
+  const importTauriTimerRef = useRef<any>(null);
+
   // Synchronous, robust track processor and playlist assigner
   const processImportedTracks = (newTracks: Track[]) => {
-    if (newTracks.length === 0) return;
+    if (!newTracks || newTracks.length === 0) return;
 
-    // Use tracksRef.current synchronously!
-    const existingMap = new Map<string, Track>();
-    tracksRef.current.forEach(t => {
-      if (t.path) existingMap.set(t.path.toLowerCase(), t);
-      existingMap.set(`${t.title.toLowerCase()}|||${t.artist.toLowerCase()}`, t);
+    let actuallyAdded: Track[] = [];
+    let plTargetIds: string[] = [];
+
+    setTracks(prevTracks => {
+      const existingPaths = new Set(prevTracks.map(t => t.path?.toLowerCase()).filter(Boolean));
+      const existingKeys = new Set(prevTracks.map(t => `${t.title.toLowerCase()}|||${t.artist.toLowerCase()}`));
+
+      const toAdd: Track[] = [];
+      const plIds: string[] = [];
+
+      for (const nt of newTracks) {
+        const pathKey = nt.path?.toLowerCase();
+        const titleArtistKey = `${nt.title.toLowerCase()}|||${nt.artist.toLowerCase()}`;
+
+        const isDuplicate = (pathKey && existingPaths.has(pathKey)) || existingKeys.has(titleArtistKey);
+        if (isDuplicate) {
+          const existing = prevTracks.find(t => (pathKey && t.path?.toLowerCase() === pathKey) || `${t.title.toLowerCase()}|||${t.artist.toLowerCase()}` === titleArtistKey);
+          if (existing) {
+            plIds.push(existing.id);
+          }
+          continue;
+        }
+
+        if (pathKey) existingPaths.add(pathKey);
+        existingKeys.add(titleArtistKey);
+        if (currentView === 'favorites') {
+          nt.isFavorite = true;
+        }
+        toAdd.push(nt);
+        plIds.push(nt.id);
+      }
+
+      actuallyAdded = toAdd;
+      plTargetIds = plIds;
+
+      if (toAdd.length === 0) {
+        return prevTracks;
+      }
+      return [...prevTracks, ...toAdd];
     });
 
-    const uniqueToAdd: Track[] = [];
-    const plTrackIds: string[] = [];
-
-    for (const nt of newTracks) {
-      const byPath = nt.path ? existingMap.get(nt.path.toLowerCase()) : null;
-      const byTitle = existingMap.get(`${nt.title.toLowerCase()}|||${nt.artist.toLowerCase()}`);
-      const existing = byPath || byTitle;
-
-      if (existing) {
-        plTrackIds.push(existing.id);
-      } else {
-        uniqueToAdd.push(nt);
-        plTrackIds.push(nt.id);
-        // Also register in existingMap so siblings in the same batch don't duplicate
-        if (nt.path) existingMap.set(nt.path.toLowerCase(), nt);
-        existingMap.set(`${nt.title.toLowerCase()}|||${nt.artist.toLowerCase()}`, nt);
-      }
-    }
-
-    if (uniqueToAdd.length > 0) {
-      if (currentView === 'favorites') {
-        uniqueToAdd.forEach(t => t.isFavorite = true);
-      }
-      setTracks(prev => [...prev, ...uniqueToAdd]);
-      setQueue(prev => [...prev, ...uniqueToAdd]);
+    if (actuallyAdded.length > 0) {
+      setQueue(prev => [...prev, ...actuallyAdded]);
     }
 
     // If currently viewing a specific playlist, immediately add all tracks (new & existing) into it!
     const activePlId = selectedPlaylistIdRef.current;
-    if (activePlId && plTrackIds.length > 0) {
+    if (activePlId && plTargetIds.length > 0) {
       setPlaylists(prev => prev.map(p => {
         if (p.id === activePlId) {
           const set = new Set(p.trackIds);
-          const toAdd = plTrackIds.filter(id => !set.has(id));
+          const toAdd = plTargetIds.filter(id => !set.has(id));
+          if (toAdd.length === 0) return p;
           return { ...p, trackIds: [...p.trackIds, ...toAdd] };
         }
         return p;
@@ -1691,53 +1716,70 @@ export const App: React.FC = () => {
     }
 
     if (!currentTrack || tracksRef.current.length === 0) {
-      const first = uniqueToAdd[0] || newTracks[0];
+      const first = actuallyAdded[0] || newTracks[0];
       if (first) playTrackWithContext(first, newTracks);
     }
   };
 
-  // Import native file paths in Tauri desktop
-  const importTauriPaths = async (paths: string[]) => {
-    try {
-      const rawTracks = await invoke<any[]>('read_audio_files', { paths });
-      if (!rawTracks || rawTracks.length === 0) return;
-
-      const newTracks: Track[] = rawTracks.map(t => {
-        let coverArt = t.cover_art || undefined;
-        if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
-          coverArt = convertFileSrc(coverArt);
-        }
-        return {
-          id: t.id,
-          path: t.path,
-          title: t.title,
-          artist: t.artist,
-          album: t.album,
-          duration: t.duration_seconds || 0,
-          src: convertFileSrc(t.path),
-          coverArt,
-          genre: t.genre || undefined,
-          year: t.year || undefined,
-          trackNumber: t.track_number || undefined,
-          trackTotal: t.track_total || undefined,
-          format: t.format,
-          fileSize: t.file_size,
-          lyrics: t.lyrics || undefined,
-          composer: t.composer || undefined,
-          contentGroup: t.content_group || undefined,
-          comment: t.comment || undefined,
-          conductor: t.conductor || undefined,
-          lyricist: t.lyricist || undefined,
-          dateAdded: Date.now(),
-          playCount: 0,
-          isFavorite: false,
-        };
-      });
-
-      processImportedTracks(newTracks);
-    } catch (err) {
-      console.warn('Error reading Tauri dropped files:', err);
+  // Import native file paths in Tauri desktop with batching & debounce
+  const importTauriPaths = (paths: string[]) => {
+    if (!paths || paths.length === 0) return;
+    for (const p of paths) {
+      if (typeof p === 'string' && p.trim().length > 0) {
+        pendingTauriPathsRef.current.add(p.trim());
+      }
     }
+
+    if (importTauriTimerRef.current) {
+      clearTimeout(importTauriTimerRef.current);
+    }
+
+    importTauriTimerRef.current = setTimeout(async () => {
+      const batchedPaths = Array.from(pendingTauriPathsRef.current);
+      pendingTauriPathsRef.current.clear();
+      if (batchedPaths.length === 0) return;
+
+      try {
+        const rawTracks = await invoke<any[]>('read_audio_files', { paths: batchedPaths });
+        if (!rawTracks || rawTracks.length === 0) return;
+
+        const newTracks: Track[] = rawTracks.map(t => {
+          let coverArt = t.cover_art || undefined;
+          if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+            coverArt = convertFileSrc(coverArt);
+          }
+          return {
+            id: t.id,
+            path: t.path,
+            title: t.title,
+            artist: t.artist,
+            album: t.album,
+            duration: t.duration_seconds || 0,
+            src: convertFileSrc(t.path),
+            coverArt,
+            genre: t.genre || undefined,
+            year: t.year || undefined,
+            trackNumber: t.track_number || undefined,
+            trackTotal: t.track_total || undefined,
+            format: t.format,
+            fileSize: t.file_size,
+            lyrics: t.lyrics || undefined,
+            composer: t.composer || undefined,
+            contentGroup: t.content_group || undefined,
+            comment: t.comment || undefined,
+            conductor: t.conductor || undefined,
+            lyricist: t.lyricist || undefined,
+            dateAdded: Date.now(),
+            playCount: 0,
+            isFavorite: false,
+          };
+        });
+
+        processImportedTracks(newTracks);
+      } catch (err) {
+        console.warn('Error reading Tauri dropped files:', err);
+      }
+    }, 60);
   };
 
   // Process imported audio files from HTML5 input / drop
@@ -2850,16 +2892,18 @@ export const App: React.FC = () => {
                   title={language === 'ru' ? 'Назад (нажмите для возврата)' : 'Back (click to return)'}
                   className="relative group w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden shadow-md shrink-0 border border-md3-outline-variant/20 cursor-pointer select-none bg-md3-surface-container-high transition-transform active:scale-95"
                 >
-                  {currentDetail.coverArt ? (
+                  <div className="w-full h-full bg-md3-primary/10 text-md3-primary flex items-center justify-center absolute inset-0">
+                    {currentDetail.icon}
+                  </div>
+                  {currentDetail.coverArt && (
                     <img 
                       src={currentDetail.coverArt} 
                       alt={currentDetail.title} 
-                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" 
+                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 relative z-[1]" 
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                      }}
                     />
-                  ) : (
-                    <div className="w-full h-full bg-md3-primary/10 text-md3-primary flex items-center justify-center">
-                      {currentDetail.icon}
-                    </div>
                   )}
 
                   {/* Built-in back button overlay appearing on hover */}

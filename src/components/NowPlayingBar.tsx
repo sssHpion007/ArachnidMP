@@ -348,16 +348,18 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             className={`flex items-center gap-2.5 min-w-0 flex-1 ${currentTrack ? 'cursor-pointer group' : ''}`}
           >
             <div className="w-12 h-12 min-w-[48px] min-h-[48px] max-w-[48px] max-h-[48px] rounded-xl overflow-hidden shrink-0 bg-md3-surface-container shadow-sm border border-md3-outline-variant/15 relative">
-              {currentTrack?.coverArt ? (
+              <div className="w-full h-full flex items-center justify-center bg-md3-primary/10 text-md3-primary absolute inset-0">
+                <Disc3 className={`w-6 h-6 ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }} />
+              </div>
+              {currentTrack?.coverArt && (
                 <img 
                   src={currentTrack.coverArt} 
                   alt={currentTrack.title} 
-                  className={`w-full h-full max-w-full max-h-full object-cover transition-transform duration-300 ${isPlaying ? 'scale-105' : ''}`} 
+                  className={`w-full h-full max-w-full max-h-full object-cover transition-transform duration-300 relative z-[1] ${isPlaying ? 'scale-105' : ''}`} 
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
                 />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center bg-md3-primary/10 text-md3-primary">
-                  <Disc3 className={`w-6 h-6 ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }} />
-                </div>
               )}
             </div>
 
@@ -657,16 +659,18 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             style={{ width: '56px', height: '56px', minWidth: '56px', minHeight: '56px', maxWidth: '56px', maxHeight: '56px' }}
             className="w-14 h-14 min-w-[56px] min-h-[56px] max-w-[56px] max-h-[56px] rounded-2xl overflow-hidden shrink-0 bg-md3-surface-container shadow-md border border-md3-outline-variant/15 relative"
           >
-            {currentTrack?.coverArt ? (
+            <div className="w-full h-full flex items-center justify-center bg-md3-primary/10 text-md3-primary absolute inset-0">
+              <Disc3 className={`w-7 h-7 ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }} />
+            </div>
+            {currentTrack?.coverArt && (
               <img 
                 src={currentTrack.coverArt} 
                 alt={currentTrack.title} 
-                className={`w-full h-full max-w-full max-h-full object-cover transition-transform duration-300 ${isPlaying ? 'scale-105' : ''} group-hover:scale-110`} 
+                className={`w-full h-full max-w-full max-h-full object-cover transition-transform duration-300 relative z-[1] ${isPlaying ? 'scale-105' : ''} group-hover:scale-110`} 
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
               />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-md3-primary/10 text-md3-primary">
-                <Disc3 className={`w-7 h-7 ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }} />
-              </div>
             )}
           </div>
 

@@ -812,17 +812,19 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
 
         {/* Cover Art Container */}
         <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest mb-3 shadow-inner pointer-events-none">
-          {cover ? (
+          <div className="w-full h-full flex items-center justify-center text-md3-primary/50 bg-md3-primary/5 absolute inset-0">
+            <ListMusic className="w-12 h-12" />
+          </div>
+          {cover && (
             <img
               src={cover}
               alt={playlist.name}
               draggable={false}
-              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none"
+              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
             />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-md3-primary/50 bg-md3-primary/5">
-              <ListMusic className="w-12 h-12" />
-            </div>
           )}
 
           {/* Floating Play Button on Hover */}

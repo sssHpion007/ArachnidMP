@@ -248,27 +248,31 @@ fn rand_suffix() -> u32 {
 }
 
 #[tauri::command]
-fn read_audio_files(paths: Vec<String>) -> Result<Vec<TrackMetadata>, String> {
-    let mut results = Vec::new();
+async fn read_audio_files(paths: Vec<String>) -> Result<Vec<TrackMetadata>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut results = Vec::new();
 
-    for p_str in paths {
-        let p = Path::new(&p_str);
-        if p.is_dir() {
-            for entry in walkdir::WalkDir::new(p).into_iter().filter_map(|e| e.ok()) {
-                if entry.path().is_file() {
-                    if let Some(meta) = parse_single_file(&entry.path().to_string_lossy()) {
-                        results.push(meta);
+        for p_str in paths {
+            let p = Path::new(&p_str);
+            if p.is_dir() {
+                for entry in walkdir::WalkDir::new(p).into_iter().filter_map(|e| e.ok()) {
+                    if entry.path().is_file() {
+                        if let Some(meta) = parse_single_file(&entry.path().to_string_lossy()) {
+                            results.push(meta);
+                        }
                     }
                 }
-            }
-        } else if p.is_file() {
-            if let Some(meta) = parse_single_file(&p_str) {
-                results.push(meta);
+            } else if p.is_file() {
+                if let Some(meta) = parse_single_file(&p_str) {
+                    results.push(meta);
+                }
             }
         }
-    }
 
-    Ok(results)
+        Ok(results)
+    })
+    .await
+    .map_err(|e| format!("Task execution error: {}", e))?
 }
 
 #[tauri::command]
@@ -296,7 +300,7 @@ fn update_discord_presence(presence: DiscordPresenceState, state: State<'_, AppS
 }
 
 #[tauri::command]
-fn open_file_dialog() -> Result<Vec<TrackMetadata>, String> {
+async fn open_file_dialog() -> Result<Vec<TrackMetadata>, String> {
     let files = rfd::FileDialog::new()
         .add_filter("Audio Files (*.mp3;*.flac;*.wav;*.ogg;*.m4a;*.opus;*.aac;*.wma)", &["mp3", "flac", "wav", "ogg", "m4a", "opus", "aac", "wma"])
         .pick_files();
@@ -306,15 +310,15 @@ fn open_file_dialog() -> Result<Vec<TrackMetadata>, String> {
             .into_iter()
             .map(|p| p.to_string_lossy().to_string())
             .collect();
-        read_audio_files(string_paths)
+        read_audio_files(string_paths).await
     } else {
         Ok(vec![])
     }
 }
 
 #[tauri::command]
-fn scan_folder(folder_path: String) -> Result<Vec<TrackMetadata>, String> {
-    read_audio_files(vec![folder_path])
+async fn scan_folder(folder_path: String) -> Result<Vec<TrackMetadata>, String> {
+    read_audio_files(vec![folder_path]).await
 }
 
 fn find_mp3_audio_start(data: &[u8]) -> usize {

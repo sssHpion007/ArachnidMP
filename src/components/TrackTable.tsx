@@ -16,6 +16,7 @@ import {
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage } from '../i18n';
+import { isTauri } from '@tauri-apps/api/core';
 
 interface TrackTableProps {
   tracks: Track[];
@@ -293,6 +294,10 @@ export const TrackTable: React.FC<TrackTableProps> = ({
     e.preventDefault();
     (window as any).__isInternalDragging = false;
     if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      if (isTauri()) {
+        // Native window drop listener in App.tsx handles dropped files
+        return;
+      }
       onDropFiles(Array.from(e.dataTransfer.files));
       return;
     }
@@ -489,12 +494,18 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                 {/* Title + Cover (+ Artist in compact mode) */}
                 <div className="flex items-center gap-3 min-w-0 pr-3">
                   <div className={`${isCompact ? 'w-11 h-11 sm:w-12 sm:h-12' : 'w-9 h-9'} rounded-xl overflow-hidden shrink-0 bg-md3-surface-container-highest shadow-sm relative group/cover`}>
-                    {track.coverArt ? (
-                      <img src={track.coverArt} alt={track.title} className="w-full h-full object-cover transition-transform duration-200 group-hover/cover:scale-105" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-md3-primary/60 bg-md3-primary/10">
-                        <Disc3 className={isCompact ? "w-6 h-6" : "w-5 h-5"} />
-                      </div>
+                    <div className="w-full h-full flex items-center justify-center text-md3-primary/60 bg-md3-primary/10 absolute inset-0">
+                      <Disc3 className={isCompact ? "w-6 h-6" : "w-5 h-5"} />
+                    </div>
+                    {track.coverArt && (
+                      <img 
+                        src={track.coverArt} 
+                        alt={track.title} 
+                        className="w-full h-full object-cover transition-transform duration-200 group-hover/cover:scale-105 relative z-[1]" 
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
                     )}
 
                     {/* Interactive Play/Pause button directly on the cover art */}

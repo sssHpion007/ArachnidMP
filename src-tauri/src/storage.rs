@@ -65,6 +65,161 @@ pub fn save_base64_cover(data_uri: &str) -> Option<String> {
     }
 }
 
+fn url_decode(input: &str) -> String {
+    let mut result = Vec::new();
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(h1), Some(h2)) = (
+                (bytes[i + 1] as char).to_digit(16),
+                (bytes[i + 2] as char).to_digit(16),
+            ) {
+                result.push((h1 * 16 + h2) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        result.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&result).to_string()
+}
+
+/// Helper to extract filename from any cover string (asset URL, path, or filename)
+fn extract_cover_filename(cover_val: &str) -> Option<String> {
+    let trimmed = cover_val.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // Decode percent-encoding (e.g. %5C -> \, %2F -> /)
+    let decoded = if trimmed.contains('%') {
+        url_decode(trimmed)
+    } else {
+        trimmed.to_string()
+    };
+
+    let normalized = decoded.replace('\\', "/");
+
+    // If it's an external web URL that is not asset.localhost or localhost, it's not a local cover file
+    if (normalized.starts_with("http://") || normalized.starts_with("https://"))
+        && !normalized.contains("asset.localhost")
+        && !normalized.contains("localhost")
+    {
+        return None;
+    }
+
+    if let Some(pos) = normalized.rfind('/') {
+        let name = &normalized[pos + 1..];
+        let name_clean = name.split('?').next().unwrap_or(name);
+        if !name_clean.trim().is_empty() {
+            return Some(name_clean.trim().to_string());
+        }
+    } else if !normalized.trim().is_empty() {
+        return Some(normalized.trim().to_string());
+    }
+
+    None
+}
+
+/// Convert any cover string (asset URL, old absolute path, base64, relative)
+/// to a portable relative path "config/covers/<filename>" suitable for saving in library.json / playlists.
+pub fn to_portable_cover(cover_val: &str, base_dir: &Path) -> Option<String> {
+    let trimmed = cover_val.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // 1. If base64 data URI, save to config/covers and return relative path
+    if trimmed.starts_with("data:image/") {
+        if let Some(disk_path) = save_base64_cover(trimmed) {
+            let p = Path::new(&disk_path);
+            if let Some(fname) = p.file_name().and_then(|f| f.to_str()) {
+                return Some(format!("config/covers/{}", fname));
+            }
+        }
+        return None;
+    }
+
+    // 2. External web URLs (http/https not asset.localhost)
+    if (trimmed.starts_with("http://") || trimmed.starts_with("https://"))
+        && !trimmed.contains("asset.localhost")
+        && !trimmed.contains("localhost")
+    {
+        return Some(trimmed.to_string());
+    }
+
+    // 3. Extract filename and verify against config/covers/
+    let covers_dir = base_dir.join("config").join("covers");
+    if let Some(filename) = extract_cover_filename(trimmed) {
+        if covers_dir.join(&filename).exists() {
+            return Some(format!("config/covers/{}", filename));
+        }
+    }
+
+    // 4. Try stripping base_dir prefix
+    let decoded = url_decode(trimmed);
+    let p = Path::new(&decoded);
+    if let Ok(rel) = p.strip_prefix(base_dir) {
+        return Some(rel.to_string_lossy().replace('\\', "/"));
+    }
+
+    // 5. If already relative config/covers/...
+    let norm = trimmed.replace('\\', "/");
+    if norm.starts_with("config/covers/") {
+        return Some(norm);
+    }
+
+    None
+}
+
+/// Convert any cover string from disk (relative "config/covers/...", old absolute path, old asset URL)
+/// into the CURRENT valid absolute path on disk for the running player instance.
+pub fn to_absolute_cover(cover_val: &str, base_dir: &Path) -> Option<String> {
+    let trimmed = cover_val.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // 1. Base64 data URLs pass through as-is
+    if trimmed.starts_with("data:image/") {
+        return Some(trimmed.to_string());
+    }
+
+    // 2. External web URLs pass through as-is
+    if (trimmed.starts_with("http://") || trimmed.starts_with("https://"))
+        && !trimmed.contains("asset.localhost")
+        && !trimmed.contains("localhost")
+    {
+        return Some(trimmed.to_string());
+    }
+
+    let covers_dir = base_dir.join("config").join("covers");
+
+    // 3. Locate filename in current config/covers/
+    if let Some(filename) = extract_cover_filename(trimmed) {
+        let candidate = covers_dir.join(&filename);
+        if candidate.exists() {
+            return Some(candidate.to_string_lossy().to_string());
+        }
+    }
+
+    // 4. If relative to base_dir (e.g. "config/covers/xyz.jpg")
+    let norm = trimmed.replace('\\', "/");
+    let candidate = base_dir.join(&norm);
+    if candidate.exists() {
+        return Some(candidate.to_string_lossy().to_string());
+    }
+
+    // 5. If absolute path that currently exists on disk
+    let p = Path::new(trimmed);
+    if p.is_absolute() && p.exists() {
+        return Some(trimmed.to_string());
+    }
+
+    None
+}
+
 /// Initialize the modular directory structure on startup
 pub fn init_storage_structure(base_dir: &Path) {
     let config_dir = base_dir.join("config");
@@ -410,17 +565,10 @@ pub fn save_modular_data(data: &Value) -> Result<bool, String> {
         if let Some(arr) = clean_tracks.as_array_mut() {
             for track in arr {
                 if let Some(cover_val) = track.get("coverArt").and_then(|c| c.as_str()) {
-                    let mut final_cover = cover_val.to_string();
-                    if final_cover.starts_with("data:image/") {
-                        if let Some(disk_path) = save_base64_cover(&final_cover) {
-                            final_cover = disk_path;
-                        }
-                    }
-                    let path_obj = Path::new(&final_cover);
-                    if let Ok(rel) = path_obj.strip_prefix(&base_dir) {
-                        track["coverArt"] = json!(rel.to_string_lossy().replace('\\', "/"));
-                    } else if !final_cover.starts_with("http") && !final_cover.starts_with("data:") {
-                        track["coverArt"] = json!(final_cover);
+                    if let Some(portable) = to_portable_cover(cover_val, &base_dir) {
+                        track["coverArt"] = json!(portable);
+                    } else {
+                        track["coverArt"] = json!(null);
                     }
                 }
             }
@@ -455,7 +603,15 @@ pub fn save_modular_data(data: &Value) -> Result<bool, String> {
                 let safe_id = sanitize_filename(id);
                 current_ids.insert(format!("{}.json", safe_id));
                 let pl_path = playlists_dir.join(format!("{}.json", safe_id));
-                let pl_str = serde_json::to_string_pretty(pl)
+                let mut pl_clean = pl.clone();
+                if let Some(cover_val) = pl_clean.get("coverArt").and_then(|c| c.as_str()) {
+                    if let Some(portable) = to_portable_cover(cover_val, &base_dir) {
+                        pl_clean["coverArt"] = json!(portable);
+                    } else {
+                        pl_clean["coverArt"] = json!(null);
+                    }
+                }
+                let pl_str = serde_json::to_string_pretty(&pl_clean)
                     .map_err(|e| format!("Failed to serialize playlist {}: {}", id, e))?;
                 let _ = fs::write(&pl_path, pl_str);
             }
@@ -526,15 +682,10 @@ pub fn load_modular_data() -> Result<Option<String>, String> {
                     if let Some(arr) = tracks_val.as_array_mut() {
                         for track in arr {
                             if let Some(cover_val) = track.get("coverArt").and_then(|c| c.as_str()) {
-                                if cover_val.starts_with("data:image/") {
-                                    if let Some(disk_path) = save_base64_cover(cover_val) {
-                                        track["coverArt"] = json!(disk_path);
-                                    }
-                                } else if !cover_val.starts_with("http") {
-                                    let full = base_dir.join(cover_val);
-                                    if full.exists() {
-                                        track["coverArt"] = json!(full.to_string_lossy().to_string());
-                                    }
+                                if let Some(abs_path) = to_absolute_cover(cover_val, &base_dir) {
+                                    track["coverArt"] = json!(abs_path);
+                                } else {
+                                    track["coverArt"] = json!(null);
                                 }
                             }
                         }
@@ -576,7 +727,14 @@ pub fn load_modular_data() -> Result<Option<String>, String> {
             let file_name = entry.file_name().to_string_lossy().to_string();
             if file_name.ends_with(".json") && file_name != "tree.json" {
                 if let Ok(content) = fs::read_to_string(&path) {
-                    if let Ok(pl) = serde_json::from_str::<Value>(&content) {
+                    if let Ok(mut pl) = serde_json::from_str::<Value>(&content) {
+                        if let Some(cover_val) = pl.get("coverArt").and_then(|c| c.as_str()) {
+                            if let Some(abs_path) = to_absolute_cover(cover_val, &base_dir) {
+                                pl["coverArt"] = json!(abs_path);
+                            } else {
+                                pl["coverArt"] = json!(null);
+                            }
+                        }
                         playlists_list.push(pl);
                     }
                 }
