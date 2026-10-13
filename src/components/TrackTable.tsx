@@ -439,7 +439,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                   }
                 }}
                 onContextMenu={(e) => onOpenContextMenu(e, track)}
-                className={`relative grid ${gridCols} items-center px-4 ${
+                className={`relative group grid ${gridCols} items-center px-4 ${
                   isCompact ? 'py-2.5 sm:py-3' : 'py-2'
                 } cursor-pointer transition-colors duration-150 ${
                   isBeingDragged
@@ -521,15 +521,15 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                         }
                       }}
                       title={isCurrent && isPlaying ? (language === 'ru' ? 'Пауза' : 'Pause') : (language === 'ru' ? 'Слушать' : 'Play')}
-                      className={`absolute inset-0 flex items-center justify-center transition-all cursor-pointer ${
+                      className={`absolute inset-0 z-10 flex items-center justify-center transition-all cursor-pointer ${
                         isHovered || isSelected || isCurrent
                           ? 'bg-black/45 opacity-100 backdrop-blur-[1px]'
-                          : 'opacity-0 pointer-events-none'
+                          : 'opacity-0 group-hover:opacity-100 group-hover:bg-black/45 group-hover:backdrop-blur-[1px] pointer-events-none group-hover:pointer-events-auto'
                       }`}
                     >
                       <button
                         type="button"
-                        className={`${isCompact ? 'w-8 h-8' : 'w-7 h-7'} rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-md hover:scale-110 active:scale-95 transition-transform`}
+                        className={`${isCompact ? 'w-8 h-8' : 'w-7 h-7'} rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-md hover:scale-110 active:scale-95 transition-transform pointer-events-none`}
                       >
                         {isCurrent && isPlaying ? (
                           <Pause className={isCompact ? "w-4 h-4 fill-current" : "w-3.5 h-3.5 fill-current"} />
