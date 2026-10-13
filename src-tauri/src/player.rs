@@ -491,7 +491,25 @@ fn run_player_thread(
 
                                         let handle = if cur_pos > 0.05 {
                                             let target_dur = Duration::from_secs_f64(cur_pos);
-                                            if decoder.try_seek(target_dur).is_err() {
+                                            if cur_pos > 0.08 {
+                                                let preroll_dur = Duration::from_secs_f64(cur_pos - 0.040);
+                                                if decoder.try_seek(preroll_dur).is_ok() {
+                                                    let sr = decoder.sample_rate().max(8000) as usize;
+                                                    let ch = decoder.channels().max(1) as usize;
+                                                    let samples_to_discard = (sr * ch * 40) / 1000;
+                                                    for _ in 0..samples_to_discard {
+                                                        if decoder.next().is_none() {
+                                                            break;
+                                                        }
+                                                    }
+                                                    append_smooth_source(&sink, decoder, glitch_tx.clone())
+                                                } else if decoder.try_seek(target_dur).is_err() {
+                                                    let skipped = decoder.skip_duration(target_dur);
+                                                    append_smooth_source(&sink, skipped, glitch_tx.clone())
+                                                } else {
+                                                    append_smooth_source(&sink, decoder, glitch_tx.clone())
+                                                }
+                                            } else if decoder.try_seek(target_dur).is_err() {
                                                 let skipped = decoder.skip_duration(target_dur);
                                                 append_smooth_source(&sink, skipped, glitch_tx.clone())
                                             } else {
@@ -601,7 +619,25 @@ fn run_player_thread(
                                 let safe_offset = offset_secs.max(0.0);
                                 let handle = if safe_offset > 0.05 {
                                     let offset_dur = Duration::from_secs_f64(safe_offset);
-                                    if decoder.try_seek(offset_dur).is_ok() {
+                                    if safe_offset > 0.08 {
+                                        let preroll_dur = Duration::from_secs_f64(safe_offset - 0.040);
+                                        if decoder.try_seek(preroll_dur).is_ok() {
+                                            let sr = decoder.sample_rate().max(8000) as usize;
+                                            let ch = decoder.channels().max(1) as usize;
+                                            let samples_to_discard = (sr * ch * 40) / 1000;
+                                            for _ in 0..samples_to_discard {
+                                                if decoder.next().is_none() {
+                                                    break;
+                                                }
+                                            }
+                                            append_smooth_source(&sink, decoder, glitch_tx.clone())
+                                        } else if decoder.try_seek(offset_dur).is_ok() {
+                                            append_smooth_source(&sink, decoder, glitch_tx.clone())
+                                        } else {
+                                            let skipped = decoder.skip_duration(offset_dur);
+                                            append_smooth_source(&sink, skipped, glitch_tx.clone())
+                                        }
+                                    } else if decoder.try_seek(offset_dur).is_ok() {
                                         append_smooth_source(&sink, decoder, glitch_tx.clone())
                                     } else {
                                         let skipped = decoder.skip_duration(offset_dur);
@@ -794,12 +830,30 @@ fn run_player_thread(
 
                     let mut seek_done = false;
 
-                    // Open fresh decoder at seek target position
+                    // Open fresh decoder at seek target position with pre-roll flush to prime MDCT filters
                     if let Some(ref path) = current_path {
                         if let Ok(file) = File::open(path) {
                             if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
                                 let handle = if safe_pos > 0.05 {
-                                    if decoder.try_seek(target_dur).is_err() {
+                                    if safe_pos > 0.08 {
+                                        let preroll_dur = Duration::from_secs_f64(safe_pos - 0.040);
+                                        if decoder.try_seek(preroll_dur).is_ok() {
+                                            let sr = decoder.sample_rate().max(8000) as usize;
+                                            let ch = decoder.channels().max(1) as usize;
+                                            let samples_to_discard = (sr * ch * 40) / 1000;
+                                            for _ in 0..samples_to_discard {
+                                                if decoder.next().is_none() {
+                                                    break;
+                                                }
+                                            }
+                                            append_smooth_source(&sink, decoder, glitch_tx.clone())
+                                        } else if decoder.try_seek(target_dur).is_err() {
+                                            let skipped = decoder.skip_duration(target_dur);
+                                            append_smooth_source(&sink, skipped, glitch_tx.clone())
+                                        } else {
+                                            append_smooth_source(&sink, decoder, glitch_tx.clone())
+                                        }
+                                    } else if decoder.try_seek(target_dur).is_err() {
                                         let skipped = decoder.skip_duration(target_dur);
                                         append_smooth_source(&sink, skipped, glitch_tx.clone())
                                     } else {
@@ -812,7 +866,7 @@ fn run_player_thread(
                                 current_handle = Some(handle.clone());
 
                                 if should_resume {
-                                    handle.fade_to(user_target_volume, 15);
+                                    handle.fade_to(user_target_volume, 20);
                                     sink.play();
                                     current_volume = user_target_volume;
                                 } else {
