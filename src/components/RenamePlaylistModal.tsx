@@ -44,14 +44,21 @@ export const RenamePlaylistModal: React.FC<RenamePlaylistModalProps> = ({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [isOpen, onClose]);
 
-  const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen && !!playlist, 200);
+  const cachedPlaylistRef = useRef<Playlist | null>(playlist);
+  if (playlist) {
+    cachedPlaylistRef.current = playlist;
+  }
+  const activePlaylist = playlist || cachedPlaylistRef.current;
 
-  if (!isRendered || !playlist) return null;
+  const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen && !!activePlaylist, 200);
+
+  if (!isRendered || !activePlaylist) return null;
+  const currentPlaylist = activePlaylist;
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!name.trim()) return;
-    onRename(playlist, name.trim());
+    onRename(currentPlaylist, name.trim());
     onClose();
   };
 

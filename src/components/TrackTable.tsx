@@ -441,14 +441,14 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                 onContextMenu={(e) => onOpenContextMenu(e, track)}
                 className={`relative group grid ${gridCols} items-center px-4 ${
                   isCompact ? 'py-2.5 sm:py-3' : 'py-2'
-                } cursor-pointer transition-colors duration-150 ${
+                } cursor-pointer ${
                   isBeingDragged
                     ? 'opacity-30 bg-md3-primary-container/20 border-dashed border border-md3-primary/30'
                     : isSelected
                     ? 'bg-md3-primary/15 text-md3-on-surface ring-1 ring-inset ring-md3-primary/30 font-medium'
                     : isCurrent
-                    ? 'bg-md3-surface-container-high text-md3-primary'
-                    : 'hover:bg-md3-surface-container/60 text-md3-on-surface'
+                    ? 'bg-md3-surface-container-high text-md3-primary hover:bg-md3-surface-container-highest transition-colors duration-75'
+                    : 'hover:bg-md3-surface-container/60 text-md3-on-surface transition-colors duration-75'
                 }`}
               >
                 {/* Drop insertion line indicators */}

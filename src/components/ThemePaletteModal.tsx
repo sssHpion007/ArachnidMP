@@ -36,9 +36,16 @@ export const ThemePaletteModal: React.FC<ThemePaletteModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen && !!theme, 200);
+  const cachedThemeRef = useRef<CustomThemeInfo | null>(theme);
+  if (theme) {
+    cachedThemeRef.current = theme;
+  }
+  const activeTheme = theme || cachedThemeRef.current;
 
-  if (!isRendered || !theme) return null;
+  const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen && !!activeTheme, 200);
+
+  if (!isRendered || !activeTheme) return null;
+  const themeData = activeTheme;
 
   return (
     <div
@@ -66,7 +73,7 @@ export const ThemePaletteModal: React.FC<ThemePaletteModalProps> = ({
                   {language === 'ru' ? 'Палитра элементов темы' : 'Theme Palette Customization'}
                 </h3>
                 <span className="text-xs px-2.5 py-0.5 rounded-full bg-md3-primary/10 text-md3-primary font-semibold">
-                  {theme.name}
+                  {themeData.name}
                 </span>
               </div>
               <p className="text-xs text-md3-on-surface-variant mt-0.5">

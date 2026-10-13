@@ -34,7 +34,7 @@ interface ParsedLine {
 
 export const LyricsModal: React.FC<LyricsModalProps> = ({
   isOpen,
-  track,
+  track: incomingTrack,
   currentTime,
   isPlaying,
   language = 'ru',
@@ -50,23 +50,29 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
   const activeLineRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  const cachedTrackRef = useRef<Track | null>(incomingTrack);
+  if (incomingTrack) {
+    cachedTrackRef.current = incomingTrack;
+  }
+  const activeTrack = incomingTrack || cachedTrackRef.current;
+
   useEffect(() => {
-    if (track) {
-      setEditedText(track.lyrics || '');
-      setEditedLyricist(track.lyricist || '');
-      setIsInstrumental(!!track.isInstrumental);
+    if (activeTrack) {
+      setEditedText(activeTrack.lyrics || '');
+      setEditedLyricist(activeTrack.lyricist || '');
+      setIsInstrumental(!!activeTrack.isInstrumental);
       setIsEditing(false);
       setCopiedLyrics(false);
     }
-  }, [track, isOpen]);
+  }, [activeTrack, isOpen]);
 
   // Parse LRC formatted lyrics if timestamps exist: [mm:ss.xx] or [mm:ss]
   const { isSynced, lines } = useMemo(() => {
-    if (!track?.lyrics || track.isInstrumental) {
+    if (!activeTrack?.lyrics || activeTrack.isInstrumental) {
       return { isSynced: false, lines: [] };
     }
 
-    const rawLines = track.lyrics.split('\n');
+    const rawLines = activeTrack.lyrics.split('\n');
     const parsed: ParsedLine[] = [];
     const timeRegex = /\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]/g;
     let hasTimestamps = false;
@@ -101,7 +107,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
 
     parsed.sort((a, b) => a.time - b.time);
     return { isSynced: hasTimestamps, lines: parsed };
-  }, [track?.lyrics, track?.isInstrumental]);
+  }, [activeTrack?.lyrics, activeTrack?.isInstrumental]);
 
   // Find active line index based on currentTime
   const activeLineIndex = useMemo(() => {
@@ -146,9 +152,10 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [isOpen, isEditing, onClose]);
 
-  const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen && !!track, 200);
+  const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen && !!activeTrack, 200);
 
-  if (!isRendered || !track) return null;
+  if (!isRendered || !activeTrack) return null;
+  const track = activeTrack;
 
   const handleSave = () => {
     onSaveLyrics(track.id, editedText.trim(), isInstrumental, editedLyricist.trim());

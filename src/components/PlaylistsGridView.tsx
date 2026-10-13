@@ -1271,9 +1271,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                     }
                   }}
                   style={groupHeaderBg ? { backgroundColor: groupHeaderBg } : undefined}
-                  className={`w-full flex items-center justify-between px-4 py-3 bg-md3-surface-container/60 hover:bg-md3-surface-container cursor-pointer transition-colors ${
-                    isCollapsed ? 'border-b-0' : 'border-b border-md3-outline-variant/10'
-                  } touch-none`}
+                  className="w-full flex items-center justify-between px-4 py-3 bg-md3-surface-container/60 hover:bg-md3-surface-container cursor-pointer transition-colors touch-none"
                 >
                   <div className="flex items-center gap-2.5 min-w-0 pointer-events-none">
                     <button
@@ -1370,11 +1368,11 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                 <div
                   className={`grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
                     isCollapsed
-                      ? 'grid-rows-[0fr] opacity-0'
+                      ? 'grid-rows-[0fr] opacity-0 pointer-events-none'
                       : 'grid-rows-[1fr] opacity-100'
                   }`}
                 >
-                  <div className="overflow-hidden">
+                  <div className="overflow-hidden border-t border-md3-outline-variant/15">
                     <div className="p-4">
                       {totalGroupItems === 0 ? (
                         <div className="py-6 text-center text-xs text-md3-on-surface-variant/60 border border-dashed border-md3-outline-variant/20 rounded-2xl">

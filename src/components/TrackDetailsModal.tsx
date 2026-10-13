@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useState } from 'react';
+import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { 
   Info, 
   X, 
@@ -33,7 +33,7 @@ interface TrackDetailsModalProps {
 
 export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
   isOpen,
-  track,
+  track: incomingTrack,
   language = 'ru',
   onClose,
 }) => {
@@ -41,7 +41,7 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
 
   useEffect(() => {
     setCopiedPath(false);
-  }, [track?.id]);
+  }, [incomingTrack?.id]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -58,23 +58,30 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [isOpen, onClose]);
 
+  const cachedTrackRef = useRef<Track | null>(incomingTrack);
+  if (incomingTrack) {
+    cachedTrackRef.current = incomingTrack;
+  }
+  const activeTrack = incomingTrack || cachedTrackRef.current;
+
   const genresList = useMemo(() => {
-    if (!track?.genre) return [];
-    return track.genre
+    if (!activeTrack?.genre) return [];
+    return activeTrack.genre
       .split(/[,/;\\]+/)
       .map((g) => g.trim())
       .filter((g) => g.length > 0);
-  }, [track?.genre]);
+  }, [activeTrack?.genre]);
 
-  const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen && !!track, 200);
+  const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen && !!activeTrack, 200);
 
-  if (!isRendered || !track) return null;
+  if (!isRendered || !activeTrack) return null;
+  const track = activeTrack;
 
   const handleOpenLocation = async () => {
-    if (track.path) {
+    if (activeTrack.path) {
       if (isTauri()) {
         try {
-          await invoke('show_in_folder', { path: track.path });
+          await invoke('show_in_folder', { path: activeTrack.path });
           return;
         } catch (e) {
           console.warn('Failed to open location via Tauri:', e);
@@ -85,19 +92,19 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
   };
 
   const handleCopyPath = () => {
-    if (track?.path) {
-      navigator.clipboard.writeText(track.path);
+    if (activeTrack?.path) {
+      navigator.clipboard.writeText(activeTrack.path);
       setCopiedPath(true);
       setTimeout(() => setCopiedPath(false), 2000);
     }
   };
 
-  const formattedSize = track.fileSize 
-    ? `${(track.fileSize / (1024 * 1024)).toFixed(2)} ${language === 'ru' ? 'МБ' : 'MB'}` 
+  const formattedSize = activeTrack.fileSize 
+    ? `${(activeTrack.fileSize / (1024 * 1024)).toFixed(2)} ${language === 'ru' ? 'МБ' : 'MB'}` 
     : '—';
 
-  const formattedDate = track.dateAdded 
-    ? new Date(track.dateAdded).toLocaleDateString(language === 'ru' ? 'ru-RU' : 'en-US', { 
+  const formattedDate = activeTrack.dateAdded 
+    ? new Date(activeTrack.dateAdded).toLocaleDateString(language === 'ru' ? 'ru-RU' : 'en-US', { 
         year: 'numeric', 
         month: 'long', 
         day: 'numeric' 

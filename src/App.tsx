@@ -118,10 +118,14 @@ export const App: React.FC = () => {
   // Multi-Selection State
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set());
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
+  const lastSelectedIndexRef = useRef<number | null>(null);
   const selectedTrackIdsRef = useRef<Set<string>>(selectedTrackIds);
   useEffect(() => {
     selectedTrackIdsRef.current = selectedTrackIds;
   }, [selectedTrackIds]);
+  useEffect(() => {
+    lastSelectedIndexRef.current = lastSelectedIndex;
+  }, [lastSelectedIndex]);
 
   const filteredTracksRef = useRef<Track[]>([]);
 
@@ -1382,25 +1386,24 @@ export const App: React.FC = () => {
         const currentList = filteredTracksRef.current;
         if (currentList.length > 0) {
           e.preventDefault();
-          const currentSelection = selectedTrackIdsRef.current;
-          let nextIdx = 0;
-          if (currentSelection.size > 0) {
-            const selectedArray = Array.from(currentSelection);
-            const lastSelectedId = selectedArray[selectedArray.length - 1];
-            const currIdx = currentList.findIndex(t => t.id === lastSelectedId);
-            if (currIdx !== -1) {
-              nextIdx = Math.min(currentList.length - 1, currIdx + 1);
-            }
-          } else if (currentTrack) {
-            const currIdx = currentList.findIndex(t => t.id === currentTrack.id);
-            if (currIdx !== -1) {
-              nextIdx = Math.min(currentList.length - 1, currIdx + 1);
+          let currIdx = -1;
+          if (lastSelectedIndexRef.current !== null && lastSelectedIndexRef.current >= 0 && lastSelectedIndexRef.current < currentList.length) {
+            currIdx = lastSelectedIndexRef.current;
+          } else {
+            const currentSelection = selectedTrackIdsRef.current;
+            if (currentSelection.size > 0) {
+              const selectedId = Array.from(currentSelection)[currentSelection.size - 1];
+              currIdx = currentList.findIndex(t => t.id === selectedId);
+            } else if (currentTrackRef.current) {
+              currIdx = currentList.findIndex(t => t.id === currentTrackRef.current?.id);
             }
           }
+          const nextIdx = currIdx === -1 ? 0 : Math.min(currentList.length - 1, currIdx + 1);
           const nextTrack = currentList[nextIdx];
           if (nextTrack) {
             const newSet = new Set([nextTrack.id]);
             selectedTrackIdsRef.current = newSet;
+            lastSelectedIndexRef.current = nextIdx;
             setSelectedTrackIds(newSet);
             setLastSelectedIndex(nextIdx);
             requestAnimationFrame(() => {
@@ -1413,25 +1416,24 @@ export const App: React.FC = () => {
         const currentList = filteredTracksRef.current;
         if (currentList.length > 0) {
           e.preventDefault();
-          const currentSelection = selectedTrackIdsRef.current;
-          let prevIdx = 0;
-          if (currentSelection.size > 0) {
-            const selectedArray = Array.from(currentSelection);
-            const firstSelectedId = selectedArray[0];
-            const currIdx = currentList.findIndex(t => t.id === firstSelectedId);
-            if (currIdx !== -1) {
-              prevIdx = Math.max(0, currIdx - 1);
-            }
-          } else if (currentTrack) {
-            const currIdx = currentList.findIndex(t => t.id === currentTrack.id);
-            if (currIdx !== -1) {
-              prevIdx = Math.max(0, currIdx - 1);
+          let currIdx = -1;
+          if (lastSelectedIndexRef.current !== null && lastSelectedIndexRef.current >= 0 && lastSelectedIndexRef.current < currentList.length) {
+            currIdx = lastSelectedIndexRef.current;
+          } else {
+            const currentSelection = selectedTrackIdsRef.current;
+            if (currentSelection.size > 0) {
+              const selectedId = Array.from(currentSelection)[0];
+              currIdx = currentList.findIndex(t => t.id === selectedId);
+            } else if (currentTrackRef.current) {
+              currIdx = currentList.findIndex(t => t.id === currentTrackRef.current?.id);
             }
           }
+          const prevIdx = currIdx === -1 ? 0 : Math.max(0, currIdx - 1);
           const prevTrack = currentList[prevIdx];
           if (prevTrack) {
             const newSet = new Set([prevTrack.id]);
             selectedTrackIdsRef.current = newSet;
+            lastSelectedIndexRef.current = prevIdx;
             setSelectedTrackIds(newSet);
             setLastSelectedIndex(prevIdx);
             requestAnimationFrame(() => {
@@ -1870,9 +1872,9 @@ export const App: React.FC = () => {
   }, [tracks]);
 
   const handleSelectTrack = (trackId: string, e: React.MouseEvent, index: number) => {
-    if (e.shiftKey && lastSelectedIndex !== null) {
-      const start = Math.min(lastSelectedIndex, index);
-      const end = Math.max(lastSelectedIndex, index);
+    if (e.shiftKey && lastSelectedIndexRef.current !== null) {
+      const start = Math.min(lastSelectedIndexRef.current, index);
+      const end = Math.max(lastSelectedIndexRef.current, index);
       const rangeIds = filteredTracks.slice(start, end + 1).map(t => t.id);
       const newSet = new Set(rangeIds);
       selectedTrackIdsRef.current = newSet;
@@ -1886,11 +1888,13 @@ export const App: React.FC = () => {
       }
       selectedTrackIdsRef.current = updated;
       setSelectedTrackIds(updated);
+      lastSelectedIndexRef.current = index;
       setLastSelectedIndex(index);
     } else {
       const newSet = new Set([trackId]);
       selectedTrackIdsRef.current = newSet;
       setSelectedTrackIds(newSet);
+      lastSelectedIndexRef.current = index;
       setLastSelectedIndex(index);
     }
   };

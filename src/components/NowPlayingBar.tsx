@@ -487,12 +487,12 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               onMouseDown={(e) => e.preventDefault()}
               onClick={onToggleShuffle}
               title={isShuffled ? `${t.controls.shuffleOn}` : `${t.controls.shuffleOff}`}
-              className={`w-9 h-9 flex items-center justify-center rounded-full relative cursor-pointer ${
-                isShuffled ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
+              className={`w-9 h-9 flex items-center justify-center rounded-full relative cursor-pointer transition-colors duration-100 ${
+                isShuffled ? 'text-md3-primary bg-md3-primary/10 hover:bg-md3-primary/20' : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container'
               }`}
             >
               <Shuffle className="w-4.5 h-4.5" />
-              {isShuffled && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-md3-primary" />}
+              {isShuffled && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-md3-primary pointer-events-none" />}
             </button>
 
             <button
@@ -535,12 +535,12 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               onMouseDown={(e) => e.preventDefault()}
               onClick={onToggleRepeat}
               title={`${t.controls.repeatPrefix}: ${repeatMode}`}
-              className={`w-9 h-9 flex items-center justify-center rounded-full relative cursor-pointer ${
-                repeatMode !== 'off' ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
+              className={`w-9 h-9 flex items-center justify-center rounded-full relative cursor-pointer transition-colors duration-100 ${
+                repeatMode !== 'off' ? 'text-md3-primary bg-md3-primary/10 hover:bg-md3-primary/20' : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container'
               }`}
             >
               {repeatMode === 'one' ? <Repeat1 className="w-4.5 h-4.5" /> : <Repeat className="w-4.5 h-4.5" />}
-              {repeatMode !== 'off' && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-md3-primary" />}
+              {repeatMode !== 'off' && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-md3-primary pointer-events-none" />}
             </button>
           </div>
 
@@ -742,12 +742,12 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               onMouseDown={(e) => e.preventDefault()}
               onClick={onToggleShuffle}
               title={isShuffled ? `${t.controls.shuffleOn} [E]` : `${t.controls.shuffleOff} [E]`}
-              className={`p-2 rounded-full transition-colors relative cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
-                isShuffled ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
+              className={`p-2 rounded-full transition-colors duration-100 relative cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
+                isShuffled ? 'text-md3-primary bg-md3-primary/10 hover:bg-md3-primary/20' : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container'
               }`}
             >
               <Shuffle className="w-4 h-4" />
-              {isShuffled && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-md3-primary" />}
+              {isShuffled && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-md3-primary pointer-events-none" />}
             </button>
 
             {/* Previous */}
@@ -793,12 +793,12 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               onMouseDown={(e) => e.preventDefault()}
               onClick={onToggleRepeat}
               title={`${t.controls.repeatPrefix} [R]: ${repeatMode === 'off' ? t.controls.repeatOff : repeatMode === 'all' ? t.controls.repeatAll : t.controls.repeatOne}`}
-              className={`p-2 rounded-full transition-colors relative cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
-                repeatMode !== 'off' ? 'text-md3-primary bg-md3-primary/10' : 'text-md3-on-surface-variant hover:text-md3-on-surface'
+              className={`p-2 rounded-full transition-colors duration-100 relative cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
+                repeatMode !== 'off' ? 'text-md3-primary bg-md3-primary/10 hover:bg-md3-primary/20' : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container'
               }`}
             >
               {repeatMode === 'one' ? <Repeat1 className="w-4 h-4" /> : <Repeat className="w-4 h-4" />}
-              {repeatMode !== 'off' && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-md3-primary" />}
+              {repeatMode !== 'off' && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-md3-primary pointer-events-none" />}
             </button>
           </div>
 
