@@ -1293,6 +1293,9 @@ async fn download_and_install_update(
             const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
 
             let bat_path = exe_dir.join(".updater.bat");
+            let _ = std::fs::remove_file(&bat_path);
+            let _ = std::fs::remove_file(format!("{}.old", current_exe.to_string_lossy()));
+
             let bat_content = format!(
                 "@echo off\r\n\
                 chcp 65001 >nul\r\n\
@@ -1316,12 +1319,12 @@ async fn download_and_install_update(
                 .map_err(|e| format!("Failed to write updater script: {}", e))?;
 
             let _ = Command::new("cmd.exe")
-                .current_dir(exe_dir)
-                .args(&["/c", "start", "/b", "", &bat_path.to_string_lossy()])
+                .current_dir(std::env::temp_dir())
+                .args(&["/c", &bat_path.to_string_lossy()])
                 .creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
                 .spawn();
 
-            std::process::exit(0);
+            clean_exit();
         }
 
         #[cfg(not(target_os = "windows"))]
@@ -1357,6 +1360,9 @@ fn apply_in_place_update(base64_data: String) -> Result<(), String> {
         const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
 
         let bat_path = exe_dir.join(".updater.bat");
+        let _ = std::fs::remove_file(&bat_path);
+        let _ = std::fs::remove_file(format!("{}.old", current_exe.to_string_lossy()));
+
         let bat_content = format!(
             "@echo off\r\n\
             chcp 65001 >nul\r\n\
@@ -1380,12 +1386,12 @@ fn apply_in_place_update(base64_data: String) -> Result<(), String> {
             .map_err(|e| format!("Failed to write updater script: {}", e))?;
 
         let _ = Command::new("cmd.exe")
-            .current_dir(exe_dir)
-            .args(&["/c", "start", "/b", "", &bat_path.to_string_lossy()])
+            .current_dir(std::env::temp_dir())
+            .args(&["/c", &bat_path.to_string_lossy()])
             .creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
             .spawn();
 
-        std::process::exit(0);
+        clean_exit();
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -1436,6 +1442,7 @@ mod windows_process_grouping {
     }
 
     const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x00002000;
+    const JOB_OBJECT_LIMIT_BREAKAWAY_OK: u32 = 0x00000800;
     const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: i32 = 9;
 
     extern "system" {
@@ -1534,13 +1541,16 @@ mod windows_process_grouping {
                 let mut pids_to_kill = std::collections::HashSet::new();
                 pids_to_kill.insert(my_pid);
 
-                let mut entries = Vec::new();
+                let mut entries: Vec<(u32, u32, String)> = Vec::new();
                 let mut pe: PROCESSENTRY32W = std::mem::zeroed();
                 pe.dw_size = std::mem::size_of::<PROCESSENTRY32W>() as u32;
 
                 if Process32FirstW(snapshot, &mut pe) != 0 {
                     loop {
-                        entries.push((pe.th32_process_id, pe.th32_parent_process_id));
+                        let name = String::from_utf16_lossy(&pe.sz_exe_file)
+                            .trim_matches('\0')
+                            .to_lowercase();
+                        entries.push((pe.th32_process_id, pe.th32_parent_process_id, name));
                         if Process32NextW(snapshot, &mut pe) == 0 {
                             break;
                         }
@@ -1552,9 +1562,9 @@ mod windows_process_grouping {
                 let mut changed = true;
                 while changed {
                     changed = false;
-                    for &(pid, ppid) in &entries {
-                        if pids_to_kill.contains(&ppid) && !pids_to_kill.contains(&pid) {
-                            pids_to_kill.insert(pid);
+                    for (pid, ppid, _name) in &entries {
+                        if pids_to_kill.contains(ppid) && !pids_to_kill.contains(pid) {
+                            pids_to_kill.insert(*pid);
                             changed = true;
                         }
                     }
@@ -1564,12 +1574,16 @@ mod windows_process_grouping {
                     fn TerminateProcess(hProcess: *mut std::ffi::c_void, uExitCode: u32) -> i32;
                 }
 
-                for pid in pids_to_kill {
-                    if pid != my_pid {
-                        let h_proc = OpenProcess(0x0001 /* PROCESS_TERMINATE */, 0, pid);
-                        if !h_proc.is_null() {
-                            let _ = TerminateProcess(h_proc, 0);
-                            let _ = CloseHandle(h_proc);
+                for (pid, _ppid, name) in entries {
+                    if pids_to_kill.contains(&pid) && pid != my_pid {
+                        // ONLY terminate WebView2 descendant processes!
+                        // NEVER terminate cmd.exe, conhost.exe, powershell.exe or updater processes!
+                        if name.contains("msedgewebview2") || name.contains("webview2") {
+                            let h_proc = OpenProcess(0x0001 /* PROCESS_TERMINATE */, 0, pid);
+                            if !h_proc.is_null() {
+                                let _ = TerminateProcess(h_proc, 0);
+                                let _ = CloseHandle(h_proc);
+                            }
                         }
                     }
                 }
@@ -1591,7 +1605,7 @@ mod windows_process_grouping {
             let job = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
             if !job.is_null() {
                 let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-                info.basic_limit_information.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                info.basic_limit_information.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
                 let _ = SetInformationJobObject(
                     job,
                     JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
