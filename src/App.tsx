@@ -1615,7 +1615,14 @@ export const App: React.FC = () => {
           setFolderContextMenu(null);
           return;
         }
-        setSelectedTrackIds(new Set());
+        if (selectedTrackIds.size > 0) {
+          setSelectedTrackIds(new Set());
+          return;
+        }
+        if (currentDetail || selectedPlaylistId) {
+          handleBackToGrid();
+          return;
+        }
       }
     };
 
@@ -1647,6 +1654,8 @@ export const App: React.FC = () => {
     contextMenu,
     playlistContextMenu,
     folderContextMenu,
+    currentDetail,
+    selectedPlaylistId,
     currentView,
     visibleTabs,
   ]);
@@ -2896,16 +2905,14 @@ export const App: React.FC = () => {
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={handleBackToGrid}
                   className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-md3-surface hover:bg-md3-surface-container-high text-md3-primary border border-md3-outline-variant/20 flex items-center justify-center transition-all cursor-pointer outline-none focus:outline-none shrink-0 shadow-xs hover:scale-105 active:scale-95 group/back"
-                  title={language === 'ru' ? 'Назад (нажмите для возврата)' : 'Back (click to return)'}
+                  title={language === 'ru' ? 'Назад (нажмите для возврата) [Esc]' : 'Back (click to return) [Esc]'}
                 >
                   <ArrowLeft className="w-5 h-5 text-md3-primary group-hover/back:-translate-x-0.5 transition-transform" />
                 </button>
 
-                {/* Cover art with built-in Back button & hover overlay */}
+                {/* Cover art (clean presentation without back overlay) */}
                 <div 
-                  onClick={handleBackToGrid}
-                  title={language === 'ru' ? 'Назад (нажмите для возврата)' : 'Back (click to return)'}
-                  className="relative group w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden shadow-md shrink-0 border border-md3-outline-variant/20 cursor-pointer select-none bg-md3-surface-container-high transition-transform active:scale-95"
+                  className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden shadow-md shrink-0 border border-md3-outline-variant/20 select-none bg-md3-surface-container-high"
                 >
                   <div className="w-full h-full bg-md3-primary/10 text-md3-primary flex items-center justify-center absolute inset-0 z-0">
                     {currentDetail.icon}
@@ -2914,20 +2921,12 @@ export const App: React.FC = () => {
                     <img 
                       src={currentDetail.coverArt} 
                       alt={currentDetail.title} 
-                      className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 relative z-0" 
+                      className="w-full h-full object-cover relative z-0" 
                       onError={(e) => {
                         e.currentTarget.style.display = 'none';
                       }}
                     />
                   )}
-
-                  {/* Built-in back button overlay appearing on hover */}
-                  <div className="absolute inset-0 z-10 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white backdrop-blur-[2px]">
-                    <ArrowLeft className="w-6 h-6 stroke-[2.5] drop-shadow-md transition-transform group-hover:-translate-x-0.5" />
-                    <span className="text-[10px] font-bold mt-1 tracking-wider uppercase drop-shadow-sm">
-                      {language === 'ru' ? 'Назад' : 'Back'}
-                    </span>
-                  </div>
                 </div>
 
                 <div className="min-w-0 flex-1">
@@ -2940,7 +2939,7 @@ export const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* Action Buttons */}
+              {/* Action Buttons: Only Play All */}
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => {
@@ -2956,16 +2955,6 @@ export const App: React.FC = () => {
                   <Play className="w-4.5 h-4.5 fill-current ml-0.5" />
                   {!isCompact && <span>{language === 'ru' ? 'Воспроизвести всё' : 'Play All'}</span>}
                 </button>
-
-                {currentDetail.type === 'playlist' && !currentDetail.playlist.isSystem && (
-                  <button
-                    onClick={() => handleDeletePlaylist(currentDetail.playlist)}
-                    title={language === 'ru' ? "Удалить плейлист" : "Delete playlist"}
-                    className="p-2.5 rounded-full text-md3-on-surface-variant hover:text-red-500 hover:bg-md3-surface-container transition-colors cursor-pointer"
-                  >
-                    <Trash2 className="w-4.5 h-4.5" />
-                  </button>
-                )}
               </div>
             </div>
 

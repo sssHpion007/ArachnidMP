@@ -376,6 +376,24 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     return folders.find((f) => f.id === currentFolderId) || null;
   }, [currentFolderId, folders]);
 
+  // Keyboard shortcut: Escape to return to parent folder or root
+  useEffect(() => {
+    if (!currentFolderId) return;
+
+    const handleFolderKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        const activeEl = document.activeElement;
+        if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        handleGoBackFolder(currentFolder?.parentId || null);
+      }
+    };
+
+    window.addEventListener('keydown', handleFolderKeyDown);
+    return () => window.removeEventListener('keydown', handleFolderKeyDown);
+  }, [currentFolderId, currentFolder]);
+
   // Breadcrumbs path
   const breadcrumbs = useMemo(() => {
     const crumbs: PlaylistFolder[] = [];
@@ -1253,18 +1271,20 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                     }
                   }}
                   style={groupHeaderBg ? { backgroundColor: groupHeaderBg } : undefined}
-                  className="w-full flex items-center justify-between px-4 py-3 bg-md3-surface-container/60 hover:bg-md3-surface-container cursor-pointer transition-colors border-b border-md3-outline-variant/10 touch-none"
+                  className={`w-full flex items-center justify-between px-4 py-3 bg-md3-surface-container/60 hover:bg-md3-surface-container cursor-pointer transition-colors ${
+                    isCollapsed ? 'border-b-0' : 'border-b border-md3-outline-variant/10'
+                  } touch-none`}
                 >
                   <div className="flex items-center gap-2.5 min-w-0 pointer-events-none">
                     <button
                       type="button"
                       className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface transition-transform pointer-events-auto"
                     >
-                      {isCollapsed ? (
-                        <ChevronRight className="w-4 h-4" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4" />
-                      )}
+                      <ChevronDown
+                        className={`w-4 h-4 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+                          isCollapsed ? '-rotate-90 text-md3-on-surface-variant' : 'rotate-0 text-md3-primary'
+                        }`}
+                      />
                     </button>
                     <GripVertical className="w-3.5 h-3.5 text-md3-on-surface-variant/40" />
                     <Layers
@@ -1346,21 +1366,31 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                   </div>
                 </div>
 
-                {/* Group Content Grid */}
-                {!isCollapsed && (
-                  <div className="p-4">
-                    {totalGroupItems === 0 ? (
-                      <div className="py-6 text-center text-xs text-md3-on-surface-variant/60 border border-dashed border-md3-outline-variant/20 rounded-2xl">
-                        Перетащите сюда плейлисты или папки, либо нажмите «+» для создания.
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                        {groupFolders.map(renderFolderCard)}
-                        {groupPlaylists.map(renderPlaylistCard)}
-                      </div>
-                    )}
+                {/* Animated Collapsible Group Content Grid */}
+                <div
+                  className={`grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+                    isCollapsed
+                      ? 'grid-rows-[0fr] opacity-0'
+                      : 'grid-rows-[1fr] opacity-100'
+                  }`}
+                >
+                  <div className="overflow-hidden">
+                    <div className="p-4">
+                      {totalGroupItems === 0 ? (
+                        <div className="py-6 text-center text-xs text-md3-on-surface-variant/60 border border-dashed border-md3-outline-variant/20 rounded-2xl">
+                          {language === 'ru'
+                            ? 'Перетащите сюда плейлисты или папки, либо нажмите «+» для создания.'
+                            : 'Drag playlists or folders here, or click "+" to create.'}
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                          {groupFolders.map(renderFolderCard)}
+                          {groupPlaylists.map(renderPlaylistCard)}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                )}
+                </div>
               </div>
             );
           })}
