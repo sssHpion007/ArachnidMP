@@ -990,12 +990,8 @@ fn batch_update_tags(tracks: Vec<TrackMetadata>) -> Result<usize, String> {
 fn show_in_folder(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        Command::new("explorer")
+        std::process::Command::new("explorer")
             .args(["/select,", &path])
-            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|e| e.to_string())?;
         Ok(())
@@ -1752,12 +1748,8 @@ fn open_app_folder(subfolder: Option<String>) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        Command::new("explorer")
+        std::process::Command::new("explorer")
             .arg(&target)
-            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
