@@ -321,6 +321,86 @@ async fn scan_folder(folder_path: String) -> Result<Vec<TrackMetadata>, String> 
     read_audio_files(vec![folder_path]).await
 }
 
+#[tauri::command]
+fn get_portable_music_path() -> Result<String, String> {
+    let base_dir = storage::get_portable_base_dir();
+    let music_dir = base_dir.join("music");
+    let _ = std::fs::create_dir_all(&music_dir);
+    Ok(music_dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn pick_folder_dialog() -> Result<Option<String>, String> {
+    let folder = rfd::FileDialog::new().pick_folder();
+    Ok(folder.map(|p| p.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+async fn find_relocated_tracks_in_folder(
+    search_dir: String,
+    missing_paths: Vec<String>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = Path::new(&search_dir);
+        if !root.is_dir() {
+            return Err("Selected path is not a directory".to_string());
+        }
+
+        let supported = ["mp3", "flac", "wav", "ogg", "m4a", "aac", "opus", "wma"];
+        let mut found_by_filename: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+        let mut found_by_rel_suffix: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+        for entry in walkdir::WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+            if entry.path().is_file() {
+                if let Some(ext) = entry.path().extension().and_then(|x| x.to_str()) {
+                    if supported.contains(&ext.to_lowercase().as_str()) {
+                        let full_str = entry.path().to_string_lossy().to_string();
+                        if let Some(fname) = entry.path().file_name().and_then(|f| f.to_str()) {
+                            let fname_lower = fname.to_lowercase();
+                            found_by_filename.entry(fname_lower).or_default().push(full_str.clone());
+                        }
+
+                        if let Some(parent_name) = entry.path().parent().and_then(|p| p.file_name()).and_then(|f| f.to_str()) {
+                            if let Some(fname) = entry.path().file_name().and_then(|f| f.to_str()) {
+                                let key = format!("{}/{}", parent_name.to_lowercase(), fname.to_lowercase());
+                                found_by_rel_suffix.insert(key, full_str);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut relocated_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+        for old_path in missing_paths {
+            let p = Path::new(&old_path);
+            let fname = p.file_name().and_then(|f| f.to_str()).map(|f| f.to_lowercase());
+            let parent_name = p.parent().and_then(|par| par.file_name()).and_then(|f| f.to_str()).map(|f| f.to_lowercase());
+
+            if let (Some(par), Some(f)) = (&parent_name, &fname) {
+                let suffix_key = format!("{}/{}", par, f);
+                if let Some(found_path) = found_by_rel_suffix.get(&suffix_key) {
+                    relocated_map.insert(old_path.clone(), found_path.clone());
+                    continue;
+                }
+            }
+
+            if let Some(f) = fname {
+                if let Some(candidates) = found_by_filename.get(&f) {
+                    if !candidates.is_empty() {
+                        relocated_map.insert(old_path.clone(), candidates[0].clone());
+                    }
+                }
+            }
+        }
+
+        Ok(relocated_map)
+    })
+    .await
+    .map_err(|e| format!("Task execution error: {}", e))?
+}
+
 fn find_mp3_audio_start(data: &[u8]) -> usize {
     let mut offset = 0;
     let file_len = data.len();
@@ -1912,7 +1992,10 @@ pub fn run() {
             logger::open_logs_folder,
             export_playlist_to_m3u8,
             import_playlist_from_m3u8,
-            parse_m3u8_file
+            parse_m3u8_file,
+            get_portable_music_path,
+            pick_folder_dialog,
+            find_relocated_tracks_in_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arachnid application");

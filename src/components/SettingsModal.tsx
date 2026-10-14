@@ -38,7 +38,9 @@ import {
   AlertCircle,
   ExternalLink,
   FileText,
-  Calendar
+  Calendar,
+  FolderKanban,
+  FolderPlus
 } from 'lucide-react';
 import { marked } from 'marked';
 import { ThemeMode, Track, FadeMode } from '../types/music';
@@ -106,6 +108,13 @@ interface SettingsModalProps {
   onResetThemePalette: () => void;
   themeToggles: Record<string, boolean>;
   onToggleThemeOption: (toggleId: string, val: boolean) => void;
+  watchedFolders?: string[];
+  onAddWatchedFolder?: (folder: string) => void;
+  onRemoveWatchedFolder?: (folder: string) => void;
+  autoScanOnStartup?: boolean;
+  onToggleAutoScanOnStartup?: () => void;
+  onScanLibrary?: () => Promise<number>;
+  tracks?: Track[];
 }
 
 const STANDARD_PRESETS = [
@@ -167,11 +176,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onResetThemePalette,
   themeToggles,
   onToggleThemeOption,
+  watchedFolders = [],
+  onAddWatchedFolder,
+  onRemoveWatchedFolder,
+  autoScanOnStartup = true,
+  onToggleAutoScanOnStartup,
+  onScanLibrary,
+  tracks = [],
 }) => {
-  const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes' | 'discord' | 'logs'>('main');
+  const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes' | 'discord' | 'logs' | 'library_folders'>('main');
   const [navDirection, setNavDirection] = useState<'forward' | 'backward'>('forward');
   const [isPaletteModalOpen, setIsPaletteModalOpen] = useState<boolean>(false);
   const [themeToDelete, setThemeToDelete] = useState<CustomThemeInfo | null>(null);
+  const [isScanning, setIsScanning] = useState<boolean>(false);
+  const [scanResult, setScanResult] = useState<string | null>(null);
   const updateSectionRef = useRef<HTMLDivElement>(null);
   const updateCardRef = useRef<HTMLDivElement>(null);
   const releaseNotesContainerRef = useRef<HTMLDivElement>(null);
@@ -530,6 +548,44 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setCurrentView('shortcuts');
   };
 
+  const handleOpenLibraryFolders = () => {
+    if (mainSettingsContainerRef.current) {
+      mainScrollTopRef.current = mainSettingsContainerRef.current.scrollTop;
+    }
+    setNavDirection('forward');
+    setCurrentView('library_folders');
+  };
+
+  const handleAddWatchedFolderClick = async () => {
+    if (!isTauri() || !onAddWatchedFolder) return;
+    try {
+      const folder = await invoke<string | null>('pick_folder_dialog');
+      if (folder) {
+        onAddWatchedFolder(folder);
+      }
+    } catch (e) {
+      console.warn('Failed to pick folder:', e);
+    }
+  };
+
+  const handleScanNowClick = async () => {
+    if (!onScanLibrary) return;
+    setIsScanning(true);
+    setScanResult(null);
+    try {
+      const count = await onScanLibrary();
+      setScanResult(
+        language === 'ru'
+          ? count > 0 ? `Добавлено новых треков: ${count}` : 'Новых треков не найдено'
+          : count > 0 ? `Added ${count} new tracks` : 'No new tracks found'
+      );
+    } catch (e) {
+      setScanResult(language === 'ru' ? 'Ошибка при сканировании' : 'Scan error');
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
   const handleOpenLogs = () => {
     if (mainSettingsContainerRef.current) {
       mainScrollTopRef.current = mainSettingsContainerRef.current.scrollTop;
@@ -759,6 +815,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ? t.settings.discordRpc
                   : currentView === 'logs'
                   ? t.settings.logs
+                  : currentView === 'library_folders'
+                  ? t.settings.libraryFolders
                   : t.settings.title}
               </h3>
               <p className="text-xs text-md3-on-surface-variant">
@@ -770,6 +828,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ? t.settings.discordSettingsDesc
                   : currentView === 'logs'
                   ? t.settings.logsDesc
+                  : currentView === 'library_folders'
+                  ? t.settings.libraryFoldersDesc
                   : t.settings.subtitle}
               </p>
             </div>
@@ -1463,6 +1523,197 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       {renderFormattedLogLine(line)}
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : currentView === 'library_folders' ? (
+          /* Library Folders View */
+          <div key="view-library-folders" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 anim-view-slide-right">
+            {/* 1. Portable Music Folder */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-bold uppercase tracking-wider text-md3-primary flex items-center gap-2">
+                  <FolderOpen className="w-4 h-4" />
+                  <span>{t.settings.portableMusicFolder}</span>
+                </div>
+                <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-md3-primary/15 text-md3-primary font-bold border border-md3-primary/30 uppercase tracking-wider">
+                  {t.settings.portableBadge}
+                </span>
+              </div>
+
+              <div className="p-4 rounded-3xl bg-md3-surface border border-md3-outline-variant/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="space-y-1 min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-bold text-md3-on-surface">music/</span>
+                    <span className="text-xs text-md3-on-surface-variant font-medium">
+                      ({tracks.filter(t => t.path && (t.path.toLowerCase().includes('/music/') || t.path.toLowerCase().includes('\\music\\') || t.path.toLowerCase().startsWith('music/'))).length} {t.settings.tracksCount})
+                    </span>
+                  </div>
+                  <p className="text-xs text-md3-on-surface-variant leading-relaxed">
+                    {t.settings.portableMusicFolderDesc}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => {
+                      if (isTauri()) {
+                        invoke('open_app_folder', { subfolder: 'music' });
+                      }
+                    }}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-md3-surface-container-high hover:bg-md3-surface-container-highest text-md3-on-surface text-xs font-semibold border border-md3-outline-variant/20 transition-all cursor-pointer"
+                    title={t.settings.openInExplorer}
+                  >
+                    <FolderOpen className="w-3.5 h-3.5 text-md3-primary" />
+                    <span>{t.settings.openInExplorer}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Watched External Folders */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-bold uppercase tracking-wider text-md3-primary flex items-center gap-2">
+                    <FolderKanban className="w-4 h-4" />
+                    <span>{t.settings.watchedFolders}</span>
+                  </div>
+                  <p className="text-xs text-md3-on-surface-variant mt-0.5">
+                    {t.settings.watchedFoldersDesc}
+                  </p>
+                </div>
+
+                {isTauri() && onAddWatchedFolder && (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={handleAddWatchedFolderClick}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-md3-primary text-md3-on-primary text-xs font-bold hover:opacity-90 shadow-sm transition-all cursor-pointer shrink-0"
+                  >
+                    <FolderPlus className="w-3.5 h-3.5" />
+                    <span>{t.settings.addFolder}</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Folders List */}
+              <div className="space-y-2">
+                {(!watchedFolders || watchedFolders.length === 0) ? (
+                  <div className="p-6 rounded-3xl bg-md3-surface border border-dashed border-md3-outline-variant/20 text-center text-xs text-md3-on-surface-variant/70">
+                    {language === 'ru'
+                      ? 'Нет дополнительных отслеживаемых папок. Вся музыка загружается из портативной папки music/ или перетаскиванием.'
+                      : 'No external watched folders. Music is loaded from the portable music/ folder or dragged in.'}
+                  </div>
+                ) : (
+                  watchedFolders.map((folderPath) => {
+                    const folderTracksCount = tracks.filter(t => t.path && t.path.toLowerCase().startsWith(folderPath.toLowerCase())).length;
+                    return (
+                      <div
+                        key={folderPath}
+                        className="p-3.5 rounded-2xl bg-md3-surface border border-md3-outline-variant/20 flex items-center justify-between gap-3"
+                      >
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <div className="font-mono text-xs font-medium text-md3-on-surface truncate" title={folderPath}>
+                            {folderPath}
+                          </div>
+                          <div className="text-[11px] text-md3-on-surface-variant">
+                            {folderTracksCount} {t.settings.tracksCount}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            onClick={() => {
+                              if (isTauri()) {
+                                invoke('show_in_folder', { path: folderPath });
+                              }
+                            }}
+                            className="p-2 rounded-xl text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container transition-colors cursor-pointer"
+                            title={t.settings.openInExplorer}
+                          >
+                            <FolderOpen className="w-4 h-4" />
+                          </button>
+
+                          {onRemoveWatchedFolder && (
+                            <button
+                              type="button"
+                              tabIndex={-1}
+                              onClick={() => onRemoveWatchedFolder(folderPath)}
+                              className="p-2 rounded-xl text-md3-on-surface-variant hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                              title={t.settings.removeFolder}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* 3. Settings & Scan Now Action */}
+            <div className="space-y-4 pt-2 border-t border-md3-outline-variant/15">
+              {/* Auto Scan Toggle */}
+              <div className="flex items-center justify-between gap-4 p-4 rounded-3xl bg-md3-surface border border-md3-outline-variant/20">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-bold text-md3-on-surface">
+                    {t.settings.autoScanStartup}
+                  </div>
+                  <div className="text-xs text-md3-on-surface-variant">
+                    {t.settings.autoScanStartupDesc}
+                  </div>
+                </div>
+
+                {onToggleAutoScanOnStartup && (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={onToggleAutoScanOnStartup}
+                    className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer outline-none focus:outline-none shrink-0 ${
+                      autoScanOnStartup ? 'bg-md3-primary' : 'bg-md3-surface-container-highest border border-md3-outline-variant/40'
+                    }`}
+                  >
+                    <div
+                      className={`w-4 h-4 rounded-full bg-white transition-transform duration-200 absolute top-1 ${
+                        autoScanOnStartup ? 'left-7' : 'left-1'
+                      }`}
+                    />
+                  </button>
+                )}
+              </div>
+
+              {/* Scan Now Button */}
+              {isTauri() && onScanLibrary && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 rounded-3xl bg-md3-surface-container border border-md3-outline-variant/20">
+                  <div>
+                    <div className="text-xs font-bold text-md3-on-surface">
+                      {t.settings.scanLibraryNow}
+                    </div>
+                    {scanResult && (
+                      <div className="text-xs text-md3-primary font-semibold mt-0.5">
+                        {scanResult}
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    disabled={isScanning}
+                    onClick={handleScanNowClick}
+                    className="w-full sm:w-auto px-5 py-2.5 rounded-full bg-md3-primary text-md3-on-primary text-xs font-bold hover:opacity-90 shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin' : ''}`} />
+                    <span>{isScanning ? t.settings.scanningLibrary : t.settings.scanLibraryNow}</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -2288,7 +2539,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
-            {/* 6. Button to Open Keyboard Shortcuts Menu */}
+            {/* 6a. Button to Open Library Folders Menu */}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleOpenLibraryFolders}
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-md3-surface-container-high/60 hover:bg-md3-surface-container-high border border-md3-outline-variant/20 hover:border-md3-primary/40 transition-all cursor-pointer group shadow-xs"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <FolderKanban className="w-5 h-5" />
+                  </div>
+                  <div className="text-left">
+                    <div className="text-xs font-bold text-md3-on-surface group-hover:text-md3-primary transition-colors">
+                      {t.settings.libraryFolders}
+                    </div>
+                    <div className="text-[11px] text-md3-on-surface-variant">
+                      {t.settings.libraryFoldersDesc}
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-md3-on-surface-variant group-hover:text-md3-primary group-hover:translate-x-0.5 transition-all" />
+              </button>
+            </div>
+
+            {/* 6b. Button to Open Keyboard Shortcuts Menu */}
             <div className="pt-2">
               <button
                 onClick={handleOpenShortcuts}

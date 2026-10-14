@@ -236,6 +236,25 @@ pub fn init_storage_structure(base_dir: &Path) {
     let _ = fs::create_dir_all(&themes_dir);
     let _ = fs::create_dir_all(&locales_dir);
 
+    // Create and initialize portable music/ folder
+    let music_dir = base_dir.join("music");
+    let _ = fs::create_dir_all(&music_dir);
+    let music_readme = music_dir.join("README.txt");
+    if !music_readme.exists() {
+        let readme_content = "\
+Arachnid Portable Music Directory / Портативная папка музыки Arachnid
+======================================================================
+Поместите сюда ваши аудиофайлы или папки с альбомами.
+
+Преимущества:
+1. Максимальная портативность: при переносе плеера на флешку или другой ПК 
+   все файлы из этой папки будут автоматически доступны плееру без потери путей.
+2. Поддерживаются любые подпапки с любой глубиной вложенности.
+3. Плеер автоматически сканирует эту папку и добавляет треки в медиатеку.
+";
+        let _ = fs::write(music_readme, readme_content);
+    }
+
     // Create a README in playlists/
     let playlists_readme = playlists_dir.join("README.txt");
     if !playlists_readme.exists() {
@@ -589,6 +608,16 @@ pub fn save_modular_data(data: &Value) -> Result<bool, String> {
                         track["coverArt"] = json!(null);
                     }
                 }
+                // Convert tracks inside portable music/ directory to relative portable path
+                if let Some(path_val) = track.get("path").and_then(|p| p.as_str()) {
+                    let p = Path::new(path_val);
+                    if let Ok(rel) = p.strip_prefix(&base_dir) {
+                        let rel_str = rel.to_string_lossy().replace('\\', "/");
+                        if rel_str.starts_with("music/") {
+                            track["path"] = json!(rel_str);
+                        }
+                    }
+                }
             }
         }
         let library_path = config_dir.join("library.json");
@@ -723,6 +752,16 @@ pub fn load_modular_data() -> Result<Option<String>, String> {
                                     track["coverArt"] = json!(abs_path);
                                 } else {
                                     track["coverArt"] = json!(null);
+                                }
+                            }
+                            // Reconstruct absolute music path if saved as relative "music/..."
+                            if let Some(path_val) = track.get("path").and_then(|p| p.as_str()) {
+                                let norm = path_val.replace('\\', "/");
+                                if norm.starts_with("music/") {
+                                    let abs_music_path = base_dir.join(&norm);
+                                    let abs_str = abs_music_path.to_string_lossy().to_string();
+                                    track["path"] = json!(abs_str);
+                                    track["src"] = json!(abs_str);
                                 }
                             }
                         }

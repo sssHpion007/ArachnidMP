@@ -156,6 +156,35 @@ export interface Translations {
     intervalStartup: string;
     interval30m: string;
     interval1h: string;
+    libraryFolders: string;
+    libraryFoldersDesc: string;
+    portableMusicFolder: string;
+    portableMusicFolderDesc: string;
+    portableBadge: string;
+    watchedFolders: string;
+    watchedFoldersDesc: string;
+    addFolder: string;
+    openInExplorer: string;
+    removeFolder: string;
+    scanLibraryNow: string;
+    scanningLibrary: string;
+    autoScanStartup: string;
+    autoScanStartupDesc: string;
+    tracksCount: string;
+  };
+  missingTracks: {
+    title: string;
+    desc: string;
+    missingCount: string;
+    showList: string;
+    hideList: string;
+    findInFolder: string;
+    searchingInFolder: string;
+    foundAndRelocated: string;
+    clearFromLibrary: string;
+    continueAsIs: string;
+    confirmClearTitle: string;
+    confirmClearDesc: string;
   };
   shortcuts: {
     playbackAndSound: string;
@@ -343,6 +372,35 @@ export const RU_TRANSLATIONS: Translations = {
     intervalStartup: 'При запуске',
     interval30m: '30 минут',
     interval1h: '1 час',
+    libraryFolders: 'Папки медиатеки',
+    libraryFoldersDesc: 'Управление отслеживаемыми папками и портативной директорией music',
+    portableMusicFolder: 'Портативная папка музыки (music/)',
+    portableMusicFolderDesc: 'Главная папка рядом с программой. Содержимое всегда доступно при переносе на флешку или другой ПК.',
+    portableBadge: 'Портативная',
+    watchedFolders: 'Отслеживаемые папки',
+    watchedFoldersDesc: 'Внешние папки на компьютере, которые плеер сканирует и добавляет в медиатеку',
+    addFolder: 'Добавить папку',
+    openInExplorer: 'Открыть в Проводнике',
+    removeFolder: 'Удалить из отслеживаемых',
+    scanLibraryNow: 'Сканировать медиатеку',
+    scanningLibrary: 'Сканирование медиатеки...',
+    autoScanStartup: 'Сканировать медиатеку при запуске',
+    autoScanStartupDesc: 'Автоматически находить новые файлы в папке music/ и отслеживаемых папках',
+    tracksCount: 'треков',
+  },
+  missingTracks: {
+    title: 'Часть треков не найдена',
+    desc: 'Файлы были перемещены, удалены или буква диска изменилась.',
+    missingCount: 'Недоступно треков',
+    showList: 'Показать список',
+    hideList: 'Скрыть список',
+    findInFolder: 'Найти в папке...',
+    searchingInFolder: 'Поиск файлов в папке...',
+    foundAndRelocated: 'Найдено и восстановлено',
+    clearFromLibrary: 'Очистить из списка',
+    continueAsIs: 'Продолжить как есть',
+    confirmClearTitle: 'Удалить отсутствующие треки?',
+    confirmClearDesc: 'Эти треки будут удалены из медиатеки и плейлистов.',
   },
   shortcuts: {
     playbackAndSound: 'Воспроизведение и звук',
@@ -530,6 +588,35 @@ export const EN_TRANSLATIONS: Translations = {
     intervalStartup: 'At startup',
     interval30m: '30 minutes',
     interval1h: '1 hour',
+    libraryFolders: 'Library Folders',
+    libraryFoldersDesc: 'Manage watched folders and the portable music/ directory',
+    portableMusicFolder: 'Portable Music Folder (music/)',
+    portableMusicFolderDesc: 'Primary folder next to the app. Always accessible when moved to a USB drive or another PC.',
+    portableBadge: 'Portable',
+    watchedFolders: 'Watched Folders',
+    watchedFoldersDesc: 'External folders on your computer that the player scans and adds to the library',
+    addFolder: 'Add Folder',
+    openInExplorer: 'Open in Explorer',
+    removeFolder: 'Remove from Watched',
+    scanLibraryNow: 'Scan Library Now',
+    scanningLibrary: 'Scanning Library...',
+    autoScanStartup: 'Scan library on startup',
+    autoScanStartupDesc: 'Automatically detect new tracks in music/ and watched folders upon launch',
+    tracksCount: 'tracks',
+  },
+  missingTracks: {
+    title: 'Some Tracks Not Found',
+    desc: 'Files were moved, deleted, or the drive letter changed.',
+    missingCount: 'Unavailable tracks',
+    showList: 'Show list',
+    hideList: 'Hide list',
+    findInFolder: 'Find in Folder...',
+    searchingInFolder: 'Searching files in folder...',
+    foundAndRelocated: 'Found and restored',
+    clearFromLibrary: 'Remove from Library',
+    continueAsIs: 'Continue as is',
+    confirmClearTitle: 'Remove Missing Tracks?',
+    confirmClearDesc: 'These tracks will be removed from the library and playlists.',
   },
   shortcuts: {
     playbackAndSound: 'Playback and Sound',

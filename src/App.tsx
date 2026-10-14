@@ -24,6 +24,7 @@ import { RenameItemModal } from './components/RenameItemModal';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import { TrackDetailsModal } from './components/TrackDetailsModal';
 import { LyricsModal } from './components/LyricsModal';
+import { MissingTracksModal } from './components/MissingTracksModal';
 import { audioEngine } from './services/audioEngine';
 import { discordRpc } from './services/discordRpc';
 import { parseAudioFile } from './services/tagEditor';
@@ -216,6 +217,11 @@ export const App: React.FC = () => {
   const [discordStatusMode, setDiscordStatusMode] = useState<'listening' | 'listening_app'>('listening_app');
   const [discordCustomClientId, setDiscordCustomClientId] = useState<string>('');
   const [visibleTabs, setVisibleTabs] = useState<Record<MainViewType, boolean>>(DEFAULT_VISIBLE_TABS);
+  const [watchedFolders, setWatchedFolders] = useState<string[]>([]);
+  const [autoScanOnStartup, setAutoScanOnStartup] = useState<boolean>(true);
+  const [isMissingTracksModalOpen, setIsMissingTracksModalOpen] = useState<boolean>(false);
+  const [missingTracksForModal, setMissingTracksForModal] = useState<Track[]>([]);
+  const hasCheckedMissingOnStartupRef = useRef<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef<number>(0);
@@ -260,17 +266,19 @@ export const App: React.FC = () => {
     }
   }, [currentTrack, isLyricsOpen]);
 
-  const verifyTracksExistence = useCallback(async (tracksToCheck: Track[]) => {
+  const verifyTracksExistence = useCallback(async (tracksToCheck: Track[], isInitialStartup = false) => {
     if (!isTauri() || tracksToCheck.length === 0) return;
     const paths = tracksToCheck.map(t => t.path).filter((p): p is string => Boolean(p));
     if (paths.length === 0) return;
     try {
       const results = await invoke<Record<string, boolean>>('batch_check_files_exist', { paths });
+      const missingList: Track[] = [];
       setTracks(prev => {
         let changed = false;
         const updated = prev.map(t => {
           if (t.path && results[t.path] !== undefined) {
             const missing = !results[t.path];
+            if (missing) missingList.push(t);
             if (t.isMissing !== missing) {
               changed = true;
               return { ...t, isMissing: missing };
@@ -280,6 +288,12 @@ export const App: React.FC = () => {
         });
         return changed ? updated : prev;
       });
+
+      if (isInitialStartup && missingList.length > 0 && !hasCheckedMissingOnStartupRef.current) {
+        hasCheckedMissingOnStartupRef.current = true;
+        setMissingTracksForModal(missingList);
+        setIsMissingTracksModalOpen(true);
+      }
     } catch (e) {
       console.warn('Failed to verify tracks existence:', e);
     }
@@ -313,7 +327,53 @@ export const App: React.FC = () => {
               };
             });
             setTracks(hydrated);
-            verifyTracksExistence(hydrated);
+            verifyTracksExistence(hydrated, true);
+
+            // Auto-scan portable music/ folder and watchedFolders on startup if enabled
+            if (isTauri() && parsed.autoScanOnStartup !== false) {
+              setTimeout(async () => {
+                try {
+                  const portableMusicPath = await invoke<string>('get_portable_music_path');
+                  const foldersToScan = [portableMusicPath, ...(parsed.watchedFolders || [])];
+                  const raw = await invoke<any[]>('read_audio_files', { paths: foldersToScan });
+                  if (raw && raw.length > 0) {
+                    const currentPaths = new Set(tracksRef.current.map(t => t.path?.toLowerCase() || ''));
+                    const newFound: Track[] = [];
+                    for (const m of raw) {
+                      if (!currentPaths.has(m.path.toLowerCase())) {
+                        let coverArt = m.cover_art || undefined;
+                        if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+                          coverArt = convertFileSrc(coverArt);
+                        }
+                        const newT: Track = {
+                          id: m.id || `track_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                          path: m.path,
+                          title: m.title || 'Unknown',
+                          artist: m.artist || 'Unknown Artist',
+                          album: m.album || 'Unknown Album',
+                          duration: m.duration_seconds || 0,
+                          src: convertFileSrc(m.path),
+                          coverArt,
+                          genre: m.genre || undefined,
+                          year: m.year || undefined,
+                          trackNumber: m.track_number || undefined,
+                          dateAdded: Date.now(),
+                          playCount: 0,
+                          isFavorite: false,
+                        };
+                        currentPaths.add(m.path.toLowerCase());
+                        newFound.push(newT);
+                      }
+                    }
+                    if (newFound.length > 0) {
+                      setTracks(prev => [...prev, ...newFound]);
+                    }
+                  }
+                } catch (e) {
+                  console.warn('Startup library scan error:', e);
+                }
+              }, 600);
+            }
 
             // Auto-refresh metadata in background only for tracks missing essential tags (Unknown title/artist or missing cover)
             if (isTauri()) {
@@ -395,6 +455,8 @@ export const App: React.FC = () => {
           }
           if (parsed.fadeMode) setFadeMode(parsed.fadeMode);
           if (typeof parsed.fadeDuration === 'number') setFadeDuration(parsed.fadeDuration);
+          if (Array.isArray(parsed.watchedFolders)) setWatchedFolders(parsed.watchedFolders);
+          if (typeof parsed.autoScanOnStartup === 'boolean') setAutoScanOnStartup(parsed.autoScanOnStartup);
         }
       } catch (err) {
         console.warn('Could not load portable data:', err);
@@ -431,6 +493,8 @@ export const App: React.FC = () => {
       isDynamicColor: colorSchemeMode === 'dynamic',
       fadeMode,
       fadeDuration,
+      watchedFolders,
+      autoScanOnStartup,
     };
 
     const jsonString = JSON.stringify(dataToSave);
@@ -453,7 +517,7 @@ export const App: React.FC = () => {
     } else {
       localStorage.setItem('arachnid_portable_data', jsonString);
     }
-  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, colorSchemeMode, fadeMode, fadeDuration]);
+  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup]);
 
   // Safety fallback: reveal window in case TitleBar unmounted or delayed
   useEffect(() => {
@@ -2596,6 +2660,124 @@ export const App: React.FC = () => {
     }
   };
 
+  // Library folders management
+  const handleAddWatchedFolder = (folder: string) => {
+    if (!folder || watchedFolders.includes(folder)) return;
+    setWatchedFolders(prev => [...prev, folder]);
+  };
+
+  const handleRemoveWatchedFolder = (folder: string) => {
+    setWatchedFolders(prev => prev.filter(f => f !== folder));
+  };
+
+  const handleToggleAutoScanOnStartup = () => {
+    setAutoScanOnStartup(prev => !prev);
+  };
+
+  const handleScanLibrary = useCallback(async (): Promise<number> => {
+    if (!isTauri()) return 0;
+    try {
+      const portableMusicPath = await invoke<string>('get_portable_music_path');
+      const foldersToScan = [portableMusicPath, ...watchedFolders];
+      const raw = await invoke<any[]>('read_audio_files', { paths: foldersToScan });
+      if (!raw || raw.length === 0) return 0;
+
+      const currentPaths = new Map(tracksRef.current.map(t => [t.path?.toLowerCase() || '', t.id]));
+      const newFound: Track[] = [];
+
+      for (const m of raw) {
+        const lower = m.path.toLowerCase();
+        if (!currentPaths.has(lower)) {
+          let coverArt = m.cover_art || undefined;
+          if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+            coverArt = convertFileSrc(coverArt);
+          }
+          const newT: Track = {
+            id: m.id || `track_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            path: m.path,
+            title: m.title || 'Unknown',
+            artist: m.artist || 'Unknown Artist',
+            album: m.album || 'Unknown Album',
+            duration: m.duration_seconds || 0,
+            src: convertFileSrc(m.path),
+            coverArt,
+            genre: m.genre || undefined,
+            year: m.year || undefined,
+            trackNumber: m.track_number || undefined,
+            dateAdded: Date.now(),
+            playCount: 0,
+            isFavorite: false,
+          };
+          currentPaths.set(lower, newT.id);
+          newFound.push(newT);
+        }
+      }
+
+      if (newFound.length > 0) {
+        setTracks(prev => [...prev, ...newFound]);
+      }
+
+      return newFound.length;
+    } catch (err) {
+      console.warn('Scan library error:', err);
+      return 0;
+    }
+  }, [watchedFolders]);
+
+  // Missing tracks relocation and cleanup
+  const handleRelocateMissingInFolder = async (): Promise<{ total: number; found: number } | null> => {
+    if (!isTauri() || missingTracksForModal.length === 0) return null;
+    try {
+      const folder = await invoke<string | null>('pick_folder_dialog');
+      if (!folder) return null;
+
+      const missingPaths = missingTracksForModal
+        .map(t => t.path)
+        .filter((p): p is string => Boolean(p));
+
+      const relocatedMap = await invoke<Record<string, string>>('find_relocated_tracks_in_folder', {
+        searchDir: folder,
+        missingPaths,
+      });
+
+      if (!relocatedMap) return { total: missingPaths.length, found: 0 };
+
+      const foundCount = Object.keys(relocatedMap).length;
+      if (foundCount > 0) {
+        setTracks(prev => prev.map(t => {
+          if (t.path && relocatedMap[t.path]) {
+            const newPath = relocatedMap[t.path];
+            return {
+              ...t,
+              path: newPath,
+              src: convertFileSrc(newPath),
+              isMissing: false,
+            };
+          }
+          return t;
+        }));
+
+        setMissingTracksForModal(prev => prev.filter(t => !t.path || !relocatedMap[t.path]));
+      }
+
+      return { total: missingPaths.length, found: foundCount };
+    } catch (err) {
+      console.warn('Error during relocated folder search:', err);
+      return null;
+    }
+  };
+
+  const handleClearMissingTracks = () => {
+    const missingIds = new Set(missingTracksForModal.map(t => t.id));
+    setTracks(prev => prev.filter(t => !missingIds.has(t.id)));
+    setPlaylists(prev => prev.map(p => ({
+      ...p,
+      trackIds: p.trackIds.filter(id => !missingIds.has(id)),
+    })));
+    setIsMissingTracksModalOpen(false);
+    setMissingTracksForModal([]);
+  };
+
   const handleSelectPlaylist = (id: string) => {
     setDetailNavDirection('forward');
     setSelectedPlaylistId(id);
@@ -3468,6 +3650,13 @@ export const App: React.FC = () => {
         onResetThemePalette={handleResetThemePalette}
         themeToggles={themeToggles}
         onToggleThemeOption={handleToggleThemeOption}
+        watchedFolders={watchedFolders}
+        onAddWatchedFolder={handleAddWatchedFolder}
+        onRemoveWatchedFolder={handleRemoveWatchedFolder}
+        autoScanOnStartup={autoScanOnStartup}
+        onToggleAutoScanOnStartup={handleToggleAutoScanOnStartup}
+        onScanLibrary={handleScanLibrary}
+        tracks={tracks}
       />
 
       {/* Track Context Menu */}
@@ -3693,6 +3882,17 @@ export const App: React.FC = () => {
         onSeek={handleSeek}
         onSaveLyrics={handleSaveLyrics}
         onClose={() => setIsLyricsOpen(false)}
+      />
+
+      {/* Missing Tracks Auto-Detection & Relocation Modal */}
+      <MissingTracksModal
+        isOpen={isMissingTracksModalOpen}
+        missingTracks={missingTracksForModal}
+        language={language}
+        onClose={() => setIsMissingTracksModalOpen(false)}
+        onRelocateInFolder={handleRelocateMissingInFolder}
+        onClearMissingTracks={handleClearMissingTracks}
+        onContinueAsIs={() => setIsMissingTracksModalOpen(false)}
       />
     </div>
   );
