@@ -91,6 +91,34 @@ const getStoredThemeCache = (): StoredThemeCache => {
 
 const initialThemeCache = getStoredThemeCache();
 
+export const normalizeTrackPath = (p?: string | null): string => {
+  if (!p) return '';
+  return p.trim().replace(/\\/g, '/').toLowerCase();
+};
+
+export const appendUniqueTracks = (existingList: Track[], incoming: Track[]): Track[] => {
+  if (!incoming || incoming.length === 0) return existingList;
+  const existingPaths = new Set(existingList.map(t => normalizeTrackPath(t.path)).filter(Boolean));
+  const existingIds = new Set(existingList.map(t => t.id));
+  const existingKeys = new Set(existingList.map(t => `${t.title.trim().toLowerCase()}|||${t.artist.trim().toLowerCase()}`));
+
+  const toAppend: Track[] = [];
+  for (const t of incoming) {
+    const norm = normalizeTrackPath(t.path);
+    const key = `${t.title.trim().toLowerCase()}|||${t.artist.trim().toLowerCase()}`;
+    if (existingIds.has(t.id)) continue;
+    if (norm && existingPaths.has(norm)) continue;
+    if (key !== '|||' && key !== 'unknown|||unknown artist' && existingKeys.has(key)) continue;
+
+    if (norm) existingPaths.add(norm);
+    if (t.id) existingIds.add(t.id);
+    if (key !== '|||' && key !== 'unknown|||unknown artist') existingKeys.add(key);
+    toAppend.push(t);
+  }
+  if (toAppend.length === 0) return existingList;
+  return [...existingList, ...toAppend];
+};
+
 export const App: React.FC = () => {
   // Library & Content State (No dummy stubs)
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -313,9 +341,38 @@ export const App: React.FC = () => {
 
         if (rawJson) {
           const parsed = JSON.parse(rawJson);
+          const validIdMap = new Map<string, string>();
           if (parsed.tracks && Array.isArray(parsed.tracks)) {
+            // Deduplicate tracks from stored cache and build remapping
+            const seenPaths = new Map<string, string>();
+            const seenKeys = new Map<string, string>();
+            const seenIds = new Set<string>();
+            const cleanTracks: Track[] = [];
+
+            for (const t of parsed.tracks) {
+              const normPath = normalizeTrackPath(t.path);
+              const key = `${(t.title || '').trim().toLowerCase()}|||${(t.artist || '').trim().toLowerCase()}`;
+
+              if (normPath && seenPaths.has(normPath)) {
+                validIdMap.set(t.id, seenPaths.get(normPath)!);
+                continue;
+              }
+              if (key !== '|||' && key !== 'unknown|||unknown artist' && seenKeys.has(key)) {
+                validIdMap.set(t.id, seenKeys.get(key)!);
+                continue;
+              }
+              if (seenIds.has(t.id)) {
+                continue;
+              }
+
+              if (normPath) seenPaths.set(normPath, t.id);
+              if (key !== '|||' && key !== 'unknown|||unknown artist') seenKeys.set(key, t.id);
+              seenIds.add(t.id);
+              cleanTracks.push(t);
+            }
+
             // Re-convert native paths and cover paths to fresh asset URLs
-            const hydrated = parsed.tracks.map((t: Track) => {
+            const hydrated = cleanTracks.map((t: Track) => {
               let coverArt = t.coverArt;
               if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
                 coverArt = convertFileSrc(coverArt);
@@ -327,6 +384,7 @@ export const App: React.FC = () => {
               };
             });
             setTracks(hydrated);
+            tracksRef.current = hydrated;
             verifyTracksExistence(hydrated, true);
 
             // Auto-scan portable music/ folder and watchedFolders on startup if enabled
@@ -337,36 +395,45 @@ export const App: React.FC = () => {
                   const foldersToScan = [portableMusicPath, ...(parsed.watchedFolders || [])];
                   const raw = await invoke<any[]>('read_audio_files', { paths: foldersToScan });
                   if (raw && raw.length > 0) {
-                    const currentPaths = new Set(tracksRef.current.map(t => t.path?.toLowerCase() || ''));
+                    const currentPaths = new Set(tracksRef.current.map(t => normalizeTrackPath(t.path)).filter(Boolean));
+                    const currentKeys = new Set(tracksRef.current.map(t => `${t.title.trim().toLowerCase()}|||${t.artist.trim().toLowerCase()}`));
                     const newFound: Track[] = [];
                     for (const m of raw) {
-                      if (!currentPaths.has(m.path.toLowerCase())) {
-                        let coverArt = m.cover_art || undefined;
-                        if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
-                          coverArt = convertFileSrc(coverArt);
-                        }
-                        const newT: Track = {
-                          id: m.id || `track_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-                          path: m.path,
-                          title: m.title || 'Unknown',
-                          artist: m.artist || 'Unknown Artist',
-                          album: m.album || 'Unknown Album',
-                          duration: m.duration_seconds || 0,
-                          src: convertFileSrc(m.path),
-                          coverArt,
-                          genre: m.genre || undefined,
-                          year: m.year || undefined,
-                          trackNumber: m.track_number || undefined,
-                          dateAdded: Date.now(),
-                          playCount: 0,
-                          isFavorite: false,
-                        };
-                        currentPaths.add(m.path.toLowerCase());
-                        newFound.push(newT);
+                      const normPath = normalizeTrackPath(m.path);
+                      const key = `${(m.title || '').trim().toLowerCase()}|||${(m.artist || '').trim().toLowerCase()}`;
+                      if (normPath && currentPaths.has(normPath)) {
+                        continue;
                       }
+                      if (key !== '|||' && key !== 'unknown|||unknown artist' && currentKeys.has(key)) {
+                        continue;
+                      }
+                      if (normPath) currentPaths.add(normPath);
+                      if (key !== '|||' && key !== 'unknown|||unknown artist') currentKeys.add(key);
+
+                      let coverArt = m.cover_art || undefined;
+                      if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+                        coverArt = convertFileSrc(coverArt);
+                      }
+                      const newT: Track = {
+                        id: m.id || `track_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                        path: m.path,
+                        title: m.title || 'Unknown',
+                        artist: m.artist || 'Unknown Artist',
+                        album: m.album || 'Unknown Album',
+                        duration: m.duration_seconds || 0,
+                        src: convertFileSrc(m.path),
+                        coverArt,
+                        genre: m.genre || undefined,
+                        year: m.year || undefined,
+                        trackNumber: m.track_number || undefined,
+                        dateAdded: Date.now(),
+                        playCount: 0,
+                        isFavorite: false,
+                      };
+                      newFound.push(newT);
                     }
                     if (newFound.length > 0) {
-                      setTracks(prev => [...prev, ...newFound]);
+                      setTracks(prev => appendUniqueTracks(prev, newFound));
                     }
                   }
                 } catch (e) {
@@ -384,10 +451,10 @@ export const App: React.FC = () => {
               if (pathsToRefresh.length > 0) {
                 invoke<any[]>('read_audio_files', { paths: pathsToRefresh }).then(refreshed => {
                   if (refreshed && refreshed.length > 0) {
-                    const refreshedMap = new Map<string, any>(refreshed.map(r => [r.path.toLowerCase(), r]));
+                    const refreshedMap = new Map<string, any>(refreshed.map(r => [normalizeTrackPath(r.path), r]));
                     setTracks(prev => prev.map(t => {
                       if (!t.path) return t;
-                      const r = refreshedMap.get(t.path.toLowerCase());
+                      const r = refreshedMap.get(normalizeTrackPath(t.path));
                       if (!r) return t;
                       let refreshedCover = r.cover_art;
                       if (refreshedCover && !refreshedCover.startsWith('http') && !refreshedCover.startsWith('data:') && isTauri()) {
@@ -416,10 +483,12 @@ export const App: React.FC = () => {
               if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
                 coverArt = convertFileSrc(coverArt);
               }
+              const remapped = (p.trackIds || []).map(id => validIdMap.get(id) || id);
+              const uniqueTrackIds = Array.from(new Set(remapped));
               if (p.id === 'pl_favorites') {
-                return { ...p, name: 'Избранное', coverArt };
+                return { ...p, name: 'Избранное', coverArt, trackIds: uniqueTrackIds };
               }
-              return { ...p, coverArt };
+              return { ...p, coverArt, trackIds: uniqueTrackIds };
             }));
           }
           if (parsed.playlistFolders && Array.isArray(parsed.playlistFolders)) {
@@ -1735,19 +1804,19 @@ export const App: React.FC = () => {
     if (!newTracks || newTracks.length === 0) return;
 
     const prevTracks = tracksRef.current;
-    const existingPaths = new Set(prevTracks.map(t => t.path?.toLowerCase()).filter(Boolean));
-    const existingKeys = new Set(prevTracks.map(t => `${t.title.toLowerCase()}|||${t.artist.toLowerCase()}`));
+    const existingPaths = new Set(prevTracks.map(t => normalizeTrackPath(t.path)).filter(Boolean));
+    const existingKeys = new Set(prevTracks.map(t => `${t.title.trim().toLowerCase()}|||${t.artist.trim().toLowerCase()}`));
 
     const toAdd: Track[] = [];
     const plTargetIds: string[] = [];
 
     for (const nt of newTracks) {
-      const pathKey = nt.path?.toLowerCase();
-      const titleArtistKey = `${nt.title.toLowerCase()}|||${nt.artist.toLowerCase()}`;
+      const pathKey = normalizeTrackPath(nt.path);
+      const titleArtistKey = `${nt.title.trim().toLowerCase()}|||${nt.artist.trim().toLowerCase()}`;
 
-      const isDuplicate = (pathKey && existingPaths.has(pathKey)) || existingKeys.has(titleArtistKey);
+      const isDuplicate = (pathKey && existingPaths.has(pathKey)) || (titleArtistKey !== '|||' && titleArtistKey !== 'unknown|||unknown artist' && existingKeys.has(titleArtistKey));
       if (isDuplicate) {
-        const existing = prevTracks.find(t => (pathKey && t.path?.toLowerCase() === pathKey) || `${t.title.toLowerCase()}|||${t.artist.toLowerCase()}` === titleArtistKey);
+        const existing = prevTracks.find(t => (pathKey && normalizeTrackPath(t.path) === pathKey) || (titleArtistKey !== '|||' && titleArtistKey !== 'unknown|||unknown artist' && `${t.title.trim().toLowerCase()}|||${t.artist.trim().toLowerCase()}` === titleArtistKey));
         if (existing) {
           plTargetIds.push(existing.id);
         }
@@ -1755,7 +1824,7 @@ export const App: React.FC = () => {
       }
 
       if (pathKey) existingPaths.add(pathKey);
-      existingKeys.add(titleArtistKey);
+      if (titleArtistKey !== '|||' && titleArtistKey !== 'unknown|||unknown artist') existingKeys.add(titleArtistKey);
       if (currentView === 'favorites') {
         nt.isFavorite = true;
       }
@@ -1764,7 +1833,7 @@ export const App: React.FC = () => {
     }
 
     if (toAdd.length > 0) {
-      setTracks(prev => [...prev, ...toAdd]);
+      setTracks(prev => appendUniqueTracks(prev, toAdd));
       setQueue(prev => [...prev, ...toAdd]);
     }
 
@@ -1851,21 +1920,21 @@ export const App: React.FC = () => {
                 playCount: 0,
                 isFavorite: false,
               }));
-              const existingMap = new Map(tracksRef.current.map(t => [t.path?.toLowerCase() || '', t.id]));
+              const existingMap = new Map(tracksRef.current.map(t => [normalizeTrackPath(t.path), t.id]));
               const plTrackIds: string[] = [];
               const tracksToAdd: Track[] = [];
               for (const pt of newPlTracks) {
-                const lower = pt.path?.toLowerCase() || '';
-                if (existingMap.has(lower)) {
-                  plTrackIds.push(existingMap.get(lower)!);
+                const norm = normalizeTrackPath(pt.path);
+                if (norm && existingMap.has(norm)) {
+                  plTrackIds.push(existingMap.get(norm)!);
                 } else {
-                  existingMap.set(lower, pt.id);
+                  if (norm) existingMap.set(norm, pt.id);
                   tracksToAdd.push(pt);
                   plTrackIds.push(pt.id);
                 }
               }
               if (tracksToAdd.length > 0) {
-                setTracks(prev => [...prev, ...tracksToAdd]);
+                setTracks(prev => appendUniqueTracks(prev, tracksToAdd));
               }
               const newPl: Playlist = {
                 id: `pl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -2591,23 +2660,23 @@ export const App: React.FC = () => {
               isFavorite: false,
             }));
 
-            const existingMap = new Map<string, string>(tracks.map(t => [t.path?.toLowerCase() || '', t.id]));
+            const existingMap = new Map<string, string>(tracks.map(t => [normalizeTrackPath(t.path), t.id]));
             const newTrackIds: string[] = [];
             const tracksToAppend: Track[] = [];
 
             for (const t of addedTracks) {
-              const lower = t.path?.toLowerCase() || '';
-              if (existingMap.has(lower)) {
-                newTrackIds.push(existingMap.get(lower)!);
+              const norm = normalizeTrackPath(t.path);
+              if (norm && existingMap.has(norm)) {
+                newTrackIds.push(existingMap.get(norm)!);
               } else {
-                existingMap.set(lower, t.id);
+                if (norm) existingMap.set(norm, t.id);
                 tracksToAppend.push(t);
                 newTrackIds.push(t.id);
               }
             }
 
             if (tracksToAppend.length > 0) {
-              setTracks(prev => [...prev, ...tracksToAppend]);
+              setTracks(prev => appendUniqueTracks(prev, tracksToAppend));
             }
 
             const newPl: Playlist = {
@@ -2683,39 +2752,48 @@ export const App: React.FC = () => {
       const raw = await invoke<any[]>('read_audio_files', { paths: foldersToScan });
       if (!raw || raw.length === 0) return 0;
 
-      const currentPaths = new Map(tracksRef.current.map(t => [t.path?.toLowerCase() || '', t.id]));
+      const currentPaths = new Set(tracksRef.current.map(t => normalizeTrackPath(t.path)).filter(Boolean));
+      const currentKeys = new Set(tracksRef.current.map(t => `${t.title.trim().toLowerCase()}|||${t.artist.trim().toLowerCase()}`));
       const newFound: Track[] = [];
 
       for (const m of raw) {
-        const lower = m.path.toLowerCase();
-        if (!currentPaths.has(lower)) {
-          let coverArt = m.cover_art || undefined;
-          if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
-            coverArt = convertFileSrc(coverArt);
-          }
-          const newT: Track = {
-            id: m.id || `track_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            path: m.path,
-            title: m.title || 'Unknown',
-            artist: m.artist || 'Unknown Artist',
-            album: m.album || 'Unknown Album',
-            duration: m.duration_seconds || 0,
-            src: convertFileSrc(m.path),
-            coverArt,
-            genre: m.genre || undefined,
-            year: m.year || undefined,
-            trackNumber: m.track_number || undefined,
-            dateAdded: Date.now(),
-            playCount: 0,
-            isFavorite: false,
-          };
-          currentPaths.set(lower, newT.id);
-          newFound.push(newT);
+        const norm = normalizeTrackPath(m.path);
+        const key = `${(m.title || '').trim().toLowerCase()}|||${(m.artist || '').trim().toLowerCase()}`;
+        if (norm && currentPaths.has(norm)) {
+          continue;
         }
+        if (key !== '|||' && key !== 'unknown|||unknown artist' && currentKeys.has(key)) {
+          continue;
+        }
+
+        if (norm) currentPaths.add(norm);
+        if (key !== '|||' && key !== 'unknown|||unknown artist') currentKeys.add(key);
+
+        let coverArt = m.cover_art || undefined;
+        if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+          coverArt = convertFileSrc(coverArt);
+        }
+        const newT: Track = {
+          id: m.id || `track_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          path: m.path,
+          title: m.title || 'Unknown',
+          artist: m.artist || 'Unknown Artist',
+          album: m.album || 'Unknown Album',
+          duration: m.duration_seconds || 0,
+          src: convertFileSrc(m.path),
+          coverArt,
+          genre: m.genre || undefined,
+          year: m.year || undefined,
+          trackNumber: m.track_number || undefined,
+          dateAdded: Date.now(),
+          playCount: 0,
+          isFavorite: false,
+        };
+        newFound.push(newT);
       }
 
       if (newFound.length > 0) {
-        setTracks(prev => [...prev, ...newFound]);
+        setTracks(prev => appendUniqueTracks(prev, newFound));
       }
 
       return newFound.length;

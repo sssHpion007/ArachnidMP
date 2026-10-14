@@ -220,6 +220,58 @@ pub fn to_absolute_cover(cover_val: &str, base_dir: &Path) -> Option<String> {
     None
 }
 
+/// Convert any music file path inside the portable base directory to a relative "music/..." path
+pub fn to_portable_music_path(path_str: &str, base_dir: &Path) -> Option<String> {
+    let trimmed = path_str.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let norm_path = trimmed.replace('\\', "/");
+    let norm_base = base_dir.to_string_lossy().replace('\\', "/");
+
+    let norm_path_lower = norm_path.to_lowercase();
+    let norm_base_lower = norm_base.to_lowercase();
+
+    let base_prefix = if norm_base_lower.ends_with('/') {
+        norm_base_lower
+    } else {
+        format!("{}/", norm_base_lower)
+    };
+
+    if norm_path_lower.starts_with(&base_prefix) {
+        let rel = &norm_path[base_prefix.len()..];
+        let rel_lower = rel.to_lowercase();
+        if rel_lower.starts_with("music/") {
+            return Some(rel.to_string());
+        }
+    } else if norm_path_lower.starts_with("music/") {
+        return Some(norm_path);
+    }
+
+    None
+}
+
+/// Convert relative "music/..." path into the current OS-native absolute path on disk
+pub fn to_absolute_music_path(path_str: &str, base_dir: &Path) -> Option<String> {
+    let trimmed = path_str.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let norm = trimmed.replace('\\', "/");
+    let norm_lower = norm.to_lowercase();
+    if norm_lower.starts_with("music/") {
+        let mut abs_path = base_dir.to_path_buf();
+        for component in norm.split('/') {
+            let comp_trim = component.trim();
+            if !comp_trim.is_empty() && comp_trim != "." {
+                abs_path.push(comp_trim);
+            }
+        }
+        return Some(abs_path.to_string_lossy().to_string());
+    }
+    None
+}
+
 /// Initialize the modular directory structure on startup
 pub fn init_storage_structure(base_dir: &Path) {
     let config_dir = base_dir.join("config");
@@ -600,7 +652,11 @@ pub fn save_modular_data(data: &Value) -> Result<bool, String> {
         let base_dir = get_portable_base_dir();
         let mut clean_tracks = tracks.clone();
         if let Some(arr) = clean_tracks.as_array_mut() {
-            for track in arr {
+            let mut seen_ids = std::collections::HashSet::new();
+            let mut seen_paths = std::collections::HashSet::new();
+            let mut deduped: Vec<Value> = Vec::new();
+
+            for mut track in arr.drain(..) {
                 if let Some(cover_val) = track.get("coverArt").and_then(|c| c.as_str()) {
                     if let Some(portable) = to_portable_cover(cover_val, &base_dir) {
                         track["coverArt"] = json!(portable);
@@ -610,15 +666,23 @@ pub fn save_modular_data(data: &Value) -> Result<bool, String> {
                 }
                 // Convert tracks inside portable music/ directory to relative portable path
                 if let Some(path_val) = track.get("path").and_then(|p| p.as_str()) {
-                    let p = Path::new(path_val);
-                    if let Ok(rel) = p.strip_prefix(&base_dir) {
-                        let rel_str = rel.to_string_lossy().replace('\\', "/");
-                        if rel_str.starts_with("music/") {
-                            track["path"] = json!(rel_str);
-                        }
+                    if let Some(portable_music) = to_portable_music_path(path_val, &base_dir) {
+                        track["path"] = json!(portable_music);
                     }
                 }
+
+                let id = track.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let path = track.get("path").and_then(|v| v.as_str()).unwrap_or("").replace('\\', "/").to_lowercase();
+
+                let is_dup = (!id.is_empty() && seen_ids.contains(&id)) || (!path.is_empty() && seen_paths.contains(&path));
+                if is_dup {
+                    continue;
+                }
+                if !id.is_empty() { seen_ids.insert(id); }
+                if !path.is_empty() { seen_paths.insert(path); }
+                deduped.push(track);
             }
+            *arr = deduped;
         }
         let library_path = config_dir.join("library.json");
         let library_json = json!({ "tracks": clean_tracks });
@@ -746,7 +810,11 @@ pub fn load_modular_data() -> Result<Option<String>, String> {
                 if let Some(tracks) = val.get("tracks") {
                     let mut tracks_val = tracks.clone();
                     if let Some(arr) = tracks_val.as_array_mut() {
-                        for track in arr {
+                        let mut seen_ids = std::collections::HashSet::new();
+                        let mut seen_paths = std::collections::HashSet::new();
+                        let mut deduped: Vec<Value> = Vec::new();
+
+                        for mut track in arr.drain(..) {
                             if let Some(cover_val) = track.get("coverArt").and_then(|c| c.as_str()) {
                                 if let Some(abs_path) = to_absolute_cover(cover_val, &base_dir) {
                                     track["coverArt"] = json!(abs_path);
@@ -756,15 +824,24 @@ pub fn load_modular_data() -> Result<Option<String>, String> {
                             }
                             // Reconstruct absolute music path if saved as relative "music/..."
                             if let Some(path_val) = track.get("path").and_then(|p| p.as_str()) {
-                                let norm = path_val.replace('\\', "/");
-                                if norm.starts_with("music/") {
-                                    let abs_music_path = base_dir.join(&norm);
-                                    let abs_str = abs_music_path.to_string_lossy().to_string();
+                                if let Some(abs_str) = to_absolute_music_path(path_val, &base_dir) {
                                     track["path"] = json!(abs_str);
                                     track["src"] = json!(abs_str);
                                 }
                             }
+
+                            let id = track.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let path = track.get("path").and_then(|v| v.as_str()).unwrap_or("").replace('\\', "/").to_lowercase();
+
+                            let is_dup = (!id.is_empty() && seen_ids.contains(&id)) || (!path.is_empty() && seen_paths.contains(&path));
+                            if is_dup {
+                                continue;
+                            }
+                            if !id.is_empty() { seen_ids.insert(id); }
+                            if !path.is_empty() { seen_paths.insert(path); }
+                            deduped.push(track);
                         }
+                        *arr = deduped;
                     }
                     combined["tracks"] = tracks_val;
                 }
