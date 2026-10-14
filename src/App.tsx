@@ -1290,6 +1290,7 @@ export const App: React.FC = () => {
 
   const handleBackToGrid = () => {
     setDetailNavDirection('backward');
+    selectedPlaylistIdRef.current = null;
     setSelectedPlaylistId(null);
     setSelectedAlbum(null);
     setSelectedArtist(null);
@@ -1733,67 +1734,66 @@ export const App: React.FC = () => {
   const processImportedTracks = (newTracks: Track[]) => {
     if (!newTracks || newTracks.length === 0) return;
 
-    let actuallyAdded: Track[] = [];
-    let plTargetIds: string[] = [];
+    const prevTracks = tracksRef.current;
+    const existingPaths = new Set(prevTracks.map(t => t.path?.toLowerCase()).filter(Boolean));
+    const existingKeys = new Set(prevTracks.map(t => `${t.title.toLowerCase()}|||${t.artist.toLowerCase()}`));
 
-    setTracks(prevTracks => {
-      const existingPaths = new Set(prevTracks.map(t => t.path?.toLowerCase()).filter(Boolean));
-      const existingKeys = new Set(prevTracks.map(t => `${t.title.toLowerCase()}|||${t.artist.toLowerCase()}`));
+    const toAdd: Track[] = [];
+    const plTargetIds: string[] = [];
 
-      const toAdd: Track[] = [];
-      const plIds: string[] = [];
+    for (const nt of newTracks) {
+      const pathKey = nt.path?.toLowerCase();
+      const titleArtistKey = `${nt.title.toLowerCase()}|||${nt.artist.toLowerCase()}`;
 
-      for (const nt of newTracks) {
-        const pathKey = nt.path?.toLowerCase();
-        const titleArtistKey = `${nt.title.toLowerCase()}|||${nt.artist.toLowerCase()}`;
-
-        const isDuplicate = (pathKey && existingPaths.has(pathKey)) || existingKeys.has(titleArtistKey);
-        if (isDuplicate) {
-          const existing = prevTracks.find(t => (pathKey && t.path?.toLowerCase() === pathKey) || `${t.title.toLowerCase()}|||${t.artist.toLowerCase()}` === titleArtistKey);
-          if (existing) {
-            plIds.push(existing.id);
-          }
-          continue;
+      const isDuplicate = (pathKey && existingPaths.has(pathKey)) || existingKeys.has(titleArtistKey);
+      if (isDuplicate) {
+        const existing = prevTracks.find(t => (pathKey && t.path?.toLowerCase() === pathKey) || `${t.title.toLowerCase()}|||${t.artist.toLowerCase()}` === titleArtistKey);
+        if (existing) {
+          plTargetIds.push(existing.id);
         }
-
-        if (pathKey) existingPaths.add(pathKey);
-        existingKeys.add(titleArtistKey);
-        if (currentView === 'favorites') {
-          nt.isFavorite = true;
-        }
-        toAdd.push(nt);
-        plIds.push(nt.id);
+        continue;
       }
 
-      actuallyAdded = toAdd;
-      plTargetIds = plIds;
-
-      if (toAdd.length === 0) {
-        return prevTracks;
+      if (pathKey) existingPaths.add(pathKey);
+      existingKeys.add(titleArtistKey);
+      if (currentView === 'favorites') {
+        nt.isFavorite = true;
       }
-      return [...prevTracks, ...toAdd];
-    });
+      toAdd.push(nt);
+      plTargetIds.push(nt.id);
+    }
 
-    if (actuallyAdded.length > 0) {
-      setQueue(prev => [...prev, ...actuallyAdded]);
+    if (toAdd.length > 0) {
+      setTracks(prev => [...prev, ...toAdd]);
+      setQueue(prev => [...prev, ...toAdd]);
     }
 
     // If currently viewing a specific playlist, immediately add all tracks (new & existing) into it!
-    const activePlId = selectedPlaylistIdRef.current;
+    const activePlId = selectedPlaylistIdRef.current || selectedPlaylistId;
     if (activePlId && plTargetIds.length > 0) {
       setPlaylists(prev => prev.map(p => {
         if (p.id === activePlId) {
           const set = new Set(p.trackIds);
-          const toAdd = plTargetIds.filter(id => !set.has(id));
-          if (toAdd.length === 0) return p;
-          return { ...p, trackIds: [...p.trackIds, ...toAdd] };
+          const tracksToAdd = plTargetIds.filter(id => !set.has(id));
+          if (tracksToAdd.length === 0) return p;
+          return { ...p, trackIds: [...p.trackIds, ...tracksToAdd] };
+        }
+        return p;
+      }));
+    } else if (currentView === 'favorites' && plTargetIds.length > 0) {
+      setPlaylists(prev => prev.map(p => {
+        if (p.id === 'pl_favorites') {
+          const set = new Set(p.trackIds);
+          const tracksToAdd = plTargetIds.filter(id => !set.has(id));
+          if (tracksToAdd.length === 0) return p;
+          return { ...p, trackIds: [...p.trackIds, ...tracksToAdd] };
         }
         return p;
       }));
     }
 
     if (!currentTrack || tracksRef.current.length === 0) {
-      const first = actuallyAdded[0] || newTracks[0];
+      const first = toAdd[0] || newTracks[0];
       if (first) playTrackWithContext(first, newTracks);
     }
   };
@@ -2512,6 +2512,7 @@ export const App: React.FC = () => {
       order: playlists.length,
     };
     setPlaylists(prev => [...prev, newPl]);
+    selectedPlaylistIdRef.current = newPl.id;
     setSelectedPlaylistId(newPl.id);
     setSortBy('custom');
     setSortOrder('asc');
@@ -2780,6 +2781,7 @@ export const App: React.FC = () => {
 
   const handleSelectPlaylist = (id: string) => {
     setDetailNavDirection('forward');
+    selectedPlaylistIdRef.current = id;
     setSelectedPlaylistId(id);
     setSortBy('custom');
     setSortOrder('asc');
