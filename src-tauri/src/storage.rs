@@ -236,6 +236,24 @@ pub fn init_storage_structure(base_dir: &Path) {
     let _ = fs::create_dir_all(&themes_dir);
     let _ = fs::create_dir_all(&locales_dir);
 
+    // Create a README in playlists/
+    let playlists_readme = playlists_dir.join("README.txt");
+    if !playlists_readme.exists() {
+        let readme_content = "\
+Arachnid Playlists Directory / Папка плейлистов Arachnid
+=========================================================
+В этой папке сохраняются все плейлисты в стандартном формате M3U8 (UTF-8).
+
+Возможности:
+1. Вы можете открывать любые файлы .m3u8 отсюда в сторонних плеерах (AIMP, foobar2000, VLC, Winamp).
+2. Вы можете скопировать любой .m3u8 файл на флешку или телефон.
+3. Вы можете скопировать сюда сторонние файлы .m3u8 или .m3u — Arachnid автоматически загрузит их при запуске!
+
+Файл tree.json хранит информацию об иерархии папок и групп плейлистов в Arachnid.
+";
+        let _ = fs::write(playlists_readme, readme_content);
+    }
+
     // Create a README in themes/ to guide users on custom themes and theme tooling
     let themes_readme = themes_dir.join("README.txt");
     if !themes_readme.exists() {
@@ -594,35 +612,54 @@ pub fn save_modular_data(data: &Value) -> Result<bool, String> {
     fs::write(&tree_path, tree_str)
         .map_err(|e| format!("Failed to write playlists tree to {:?}: {}", tree_path, e))?;
 
-    // 4. Save Individual Playlists
+    // 4. Save Individual Playlists in M3U8 format
     if let Some(playlists_array) = data.get("playlists").and_then(|p| p.as_array()) {
-        let mut current_ids = std::collections::HashSet::new();
+        let mut saved_filenames = std::collections::HashSet::new();
+        let mut used_stems = std::collections::HashSet::new();
 
-        for pl in playlists_array {
-            if let Some(id) = pl.get("id").and_then(|i| i.as_str()) {
-                let safe_id = sanitize_filename(id);
-                current_ids.insert(format!("{}.json", safe_id));
-                let pl_path = playlists_dir.join(format!("{}.json", safe_id));
-                let mut pl_clean = pl.clone();
-                if let Some(cover_val) = pl_clean.get("coverArt").and_then(|c| c.as_str()) {
-                    if let Some(portable) = to_portable_cover(cover_val, &base_dir) {
-                        pl_clean["coverArt"] = json!(portable);
-                    } else {
-                        pl_clean["coverArt"] = json!(null);
-                    }
+        // Build track lookup map: id -> (path, artist, title, duration)
+        let mut track_map: std::collections::HashMap<String, (Option<String>, String, String, i64)> = std::collections::HashMap::new();
+        if let Some(tracks_arr) = data.get("tracks").and_then(|t| t.as_array()) {
+            for t in tracks_arr {
+                if let Some(tid) = t.get("id").and_then(|i| i.as_str()) {
+                    let p = t.get("path").and_then(|x| x.as_str()).map(|s| s.to_string());
+                    let artist = t.get("artist").and_then(|x| x.as_str()).unwrap_or("Unknown Artist").to_string();
+                    let title = t.get("title").and_then(|x| x.as_str()).unwrap_or("Unknown Title").to_string();
+                    let duration = t.get("duration").and_then(|x| x.as_f64()).unwrap_or(0.0) as i64;
+                    track_map.insert(tid.to_string(), (p, artist, title, duration));
                 }
-                let pl_str = serde_json::to_string_pretty(&pl_clean)
-                    .map_err(|e| format!("Failed to serialize playlist {}: {}", id, e))?;
-                let _ = fs::write(&pl_path, pl_str);
             }
         }
 
-        // Clean up deleted playlist files in playlists/
+        for pl in playlists_array {
+            let name = pl.get("name").and_then(|n| n.as_str()).unwrap_or("Playlist");
+            let mut base_stem = sanitize_playlist_filename(name);
+            if base_stem.is_empty() {
+                base_stem = "Playlist".to_string();
+            }
+
+            // Ensure unique filename if multiple playlists share the same name
+            let mut stem = base_stem.clone();
+            let mut counter = 2;
+            while used_stems.contains(&stem.to_lowercase()) {
+                stem = format!("{} ({})", base_stem, counter);
+                counter += 1;
+            }
+            used_stems.insert(stem.to_lowercase());
+
+            let filename = format!("{}.m3u8", stem);
+            saved_filenames.insert(filename.clone());
+            let pl_path = playlists_dir.join(&filename);
+
+            let _ = write_m3u8_playlist(&pl_path, pl, &track_map, &base_dir);
+        }
+
+        // Clean up deleted playlist files in playlists/ (both old .json and obsolete .m3u8)
         if let Ok(entries) = fs::read_dir(&playlists_dir) {
             for entry in entries.flatten() {
                 let file_name = entry.file_name().to_string_lossy().to_string();
-                if file_name.ends_with(".json") && file_name != "tree.json" {
-                    if !current_ids.contains(&file_name) {
+                if (file_name.ends_with(".m3u8") || file_name.ends_with(".json")) && file_name != "tree.json" {
+                    if !saved_filenames.contains(&file_name) {
                         let _ = fs::remove_file(entry.path());
                     }
                 }
@@ -719,28 +756,64 @@ pub fn load_modular_data() -> Result<Option<String>, String> {
         combined["playlistGroups"] = json!([]);
     }
 
-    // 4. Read Individual Playlists from playlists/
+    // 4. Read Individual Playlists from playlists/ (.m3u8, .m3u, and legacy .json)
     let mut playlists_list = Vec::new();
+    let mut loaded_playlist_ids = std::collections::HashSet::new();
+
+    let mut path_to_track_id: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut tracks_list: Vec<Value> = combined.get("tracks")
+        .and_then(|t| t.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    for t in &tracks_list {
+        if let (Some(tid), Some(p)) = (t.get("id").and_then(|i| i.as_str()), t.get("path").and_then(|x| x.as_str())) {
+            path_to_track_id.insert(p.to_lowercase(), tid.to_string());
+        }
+    }
+
     if let Ok(entries) = fs::read_dir(&playlists_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             let file_name = entry.file_name().to_string_lossy().to_string();
-            if file_name.ends_with(".json") && file_name != "tree.json" {
+            if file_name == "tree.json" || file_name == "README.txt" {
+                continue;
+            }
+
+            // 4a. M3U8 or M3U Playlist
+            if file_name.ends_with(".m3u8") || file_name.ends_with(".m3u") {
+                if let Some(pl_val) = parse_m3u8_playlist(&path, &base_dir, &mut tracks_list, &mut path_to_track_id) {
+                    if let Some(id) = pl_val.get("id").and_then(|i| i.as_str()) {
+                        loaded_playlist_ids.insert(id.to_string());
+                    }
+                    playlists_list.push(pl_val);
+                }
+            }
+            // 4b. Legacy JSON Playlist (fallback)
+            else if file_name.ends_with(".json") {
                 if let Ok(content) = fs::read_to_string(&path) {
                     if let Ok(mut pl) = serde_json::from_str::<Value>(&content) {
-                        if let Some(cover_val) = pl.get("coverArt").and_then(|c| c.as_str()) {
-                            if let Some(abs_path) = to_absolute_cover(cover_val, &base_dir) {
-                                pl["coverArt"] = json!(abs_path);
-                            } else {
-                                pl["coverArt"] = json!(null);
+                        let pl_id = pl.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
+                        if !pl_id.is_empty() && !loaded_playlist_ids.contains(&pl_id) {
+                            if let Some(cover_val) = pl.get("coverArt").and_then(|c| c.as_str()) {
+                                if let Some(abs_path) = to_absolute_cover(cover_val, &base_dir) {
+                                    pl["coverArt"] = json!(abs_path);
+                                } else {
+                                    pl["coverArt"] = json!(null);
+                                }
                             }
+                            loaded_playlist_ids.insert(pl_id);
+                            playlists_list.push(pl);
                         }
-                        playlists_list.push(pl);
                     }
                 }
             }
         }
     }
+
+    // Update combined tracks if external M3U playlists added new tracks
+    combined["tracks"] = json!(tracks_list);
+
     // Sort playlists by order if present
     playlists_list.sort_by(|a, b| {
         let order_a = a.get("order").and_then(|o| o.as_i64()).unwrap_or(0);
@@ -755,9 +828,281 @@ pub fn load_modular_data() -> Result<Option<String>, String> {
     Ok(Some(final_str))
 }
 
-/// Helper to sanitize playlist id for filesystem path
-fn sanitize_filename(id: &str) -> String {
-    id.chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
-        .collect()
+/// Helper to sanitize playlist name for Windows/Unix filenames
+pub fn sanitize_playlist_filename(name: &str) -> String {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return "Unnamed Playlist".to_string();
+    }
+    let sanitized: String = trimmed.chars()
+        .map(|c| match c {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            '\0'..='\x1f' => '_',
+            _ => c,
+        })
+        .collect();
+    let result = sanitized.trim_end_matches([' ', '.']).to_string();
+    if result.is_empty() {
+        "Playlist".to_string()
+    } else {
+        result
+    }
+}
+
+pub fn write_m3u8_playlist(
+    pl_path: &Path,
+    pl: &Value,
+    track_map: &std::collections::HashMap<String, (Option<String>, String, String, i64)>,
+    base_dir: &Path,
+) -> Result<(), String> {
+    let mut lines = Vec::new();
+    lines.push("#EXTM3U".to_string());
+
+    let name = pl.get("name").and_then(|n| n.as_str()).unwrap_or("Playlist");
+    lines.push(format!("#PLAYLIST:{}", name));
+
+    if let Some(id) = pl.get("id").and_then(|i| i.as_str()) {
+        lines.push(format!("#EXT-ARACHNID-ID:{}", id));
+    }
+    if let Some(order) = pl.get("order").and_then(|o| o.as_i64()) {
+        lines.push(format!("#EXT-ARACHNID-ORDER:{}", order));
+    }
+    if let Some(folder_id) = pl.get("folderId").and_then(|f| f.as_str()) {
+        lines.push(format!("#EXT-ARACHNID-FOLDER:{}", folder_id));
+    }
+    if let Some(group_id) = pl.get("groupId").and_then(|g| g.as_str()) {
+        lines.push(format!("#EXT-ARACHNID-GROUP:{}", group_id));
+    }
+    if let Some(color) = pl.get("color").and_then(|c| c.as_str()) {
+        lines.push(format!("#EXT-ARACHNID-COLOR:{}", color));
+    }
+    if let Some(cover_val) = pl.get("coverArt").and_then(|c| c.as_str()) {
+        if let Some(portable) = to_portable_cover(cover_val, base_dir) {
+            lines.push(format!("#EXT-ARACHNID-COVER:{}", portable));
+        }
+    }
+    if let Some(is_system) = pl.get("isSystem").and_then(|s| s.as_bool()) {
+        if is_system {
+            lines.push("#EXT-ARACHNID-ISSYSTEM:true".to_string());
+        }
+    }
+    if let Some(icon) = pl.get("icon").and_then(|i| i.as_str()) {
+        lines.push(format!("#EXT-ARACHNID-ICON:{}", icon));
+    }
+
+    if let Some(track_ids) = pl.get("trackIds").and_then(|t| t.as_array()) {
+        for tid_val in track_ids {
+            if let Some(tid) = tid_val.as_str() {
+                if let Some((path_opt, artist, title, duration)) = track_map.get(tid) {
+                    lines.push(format!("#EXTINF:{},{} - {}", duration, artist, title));
+                    if let Some(path) = path_opt {
+                        lines.push(path.clone());
+                    } else {
+                        lines.push(format!("#EXT-ARACHNID-TRACKID:{}", tid));
+                    }
+                } else {
+                    lines.push(format!("#EXT-ARACHNID-TRACKID:{}", tid));
+                }
+            }
+        }
+    }
+
+    let content = lines.join("\n");
+    fs::write(pl_path, content.as_bytes())
+        .map_err(|e| format!("Failed to write M3U8 playlist to {:?}: {}", pl_path, e))?;
+
+    Ok(())
+}
+
+pub fn parse_m3u8_playlist(
+    file_path: &Path,
+    base_dir: &Path,
+    library_tracks: &mut Vec<Value>,
+    path_to_id: &mut std::collections::HashMap<String, String>,
+) -> Option<Value> {
+    let content = fs::read_to_string(file_path).ok()?;
+    let stem = file_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "Playlist".to_string());
+
+    let mut name = stem.clone();
+    let mut id: Option<String> = None;
+    let mut order: Option<i64> = None;
+    let mut folder_id: Option<String> = None;
+    let mut group_id: Option<String> = None;
+    let mut color: Option<String> = None;
+    let mut cover_art: Option<String> = None;
+    let mut is_system = false;
+    let mut icon: Option<String> = None;
+    let mut track_ids = Vec::new();
+
+    let mut pending_extinf: Option<(i64, String, String)> = None;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Some(val) = trimmed.strip_prefix("#PLAYLIST:") {
+            let n = val.trim();
+            if !n.is_empty() {
+                name = n.to_string();
+            }
+            continue;
+        }
+        if let Some(val) = trimmed.strip_prefix("#EXT-ARACHNID-NAME:") {
+            let n = val.trim();
+            if !n.is_empty() {
+                name = n.to_string();
+            }
+            continue;
+        }
+        if let Some(val) = trimmed.strip_prefix("#EXT-ARACHNID-ID:") {
+            let i = val.trim();
+            if !i.is_empty() {
+                id = Some(i.to_string());
+            }
+            continue;
+        }
+        if let Some(val) = trimmed.strip_prefix("#EXT-ARACHNID-ORDER:") {
+            order = val.trim().parse::<i64>().ok();
+            continue;
+        }
+        if let Some(val) = trimmed.strip_prefix("#EXT-ARACHNID-FOLDER:") {
+            let f = val.trim();
+            if !f.is_empty() && f != "null" {
+                folder_id = Some(f.to_string());
+            }
+            continue;
+        }
+        if let Some(val) = trimmed.strip_prefix("#EXT-ARACHNID-GROUP:") {
+            let g = val.trim();
+            if !g.is_empty() && g != "null" {
+                group_id = Some(g.to_string());
+            }
+            continue;
+        }
+        if let Some(val) = trimmed.strip_prefix("#EXT-ARACHNID-COLOR:") {
+            let c = val.trim();
+            if !c.is_empty() && c != "null" {
+                color = Some(c.to_string());
+            }
+            continue;
+        }
+        if let Some(val) = trimmed.strip_prefix("#EXT-ARACHNID-COVER:") {
+            let c = val.trim();
+            if !c.is_empty() && c != "null" {
+                cover_art = to_absolute_cover(c, base_dir);
+            }
+            continue;
+        }
+        if let Some(val) = trimmed.strip_prefix("#EXT-ARACHNID-ISSYSTEM:") {
+            is_system = val.trim().eq_ignore_ascii_case("true");
+            continue;
+        }
+        if let Some(val) = trimmed.strip_prefix("#EXT-ARACHNID-ICON:") {
+            let ic = val.trim();
+            if !ic.is_empty() && ic != "null" {
+                icon = Some(ic.to_string());
+            }
+            continue;
+        }
+        if let Some(val) = trimmed.strip_prefix("#EXT-ARACHNID-TRACKID:") {
+            let tid = val.trim().to_string();
+            if !tid.is_empty() {
+                track_ids.push(tid);
+            }
+            continue;
+        }
+        if let Some(val) = trimmed.strip_prefix("#EXTINF:") {
+            let parts: Vec<&str> = val.splitn(2, ',').collect();
+            let duration = parts[0].trim().parse::<f64>().unwrap_or(0.0) as i64;
+            let artist_title = if parts.len() > 1 { parts[1].trim() } else { "" };
+            let (artist, title) = if let Some(dash_idx) = artist_title.find(" - ") {
+                (
+                    artist_title[..dash_idx].trim().to_string(),
+                    artist_title[dash_idx + 3..].trim().to_string(),
+                )
+            } else {
+                ("Unknown Artist".to_string(), artist_title.to_string())
+            };
+            pending_extinf = Some((duration, artist, title));
+            continue;
+        }
+
+        // Other comment lines
+        if trimmed.starts_with('#') {
+            continue;
+        }
+
+        // Audio file path
+        let path_buf = if Path::new(trimmed).is_relative() {
+            if let Some(parent) = file_path.parent() {
+                parent.join(trimmed)
+            } else {
+                PathBuf::from(trimmed)
+            }
+        } else {
+            PathBuf::from(trimmed)
+        };
+
+        let norm_path_str = path_buf.to_string_lossy().to_string();
+        let lower_path = norm_path_str.to_lowercase();
+
+        if let Some(existing_id) = path_to_id.get(&lower_path) {
+            track_ids.push(existing_id.clone());
+        } else {
+            let mut hasher = DefaultHasher::new();
+            norm_path_str.hash(&mut hasher);
+            let synth_id = format!("track_{:016x}", hasher.finish());
+
+            let (dur, artist, title) = pending_extinf.take().unwrap_or_else(|| {
+                let fname = path_buf
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "Track".to_string());
+                (0, "Unknown Artist".to_string(), fname)
+            });
+
+            let new_track = json!({
+                "id": synth_id,
+                "path": norm_path_str,
+                "title": title,
+                "artist": artist,
+                "album": "Unknown Album",
+                "duration": dur,
+                "src": norm_path_str,
+                "dateAdded": chrono::Utc::now().timestamp_millis(),
+                "playCount": 0,
+                "isFavorite": false
+            });
+
+            path_to_id.insert(lower_path, synth_id.clone());
+            library_tracks.push(new_track);
+            track_ids.push(synth_id);
+        }
+
+        pending_extinf = None;
+    }
+
+    let final_id = id.unwrap_or_else(|| {
+        let mut hasher = DefaultHasher::new();
+        stem.hash(&mut hasher);
+        format!("pl_{:016x}", hasher.finish())
+    });
+
+    Some(json!({
+        "id": final_id,
+        "name": name,
+        "trackIds": track_ids,
+        "folderId": folder_id,
+        "groupId": group_id,
+        "color": color,
+        "coverArt": cover_art,
+        "isSystem": is_system,
+        "icon": icon,
+        "order": order.unwrap_or(0),
+    }))
 }

@@ -15,7 +15,8 @@ import {
   FolderOpen,
   Palette,
   GripVertical,
-  ShieldAlert
+  ShieldAlert,
+  FileUp
 } from 'lucide-react';
 import { Playlist, PlaylistFolder, PlaylistGroup, Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
@@ -33,6 +34,8 @@ interface PlaylistsGridViewProps {
   onCreatePlaylist: (folderId?: string | null, groupId?: string | null) => void;
   onCreateFolder: (parentId?: string | null, groupId?: string | null) => void;
   onCreateGroup: () => void;
+  onImportM3U8?: () => void;
+  onOpenPlaylistsFolder?: () => void;
   onPlayPlaylist: (playlist: Playlist) => void;
   onPlayFolder: (folder: PlaylistFolder) => void;
   onOpenPlaylistContextMenu: (e: React.MouseEvent, playlist: Playlist) => void;
@@ -322,6 +325,8 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   onCreatePlaylist,
   onCreateFolder,
   onCreateGroup,
+  onImportM3U8,
+  onOpenPlaylistsFolder,
   onPlayPlaylist,
   onPlayFolder,
   onOpenPlaylistContextMenu,
@@ -1192,6 +1197,28 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
 
         {/* Global Toolbar Buttons */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto">
+          {onOpenPlaylistsFolder && (
+            <button
+              onClick={onOpenPlaylistsFolder}
+              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
+              title={language === 'ru' ? "Открыть папку плейлистов (.m3u8)" : "Open playlists folder (.m3u8)"}
+            >
+              <FolderOpen className="w-4 h-4 text-md3-primary" />
+              <span className="hidden sm:inline">{language === 'ru' ? 'Папка M3U8' : 'M3U8 Folder'}</span>
+            </button>
+          )}
+
+          {onImportM3U8 && (
+            <button
+              onClick={onImportM3U8}
+              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
+              title={language === 'ru' ? "Импортировать плейлист (.m3u, .m3u8)" : "Import playlist (.m3u, .m3u8)"}
+            >
+              <FileUp className="w-4 h-4 text-md3-primary" />
+              <span className="hidden sm:inline">{language === 'ru' ? 'Импорт' : 'Import'}</span>
+            </button>
+          )}
+
           <button
             onClick={onCreateGroup}
             className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3.5 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"

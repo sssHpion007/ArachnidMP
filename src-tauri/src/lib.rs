@@ -1069,6 +1069,156 @@ fn save_cover_image(data_url: String, default_filename: Option<String>) -> Resul
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct M3u8ExportTrack {
+    pub path: Option<String>,
+    pub artist: String,
+    pub title: String,
+    pub duration: f64,
+}
+
+#[tauri::command]
+fn export_playlist_to_m3u8(playlist_name: String, tracks: Vec<M3u8ExportTrack>) -> Result<Option<String>, String> {
+    let safe_name = storage::sanitize_playlist_filename(&playlist_name);
+    let default_file = format!("{}.m3u8", safe_name);
+
+    let file = rfd::FileDialog::new()
+        .set_file_name(&default_file)
+        .add_filter("M3U8 Playlist (*.m3u8)", &["m3u8"])
+        .add_filter("M3U Playlist (*.m3u)", &["m3u"])
+        .save_file();
+
+    if let Some(dest_path) = file {
+        let mut lines = Vec::new();
+        lines.push("#EXTM3U".to_string());
+        lines.push(format!("#PLAYLIST:{}", playlist_name));
+
+        for t in tracks {
+            lines.push(format!("#EXTINF:{},{} - {}", t.duration as i64, t.artist, t.title));
+            if let Some(p) = t.path {
+                lines.push(p);
+            }
+        }
+
+        let content = lines.join("\n");
+        std::fs::write(&dest_path, content.as_bytes())
+            .map_err(|e| format!("Failed to save playlist: {}", e))?;
+
+        return Ok(Some(dest_path.to_string_lossy().to_string()));
+    }
+
+    Ok(None)
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ImportedM3u8Playlist {
+    pub name: String,
+    pub paths: Vec<String>,
+}
+
+#[tauri::command]
+fn import_playlist_from_m3u8() -> Result<Option<ImportedM3u8Playlist>, String> {
+    let file = rfd::FileDialog::new()
+        .add_filter("Playlists (*.m3u8;*.m3u)", &["m3u8", "m3u"])
+        .pick_file();
+
+    if let Some(chosen_path) = file {
+        let content = std::fs::read_to_string(&chosen_path)
+            .map_err(|e| format!("Failed to read playlist file: {}", e))?;
+
+        let stem = chosen_path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Imported Playlist".to_string());
+
+        let mut name = stem;
+        let mut paths = Vec::new();
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if let Some(pl_name) = trimmed.strip_prefix("#PLAYLIST:") {
+                let n = pl_name.trim();
+                if !n.is_empty() {
+                    name = n.to_string();
+                }
+                continue;
+            }
+            if trimmed.starts_with('#') {
+                continue;
+            }
+
+            // Path to audio file
+            let resolved_path = if Path::new(trimmed).is_relative() {
+                if let Some(parent) = chosen_path.parent() {
+                    parent.join(trimmed).to_string_lossy().to_string()
+                } else {
+                    trimmed.to_string()
+                }
+            } else {
+                trimmed.to_string()
+            };
+
+            paths.push(resolved_path);
+        }
+
+        return Ok(Some(ImportedM3u8Playlist { name, paths }));
+    }
+
+    Ok(None)
+}
+
+#[tauri::command]
+fn parse_m3u8_file(path: String) -> Result<ImportedM3u8Playlist, String> {
+    let p = Path::new(&path);
+    if !p.is_file() {
+        return Err("File not found".to_string());
+    }
+    let content = std::fs::read_to_string(p)
+        .map_err(|e| format!("Failed to read playlist file: {}", e))?;
+
+    let stem = p
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "Imported Playlist".to_string());
+
+    let mut name = stem;
+    let mut paths = Vec::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(pl_name) = trimmed.strip_prefix("#PLAYLIST:") {
+            let n = pl_name.trim();
+            if !n.is_empty() {
+                name = n.to_string();
+            }
+            continue;
+        }
+        if trimmed.starts_with('#') {
+            continue;
+        }
+
+        let resolved_path = if Path::new(trimmed).is_relative() {
+            if let Some(parent) = p.parent() {
+                parent.join(trimmed).to_string_lossy().to_string()
+            } else {
+                trimmed.to_string()
+            }
+        } else {
+            trimmed.to_string()
+        };
+
+        paths.push(resolved_path);
+    }
+
+    Ok(ImportedM3u8Playlist { name, paths })
+}
+
 #[tauri::command]
 fn save_track_lyrics(path: String, lyrics: String, lyricist: Option<String>) -> Result<bool, String> {
     let updates = TagUpdates {
@@ -1759,7 +1909,10 @@ pub fn run() {
             logger::get_recent_logs,
             logger::client_log,
             logger::save_logs_snapshot,
-            logger::open_logs_folder
+            logger::open_logs_folder,
+            export_playlist_to_m3u8,
+            import_playlist_from_m3u8,
+            parse_m3u8_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arachnid application");

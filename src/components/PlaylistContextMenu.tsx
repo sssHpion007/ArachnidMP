@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Play, ListPlus, Edit3, Trash2, ListX, Folder, FolderSymlink, Layers } from 'lucide-react';
+import { Play, ListPlus, Edit3, Trash2, ListX, Folder, FolderSymlink, Layers, Download } from 'lucide-react';
 import { Playlist, PlaylistFolder, PlaylistGroup, Track } from '../types/music';
 import { AppLanguage } from '../i18n';
 
@@ -17,6 +17,7 @@ interface PlaylistContextMenuProps {
   onRename: (playlist: Playlist) => void;
   onClear: (playlist: Playlist) => void;
   onDelete: (playlist: Playlist) => void;
+  onExportM3U8?: (playlist: Playlist) => void;
   onMoveToFolder?: (playlistId: string, folderId: string | null) => void;
   onMoveToGroup?: (playlistId: string, groupId: string | null) => void;
 }
@@ -35,6 +36,7 @@ export const PlaylistContextMenu: React.FC<PlaylistContextMenuProps> = ({
   onRename,
   onClear,
   onDelete,
+  onExportM3U8,
   onMoveToFolder,
   onMoveToGroup,
 }) => {
@@ -214,6 +216,19 @@ export const PlaylistContextMenu: React.FC<PlaylistContextMenuProps> = ({
             </button>
           ))}
         </div>
+      )}
+
+      {onExportM3U8 && (
+        <button
+          onClick={() => {
+            onExportM3U8(playlist);
+            onClose();
+          }}
+          className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left cursor-pointer"
+        >
+          <Download className="w-3.5 h-3.5 text-md3-primary" />
+          <span>{language === 'ru' ? 'Экспорт в M3U8...' : 'Export to M3U8...'}</span>
+        </button>
       )}
 
       <button

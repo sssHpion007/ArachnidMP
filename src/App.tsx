@@ -1752,8 +1752,76 @@ export const App: React.FC = () => {
       pendingTauriPathsRef.current.clear();
       if (batchedPaths.length === 0) return;
 
+      const playlistPaths = batchedPaths.filter(p => /\.(m3u8|m3u)$/i.test(p));
+      const audioPaths = batchedPaths.filter(p => !/\.(m3u8|m3u)$/i.test(p));
+
+      // 1. Process dropped M3U / M3U8 playlists
+      for (const plPath of playlistPaths) {
+        try {
+          const res = await invoke<{ name: string; paths: string[] }>('parse_m3u8_file', { path: plPath });
+          if (res && res.paths.length > 0) {
+            const raw = await invoke<any[]>('read_audio_files', { paths: res.paths });
+            if (raw && raw.length > 0) {
+              const newPlTracks: Track[] = raw.map(t => ({
+                id: t.id,
+                path: t.path,
+                title: t.title,
+                artist: t.artist,
+                album: t.album,
+                duration: t.duration_seconds || 0,
+                src: convertFileSrc(t.path),
+                coverArt: t.cover_art ? convertFileSrc(t.cover_art) : undefined,
+                genre: t.genre || undefined,
+                year: t.year || undefined,
+                trackNumber: t.track_number || undefined,
+                trackTotal: t.track_total || undefined,
+                format: t.format,
+                fileSize: t.file_size,
+                lyrics: t.lyrics || undefined,
+                composer: t.composer || undefined,
+                contentGroup: t.content_group || undefined,
+                comment: t.comment || undefined,
+                conductor: t.conductor || undefined,
+                lyricist: t.lyricist || undefined,
+                dateAdded: Date.now(),
+                playCount: 0,
+                isFavorite: false,
+              }));
+              const existingMap = new Map(tracksRef.current.map(t => [t.path?.toLowerCase() || '', t.id]));
+              const plTrackIds: string[] = [];
+              const tracksToAdd: Track[] = [];
+              for (const pt of newPlTracks) {
+                const lower = pt.path?.toLowerCase() || '';
+                if (existingMap.has(lower)) {
+                  plTrackIds.push(existingMap.get(lower)!);
+                } else {
+                  existingMap.set(lower, pt.id);
+                  tracksToAdd.push(pt);
+                  plTrackIds.push(pt.id);
+                }
+              }
+              if (tracksToAdd.length > 0) {
+                setTracks(prev => [...prev, ...tracksToAdd]);
+              }
+              const newPl: Playlist = {
+                id: `pl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                name: res.name || 'Imported Playlist',
+                trackIds: plTrackIds,
+                isSystem: false,
+                order: playlists.length,
+              };
+              setPlaylists(prev => [...prev, newPl]);
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to parse dropped playlist:', e);
+        }
+      }
+
+      if (audioPaths.length === 0) return;
+
       try {
-        const rawTracks = await invoke<any[]>('read_audio_files', { paths: batchedPaths });
+        const rawTracks = await invoke<any[]>('read_audio_files', { paths: audioPaths });
         if (!rawTracks || rawTracks.length === 0) return;
 
         const newTracks: Track[] = rawTracks.map(t => {
@@ -2386,6 +2454,148 @@ export const App: React.FC = () => {
     setPlaylistCreationTarget(null);
   };
 
+  // Open native playlists directory in explorer
+  const handleOpenPlaylistsFolder = () => {
+    if (isTauri()) {
+      invoke('open_app_folder', { subfolder: 'playlists' }).catch(err => {
+        console.warn('Failed to open playlists folder:', err);
+      });
+    }
+  };
+
+  // Export a playlist to standard M3U8 file
+  const handleExportPlaylistM3U8 = async (playlist: Playlist) => {
+    const plTracks = playlist.trackIds
+      .map(id => tracks.find(t => t.id === id))
+      .filter((t): t is Track => !!t);
+
+    if (isTauri()) {
+      try {
+        const exportTracks = plTracks.map(t => ({
+          path: t.path || null,
+          artist: t.artist || 'Unknown Artist',
+          title: t.title || 'Unknown Title',
+          duration: t.duration || 0,
+        }));
+        await invoke('export_playlist_to_m3u8', {
+          playlistName: playlist.name,
+          tracks: exportTracks,
+        });
+      } catch (err) {
+        console.warn('Failed to export playlist:', err);
+      }
+    } else {
+      // Browser fallback: download blob
+      let content = `#EXTM3U\n#PLAYLIST:${playlist.name}\n`;
+      for (const t of plTracks) {
+        content += `#EXTINF:${Math.round(t.duration || 0)},${t.artist} - ${t.title}\n`;
+        content += `${t.path || t.src || t.title}\n`;
+      }
+      const blob = new Blob([content], { type: 'audio/x-mpegurl;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${playlist.name}.m3u8`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  // Import a playlist from standard M3U / M3U8 file
+  const handleImportM3U8 = async () => {
+    if (isTauri()) {
+      try {
+        const res = await invoke<{ name: string; paths: string[] } | null>('import_playlist_from_m3u8');
+        if (res && res.paths.length > 0) {
+          const metaList = await invoke<any[]>('read_audio_files', { paths: res.paths });
+          if (metaList && metaList.length > 0) {
+            const addedTracks: Track[] = metaList.map(m => ({
+              id: m.id || `t_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+              path: m.path,
+              title: m.title || 'Unknown',
+              artist: m.artist || 'Unknown Artist',
+              album: m.album || 'Unknown Album',
+              duration: m.duration_seconds || 0,
+              src: convertFileSrc(m.path),
+              coverArt: m.cover_art ? convertFileSrc(m.cover_art) : undefined,
+              genre: m.genre || undefined,
+              year: m.year || undefined,
+              trackNumber: m.track_number || undefined,
+              dateAdded: Date.now(),
+              playCount: 0,
+              isFavorite: false,
+            }));
+
+            const existingMap = new Map<string, string>(tracks.map(t => [t.path?.toLowerCase() || '', t.id]));
+            const newTrackIds: string[] = [];
+            const tracksToAppend: Track[] = [];
+
+            for (const t of addedTracks) {
+              const lower = t.path?.toLowerCase() || '';
+              if (existingMap.has(lower)) {
+                newTrackIds.push(existingMap.get(lower)!);
+              } else {
+                existingMap.set(lower, t.id);
+                tracksToAppend.push(t);
+                newTrackIds.push(t.id);
+              }
+            }
+
+            if (tracksToAppend.length > 0) {
+              setTracks(prev => [...prev, ...tracksToAppend]);
+            }
+
+            const newPl: Playlist = {
+              id: `pl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              name: res.name || 'Imported Playlist',
+              trackIds: newTrackIds,
+              isSystem: false,
+              order: playlists.length,
+            };
+            setPlaylists(prev => [...prev, newPl]);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to import playlist:', err);
+      }
+    } else {
+      // Browser fallback: HTML file input
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.m3u8,.m3u';
+      input.onchange = async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+        const text = await file.text();
+        const lines = text.split('\n');
+        let plName = file.name.replace(/\.(m3u8|m3u)$/i, '');
+        const trackTitles: string[] = [];
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('#PLAYLIST:')) {
+            plName = trimmed.replace('#PLAYLIST:', '').trim();
+          } else if (!trimmed.startsWith('#') && trimmed.length > 0) {
+            trackTitles.push(trimmed);
+          }
+        }
+        const matchedIds: string[] = [];
+        for (const title of trackTitles) {
+          const found = tracks.find(t => t.title.toLowerCase() === title.toLowerCase() || t.path?.toLowerCase().includes(title.toLowerCase()));
+          if (found) matchedIds.push(found.id);
+        }
+        const newPl: Playlist = {
+          id: `pl_${Date.now()}`,
+          name: plName,
+          trackIds: matchedIds,
+          isSystem: false,
+          order: playlists.length,
+        };
+        setPlaylists(prev => [...prev, newPl]);
+      };
+      input.click();
+    }
+  };
+
   const handleSelectPlaylist = (id: string) => {
     setDetailNavDirection('forward');
     setSelectedPlaylistId(id);
@@ -3009,6 +3219,8 @@ export const App: React.FC = () => {
                 setEditingGroupTarget(null);
                 setIsCreateGroupOpen(true);
               }}
+              onImportM3U8={handleImportM3U8}
+              onOpenPlaylistsFolder={isTauri() ? handleOpenPlaylistsFolder : undefined}
               onPlayPlaylist={handlePlayPlaylist}
               onPlayFolder={handlePlayFolder}
               onOpenPlaylistContextMenu={(e, pl) => {
@@ -3307,6 +3519,7 @@ export const App: React.FC = () => {
           onRename={(pl) => setRenameItemTarget({ isOpen: true, type: 'playlist', item: pl })}
           onClear={handleClearPlaylist}
           onDelete={handleDeletePlaylist}
+          onExportM3U8={handleExportPlaylistM3U8}
           onMoveToFolder={handleMovePlaylistToFolder}
           onMoveToGroup={handleMovePlaylistToGroup}
         />
