@@ -128,16 +128,17 @@ class DiscordRpcService {
     const showPause = info.showPauseIcon ?? true;
     let smallImage: string | null = null;
     let smallText: string | null = null;
+    const isEn = info.language === 'en';
 
     if (info.isPlaying) {
       if (showPlay) {
         smallImage = PLAYING_ICON_URL;
-        smallText = 'Воспроизведение';
+        smallText = isEn ? 'Playing' : 'Воспроизведение';
       }
     } else {
       if (showPause) {
         smallImage = PAUSED_ICON_URL;
-        smallText = 'Пауза';
+        smallText = isEn ? 'Paused' : 'Пауза';
       }
     }
 

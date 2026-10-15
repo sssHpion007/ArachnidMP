@@ -347,23 +347,36 @@ impl DiscordService {
                         let clean = sanitize_discord_string(large_txt);
                         if !clean.is_empty() {
                             assets["large_text"] = json!(clean);
+                        } else {
+                            assets["large_text"] = json!(null);
                         }
+                    } else {
+                        assets["large_text"] = json!(null);
                     }
+
                     if let Some(small_img) = &latest.small_image {
                         let trimmed = small_img.trim();
                         if !trimmed.is_empty() {
                             assets["small_image"] = json!(trimmed);
+                        } else {
+                            assets["small_image"] = json!(null);
                         }
+                    } else {
+                        assets["small_image"] = json!(null);
                     }
+
                     if let Some(small_txt) = &latest.small_text {
                         let clean = sanitize_discord_string(small_txt);
                         if !clean.is_empty() {
                             assets["small_text"] = json!(clean);
+                        } else {
+                            assets["small_text"] = json!(null);
                         }
+                    } else {
+                        assets["small_text"] = json!(null);
                     }
-                    if assets.as_object().map_or(false, |o| !o.is_empty()) {
-                        activity["assets"] = assets;
-                    }
+
+                    activity["assets"] = assets;
 
                     // Timestamps: both start and end creates the timeline progress bar.
                     // When paused (no start or end), explicitly send null so Discord DOES NOT start an automatic timer!
@@ -385,6 +398,7 @@ impl DiscordService {
                         }
                     } else {
                         activity["timestamps"] = json!(null);
+                        activity["party"] = json!(null);
                     }
 
                     let set_activity = json!({

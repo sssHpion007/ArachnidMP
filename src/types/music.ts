@@ -1,3 +1,5 @@
+import { AppLanguage } from '../i18n';
+
 export interface Track {
   id: string;
   path?: string;
@@ -92,6 +94,7 @@ export interface DiscordPresenceInfo {
   showPauseIcon?: boolean;
   statusMode?: 'listening' | 'listening_app';
   customClientId?: string;
+  language?: AppLanguage;
 }
 
 export interface EQPreset {

@@ -283,6 +283,12 @@ class AudioEngine {
     this.currentTrackSrc = src;
     this.currentTrackPath = nativePath || '';
 
+    if (isTrackChange) {
+      this.playbackPosition = 0;
+      this.latchedPosition = 0;
+      this.seekLatchUntil = 0;
+    }
+
     if (durationHint && durationHint > 0) {
       this.currentTrackDuration = durationHint;
       this.onDurationCallback?.(durationHint);

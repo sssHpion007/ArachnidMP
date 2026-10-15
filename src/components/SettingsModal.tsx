@@ -96,6 +96,7 @@ interface SettingsModalProps {
   fadeDuration: number;
   onSetFadeDuration: (dur: number) => void;
   hasUpdate?: boolean;
+  cachedReleaseData?: any;
   onUpdateFound?: () => void;
   autoUpdateEnabled?: boolean;
   onSetAutoUpdateEnabled?: (enabled: boolean) => void;
@@ -166,6 +167,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   fadeDuration,
   onSetFadeDuration,
   hasUpdate = false,
+  cachedReleaseData,
   onUpdateFound,
   autoUpdateEnabled = true,
   onSetAutoUpdateEnabled,
@@ -677,8 +679,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setCurrentView('main');
     }
     setTimeout(() => {
-      updateSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 50);
+      if (mainSettingsContainerRef.current) {
+        mainSettingsContainerRef.current.scrollTo({
+          top: mainSettingsContainerRef.current.scrollHeight,
+          behavior: 'smooth',
+        });
+      }
+    }, 60);
   };
 
   // Fetch Tauri app version if available
@@ -689,6 +696,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       }).catch(() => {});
     }
   }, []);
+
+  // When an update is already known (e.g. settings icon is glowing), immediately activate the update state
+  // and populate latestRelease so the "Install update" button is active right away without manual check!
+  useEffect(() => {
+    if (hasUpdate) {
+      if (cachedReleaseData) {
+        const data = cachedReleaseData;
+        const tagName = data.tag_name || '';
+        const assets = Array.isArray(data.assets) ? data.assets : [];
+        const exeAsset = assets.find((a: any) => a.name?.toLowerCase().endsWith('.exe')) || assets[0];
+
+        setLatestRelease({
+          tagName,
+          name: data.name || tagName,
+          body: data.body || '',
+          publishedAt: data.published_at,
+          htmlUrl: data.html_url || `https://github.com/sssHpion007/ArachnidMP/releases/tag/${tagName}`,
+          downloadUrl: exeAsset?.browser_download_url || data.html_url,
+          assetUrl: exeAsset?.browser_download_url || exeAsset?.url,
+          assetName: exeAsset?.name || 'Arachnid-Portable.exe',
+        });
+        setUpdateStatus('available');
+      } else if (updateStatus === 'idle' && isOpen) {
+        handleCheckUpdates();
+      }
+    }
+  }, [hasUpdate, cachedReleaseData, isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -705,11 +739,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }, [isOpen]);
 
   useEffect(() => {
-    if (updateStatus !== 'idle' && updateStatus !== 'checking' && updateCardRef.current && mainSettingsContainerRef.current) {
+    if (updateStatus !== 'idle' && updateStatus !== 'checking' && mainSettingsContainerRef.current) {
       const timer = setTimeout(() => {
-        updateCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        if (mainSettingsContainerRef.current) {
+          mainSettingsContainerRef.current.scrollTo({
+            top: mainSettingsContainerRef.current.scrollHeight,
+            behavior: 'smooth',
+          });
+        }
       }, 100);
-      return () => clearTimeout(timer);
+      const secondTimer = setTimeout(() => {
+        if (mainSettingsContainerRef.current) {
+          mainSettingsContainerRef.current.scrollTo({
+            top: mainSettingsContainerRef.current.scrollHeight,
+            behavior: 'smooth',
+          });
+        }
+      }, 320);
+      return () => {
+        clearTimeout(timer);
+        clearTimeout(secondTimer);
+      };
     }
   }, [updateStatus]);
 
@@ -2653,7 +2703,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             {/* 7. About Application & Updates Card */}
-            <div ref={updateSectionRef} className="pt-2">
+            <div ref={updateSectionRef} className="pt-2 pb-2">
               <div 
                 ref={updateCardRef}
                 className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col gap-3.5 transition-all duration-300"

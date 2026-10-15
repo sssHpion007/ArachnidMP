@@ -212,6 +212,7 @@ export const App: React.FC = () => {
   const [isEQOpen, setIsEQOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [hasUpdate, setHasUpdate] = useState<boolean>(false);
+  const [cachedReleaseData, setCachedReleaseData] = useState<any>(null);
   const handleTrackEndedRef = useRef<() => void>(() => {});
   const [isBatchTagEditorOpen, setIsBatchTagEditorOpen] = useState<boolean>(false);
   const [isCreatePlaylistOpen, setIsCreatePlaylistOpen] = useState<boolean>(false);
@@ -258,16 +259,22 @@ export const App: React.FC = () => {
   const selectedPlaylistIdRef = useRef<string | null>(null);
   const tracksRef = useRef<Track[]>(tracks);
   const currentTrackRef = useRef<Track | null>(currentTrack);
+  const languageRef = useRef<AppLanguage>(language);
   const discordEnabledRef = useRef<boolean>(discordEnabled);
   const discordShowPlayIconRef = useRef<boolean>(discordShowPlayIcon);
   const discordShowPauseIconRef = useRef<boolean>(discordShowPauseIcon);
   const discordStatusModeRef = useRef<'listening' | 'listening_app'>(discordStatusMode);
   const discordCustomClientIdRef = useRef<string>(discordCustomClientId);
+  const lastDiscordTrackIdRef = useRef<string | null>(null);
   const lastPrevPressRef = useRef<number>(0);
   const lastTabSwitchTimeRef = useRef<number>(0);
   const pendingSeekTimeRef = useRef<number | null>(null);
   const seekDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasPlayingBeforeArrowRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    languageRef.current = language;
+  }, [language]);
 
   useEffect(() => {
     discordEnabledRef.current = discordEnabled;
@@ -681,8 +688,48 @@ export const App: React.FC = () => {
         }
       },
       onEnded: () => handleTrackEndedRef.current(),
-      onPlay: () => setIsPlaying(true),
-      onPause: () => setIsPlaying(false),
+      onPlay: () => {
+        setIsPlaying(true);
+        const cur = currentTrackRef.current;
+        if (discordEnabledRef.current && cur) {
+          discordRpc.updatePresence({
+            enabled: true,
+            trackName: cur.title,
+            artist: cur.artist,
+            album: cur.album,
+            duration: cur.duration || audioEngine.getDuration() || 0,
+            currentTime: audioEngine.getCurrentTime() || 0,
+            isPlaying: true,
+            coverArt: cur.coverArt,
+            showPlayIcon: discordShowPlayIconRef.current,
+            showPauseIcon: discordShowPauseIconRef.current,
+            statusMode: discordStatusModeRef.current,
+            customClientId: discordCustomClientIdRef.current,
+            language: languageRef.current,
+          });
+        }
+      },
+      onPause: () => {
+        setIsPlaying(false);
+        const cur = currentTrackRef.current;
+        if (discordEnabledRef.current && cur) {
+          discordRpc.updatePresence({
+            enabled: true,
+            trackName: cur.title,
+            artist: cur.artist,
+            album: cur.album,
+            duration: cur.duration || audioEngine.getDuration() || 0,
+            currentTime: audioEngine.getCurrentTime() || 0,
+            isPlaying: false,
+            coverArt: cur.coverArt,
+            showPlayIcon: discordShowPlayIconRef.current,
+            showPauseIcon: discordShowPauseIconRef.current,
+            statusMode: discordStatusModeRef.current,
+            customClientId: discordCustomClientIdRef.current,
+            language: languageRef.current,
+          });
+        }
+      },
       onLoopRepeat: () => {
         const cur = currentTrackRef.current;
         if (discordEnabledRef.current && cur) {
@@ -699,6 +746,7 @@ export const App: React.FC = () => {
             showPauseIcon: discordShowPauseIconRef.current,
             statusMode: discordStatusModeRef.current,
             customClientId: discordCustomClientIdRef.current,
+            language: languageRef.current,
           });
         }
       },
@@ -903,7 +951,10 @@ export const App: React.FC = () => {
   // Discord Rich Presence update (triggers on track changes, play/pause, seek, or setting updates)
   useEffect(() => {
     if (currentTrack) {
-      const curTime = audioEngine.getCurrentTime();
+      const isNewTrack = lastDiscordTrackIdRef.current !== currentTrack.id;
+      lastDiscordTrackIdRef.current = currentTrack.id;
+      const curTime = isNewTrack ? 0 : (audioEngine.getCurrentTime() || 0);
+
       discordRpc.updatePresence({
         enabled: discordEnabled,
         trackName: currentTrack.title,
@@ -917,8 +968,10 @@ export const App: React.FC = () => {
         showPauseIcon: discordShowPauseIcon,
         statusMode: discordStatusMode,
         customClientId: discordCustomClientId,
+        language: language,
       });
     } else {
+      lastDiscordTrackIdRef.current = null;
       discordRpc.updatePresence({
         enabled: false,
         trackName: '',
@@ -931,6 +984,7 @@ export const App: React.FC = () => {
         showPauseIcon: discordShowPauseIcon,
         statusMode: discordStatusMode,
         customClientId: discordCustomClientId,
+        language: language,
       });
     }
   }, [
@@ -944,6 +998,7 @@ export const App: React.FC = () => {
     discordShowPauseIcon,
     discordStatusMode,
     discordCustomClientId,
+    language,
   ]);
 
   // Auto-update checker preferences
@@ -999,6 +1054,7 @@ export const App: React.FC = () => {
           }
           if (isNewerVersion(currentVer, latestTag)) {
             setHasUpdate(true);
+            setCachedReleaseData(data);
           }
         }
       } catch (_) {}
@@ -2267,6 +2323,7 @@ export const App: React.FC = () => {
     }
     setQueueIndex(index);
     setCurrentTrack(track);
+    setCurrentTime(0);
     setDuration(track.duration || 0);
     try {
       await audioEngine.playTrack(track.src, true, true, track.duration, track.path);
@@ -2299,6 +2356,7 @@ export const App: React.FC = () => {
     setQueueIndex(targetIdx);
 
     setCurrentTrack(track);
+    setCurrentTime(0);
     setDuration(track.duration || 0);
     try {
       await audioEngine.playTrack(track.src, true, true, track.duration, track.path);
@@ -3917,6 +3975,7 @@ export const App: React.FC = () => {
         fadeDuration={fadeDuration}
         onSetFadeDuration={setFadeDuration}
         hasUpdate={hasUpdate}
+        cachedReleaseData={cachedReleaseData}
         onUpdateFound={() => setHasUpdate(true)}
         autoUpdateEnabled={autoUpdateEnabled}
         onSetAutoUpdateEnabled={handleSetAutoUpdateEnabled}
