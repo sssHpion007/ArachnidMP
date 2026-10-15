@@ -264,6 +264,7 @@ export const App: React.FC = () => {
   const discordStatusModeRef = useRef<'listening' | 'listening_app'>(discordStatusMode);
   const discordCustomClientIdRef = useRef<string>(discordCustomClientId);
   const lastPrevPressRef = useRef<number>(0);
+  const lastTabSwitchTimeRef = useRef<number>(0);
   const pendingSeekTimeRef = useRef<number | null>(null);
   const seekDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasPlayingBeforeArrowRef = useRef<boolean>(false);
@@ -1475,6 +1476,12 @@ export const App: React.FC = () => {
 
       if (e.code === 'Tab' || e.key === 'Tab') {
         e.preventDefault();
+        const now = performance.now();
+        if (now - lastTabSwitchTimeRef.current < 500) {
+          return;
+        }
+        lastTabSwitchTimeRef.current = now;
+
         if (document.activeElement && document.activeElement instanceof HTMLElement) {
           document.activeElement.blur();
         }
