@@ -40,7 +40,8 @@ import {
   FileText,
   Calendar,
   FolderKanban,
-  FolderPlus
+  FolderPlus,
+  Search
 } from 'lucide-react';
 import { marked } from 'marked';
 import { ThemeMode, Track, FadeMode } from '../types/music';
@@ -115,6 +116,8 @@ interface SettingsModalProps {
   onToggleAutoScanOnStartup?: () => void;
   onScanLibrary?: () => Promise<number>;
   tracks?: Track[];
+  missingTracksCount?: number;
+  onOpenMissingTracksModal?: () => void;
 }
 
 const STANDARD_PRESETS = [
@@ -183,6 +186,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onToggleAutoScanOnStartup,
   onScanLibrary,
   tracks = [],
+  missingTracksCount = 0,
+  onOpenMissingTracksModal,
 }) => {
   const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes' | 'discord' | 'logs' | 'library_folders'>('main');
   const [navDirection, setNavDirection] = useState<'forward' | 'backward'>('forward');
@@ -1537,6 +1542,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         ) : currentView === 'library_folders' ? (
           /* Library Folders View */
           <div key="view-library-folders" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 anim-view-slide-right">
+            {/* Missing Tracks Alert */}
+            {missingTracksCount > 0 && onOpenMissingTracksModal && (
+              <div className="p-4 rounded-3xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
+                    <AlertCircle className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-amber-500">
+                      {language === 'ru' ? 'Обнаружены потерянные треки' : 'Missing Tracks Detected'}
+                    </div>
+                    <p className="text-[11px] text-md3-on-surface-variant truncate mt-0.5">
+                      {language === 'ru'
+                        ? `Не найдено файлов: ${missingTracksCount}. Папка была переименована или перемещена.`
+                        : `Could not find ${missingTracksCount} track files. Folder may have been renamed or moved.`}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={onOpenMissingTracksModal}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-amber-500 text-black text-xs font-bold hover:bg-amber-400 shadow-sm transition-all cursor-pointer shrink-0"
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  <span>{language === 'ru' ? 'Найти треки' : 'Relocate'}</span>
+                </button>
+              </div>
+            )}
+
             {/* 1. Portable Music Folder */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">

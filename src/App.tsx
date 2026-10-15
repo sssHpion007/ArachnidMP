@@ -303,12 +303,18 @@ export const App: React.FC = () => {
     try {
       const results = await invoke<Record<string, boolean>>('batch_check_files_exist', { paths });
       const missingList: Track[] = [];
+
+      for (const t of tracksToCheck) {
+        if (t.path && results[t.path] === false) {
+          missingList.push({ ...t, isMissing: true });
+        }
+      }
+
       setTracks(prev => {
         let changed = false;
         const updated = prev.map(t => {
           if (t.path && results[t.path] !== undefined) {
             const missing = !results[t.path];
-            if (missing) missingList.push(t);
             if (t.isMissing !== missing) {
               changed = true;
               return { ...t, isMissing: missing };
@@ -318,6 +324,10 @@ export const App: React.FC = () => {
         });
         return changed ? updated : prev;
       });
+
+      if (missingList.length > 0) {
+        setMissingTracksForModal(missingList);
+      }
 
       if (isInitialStartup && missingList.length > 0 && !hasCheckedMissingOnStartupRef.current) {
         hasCheckedMissingOnStartupRef.current = true;
@@ -2169,6 +2179,10 @@ export const App: React.FC = () => {
   };
 
   const updateTrackRelocation = (trackId: string, newPath: string, newSrc: string, metadata?: any) => {
+    const resolvedCover = metadata?.cover_art && isTauri()
+      ? convertFileSrc(metadata.cover_art)
+      : (metadata?.coverArt || undefined);
+
     setTracks(prev => prev.map(t => {
       if (t.id === trackId) {
         return {
@@ -2180,7 +2194,7 @@ export const App: React.FC = () => {
           artist: metadata?.artist || t.artist,
           album: metadata?.album || t.album,
           duration: metadata?.duration_seconds || metadata?.duration || t.duration,
-          coverArt: metadata?.cover_art || metadata?.coverArt || t.coverArt,
+          coverArt: resolvedCover || t.coverArt,
         };
       }
       return t;
@@ -2196,7 +2210,7 @@ export const App: React.FC = () => {
         artist: metadata?.artist || currentTrack.artist,
         album: metadata?.album || currentTrack.album,
         duration: metadata?.duration_seconds || metadata?.duration || currentTrack.duration,
-        coverArt: metadata?.cover_art || metadata?.coverArt || currentTrack.coverArt,
+        coverArt: resolvedCover || currentTrack.coverArt,
       };
       setCurrentTrack(updatedCurr);
       audioEngine.playTrack(newSrc, true, true, updatedCurr.duration, newPath);
@@ -2911,20 +2925,67 @@ export const App: React.FC = () => {
 
       const foundCount = Object.keys(relocatedMap).length;
       if (foundCount > 0) {
+        // Read updated metadata including folder cover art for the relocated files
+        const metaMap: Record<string, any> = {};
+        try {
+          const newPaths = Object.values(relocatedMap);
+          const metaList = await invoke<any[]>('read_audio_files', { paths: newPaths });
+          if (metaList && Array.isArray(metaList)) {
+            for (const m of metaList) {
+              if (m?.path) {
+                metaMap[m.path.toLowerCase()] = m;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to read metadata for relocated tracks:', e);
+        }
+
         setTracks(prev => prev.map(t => {
           if (t.path && relocatedMap[t.path]) {
             const newPath = relocatedMap[t.path];
+            const meta = metaMap[newPath.toLowerCase()];
+            let newCover = t.coverArt;
+            if (meta?.cover_art) {
+              newCover = convertFileSrc(meta.cover_art);
+            }
             return {
               ...t,
               path: newPath,
               src: convertFileSrc(newPath),
+              coverArt: newCover,
               isMissing: false,
             };
           }
           return t;
         }));
 
-        setMissingTracksForModal(prev => prev.filter(t => !t.path || !relocatedMap[t.path]));
+        setCurrentTrack(prev => {
+          if (prev && prev.path && relocatedMap[prev.path]) {
+            const newPath = relocatedMap[prev.path];
+            const meta = metaMap[newPath.toLowerCase()];
+            let newCover = prev.coverArt;
+            if (meta?.cover_art) {
+              newCover = convertFileSrc(meta.cover_art);
+            }
+            return {
+              ...prev,
+              path: newPath,
+              src: convertFileSrc(newPath),
+              coverArt: newCover,
+              isMissing: false,
+            };
+          }
+          return prev;
+        });
+
+        setMissingTracksForModal(prev => {
+          const remaining = prev.filter(t => !t.path || !relocatedMap[t.path]);
+          if (remaining.length === 0) {
+            setIsMissingTracksModalOpen(false);
+          }
+          return remaining;
+        });
       }
 
       return { total: missingPaths.length, found: foundCount };
@@ -3876,6 +3937,8 @@ export const App: React.FC = () => {
         onToggleAutoScanOnStartup={handleToggleAutoScanOnStartup}
         onScanLibrary={handleScanLibrary}
         tracks={tracks}
+        missingTracksCount={missingTracksForModal.length}
+        onOpenMissingTracksModal={() => setIsMissingTracksModalOpen(true)}
       />
 
       {/* Track Context Menu */}
