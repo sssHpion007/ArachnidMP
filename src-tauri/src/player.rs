@@ -1014,6 +1014,12 @@ fn run_player_thread(
                     if let Some(ref handle) = current_handle {
                         handle.fade_to(current_volume, 10);
                     }
+                } else if remaining < 0.0 {
+                    // Track is past end duration: keep volume strictly at zero, never spike back up!
+                    current_volume = 0.0;
+                    if let Some(ref handle) = current_handle {
+                        handle.fade_to(0.0, 10);
+                    }
                 } else if current_volume < user_target_volume {
                     current_volume = user_target_volume;
                     if let Some(ref handle) = current_handle {
@@ -1095,7 +1101,10 @@ fn run_player_thread(
                         );
                     }
                 }
-            } else if sink.empty() || (current_duration > 1.0 && current_pos >= current_duration + 2.0) {
+            } else if sink.empty()
+                || (should_fade_at_end && current_duration > 1.0 && current_pos >= current_duration + 0.1)
+                || (current_duration > 1.0 && current_pos >= current_duration + 2.0)
+            {
                 if repeat_one {
                     if let Some(ref path) = current_path {
                         if let Ok(file) = File::open(path) {
