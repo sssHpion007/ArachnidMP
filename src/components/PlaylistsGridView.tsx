@@ -204,7 +204,7 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
           )}
 
           {/* Small folder badge in top-left to clearly indicate it's a folder */}
-          <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/60 text-[10px] font-semibold text-white/95 backdrop-blur-xs flex items-center gap-1 shadow-xs">
+          <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/60 text-[10px] font-semibold text-white/95 backdrop-blur-xs flex items-center gap-1 shadow-xs z-20">
             <IconComponent className="w-3 h-3 text-white/90" />
             <span>{language === 'ru' ? 'Папка' : 'Folder'}</span>
           </div>
@@ -220,7 +220,7 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
               style={{
                 backgroundColor: baseColor,
               }}
-              className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200"
+              className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer"
             >
               <Play className="w-5 h-5 fill-current ml-0.5" />
             </button>
@@ -273,7 +273,7 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
               style={{
                 backgroundColor: baseColor,
               }}
-              className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200"
+              className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer"
             >
               <Play className="w-5 h-5 fill-current ml-0.5" />
             </button>
@@ -868,8 +868,8 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                 e.stopPropagation();
                 onPlayPlaylist(playlist);
               }}
-              title="Воспроизвести плейлист"
-              className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200"
+              title={language === 'ru' ? "Воспроизвести плейлист" : "Play playlist"}
+              className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer"
             >
               <Play className="w-5 h-5 fill-current ml-0.5" />
             </button>
@@ -877,8 +877,8 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
 
           {/* System Badge */}
           {playlist.isSystem && (
-            <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/60 text-[10px] font-semibold text-white/90 backdrop-blur-xs">
-              Системный
+            <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/60 text-[10px] font-semibold text-white/90 backdrop-blur-xs z-20">
+              {language === 'ru' ? 'Системный' : 'System'}
             </span>
           )}
         </div>
