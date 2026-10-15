@@ -4,7 +4,7 @@ mod player;
 mod logger;
 
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::State;
 use base64::prelude::*;
 use lofty::config::{ParseOptions, ParsingMode, WriteOptions};
