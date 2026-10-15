@@ -2496,6 +2496,7 @@ export const App: React.FC = () => {
         showPauseIcon: discordShowPauseIcon,
         statusMode: discordStatusMode,
         customClientId: discordCustomClientId,
+        language: language,
       });
     }
   };
