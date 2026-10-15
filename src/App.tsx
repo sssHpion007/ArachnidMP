@@ -1477,7 +1477,8 @@ export const App: React.FC = () => {
       if (e.code === 'Tab' || e.key === 'Tab') {
         e.preventDefault();
         const now = performance.now();
-        if (now - lastTabSwitchTimeRef.current < 500) {
+        // Cooldown applies strictly when holding down the key (auto-repeat)
+        if (e.repeat && now - lastTabSwitchTimeRef.current < 500) {
           return;
         }
         lastTabSwitchTimeRef.current = now;
