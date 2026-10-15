@@ -1027,6 +1027,30 @@ fn batch_check_files_exist(paths: Vec<String>) -> std::collections::HashMap<Stri
 }
 
 #[tauri::command]
+async fn delete_files_from_disk(paths: Vec<String>, state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
+    // If playback is currently active, stop native player to release any file locks
+    let _ = state.player.stop();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        // Short grace pause for Windows filesystem handle closure
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        let mut deleted = Vec::new();
+        for p_str in paths {
+            let p = Path::new(&p_str);
+            if p.is_file() {
+                if std::fs::remove_file(p).is_ok() {
+                    deleted.push(p_str.clone());
+                    notify_shell_file_changed(p);
+                }
+            }
+        }
+        Ok(deleted)
+    })
+    .await
+    .map_err(|e| format!("Failed to delete files: {}", e))?
+}
+
+#[tauri::command]
 fn pick_single_audio_file() -> Result<Option<String>, String> {
     let file = rfd::FileDialog::new()
         .add_filter("Audio Files (*.mp3;*.flac;*.wav;*.ogg;*.m4a;*.opus;*.aac;*.wma)", &["mp3", "flac", "wav", "ogg", "m4a", "opus", "aac", "wma"])
@@ -1995,7 +2019,8 @@ pub fn run() {
             parse_m3u8_file,
             get_portable_music_path,
             pick_folder_dialog,
-            find_relocated_tracks_in_folder
+            find_relocated_tracks_in_folder,
+            delete_files_from_disk
         ])
         .run(tauri::generate_context!())
         .expect("error while running Arachnid application");

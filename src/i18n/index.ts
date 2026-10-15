@@ -204,6 +204,7 @@ export interface Translations {
     repeat: string;
     selectAll: string;
     deleteTracks: string;
+    deleteTracksFromDisk: string;
     search: string;
     queue: string;
     clearQueue: string;
@@ -420,6 +421,7 @@ export const RU_TRANSLATIONS: Translations = {
     repeat: 'Режим зацикливания',
     selectAll: 'Выделить все треки в списке',
     deleteTracks: 'Удалить выбранные треки',
+    deleteTracksFromDisk: 'Удалить выбранные файлы с диска',
     search: 'Фокус на поле поиска',
     queue: 'Открыть / закрыть очередь',
     clearQueue: 'Очистить очередь воспроизведения',
@@ -636,6 +638,7 @@ export const EN_TRANSLATIONS: Translations = {
     repeat: 'Repeat Mode',
     selectAll: 'Select All Tracks in View',
     deleteTracks: 'Delete Selected Tracks',
+    deleteTracksFromDisk: 'Delete Selected Files from Disk',
     search: 'Focus Search Bar',
     queue: 'Open / Close Queue',
     clearQueue: 'Clear Playback Queue',

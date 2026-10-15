@@ -6,6 +6,7 @@ import {
   Edit3, 
   Heart, 
   FolderPlus, 
+  Trash,
   Trash2,
   Info,
   FolderSearch
@@ -28,6 +29,7 @@ interface ContextMenuProps {
   onToggleFavorite: (trackId: string) => void;
   onAddToPlaylist: (playlistId: string, trackIds: string[]) => void;
   onRemoveTracks: (trackIds: string[]) => void;
+  onDeleteFromDisk?: (trackIds: string[]) => void;
   onOpenTrackDetails?: (track: Track) => void;
   onRelocateTrack?: (track: Track) => void;
 }
@@ -47,6 +49,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   onToggleFavorite,
   onAddToPlaylist,
   onRemoveTracks,
+  onDeleteFromDisk,
   onOpenTrackDetails,
   onRelocateTrack,
 }) => {
@@ -223,22 +226,51 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
           </button>
         )}
 
-        {/* Remove */}
+        {/* Remove from playlist / library */}
         <button
           onClick={() => {
             onRemoveTracks(targetIds);
             onClose();
           }}
-          className="w-full flex items-center gap-2.5 px-3 py-2 text-red-400 hover:bg-red-500/10 transition-colors text-left cursor-pointer"
+          className="w-full flex items-center justify-between px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left cursor-pointer group"
         >
-          <Trash2 className="w-3.5 h-3.5" />
-          <span>
-            {language === 'ru' 
-              ? `Удалить трек${targetIds.length > 1 ? 'и' : ''}`
-              : `Remove track${targetIds.length > 1 ? 's' : ''}`
-            }
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Trash2 className="w-3.5 h-3.5 text-md3-on-surface-variant" />
+            <span className="truncate">
+              {language === 'ru' 
+                ? `Удалить трек${targetIds.length > 1 ? 'и' : ''}`
+                : `Remove track${targetIds.length > 1 ? 's' : ''}`
+              }
+            </span>
+          </div>
+          <span className="text-[10px] text-md3-on-surface-variant/60 font-mono tracking-tight shrink-0 ml-2">
+            Del
           </span>
         </button>
+
+        {/* Delete from Disk */}
+        {onDeleteFromDisk && (
+          <button
+            onClick={() => {
+              onDeleteFromDisk(targetIds);
+              onClose();
+            }}
+            className="w-full flex items-center justify-between px-3 py-2 text-red-500 hover:bg-red-500/10 transition-colors text-left cursor-pointer group"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Trash className="w-3.5 h-3.5 text-red-500" />
+              <span className="truncate font-medium">
+                {language === 'ru' 
+                  ? 'Удалить с диска...' 
+                  : 'Delete from disk...'
+                }
+              </span>
+            </div>
+            <span className="text-[10px] text-red-400/80 font-mono tracking-tight shrink-0 ml-2">
+              Shift+Del
+            </span>
+          </button>
+        )}
       </div>
     </div>
   );

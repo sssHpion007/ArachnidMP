@@ -231,6 +231,7 @@ export const App: React.FC = () => {
   const [clearPlaylistTarget, setClearPlaylistTarget] = useState<Playlist | null>(null);
   const [deletePlaylistTarget, setDeletePlaylistTarget] = useState<Playlist | null>(null);
   const [deleteTracksTarget, setDeleteTracksTarget] = useState<string[] | null>(null);
+  const [deleteFromDiskTarget, setDeleteFromDiskTarget] = useState<string[] | null>(null);
   const [trackDetailsTarget, setTrackDetailsTarget] = useState<Track | null>(null);
   const [isLyricsOpen, setIsLyricsOpen] = useState<boolean>(false);
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
@@ -1581,7 +1582,7 @@ export const App: React.FC = () => {
         const anyModalOpen = isSettingsOpen || isEQOpen || isLyricsOpen || isQueueOpen || isBatchTagEditorOpen ||
           isCreatePlaylistOpen || isCreateFolderOpen || isCreateGroupOpen || renameItemTarget ||
           renamePlaylistTarget || deleteFolderTarget || clearPlaylistTarget || deletePlaylistTarget ||
-          deleteTracksTarget || trackDetailsTarget;
+          deleteTracksTarget || deleteFromDiskTarget || trackDetailsTarget;
         if (!anyModalOpen) {
           const currentSelection = selectedTrackIdsRef.current;
           if (currentSelection.size > 0) {
@@ -1600,7 +1601,7 @@ export const App: React.FC = () => {
         const anyModalOpen = isSettingsOpen || isEQOpen || isLyricsOpen || isQueueOpen || isBatchTagEditorOpen ||
           isCreatePlaylistOpen || isCreateFolderOpen || isCreateGroupOpen || renameItemTarget ||
           renamePlaylistTarget || deleteFolderTarget || clearPlaylistTarget || deletePlaylistTarget ||
-          deleteTracksTarget || trackDetailsTarget;
+          deleteTracksTarget || deleteFromDiskTarget || trackDetailsTarget;
         if (!anyModalOpen) {
           const currentList = filteredTracksRef.current;
           const currentSelection = selectedTrackIdsRef.current;
@@ -1681,10 +1682,30 @@ export const App: React.FC = () => {
       } else if (e.code === 'KeyA' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         setSelectedTrackIds(new Set(filteredTracks.map(t => t.id)));
-      } else if (e.code === 'Delete' && selectedTrackIds.size > 0) {
-        e.preventDefault();
-        handleRequestRemoveTracks(Array.from(selectedTrackIds));
+      } else if (e.code === 'Delete' || e.key === 'Delete') {
+        const anyModalOpen = isSettingsOpen || isEQOpen || isLyricsOpen || isQueueOpen || isBatchTagEditorOpen ||
+          isCreatePlaylistOpen || isCreateFolderOpen || isCreateGroupOpen || renameItemTarget ||
+          renamePlaylistTarget || deleteFolderTarget || clearPlaylistTarget || deletePlaylistTarget ||
+          deleteTracksTarget || deleteFromDiskTarget || trackDetailsTarget;
+        if (!anyModalOpen) {
+          if (e.shiftKey) {
+            e.preventDefault();
+            const currentSelection = selectedTrackIdsRef.current;
+            if (currentSelection.size > 0) {
+              setDeleteFromDiskTarget(Array.from(currentSelection));
+            } else if (currentTrackRef.current) {
+              setDeleteFromDiskTarget([currentTrackRef.current.id]);
+            }
+          } else if (selectedTrackIds.size > 0) {
+            e.preventDefault();
+            handleRequestRemoveTracks(Array.from(selectedTrackIds));
+          }
+        }
       } else if (e.code === 'Escape') {
+        if (deleteFromDiskTarget) {
+          setDeleteFromDiskTarget(null);
+          return;
+        }
         if (deleteTracksTarget) {
           setDeleteTracksTarget(null);
           return;
@@ -1787,6 +1808,7 @@ export const App: React.FC = () => {
     clearPlaylistTarget,
     deletePlaylistTarget,
     deleteTracksTarget,
+    deleteFromDiskTarget,
     contextMenu,
     playlistContextMenu,
     folderContextMenu,
@@ -3315,6 +3337,57 @@ export const App: React.FC = () => {
     setDeleteTracksTarget(null);
   };
 
+  const handleRequestDeleteFromDisk = (trackIds: string[]) => {
+    if (trackIds.length === 0) return;
+    setDeleteFromDiskTarget(trackIds);
+  };
+
+  const handleConfirmDeleteFromDisk = async () => {
+    if (!deleteFromDiskTarget || deleteFromDiskTarget.length === 0) return;
+    const targetIds = deleteFromDiskTarget;
+    setDeleteFromDiskTarget(null);
+
+    const targetTracks = tracks.filter(t => targetIds.includes(t.id));
+    const pathsToDelete = targetTracks.map(t => t.path).filter((p): p is string => Boolean(p));
+
+    // If currently playing track is being deleted, stop playback immediately to free file locks
+    if (currentTrack && targetIds.includes(currentTrack.id)) {
+      audioEngine.stop();
+      setCurrentTrack(null);
+      setIsPlaying(false);
+    }
+
+    if (isTauri() && pathsToDelete.length > 0) {
+      try {
+        await invoke('delete_files_from_disk', { paths: pathsToDelete });
+      } catch (err) {
+        console.warn('Failed to delete files from disk:', err);
+      }
+    }
+
+    // Remove from tracks (library)
+    const idSet = new Set(targetIds);
+    setTracks(prev => prev.filter(t => !idSet.has(t.id)));
+
+    // Remove from all playlists
+    setPlaylists(prev => prev.map(p => ({
+      ...p,
+      trackIds: p.trackIds.filter(id => !idSet.has(id)),
+    })));
+
+    // Remove from queue
+    setQueue(prev => prev.filter(t => !idSet.has(t.id)));
+
+    // Clear selection
+    setSelectedTrackIds(prev => {
+      const next = new Set(prev);
+      for (const id of targetIds) {
+        next.delete(id);
+      }
+      return next;
+    });
+  };
+
   const selectedTracksList = useMemo(() => {
     return tracks.filter(t => selectedTrackIds.has(t.id));
   }, [tracks, selectedTrackIds]);
@@ -3767,6 +3840,7 @@ export const App: React.FC = () => {
           onToggleFavorite={handleToggleFavorite}
           onAddToPlaylist={handleDropTracksToPlaylist}
           onRemoveTracks={handleRequestRemoveTracks}
+          onDeleteFromDisk={handleRequestDeleteFromDisk}
           onOpenTrackDetails={(t) => setTrackDetailsTarget(t)}
           onRelocateTrack={handleRelocateTrack}
         />
@@ -3942,6 +4016,25 @@ export const App: React.FC = () => {
         isDestructive={true}
         onConfirm={handleConfirmRemoveTracks}
         onClose={() => setDeleteTracksTarget(null)}
+      />
+
+      {/* Material 3 Delete Tracks From Disk Confirmation Modal (Hold To Confirm) */}
+      <ConfirmationModal
+        isOpen={!!deleteFromDiskTarget && deleteFromDiskTarget.length > 0}
+        title={language === 'ru' ? "Удаление файлов с диска" : "Delete Files from Disk"}
+        message={
+          language === 'ru'
+            ? "Вы уверены, что хотите безвозвратно удалить выбранные аудиофайлы с накопителя? Это действие нельзя отменить."
+            : "Are you sure you want to permanently delete the selected audio files from disk? This action cannot be undone."
+        }
+        confirmLabel={language === 'ru' ? "Удалить с диска" : "Delete from disk"}
+        cancelLabel={language === 'ru' ? "Отмена" : "Cancel"}
+        isDestructive={true}
+        holdToConfirm={true}
+        holdDurationMs={1800}
+        language={language}
+        onConfirm={handleConfirmDeleteFromDisk}
+        onClose={() => setDeleteFromDiskTarget(null)}
       />
 
       {/* Material 3 Track Details Modal */}

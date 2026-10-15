@@ -976,6 +976,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     Delete
                   </kbd>
                 </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.deleteTracksFromDisk}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-red-400 shadow-xs">
+                    Shift + Delete
+                  </kbd>
+                </div>
               </div>
             </div>
 
