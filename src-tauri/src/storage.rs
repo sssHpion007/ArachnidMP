@@ -166,8 +166,27 @@ pub fn to_portable_cover(cover_val: &str, base_dir: &Path) -> Option<String> {
 
     // 5. If already relative config/covers/...
     let norm = trimmed.replace('\\', "/");
-    if norm.starts_with("config/covers/") {
+    if norm.starts_with("config/covers/") || norm.starts_with("music/") {
         return Some(norm);
+    }
+
+    // 6. If it's a file on disk (or asset URL pointing to a file on disk)
+    if p.is_file() {
+        return Some(p.to_string_lossy().to_string());
+    }
+    let stripped_asset = if decoded.starts_with("https://asset.localhost/") {
+        &decoded["https://asset.localhost/".len()..]
+    } else if decoded.starts_with("http://asset.localhost/") {
+        &decoded["http://asset.localhost/".len()..]
+    } else {
+        &decoded
+    };
+    let ap = Path::new(stripped_asset);
+    if ap.is_file() {
+        if let Ok(rel) = ap.strip_prefix(base_dir) {
+            return Some(rel.to_string_lossy().replace('\\', "/"));
+        }
+        return Some(ap.to_string_lossy().to_string());
     }
 
     None
@@ -213,8 +232,22 @@ pub fn to_absolute_cover(cover_val: &str, base_dir: &Path) -> Option<String> {
 
     // 5. If absolute path that currently exists on disk
     let p = Path::new(trimmed);
-    if p.is_absolute() && p.exists() {
+    if p.is_file() {
         return Some(trimmed.to_string());
+    }
+
+    // 6. If asset URL decoded to an existing file on disk
+    let decoded = url_decode(trimmed);
+    let stripped_asset = if decoded.starts_with("https://asset.localhost/") {
+        &decoded["https://asset.localhost/".len()..]
+    } else if decoded.starts_with("http://asset.localhost/") {
+        &decoded["http://asset.localhost/".len()..]
+    } else {
+        &decoded
+    };
+    let ap = Path::new(stripped_asset);
+    if ap.is_file() {
+        return Some(ap.to_string_lossy().to_string());
     }
 
     None

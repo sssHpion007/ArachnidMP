@@ -2036,10 +2036,27 @@ export const App: React.FC = () => {
       }
     }
 
+    // Fallback in web mode: check if any image files were dropped alongside audio files
+    const imageFiles = files.filter(f => 
+      /\.(jpg|jpeg|png|webp)$/i.test(f.name) || f.type.startsWith('image/')
+    );
+    let fallbackCoverUrl: string | undefined;
+    if (imageFiles.length > 0) {
+      const preferred = imageFiles.find(img => 
+        /^(cover|folder|front|album|soundtrack|ost)/i.test(img.name)
+      ) || imageFiles[0];
+      try {
+        fallbackCoverUrl = URL.createObjectURL(preferred);
+      } catch (_) {}
+    }
+
     const newTracks: Track[] = [];
     for (const f of audioFiles) {
       try {
         const parsed = await parseAudioFile(f);
+        if (!parsed.coverArt && fallbackCoverUrl) {
+          parsed.coverArt = fallbackCoverUrl;
+        }
         newTracks.push(parsed);
       } catch (err) {
         console.warn('Error reading file metadata:', err);

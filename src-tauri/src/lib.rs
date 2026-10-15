@@ -89,6 +89,74 @@ fn load_portable_data() -> Result<Option<String>, String> {
     storage::load_modular_data()
 }
 
+fn find_image_in_directory(dir: &Path) -> Option<PathBuf> {
+    if !dir.is_dir() {
+        return None;
+    }
+
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut all_images: Vec<PathBuf> = Vec::new();
+
+    let preferred_stems = [
+        "cover", "folder", "front", "album", "albumart", "artwork",
+        "soundtrack", "ost", "poster", "disc", "cd", "image"
+    ];
+
+    let supported_exts = ["jpg", "jpeg", "png", "webp"];
+
+    for entry in entries.filter_map(|e| e.ok()) {
+        let p = entry.path();
+        if p.is_file() {
+            if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
+                let ext_lower = ext.to_lowercase();
+                if supported_exts.contains(&ext_lower.as_str()) {
+                    if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                        let stem_lower = stem.to_lowercase();
+                        if preferred_stems.contains(&stem_lower.as_str()) {
+                            return Some(p);
+                        }
+                    }
+                    all_images.push(p);
+                }
+            }
+        }
+    }
+
+    if !all_images.is_empty() {
+        all_images.sort();
+        return Some(all_images.remove(0));
+    }
+
+    None
+}
+
+fn find_folder_cover_art(track_path: &Path) -> Option<String> {
+    let parent = track_path.parent()?;
+
+    // 1. Check track's immediate folder
+    if let Some(img_path) = find_image_in_directory(parent) {
+        return Some(img_path.to_string_lossy().to_string());
+    }
+
+    // 2. If track is inside a subfolder like "CD1", "Disc 1", "Scans", check parent's parent
+    if let Some(parent_name) = parent.file_name().and_then(|s| s.to_str()) {
+        let parent_lower = parent_name.to_lowercase();
+        if parent_lower.starts_with("cd") 
+            || parent_lower.starts_with("disc") 
+            || parent_lower.starts_with("disk") 
+            || parent_lower == "scans"
+        {
+            if let Some(grandparent) = parent.parent() {
+                if let Some(img_path) = find_image_in_directory(grandparent) {
+                    return Some(img_path.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
 fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
     let path = Path::new(path_str);
     if !path.is_file() {
@@ -215,6 +283,10 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
                 }
             }
         }
+    }
+
+    if cover_art.is_none() {
+        cover_art = find_folder_cover_art(path);
     }
 
     let id = format!("track_{}_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis(), rand_suffix());
