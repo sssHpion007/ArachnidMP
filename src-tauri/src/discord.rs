@@ -369,7 +369,7 @@ impl DiscordService {
                     }
 
                     // Timestamps: both start and end creates the timeline progress bar.
-                    // When paused (no start or end), explicitly send null so Discord DOES NOT start an automatic timer!
+                    // When paused (no start or end), omit timestamps so Discord does not show an active timer.
                     if latest.start_timestamp.is_some() || latest.end_timestamp.is_some() {
                         let mut timestamps = json!({});
                         if let Some(ts_start) = latest.start_timestamp {
@@ -386,8 +386,6 @@ impl DiscordService {
                                 "id": format!("arachnid_play_{}_{}", sanitize_discord_string(&latest.details), ts_start)
                             });
                         }
-                    } else {
-                        activity["timestamps"] = json!(null);
                     }
 
                     let set_activity = json!({
