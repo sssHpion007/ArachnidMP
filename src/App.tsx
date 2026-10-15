@@ -396,25 +396,34 @@ export const App: React.FC = () => {
                   const foldersToScan = [portableMusicPath, ...(parsed.watchedFolders || [])];
                   const raw = await invoke<any[]>('read_audio_files', { paths: foldersToScan });
                   if (raw && raw.length > 0) {
+                    const currentTrackMap = new Map(tracksRef.current.map(t => [normalizeTrackPath(t.path), t]));
                     const currentPaths = new Set(tracksRef.current.map(t => normalizeTrackPath(t.path)).filter(Boolean));
                     const currentKeys = new Set(tracksRef.current.map(t => `${t.title.trim().toLowerCase()}|||${t.artist.trim().toLowerCase()}`));
                     const newFound: Track[] = [];
+                    const updatedCoversMap = new Map<string, string>();
+
                     for (const m of raw) {
                       const normPath = normalizeTrackPath(m.path);
-                      const key = `${(m.title || '').trim().toLowerCase()}|||${(m.artist || '').trim().toLowerCase()}`;
-                      if (normPath && currentPaths.has(normPath)) {
+                      let coverArt = m.cover_art || undefined;
+                      if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+                        coverArt = convertFileSrc(coverArt);
+                      }
+
+                      const existingTrack = normPath ? currentTrackMap.get(normPath) : undefined;
+                      if (existingTrack) {
+                        if (!existingTrack.coverArt && coverArt) {
+                          updatedCoversMap.set(existingTrack.id, coverArt);
+                        }
                         continue;
                       }
+
+                      const key = `${(m.title || '').trim().toLowerCase()}|||${(m.artist || '').trim().toLowerCase()}`;
                       if (key !== '|||' && key !== 'unknown|||unknown artist' && currentKeys.has(key)) {
                         continue;
                       }
                       if (normPath) currentPaths.add(normPath);
                       if (key !== '|||' && key !== 'unknown|||unknown artist') currentKeys.add(key);
 
-                      let coverArt = m.cover_art || undefined;
-                      if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
-                        coverArt = convertFileSrc(coverArt);
-                      }
                       const newT: Track = {
                         id: m.id || `track_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
                         path: m.path,
@@ -433,8 +442,20 @@ export const App: React.FC = () => {
                       };
                       newFound.push(newT);
                     }
-                    if (newFound.length > 0) {
-                      setTracks(prev => appendUniqueTracks(prev, newFound));
+                    if (updatedCoversMap.size > 0 || newFound.length > 0) {
+                      setTracks(prev => {
+                        let updated = prev;
+                        if (updatedCoversMap.size > 0) {
+                          updated = updated.map(t => {
+                            const newCover = updatedCoversMap.get(t.id);
+                            return newCover ? { ...t, coverArt: newCover } : t;
+                          });
+                        }
+                        if (newFound.length > 0) {
+                          updated = appendUniqueTracks(updated, newFound);
+                        }
+                        return updated;
+                      });
                     }
                   }
                 } catch (e) {
@@ -2791,16 +2812,28 @@ export const App: React.FC = () => {
       const raw = await invoke<any[]>('read_audio_files', { paths: foldersToScan });
       if (!raw || raw.length === 0) return 0;
 
+      const currentTrackMap = new Map(tracksRef.current.map(t => [normalizeTrackPath(t.path), t]));
       const currentPaths = new Set(tracksRef.current.map(t => normalizeTrackPath(t.path)).filter(Boolean));
       const currentKeys = new Set(tracksRef.current.map(t => `${t.title.trim().toLowerCase()}|||${t.artist.trim().toLowerCase()}`));
       const newFound: Track[] = [];
+      const updatedCoversMap = new Map<string, string>();
 
       for (const m of raw) {
         const norm = normalizeTrackPath(m.path);
-        const key = `${(m.title || '').trim().toLowerCase()}|||${(m.artist || '').trim().toLowerCase()}`;
-        if (norm && currentPaths.has(norm)) {
+        let coverArt = m.cover_art || undefined;
+        if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+          coverArt = convertFileSrc(coverArt);
+        }
+
+        const existingTrack = norm ? currentTrackMap.get(norm) : undefined;
+        if (existingTrack) {
+          if (!existingTrack.coverArt && coverArt) {
+            updatedCoversMap.set(existingTrack.id, coverArt);
+          }
           continue;
         }
+
+        const key = `${(m.title || '').trim().toLowerCase()}|||${(m.artist || '').trim().toLowerCase()}`;
         if (key !== '|||' && key !== 'unknown|||unknown artist' && currentKeys.has(key)) {
           continue;
         }
@@ -2808,10 +2841,6 @@ export const App: React.FC = () => {
         if (norm) currentPaths.add(norm);
         if (key !== '|||' && key !== 'unknown|||unknown artist') currentKeys.add(key);
 
-        let coverArt = m.cover_art || undefined;
-        if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
-          coverArt = convertFileSrc(coverArt);
-        }
         const newT: Track = {
           id: m.id || `track_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           path: m.path,
@@ -2831,11 +2860,23 @@ export const App: React.FC = () => {
         newFound.push(newT);
       }
 
-      if (newFound.length > 0) {
-        setTracks(prev => appendUniqueTracks(prev, newFound));
+      if (updatedCoversMap.size > 0 || newFound.length > 0) {
+        setTracks(prev => {
+          let updated = prev;
+          if (updatedCoversMap.size > 0) {
+            updated = updated.map(t => {
+              const newCover = updatedCoversMap.get(t.id);
+              return newCover ? { ...t, coverArt: newCover } : t;
+            });
+          }
+          if (newFound.length > 0) {
+            updated = appendUniqueTracks(updated, newFound);
+          }
+          return updated;
+        });
       }
 
-      return newFound.length;
+      return newFound.length + updatedCoversMap.size;
     } catch (err) {
       console.warn('Scan library error:', err);
       return 0;
