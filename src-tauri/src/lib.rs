@@ -2452,9 +2452,10 @@ fn native_play(
     offset_secs: Option<f64>,
     volume: Option<f32>,
     duration_hint: Option<f64>,
+    repeat_one: Option<bool>,
 ) -> Result<(), String> {
     state.player.set_app_handle(app);
-    state.player.play(path, offset_secs.unwrap_or(0.0), volume.unwrap_or(1.0), duration_hint)
+    state.player.play(path, offset_secs.unwrap_or(0.0), volume.unwrap_or(1.0), duration_hint, repeat_one)
 }
 
 #[tauri::command]

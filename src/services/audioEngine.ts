@@ -132,6 +132,13 @@ class AudioEngine {
     }).catch(() => {});
 
     listen('audio://loop-repeat', () => {
+      if (this.repeatMode !== 'one') {
+        this.isPlaying = false;
+        this.playbackPosition = 0;
+        this.seekLatchUntil = 0;
+        this.onEndCallback?.();
+        return;
+      }
       this.playbackPosition = 0;
       this.seekLatchUntil = 0;
       this.onLoopRepeatCallback?.();
@@ -294,6 +301,7 @@ class AudioEngine {
           offsetSecs: 0.0,
           volume: this.getEffectiveVolume(),
           durationHint: durationHint || null,
+          repeatOne: this.repeatMode === 'one',
         });
 
         await invoke('native_set_repeat_one', {

@@ -209,6 +209,7 @@ pub enum PlayerCmd {
         offset_secs: f64,
         volume: f32,
         duration_hint: Option<f64>,
+        repeat_one: Option<bool>,
     },
     Pause,
     Resume,
@@ -294,7 +295,14 @@ impl NativePlayer {
         }
     }
 
-    pub fn play(&self, path: String, offset_secs: f64, volume: f32, duration_hint: Option<f64>) -> Result<(), String> {
+    pub fn play(
+        &self,
+        path: String,
+        offset_secs: f64,
+        volume: f32,
+        duration_hint: Option<f64>,
+        repeat_one: Option<bool>,
+    ) -> Result<(), String> {
         let sender = self.sender.lock().map_err(|e| e.to_string())?;
         sender
             .send(PlayerCmd::Play {
@@ -302,6 +310,7 @@ impl NativePlayer {
                 offset_secs,
                 volume,
                 duration_hint,
+                repeat_one,
             })
             .map_err(|e| e.to_string())
     }
@@ -551,10 +560,15 @@ fn run_player_thread(
                     offset_secs,
                     volume,
                     duration_hint,
+                    repeat_one: rep_opt,
                 } => {
                     user_target_volume = volume;
                     preloaded_next_loop = false;
+                    preloaded_handle = None;
                     active_volume_fade = None;
+                    if let Some(r) = rep_opt {
+                        repeat_one = r;
+                    }
 
                     logger::log("AUDIO", "PLAYER", &format!("Play command received: {:?} (offset={:.3}s, vol={:.2})", path, offset_secs, volume));
 
@@ -921,6 +935,45 @@ fn run_player_thread(
                     }
                 }
                 PlayerCmd::SetRepeatOne { repeat_one: rep } => {
+                    if repeat_one && !rep {
+                        // User turned off repeat-one: purge any preloaded loop so it never plays!
+                        if preloaded_next_loop {
+                            preloaded_next_loop = false;
+                            preloaded_handle = None;
+                            if is_playing {
+                                let elapsed = play_start_instant.elapsed().as_secs_f64();
+                                let cur_pos = play_start_pos + elapsed;
+                                sink.stop();
+                                if let Ok(new_sink) = Sink::try_new(&stream_handle) {
+                                    sink = new_sink;
+                                }
+                                if let Some(ref path) = current_path {
+                                    if let Ok(file) = File::open(path) {
+                                        if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
+                                            let handle = if cur_pos > 0.05 {
+                                                let target_dur = Duration::from_secs_f64(cur_pos);
+                                                if decoder.try_seek(target_dur).is_err() {
+                                                    let skipped = decoder.skip_duration(target_dur);
+                                                    append_smooth_source(&sink, skipped, glitch_tx.clone())
+                                                } else {
+                                                    append_smooth_source(&sink, decoder, glitch_tx.clone())
+                                                }
+                                            } else {
+                                                append_smooth_source(&sink, decoder, glitch_tx.clone())
+                                            };
+                                            handle.fade_to(user_target_volume, 10);
+                                            current_handle = Some(handle);
+                                            if !is_paused {
+                                                sink.play();
+                                            }
+                                            play_start_pos = cur_pos;
+                                            play_start_instant = Instant::now();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     repeat_one = rep;
                 }
             }
@@ -986,7 +1039,7 @@ fn run_player_thread(
             }
 
             // Check if track reached end or looped
-            if preloaded_next_loop && sink.len() == 1 {
+            if repeat_one && preloaded_next_loop && sink.len() == 1 {
                 // The first source finished and seamlessly transitioned to the preloaded second source with ZERO gap!
                 preloaded_next_loop = false;
                 current_handle = preloaded_handle.take();
@@ -1002,6 +1055,37 @@ fn run_player_thread(
                 if let Ok(guard) = app_handle.lock() {
                     if let Some(ref handle) = *guard {
                         let _ = handle.emit("audio://loop-repeat", ());
+                        let _ = handle.emit(
+                            "audio://time-update",
+                            serde_json::json!({
+                                "position": 0.0,
+                                "duration": current_duration,
+                            }),
+                        );
+                    }
+                }
+            } else if !repeat_one && preloaded_next_loop && sink.len() == 1 {
+                // Repeat was turned off after preloading: do NOT play the second loop! Stop and end track cleanly.
+                preloaded_next_loop = false;
+                preloaded_handle = None;
+                current_handle = None;
+                sink.stop();
+                if let Ok(new_sink) = Sink::try_new(&stream_handle) {
+                    sink = new_sink;
+                }
+                is_playing = false;
+                is_paused = false;
+                play_start_pos = 0.0;
+
+                if let Ok(mut s) = shared_state.lock() {
+                    s.track_ended = true;
+                    s.is_playing = false;
+                    s.position = 0.0;
+                }
+
+                if let Ok(guard) = app_handle.lock() {
+                    if let Some(ref handle) = *guard {
+                        let _ = handle.emit("audio://track-ended", ());
                         let _ = handle.emit(
                             "audio://time-update",
                             serde_json::json!({

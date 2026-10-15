@@ -10,4 +10,4 @@ export const isNewerVersion = (current: string, latest: string): boolean => {
   return false;
 };
 
-export const CURRENT_APP_VERSION = '0.4.43';
+export const CURRENT_APP_VERSION = '0.4.44';
