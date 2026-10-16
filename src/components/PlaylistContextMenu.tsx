@@ -22,6 +22,28 @@ interface PlaylistContextMenuProps {
   onMoveToGroup?: (playlistId: string, groupId: string | null) => void;
 }
 
+const getInitialMenuPosition = (x: number, y: number, menuWidth = 224, estimatedHeight = 340) => {
+  const margin = 12;
+  const winW = typeof window !== 'undefined' ? window.innerWidth : 1000;
+  const winH = typeof window !== 'undefined' ? window.innerHeight : 800;
+
+  let left = x;
+  if (left + menuWidth > winW - margin) {
+    const leftward = left - menuWidth;
+    left = leftward >= margin ? leftward : Math.max(margin, winW - menuWidth - margin);
+  }
+  if (left < margin) left = margin;
+
+  let top = y;
+  if (top + estimatedHeight > winH - margin) {
+    const upward = top - estimatedHeight;
+    top = upward >= margin ? upward : Math.max(margin, winH - estimatedHeight - margin);
+  }
+  if (top < margin) top = margin;
+
+  return { top, left };
+};
+
 export const PlaylistContextMenu: React.FC<PlaylistContextMenuProps> = ({
   x,
   y,
@@ -41,7 +63,7 @@ export const PlaylistContextMenu: React.FC<PlaylistContextMenuProps> = ({
   onMoveToGroup,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ top: y, left: x });
+  const [pos, setPos] = useState(() => getInitialMenuPosition(x, y, 224, 340));
 
   const totalDuration = React.useMemo(() => {
     let sum = 0;
@@ -106,21 +128,21 @@ export const PlaylistContextMenu: React.FC<PlaylistContextMenuProps> = ({
     // Vertical check: flip upward or clamp if overflowing bottom edge
     if (top + rect.height > winH - margin) {
       const upwardTop = top - rect.height;
-      if (upwardTop >= margin) {
-        top = upwardTop;
-      } else {
-        top = Math.max(margin, winH - rect.height - margin);
-      }
+      top = upwardTop >= margin ? upwardTop : Math.max(margin, winH - rect.height - margin);
     }
+    if (top < margin) top = margin;
 
-    setPos({ top, left });
+    setPos((prev) => {
+      if (Math.abs(prev.top - top) < 2 && Math.abs(prev.left - left) < 2) return prev;
+      return { top, left };
+    });
   }, [x, y]);
 
   return (
     <div
       ref={menuRef}
       style={{ left: `${pos.left}px`, top: `${pos.top}px` }}
-      className="fixed z-50 w-56 bg-md3-surface-container-highest rounded-2xl shadow-2xl border border-md3-outline-variant/40 py-1.5 text-xs select-none animate-in fade-in zoom-in-95 duration-100 max-h-[calc(100vh-24px)] overflow-y-auto custom-scrollbar"
+      className="fixed z-50 w-56 bg-md3-surface-container-highest rounded-2xl shadow-2xl border border-md3-outline-variant/40 py-1.5 text-xs select-none max-h-[calc(100vh-24px)] overflow-y-auto custom-scrollbar anim-menu-fade"
     >
       <div className="px-3.5 py-2 border-b border-md3-outline-variant/20">
         <div className="font-bold text-xs text-md3-on-surface truncate">

@@ -46,12 +46,60 @@ interface ContextMenuProps {
 }
 
 // ---------------------------------------------------------------------------
-// Reusable Flyout Menu Container with Screen-Boundary Aware Positioning
-// Rendered via Portal with an invisible hover bridge to prevent lost hover
+// Synchronous Initial Positioning Helpers (Prevents Any First-Frame Jumping)
+// ---------------------------------------------------------------------------
+const getInitialMenuPosition = (x: number, y: number, menuWidth = 224, estimatedHeight = 360) => {
+  const margin = 12;
+  const winW = typeof window !== 'undefined' ? window.innerWidth : 1000;
+  const winH = typeof window !== 'undefined' ? window.innerHeight : 800;
+
+  let left = x;
+  if (left + menuWidth > winW - margin) {
+    const leftward = left - menuWidth;
+    left = leftward >= margin ? leftward : Math.max(margin, winW - menuWidth - margin);
+  }
+  if (left < margin) left = margin;
+
+  let top = y;
+  // If clicked near the bottom of screen, flip UPWARD right from the initial state
+  if (top + estimatedHeight > winH - margin) {
+    const upward = top - estimatedHeight;
+    top = upward >= margin ? upward : Math.max(margin, winH - estimatedHeight - margin);
+  }
+  if (top < margin) top = margin;
+
+  return { top, left };
+};
+
+const calcFlyoutPosition = (anchor: HTMLElement, menuWidth: number, estimatedHeight: number) => {
+  const anchorRect = anchor.getBoundingClientRect();
+  const margin = 8;
+  const winW = typeof window !== 'undefined' ? window.innerWidth : 1000;
+  const winH = typeof window !== 'undefined' ? window.innerHeight : 800;
+
+  let left = anchorRect.right - 2;
+  let flipped = false;
+  if (left + menuWidth > winW - margin) {
+    left = anchorRect.left - menuWidth + 2;
+    flipped = true;
+  }
+  if (left < margin) left = margin;
+
+  let top = anchorRect.top - 4;
+  if (top + estimatedHeight > winH - margin) {
+    top = Math.max(margin, winH - estimatedHeight - margin);
+  }
+  if (top < margin) top = margin;
+
+  return { top, left, flipped };
+};
+
+// ---------------------------------------------------------------------------
+// Reusable Flyout Menu Container
+// Rendered via Portal with synchronous initial positioning and a hover bridge
 // ---------------------------------------------------------------------------
 interface FlyoutMenuProps {
-  anchorEl: HTMLElement | null;
-  isOpen: boolean;
+  anchorEl: HTMLElement;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
   children: React.ReactNode;
@@ -60,46 +108,16 @@ interface FlyoutMenuProps {
 
 const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
   anchorEl,
-  isOpen,
   onMouseEnter,
   onMouseLeave,
   children,
   width = 230,
 }) => {
   const flyoutRef = useRef<HTMLDivElement>(null);
-  const [isFlippedLeft, setIsFlippedLeft] = useState(false);
-
-  // Initialize position directly next to anchorEl instead of (0, 0)
-  const calcInitialPos = () => {
-    if (!anchorEl) return { top: 0, left: 0, flipped: false };
-    const anchorRect = anchorEl.getBoundingClientRect();
-    const margin = 8;
-    const winW = window.innerWidth;
-    const winH = window.innerHeight;
-    const estimatedHeight = 220;
-
-    let left = anchorRect.right - 2;
-    let flipped = false;
-    if (left + width > winW - margin) {
-      left = anchorRect.left - width + 2;
-      flipped = true;
-    }
-    if (left < margin) left = margin;
-
-    let top = anchorRect.top - 4;
-    if (top + estimatedHeight > winH - margin) {
-      top = Math.max(margin, winH - estimatedHeight - margin);
-    }
-    if (top < margin) top = margin;
-
-    return { top, left, flipped };
-  };
-
-  const [pos, setPos] = useState(calcInitialPos);
-  const [isPositioned, setIsPositioned] = useState(false);
+  const [pos, setPos] = useState(() => calcFlyoutPosition(anchorEl, width, 240));
 
   useLayoutEffect(() => {
-    if (!isOpen || !anchorEl || !flyoutRef.current) return;
+    if (!anchorEl || !flyoutRef.current) return;
     const anchorRect = anchorEl.getBoundingClientRect();
     const flyoutRect = flyoutRef.current.getBoundingClientRect();
     const margin = 8;
@@ -123,12 +141,11 @@ const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
     }
     if (top < margin) top = margin;
 
-    setIsFlippedLeft(flipped);
-    setPos({ top, left, flipped });
-    setIsPositioned(true);
-  }, [isOpen, anchorEl]);
-
-  if (!isOpen || !anchorEl) return null;
+    setPos((prev) => {
+      if (Math.abs(prev.top - top) < 2 && Math.abs(prev.left - left) < 2 && prev.flipped === flipped) return prev;
+      return { top, left, flipped };
+    });
+  }, [anchorEl, width]);
 
   return createPortal(
     <div
@@ -137,19 +154,15 @@ const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
         left: `${pos.left}px`, 
         top: `${pos.top}px`, 
         width: `${width}px`,
-        opacity: isPositioned ? 1 : 0,
-        pointerEvents: isPositioned ? 'auto' : 'none',
       }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className={`fixed z-[60] bg-md3-surface-container-highest rounded-2xl shadow-2xl border border-md3-outline-variant/40 py-1.5 text-xs select-none max-h-[min(380px,calc(100vh-24px))] overflow-y-auto custom-scrollbar ${
-        isPositioned ? 'animate-in fade-in zoom-in-95 duration-100' : ''
-      }`}
+      className="fixed z-[60] bg-md3-surface-container-highest rounded-2xl shadow-2xl border border-md3-outline-variant/40 py-1.5 text-xs select-none max-h-[min(380px,calc(100vh-24px))] overflow-y-auto custom-scrollbar anim-menu-fade"
     >
       {/* Invisible hover bridge to eliminate gap between anchor button and flyout menu */}
       <div 
         className="absolute top-0 bottom-0 pointer-events-auto"
-        style={isFlippedLeft ? { right: '-12px', width: '14px' } : { left: '-12px', width: '14px' }}
+        style={pos.flipped ? { right: '-12px', width: '14px' } : { left: '-12px', width: '14px' }}
       />
       {children}
     </div>,
@@ -162,8 +175,7 @@ const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
 // ---------------------------------------------------------------------------
 interface FolderFlyoutProps {
   folder: PlaylistFolder;
-  anchorEl: HTMLElement | null;
-  isOpen: boolean;
+  anchorEl: HTMLElement;
   folders: PlaylistFolder[];
   playlists: Playlist[];
   targetIds: string[];
@@ -177,7 +189,6 @@ interface FolderFlyoutProps {
 const FolderFlyout: React.FC<FolderFlyoutProps> = ({
   folder,
   anchorEl,
-  isOpen,
   folders,
   playlists,
   targetIds,
@@ -231,7 +242,6 @@ const FolderFlyout: React.FC<FolderFlyoutProps> = ({
   return (
     <FlyoutMenu
       anchorEl={anchorEl}
-      isOpen={isOpen}
       onMouseEnter={handleContainerEnter}
       onMouseLeave={handleContainerLeave}
     >
@@ -266,8 +276,7 @@ const FolderFlyout: React.FC<FolderFlyoutProps> = ({
           {activeSubfolderId === sf.id && subfolderRefs.current[sf.id] && (
             <FolderFlyout
               folder={sf}
-              anchorEl={subfolderRefs.current[sf.id]}
-              isOpen={true}
+              anchorEl={subfolderRefs.current[sf.id]!}
               folders={folders}
               playlists={playlists}
               targetIds={targetIds}
@@ -305,8 +314,7 @@ const FolderFlyout: React.FC<FolderFlyoutProps> = ({
 // ---------------------------------------------------------------------------
 interface GroupFlyoutProps {
   group: PlaylistGroup;
-  anchorEl: HTMLElement | null;
-  isOpen: boolean;
+  anchorEl: HTMLElement;
   folders: PlaylistFolder[];
   playlists: Playlist[];
   targetIds: string[];
@@ -320,7 +328,6 @@ interface GroupFlyoutProps {
 const GroupFlyout: React.FC<GroupFlyoutProps> = ({
   group,
   anchorEl,
-  isOpen,
   folders,
   playlists,
   targetIds,
@@ -374,7 +381,6 @@ const GroupFlyout: React.FC<GroupFlyoutProps> = ({
   return (
     <FlyoutMenu
       anchorEl={anchorEl}
-      isOpen={isOpen}
       onMouseEnter={handleContainerEnter}
       onMouseLeave={handleContainerLeave}
     >
@@ -409,8 +415,7 @@ const GroupFlyout: React.FC<GroupFlyoutProps> = ({
           {activeFolderId === fld.id && folderRefs.current[fld.id] && (
             <FolderFlyout
               folder={fld}
-              anchorEl={folderRefs.current[fld.id]}
-              isOpen={true}
+              anchorEl={folderRefs.current[fld.id]!}
               folders={folders}
               playlists={playlists}
               targetIds={targetIds}
@@ -471,7 +476,9 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const addToPlaylistBtnRef = useRef<HTMLButtonElement>(null);
-  const [pos, setPos] = useState({ top: y, left: x });
+  
+  // Synchronously compute initial position with upward flipping on the very first render
+  const [pos, setPos] = useState(() => getInitialMenuPosition(x, y, 224, 380));
 
   // Cascading Add to Playlist state
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
@@ -502,7 +509,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
     };
   }, [onClose]);
 
-  // Viewport-aware layout positioning: flip up / left if near screen borders
+  // Fine-tune positioning if real measured height differs
   useLayoutEffect(() => {
     if (!menuRef.current) return;
     const rect = menuRef.current.getBoundingClientRect();
@@ -511,25 +518,23 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
     const winH = window.innerHeight;
 
     let left = x;
-    let top = y;
-
-    // Horizontal check
     if (left + rect.width > winW - margin) {
       const leftward = left - rect.width;
       left = leftward >= margin ? leftward : Math.max(margin, winW - rect.width - margin);
     }
+    if (left < margin) left = margin;
 
-    // Vertical check: flip upward if overflowing below
+    let top = y;
     if (top + rect.height > winH - margin) {
       const upwardTop = top - rect.height;
-      if (upwardTop >= margin) {
-        top = upwardTop;
-      } else {
-        top = Math.max(margin, winH - rect.height - margin);
-      }
+      top = upwardTop >= margin ? upwardTop : Math.max(margin, winH - rect.height - margin);
     }
+    if (top < margin) top = margin;
 
-    setPos({ top, left });
+    setPos((prev) => {
+      if (Math.abs(prev.top - top) < 2 && Math.abs(prev.left - left) < 2) return prev;
+      return { top, left };
+    });
   }, [x, y]);
 
   const targetIds = selectedTrackIds.has(track.id)
@@ -609,7 +614,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
       <div
         ref={menuRef}
         style={{ left: `${pos.left}px`, top: `${pos.top}px` }}
-        className="fixed z-50 w-56 bg-md3-surface-container-highest rounded-2xl shadow-2xl border border-md3-outline-variant/40 py-1.5 text-xs select-none animate-in fade-in zoom-in-95 duration-100 max-h-[calc(100vh-24px)] overflow-y-auto custom-scrollbar"
+        className="fixed z-50 w-56 bg-md3-surface-container-highest rounded-2xl shadow-2xl border border-md3-outline-variant/40 py-1.5 text-xs select-none max-h-[calc(100vh-24px)] overflow-y-auto custom-scrollbar anim-menu-fade"
       >
         <div className="px-3 py-1.5 text-[11px] font-bold text-md3-on-surface-variant/80 border-b border-md3-outline-variant/20 truncate">
           {targetIds.length > 1 
@@ -817,132 +822,132 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
       </div>
 
       {/* Cascading Submenu: "Добавить в плейлист" */}
-      <FlyoutMenu
-        anchorEl={addToPlaylistBtnRef.current}
-        isOpen={isAddMenuOpen}
-        onMouseEnter={handleAddMenuContainerEnter}
-        onMouseLeave={handleAddToPlaylistLeave}
-        width={230}
-      >
-        {/* Quick New Playlist Action */}
-        {onCreatePlaylistWithTracks && (
-          <button
-            onMouseEnter={handleAddMenuLeafEnter}
-            onClick={() => {
-              onCreatePlaylistWithTracks(targetIds);
-              onClose();
-            }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-md3-primary font-semibold hover:bg-md3-surface-container text-left transition-colors cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-            <span>{language === 'ru' ? 'Новый плейлист...' : 'New Playlist...'}</span>
-          </button>
-        )}
-
-        <div className="border-t border-md3-outline-variant/20 my-1" />
-
-        {/* Groups */}
-        {groups.map((grp) => (
-          <React.Fragment key={grp.id}>
+      {/* Mounted ONLY when isAddMenuOpen is true AND anchor element exists */}
+      {isAddMenuOpen && addToPlaylistBtnRef.current && (
+        <FlyoutMenu
+          anchorEl={addToPlaylistBtnRef.current}
+          onMouseEnter={handleAddMenuContainerEnter}
+          onMouseLeave={handleAddToPlaylistLeave}
+          width={230}
+        >
+          {/* Quick New Playlist Action */}
+          {onCreatePlaylistWithTracks && (
             <button
-              ref={(el) => { groupRefs.current[grp.id] = el; }}
-              onMouseEnter={() => handleGroupEnter(grp.id)}
-              className={`w-full flex items-center justify-between px-3 py-1.5 text-left transition-colors cursor-pointer ${
-                activeGroupId === grp.id 
-                  ? 'bg-md3-surface-container text-md3-primary font-semibold' 
-                  : 'text-md3-on-surface hover:bg-md3-surface-container'
-              }`}
+              onMouseEnter={handleAddMenuLeafEnter}
+              onClick={() => {
+                onCreatePlaylistWithTracks(targetIds);
+                onClose();
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-md3-primary font-semibold hover:bg-md3-surface-container text-left transition-colors cursor-pointer"
             >
-              <div className="flex items-center gap-2 min-w-0">
-                <Layers 
-                  className="w-3.5 h-3.5 shrink-0" 
-                  style={{ color: grp.color || undefined }} 
-                />
-                <span className="truncate">{grp.name}</span>
-              </div>
-              <ChevronRight className="w-3.5 h-3.5 opacity-60 shrink-0 ml-1.5" />
+              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>{language === 'ru' ? 'Новый плейлист...' : 'New Playlist...'}</span>
             </button>
+          )}
 
-            {activeGroupId === grp.id && groupRefs.current[grp.id] && (
-              <GroupFlyout
-                group={grp}
-                anchorEl={groupRefs.current[grp.id]}
-                isOpen={true}
-                folders={folders}
-                playlists={userPlaylists}
-                targetIds={targetIds}
-                language={language}
-                onAddToPlaylist={onAddToPlaylist}
-                onClose={onClose}
-                onParentMouseEnter={handleAddMenuContainerEnter}
-                onParentMouseLeave={handleAddToPlaylistLeave}
-              />
-            )}
-          </React.Fragment>
-        ))}
+          <div className="border-t border-md3-outline-variant/20 my-1" />
 
-        {/* Root Folders */}
-        {rootFolders.map((fld) => (
-          <React.Fragment key={fld.id}>
+          {/* Groups */}
+          {groups.map((grp) => (
+            <React.Fragment key={grp.id}>
+              <button
+                ref={(el) => { groupRefs.current[grp.id] = el; }}
+                onMouseEnter={() => handleGroupEnter(grp.id)}
+                className={`w-full flex items-center justify-between px-3 py-1.5 text-left transition-colors cursor-pointer ${
+                  activeGroupId === grp.id 
+                    ? 'bg-md3-surface-container text-md3-primary font-semibold' 
+                    : 'text-md3-on-surface hover:bg-md3-surface-container'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Layers 
+                    className="w-3.5 h-3.5 shrink-0" 
+                    style={{ color: grp.color || undefined }} 
+                  />
+                  <span className="truncate">{grp.name}</span>
+                </div>
+                <ChevronRight className="w-3.5 h-3.5 opacity-60 shrink-0 ml-1.5" />
+              </button>
+
+              {activeGroupId === grp.id && groupRefs.current[grp.id] && (
+                <GroupFlyout
+                  group={grp}
+                  anchorEl={groupRefs.current[grp.id]!}
+                  folders={folders}
+                  playlists={userPlaylists}
+                  targetIds={targetIds}
+                  language={language}
+                  onAddToPlaylist={onAddToPlaylist}
+                  onClose={onClose}
+                  onParentMouseEnter={handleAddMenuContainerEnter}
+                  onParentMouseLeave={handleAddToPlaylistLeave}
+                />
+              )}
+            </React.Fragment>
+          ))}
+
+          {/* Root Folders */}
+          {rootFolders.map((fld) => (
+            <React.Fragment key={fld.id}>
+              <button
+                ref={(el) => { rootFolderRefs.current[fld.id] = el; }}
+                onMouseEnter={() => handleRootFolderEnter(fld.id)}
+                className={`w-full flex items-center justify-between px-3 py-1.5 text-left transition-colors cursor-pointer ${
+                  activeFolderId === fld.id 
+                    ? 'bg-md3-surface-container text-md3-primary font-semibold' 
+                    : 'text-md3-on-surface hover:bg-md3-surface-container'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Folder 
+                    className="w-3.5 h-3.5 shrink-0" 
+                    style={{ color: fld.color && fld.color !== 'default' ? fld.color : undefined }} 
+                  />
+                  <span className="truncate">{fld.name}</span>
+                </div>
+                <ChevronRight className="w-3.5 h-3.5 opacity-60 shrink-0 ml-1.5" />
+              </button>
+
+              {activeFolderId === fld.id && rootFolderRefs.current[fld.id] && (
+                <FolderFlyout
+                  folder={fld}
+                  anchorEl={rootFolderRefs.current[fld.id]!}
+                  folders={folders}
+                  playlists={userPlaylists}
+                  targetIds={targetIds}
+                  language={language}
+                  onAddToPlaylist={onAddToPlaylist}
+                  onClose={onClose}
+                  onParentMouseEnter={handleAddMenuContainerEnter}
+                  onParentMouseLeave={handleAddToPlaylistLeave}
+                />
+              )}
+            </React.Fragment>
+          ))}
+
+          {/* Root Playlists */}
+          {rootPlaylists.map((pl) => (
             <button
-              ref={(el) => { rootFolderRefs.current[fld.id] = el; }}
-              onMouseEnter={() => handleRootFolderEnter(fld.id)}
-              className={`w-full flex items-center justify-between px-3 py-1.5 text-left transition-colors cursor-pointer ${
-                activeFolderId === fld.id 
-                  ? 'bg-md3-surface-container text-md3-primary font-semibold' 
-                  : 'text-md3-on-surface hover:bg-md3-surface-container'
-              }`}
+              key={pl.id}
+              onMouseEnter={handleAddMenuLeafEnter}
+              onClick={() => {
+                onAddToPlaylist(pl.id, targetIds);
+                onClose();
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left truncate cursor-pointer"
             >
-              <div className="flex items-center gap-2 min-w-0">
-                <Folder 
-                  className="w-3.5 h-3.5 shrink-0" 
-                  style={{ color: fld.color && fld.color !== 'default' ? fld.color : undefined }} 
-                />
-                <span className="truncate">{fld.name}</span>
-              </div>
-              <ChevronRight className="w-3.5 h-3.5 opacity-60 shrink-0 ml-1.5" />
+              <ListMusic className="w-3.5 h-3.5 text-md3-primary/80 shrink-0" />
+              <span className="truncate">{pl.name}</span>
             </button>
+          ))}
 
-            {activeFolderId === fld.id && rootFolderRefs.current[fld.id] && (
-              <FolderFlyout
-                folder={fld}
-                anchorEl={rootFolderRefs.current[fld.id]}
-                isOpen={true}
-                folders={folders}
-                playlists={userPlaylists}
-                targetIds={targetIds}
-                language={language}
-                onAddToPlaylist={onAddToPlaylist}
-                onClose={onClose}
-                onParentMouseEnter={handleAddMenuContainerEnter}
-                onParentMouseLeave={handleAddToPlaylistLeave}
-              />
-            )}
-          </React.Fragment>
-        ))}
-
-        {/* Root Playlists */}
-        {rootPlaylists.map((pl) => (
-          <button
-            key={pl.id}
-            onMouseEnter={handleAddMenuLeafEnter}
-            onClick={() => {
-              onAddToPlaylist(pl.id, targetIds);
-              onClose();
-            }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left truncate cursor-pointer"
-          >
-            <ListMusic className="w-3.5 h-3.5 text-md3-primary/80 shrink-0" />
-            <span className="truncate">{pl.name}</span>
-          </button>
-        ))}
-
-        {groups.length === 0 && rootFolders.length === 0 && rootPlaylists.length === 0 && (
-          <div className="px-3.5 py-2 text-md3-on-surface-variant/60 italic text-center">
-            {language === 'ru' ? 'Нет других плейлистов' : 'No playlists'}
-          </div>
-        )}
-      </FlyoutMenu>
+          {groups.length === 0 && rootFolders.length === 0 && rootPlaylists.length === 0 && (
+            <div className="px-3.5 py-2 text-md3-on-surface-variant/60 italic text-center">
+              {language === 'ru' ? 'Нет других плейлистов' : 'No playlists'}
+            </div>
+          )}
+        </FlyoutMenu>
+      )}
     </>
   );
 };
