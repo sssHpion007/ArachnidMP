@@ -121,7 +121,7 @@ const getFolderColorHex = (color: string | undefined): string => {
 interface FolderCardItemProps {
   folder: PlaylistFolder;
   covers?: string[];
-  stats: { playlistsCount: number; subfoldersCount: number; totalTracks: number };
+  stats: { playlistsCount: number; subfoldersCount: number; totalTracks: number; totalDuration: number };
   isDropTarget: boolean;
   dropPosition?: 'before' | 'after' | null;
   isSelfDragging: boolean;
@@ -146,11 +146,21 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
   onPlayFolder,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const [cycleIndex, setCycleIndex] = useState(0);
   const IconComponent = getFolderIconComponent(folder.icon);
 
   const baseColor = getFolderColorHex(folder.color);
   const coverType = folder.coverType || 'icon';
   const hasImages = covers && covers.length > 0 && coverType !== 'icon';
+
+  // Slideshow interval for cycling folder covers
+  useEffect(() => {
+    if (coverType !== 'cycle' || !covers || covers.length <= 1) return;
+    const timer = setInterval(() => {
+      setCycleIndex((prev) => (prev + 1) % covers.length);
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [coverType, covers]);
 
   // Dynamic card background on hover
   const bgCard = isDropTarget
@@ -206,7 +216,21 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
       {/* Visual Folder Icon / Playlist Cover / Collage Preview */}
       <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest mb-3 shadow-inner pointer-events-none transition-all duration-300 border border-md3-outline-variant/20">
         {hasImages ? (
-          coverType === 'first_playlist' || covers.length === 1 ? (
+          coverType === 'cycle' && covers.length > 1 ? (
+            <div className="relative w-full h-full">
+              {covers.map((src, idx) => (
+                <img
+                  key={src + idx}
+                  src={src}
+                  alt=""
+                  draggable={false}
+                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 pointer-events-none ${
+                    idx === cycleIndex ? 'opacity-100 z-10' : 'opacity-0 z-0'
+                  }`}
+                />
+              ))}
+            </div>
+          ) : coverType === 'first_playlist' || covers.length === 1 ? (
             <img
               src={covers[0]}
               alt={folder.name}
@@ -291,9 +315,160 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
           {folder.name}
         </h3>
         <p className="text-xs text-md3-on-surface-variant/80 truncate mt-0.5 font-medium">
-          {stats.playlistsCount} {language === 'ru' ? (stats.playlistsCount === 1 ? 'плейлист' : stats.playlistsCount < 5 ? 'плейлиста' : 'плейлистов') : (stats.playlistsCount === 1 ? 'playlist' : 'playlists')}
-          {stats.totalTracks > 0 && ` • ${stats.totalTracks} ${language === 'ru' ? (stats.totalTracks === 1 ? 'трек' : 'треков') : (stats.totalTracks === 1 ? 'track' : 'tracks')}`}
-          {stats.subfoldersCount > 0 && ` • ${stats.subfoldersCount} ${language === 'ru' ? 'папок' : 'folders'}`}
+          {stats.totalTracks} {language === 'ru' ? (stats.totalTracks === 1 ? 'трек' : stats.totalTracks < 5 && stats.totalTracks > 1 ? 'трека' : 'треков') : (stats.totalTracks === 1 ? 'track' : 'tracks')}
+          {stats.totalDuration > 0 && ` • ${formatTime(stats.totalDuration)}`}
+        </p>
+      </div>
+    </div>
+  );
+};
+
+interface PlaylistCardItemProps {
+  playlist: Playlist;
+  cover: string | null;
+  covers: string[];
+  totalDuration: number;
+  isTarget: boolean;
+  dropPosition?: 'before' | 'after' | null;
+  isSelfDragging: boolean;
+  language?: AppLanguage;
+  onPointerDown: (e: React.PointerEvent) => void;
+  onClick: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  onPlayPlaylist: (playlist: Playlist) => void;
+}
+
+const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
+  playlist,
+  cover,
+  covers,
+  totalDuration,
+  isTarget,
+  dropPosition,
+  isSelfDragging,
+  language = 'ru',
+  onPointerDown,
+  onClick,
+  onContextMenu,
+  onPlayPlaylist,
+}) => {
+  const [cycleIndex, setCycleIndex] = useState(0);
+  const coverType = playlist.coverType || 'first_playlist';
+  const hasMultipleCovers = covers.length > 1;
+
+  useEffect(() => {
+    if (coverType !== 'cycle' || !hasMultipleCovers) return;
+    const timer = setInterval(() => {
+      setCycleIndex((prev) => (prev + 1) % covers.length);
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [coverType, hasMultipleCovers, covers.length]);
+
+  return (
+    <div
+      data-playlist-id={playlist.id}
+      onPointerDown={onPointerDown}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+      className={`group relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
+        isTarget
+          ? 'ring-2 ring-md3-primary scale-[1.02] bg-md3-surface-container border-md3-primary shadow-lg'
+          : 'bg-md3-surface-container-low hover:bg-md3-surface-container border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md'
+      } ${isSelfDragging ? 'opacity-30' : ''}`}
+    >
+      {/* Visual Insertion Indicator Bars */}
+      {dropPosition === 'before' && (
+        <div className="absolute -left-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 animate-pulse z-30" />
+      )}
+      {dropPosition === 'after' && (
+        <div className="absolute -right-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 animate-pulse z-30" />
+      )}
+
+      {/* Cover Art Container */}
+      <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest mb-3 shadow-inner pointer-events-none">
+        <div className="w-full h-full flex items-center justify-center text-md3-primary/50 bg-md3-primary/5 absolute inset-0">
+          <ListMusic className="w-12 h-12" />
+        </div>
+
+        {coverType === 'cycle' && hasMultipleCovers ? (
+          <div className="relative w-full h-full z-[1]">
+            {covers.map((c, idx) => (
+              <img
+                key={c + idx}
+                src={c}
+                alt=""
+                draggable={false}
+                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 pointer-events-none ${
+                  idx === cycleIndex ? 'opacity-100 z-10' : 'opacity-0 z-0'
+                }`}
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+            ))}
+          </div>
+        ) : coverType === 'collage' && hasMultipleCovers ? (
+          covers.length === 2 ? (
+            <div className="w-full h-full grid grid-cols-2 grid-rows-1 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
+              <img src={covers[0]} alt="" draggable={false} className="w-full h-full object-cover" />
+              <img src={covers[1]} alt="" draggable={false} className="w-full h-full object-cover" />
+            </div>
+          ) : covers.length === 3 ? (
+            <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
+              <img src={covers[0]} alt="" draggable={false} className="w-full h-full object-cover row-span-2" />
+              <img src={covers[1]} alt="" draggable={false} className="w-full h-full object-cover" />
+              <img src={covers[2]} alt="" draggable={false} className="w-full h-full object-cover" />
+            </div>
+          ) : (
+            <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
+              <img src={covers[0]} alt="" draggable={false} className="w-full h-full object-cover" />
+              <img src={covers[1]} alt="" draggable={false} className="w-full h-full object-cover" />
+              <img src={covers[2]} alt="" draggable={false} className="w-full h-full object-cover" />
+              <img src={covers[3]} alt="" draggable={false} className="w-full h-full object-cover" />
+            </div>
+          )
+        ) : cover ? (
+          <img
+            src={cover}
+            alt={playlist.name}
+            draggable={false}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+        ) : null}
+
+        {/* Floating Play Button on Hover */}
+        {playlist.trackIds.length > 0 && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onPlayPlaylist(playlist);
+            }}
+            title={language === 'ru' ? "Воспроизвести плейлист" : "Play playlist"}
+            className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer"
+          >
+            <Play className="w-5 h-5 fill-current ml-0.5" />
+          </button>
+        )}
+
+        {/* System Badge */}
+        {playlist.isSystem && (
+          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/60 text-[10px] font-semibold text-white/90 backdrop-blur-xs z-20">
+            {language === 'ru' ? 'Системный' : 'System'}
+          </span>
+        )}
+      </div>
+
+      {/* Title & Stats */}
+      <div className="min-w-0 pointer-events-none">
+        <h3 className="font-bold text-sm text-md3-on-surface truncate group-hover:text-md3-primary transition-colors">
+          {playlist.name}
+        </h3>
+        <p className="text-xs text-md3-on-surface-variant/80 truncate mt-0.5 font-medium">
+          {playlist.trackIds.length} {language === 'ru' ? (playlist.trackIds.length === 1 ? 'трек' : playlist.trackIds.length < 5 && playlist.trackIds.length > 1 ? 'трека' : 'треков') : (playlist.trackIds.length === 1 ? 'track' : 'tracks')}
+          {totalDuration > 0 && ` • ${formatTime(totalDuration)}`}
         </p>
       </div>
     </div>
@@ -408,6 +583,18 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     return null;
   };
 
+  const getPlaylistCovers = (playlist: Playlist): string[] => {
+    const covers: string[] = [];
+    for (const id of playlist.trackIds) {
+      const t = tracks.find((tr) => tr.id === id);
+      if (t && t.coverArt && !covers.includes(t.coverArt)) {
+        covers.push(t.coverArt);
+        if (covers.length >= 8) break;
+      }
+    }
+    return covers;
+  };
+
   const getPlaylistDuration = (playlist: Playlist): number => {
     let total = 0;
     for (const id of playlist.trackIds) {
@@ -421,17 +608,21 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     const subfolders = folders.filter((f) => f.parentId === folderId);
     const folderPlaylists = playlists.filter((p) => p.folderId === folderId);
     let totalTracks = 0;
+    let totalDuration = 0;
     for (const pl of folderPlaylists) {
       totalTracks += pl.trackIds.length;
+      totalDuration += getPlaylistDuration(pl);
     }
     for (const sf of subfolders) {
       const sfStats = getFolderStats(sf.id);
       totalTracks += sfStats.totalTracks;
+      totalDuration += sfStats.totalDuration;
     }
     return {
       subfoldersCount: subfolders.length,
       playlistsCount: folderPlaylists.length,
       totalTracks,
+      totalDuration,
     };
   };
 
@@ -454,21 +645,21 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
       const c = getPlaylistCover(pl);
       if (c && !covers.includes(c)) {
         covers.push(c);
-        if (covers.length >= 4) break;
+        if (covers.length >= 8) break;
       }
     }
 
-    // 2. Secondary: supplement from tracks if fewer than 4 distinct covers
-    if (covers.length < 4) {
+    // 2. Secondary: supplement from tracks if fewer than 8 distinct covers
+    if (covers.length < 8) {
       for (const pl of folderPlaylists) {
         for (const tid of pl.trackIds) {
           const t = tracks.find((tr) => tr.id === tid);
           if (t && t.coverArt && !covers.includes(t.coverArt)) {
             covers.push(t.coverArt);
-            if (covers.length >= 4) break;
+            if (covers.length >= 8) break;
           }
         }
-        if (covers.length >= 4) break;
+        if (covers.length >= 8) break;
       }
     }
 
@@ -877,14 +1068,23 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   // Render a Single Playlist Card
   const renderPlaylistCard = (playlist: Playlist) => {
     const cover = getPlaylistCover(playlist);
+    const covers = getPlaylistCovers(playlist);
     const totalDuration = getPlaylistDuration(playlist);
     const isTarget = dropTargetItem?.id === playlist.id && dropTargetItem?.type === 'playlist';
     const isSelfDragging = dragState?.type === 'playlist' && dragState?.id === playlist.id && dragState.isDragging;
+    const dropPosition = isTarget ? dropTargetItem?.position : null;
 
     return (
-      <div
+      <PlaylistCardItem
         key={playlist.id}
-        data-playlist-id={playlist.id}
+        playlist={playlist}
+        cover={cover}
+        covers={covers}
+        totalDuration={totalDuration}
+        isTarget={isTarget}
+        dropPosition={dropPosition}
+        isSelfDragging={isSelfDragging}
+        language={language}
         onPointerDown={(e) => {
           handlePointerDown(e, {
             type: 'playlist',
@@ -903,70 +1103,8 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
           e.stopPropagation();
           onOpenPlaylistContextMenu(e, playlist);
         }}
-        className={`group relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
-          isTarget
-            ? 'ring-2 ring-md3-primary scale-[1.02] bg-md3-surface-container border-md3-primary shadow-lg'
-            : 'bg-md3-surface-container-low hover:bg-md3-surface-container border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md'
-        } ${isSelfDragging ? 'opacity-30' : ''}`}
-      >
-        {/* Visual Insertion Indicator Bars */}
-        {isTarget && dropTargetItem?.position === 'before' && (
-          <div className="absolute -left-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 animate-pulse z-30" />
-        )}
-        {isTarget && dropTargetItem?.position === 'after' && (
-          <div className="absolute -right-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 animate-pulse z-30" />
-        )}
-
-        {/* Cover Art Container */}
-        <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest mb-3 shadow-inner pointer-events-none">
-          <div className="w-full h-full flex items-center justify-center text-md3-primary/50 bg-md3-primary/5 absolute inset-0">
-            <ListMusic className="w-12 h-12" />
-          </div>
-          {cover && (
-            <img
-              src={cover}
-              alt={playlist.name}
-              draggable={false}
-              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
-            />
-          )}
-
-          {/* Floating Play Button on Hover */}
-          {playlist.trackIds.length > 0 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onPlayPlaylist(playlist);
-              }}
-              title={language === 'ru' ? "Воспроизвести плейлист" : "Play playlist"}
-              className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer"
-            >
-              <Play className="w-5 h-5 fill-current ml-0.5" />
-            </button>
-          )}
-
-          {/* System Badge */}
-          {playlist.isSystem && (
-            <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/60 text-[10px] font-semibold text-white/90 backdrop-blur-xs z-20">
-              {language === 'ru' ? 'Системный' : 'System'}
-            </span>
-          )}
-        </div>
-
-        {/* Title & Stats */}
-        <div className="min-w-0 pointer-events-none">
-          <h3 className="font-bold text-sm text-md3-on-surface truncate group-hover:text-md3-primary transition-colors">
-            {playlist.name}
-          </h3>
-          <p className="text-xs text-md3-on-surface-variant/80 truncate mt-0.5 font-medium">
-            {playlist.trackIds.length} {playlist.trackIds.length === 1 ? 'трек' : 'треков'}
-            {totalDuration > 0 && ` • ${formatTime(totalDuration)}`}
-          </p>
-        </div>
-      </div>
+        onPlayPlaylist={onPlayPlaylist}
+      />
     );
   };
 

@@ -1054,6 +1054,9 @@ pub fn write_m3u8_playlist(
             lines.push(format!("#EXT-ARACHNID-COVER:{}", portable));
         }
     }
+    if let Some(cover_type) = pl.get("coverType").and_then(|ct| ct.as_str()) {
+        lines.push(format!("#EXT-ARACHNID-COVERTYPE:{}", cover_type));
+    }
     if let Some(is_system) = pl.get("isSystem").and_then(|s| s.as_bool()) {
         if is_system {
             lines.push("#EXT-ARACHNID-ISSYSTEM:true".to_string());
@@ -1108,6 +1111,7 @@ pub fn parse_m3u8_playlist(
     let mut group_id: Option<String> = None;
     let mut color: Option<String> = None;
     let mut cover_art: Option<String> = None;
+    let mut cover_type: Option<String> = None;
     let mut is_system = false;
     let mut icon: Option<String> = None;
     let mut track_ids = Vec::new();
@@ -1178,6 +1182,13 @@ pub fn parse_m3u8_playlist(
             let c = val.trim();
             if !c.is_empty() && c != "null" {
                 cover_art = to_absolute_cover(c, base_dir);
+            }
+            continue;
+        }
+        if let Some(val) = trimmed.strip_prefix("#EXT-ARACHNID-COVERTYPE:") {
+            let ct = val.trim();
+            if !ct.is_empty() && ct != "null" {
+                cover_type = Some(ct.to_string());
             }
             continue;
         }
@@ -1316,6 +1327,7 @@ pub fn parse_m3u8_playlist(
         "groupId": group_id,
         "color": color,
         "coverArt": cover_art,
+        "coverType": cover_type,
         "isSystem": is_system,
         "icon": icon,
         "order": order.unwrap_or(0),

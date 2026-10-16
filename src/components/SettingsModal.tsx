@@ -2547,9 +2547,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span>{t.settings.openLocalesFolder}</span>
                 </button>
               </div>
-              <p className="text-xs text-md3-on-surface-variant">
-                {t.settings.languageDesc}
-              </p>
 
               {/* Шторка trigger card */}
               <div className="relative z-20">

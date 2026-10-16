@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Edit3, X, Check } from 'lucide-react';
+import { Edit3, X, Check, Folder, Image, LayoutGrid, Images } from 'lucide-react';
+import { FolderCoverType } from '../types/music';
 import { AppLanguage } from '../i18n';
 import { useModalAnimation } from '../utils/useModalAnimation';
 
@@ -8,9 +9,10 @@ interface RenameItemModalProps {
   type: 'playlist' | 'folder' | 'group';
   initialName: string;
   initialDescription?: string;
+  initialCoverType?: FolderCoverType;
   language?: AppLanguage;
   onClose: () => void;
-  onRename: (newName: string, newDescription?: string) => void;
+  onRename: (newName: string, newDescription?: string, newCoverType?: FolderCoverType) => void;
 }
 
 export const RenameItemModal: React.FC<RenameItemModalProps> = ({
@@ -18,24 +20,63 @@ export const RenameItemModal: React.FC<RenameItemModalProps> = ({
   type,
   initialName,
   initialDescription = '',
+  initialCoverType,
   language = 'ru',
   onClose,
   onRename,
 }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [coverType, setCoverType] = useState<FolderCoverType>(initialCoverType || (type === 'folder' ? 'icon' : 'first_playlist'));
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Segmented control indicator state for Cover Display
+  const coverTypeContainerRef = useRef<HTMLDivElement>(null);
+  const coverTypeRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+  const [coverTypeIndicatorStyle, setCoverTypeIndicatorStyle] = useState<{ left: number; width: number; height: number; opacity: number }>({
+    left: 0,
+    width: 0,
+    height: 0,
+    opacity: 0,
+  });
+
+  const updateCoverTypeIndicator = () => {
+    const el = coverTypeRefs.current[coverType];
+    const container = coverTypeContainerRef.current;
+    if (el && container) {
+      setCoverTypeIndicatorStyle({
+        left: el.offsetLeft,
+        width: el.offsetWidth,
+        height: el.offsetHeight,
+        opacity: 1,
+      });
+    }
+  };
+
+  useEffect(() => {
+    updateCoverTypeIndicator();
+    const t = setTimeout(updateCoverTypeIndicator, 40);
+    return () => clearTimeout(t);
+  }, [coverType, isOpen]);
+
+  useEffect(() => {
+    if (!coverTypeContainerRef.current) return;
+    const ro = new ResizeObserver(() => updateCoverTypeIndicator());
+    ro.observe(coverTypeContainerRef.current);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
       setName(initialName);
       setDescription(initialDescription || '');
+      setCoverType(initialCoverType || (type === 'folder' ? 'icon' : 'first_playlist'));
       setTimeout(() => {
         inputRef.current?.focus();
         inputRef.current?.select();
       }, 50);
     }
-  }, [isOpen, initialName, initialDescription]);
+  }, [isOpen, initialName, initialDescription, initialCoverType, type]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -58,12 +99,12 @@ export const RenameItemModal: React.FC<RenameItemModalProps> = ({
 
   const typeLabels = {
     playlist: { 
-      title: language === 'ru' ? 'Переименовать плейлист' : 'Rename Playlist', 
-      desc: language === 'ru' ? 'Введите новое имя для плейлиста' : 'Enter a new name for the playlist' 
+      title: language === 'ru' ? 'Редактировать плейлист' : 'Edit Playlist', 
+      desc: language === 'ru' ? 'Название, описание и отображение обложки' : 'Name, description and cover style' 
     },
     folder: { 
-      title: language === 'ru' ? 'Переименовать папку' : 'Rename Folder', 
-      desc: language === 'ru' ? 'Введите новое имя для папки' : 'Enter a new name for the folder' 
+      title: language === 'ru' ? 'Редактировать папку' : 'Edit Folder', 
+      desc: language === 'ru' ? 'Название и отображение обложки папки' : 'Name and cover display style' 
     },
     group: { 
       title: language === 'ru' ? 'Переименовать группу' : 'Rename Group', 
@@ -76,7 +117,11 @@ export const RenameItemModal: React.FC<RenameItemModalProps> = ({
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!name.trim()) return;
-    onRename(name.trim(), type === 'playlist' ? description.trim() : undefined);
+    onRename(
+      name.trim(), 
+      type === 'playlist' ? description.trim() : undefined,
+      type === 'playlist' || type === 'folder' ? coverType : undefined
+    );
     onClose();
   };
 
@@ -143,6 +188,104 @@ export const RenameItemModal: React.FC<RenameItemModalProps> = ({
                 maxLength={300}
                 className="w-full px-3.5 py-2.5 rounded-2xl bg-md3-surface-container-highest border border-md3-outline-variant/30 text-md3-on-surface placeholder:text-md3-on-surface-variant/50 text-sm focus:outline-none focus:border-md3-primary transition-colors resize-none"
               />
+            </div>
+          )}
+
+          {/* Cover Display Style for Folders & Playlists */}
+          {(type === 'playlist' || type === 'folder') && (
+            <div>
+              <label className="block text-xs font-semibold text-md3-on-surface-variant mb-1.5">
+                {language === 'ru' ? 'Отображение обложки' : 'Cover Display'}
+              </label>
+              <div
+                ref={coverTypeContainerRef}
+                className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
+              >
+                {/* Smooth sliding glow pill indicator */}
+                <div
+                  className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                  style={{
+                    left: `${coverTypeIndicatorStyle.left}px`,
+                    width: `${coverTypeIndicatorStyle.width}px`,
+                    height: `${coverTypeIndicatorStyle.height}px`,
+                    opacity: coverTypeIndicatorStyle.opacity,
+                    boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
+                  }}
+                />
+
+                {type === 'folder' && (
+                  <button
+                    ref={(el) => { coverTypeRefs.current['icon'] = el; }}
+                    type="button"
+                    tabIndex={-1}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setCoverType('icon')}
+                    className={`relative z-10 flex-1 py-2 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
+                      coverType === 'icon'
+                        ? 'text-md3-on-primary font-bold'
+                        : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'
+                    }`}
+                  >
+                    <Folder className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{language === 'ru' ? 'Иконка' : 'Icon'}</span>
+                  </button>
+                )}
+
+                <button
+                  ref={(el) => { coverTypeRefs.current['first_playlist'] = el; }}
+                  type="button"
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setCoverType('first_playlist')}
+                  className={`relative z-10 flex-1 py-2 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
+                    coverType === 'first_playlist'
+                      ? 'text-md3-on-primary font-bold'
+                      : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'
+                  }`}
+                >
+                  <Image className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{type === 'folder' ? (language === 'ru' ? 'Первый' : 'First') : (language === 'ru' ? 'Первый трек' : 'First Track')}</span>
+                </button>
+
+                <button
+                  ref={(el) => { coverTypeRefs.current['collage'] = el; }}
+                  type="button"
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setCoverType('collage')}
+                  className={`relative z-10 flex-1 py-2 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
+                    coverType === 'collage'
+                      ? 'text-md3-on-primary font-bold'
+                      : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'
+                  }`}
+                >
+                  <LayoutGrid className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{language === 'ru' ? 'Коллаж' : 'Collage'}</span>
+                </button>
+
+                <button
+                  ref={(el) => { coverTypeRefs.current['cycle'] = el; }}
+                  type="button"
+                  tabIndex={-1}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setCoverType('cycle')}
+                  className={`relative z-10 flex-1 py-2 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
+                    coverType === 'cycle'
+                      ? 'text-md3-on-primary font-bold'
+                      : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'
+                  }`}
+                >
+                  <Images className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{language === 'ru' ? 'Слайд-шоу' : 'Slideshow'}</span>
+                </button>
+              </div>
+
+              <p className="text-[11px] text-md3-on-surface-variant/80 mt-1.5 px-0.5">
+                {coverType === 'icon' && (language === 'ru' ? 'Отображается цветная иконка папки.' : 'Displays the colored folder icon.')}
+                {coverType === 'first_playlist' && (language === 'ru' ? (type === 'folder' ? 'Отображается обложка первого плейлиста в папке.' : 'Отображается обложка первого трека.') : (type === 'folder' ? 'Displays the cover of the first playlist.' : 'Displays first track cover.'))}
+                {coverType === 'collage' && (language === 'ru' ? 'Отображается коллаж 2×2 из доступных обложек.' : 'Displays a 2×2 collage of covers.')}
+                {coverType === 'cycle' && (language === 'ru' ? 'Обложки плавно сменяются каждые пару секунд.' : 'Covers smoothly cycle every couple seconds.')}
+              </p>
             </div>
           )}
 

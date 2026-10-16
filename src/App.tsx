@@ -2762,11 +2762,12 @@ export const App: React.FC = () => {
     setIsCreatePlaylistOpen(true);
   };
 
-  const handleCreatePlaylistSubmit = (name: string, description?: string) => {
+  const handleCreatePlaylistSubmit = (name: string, description?: string, coverType?: FolderCoverType) => {
     const newPl: Playlist = {
       id: `pl_${Date.now()}`,
       name: name.trim(),
       description: description?.trim() || undefined,
+      coverType: coverType || 'first_playlist',
       trackIds: Array.from(selectedTrackIds),
       isSystem: false,
       folderId: playlistCreationTarget?.folderId || null,
@@ -3331,7 +3332,7 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleRenameItem = (newName: string, newDescription?: string) => {
+  const handleRenameItem = (newName: string, newDescription?: string, newCoverType?: FolderCoverType) => {
     if (!renameItemTarget) return;
     const { type, item } = renameItemTarget;
     if (type === 'playlist') {
@@ -3339,10 +3340,15 @@ export const App: React.FC = () => {
       setPlaylists(prev => prev.map(p => p.id === item.id ? { 
         ...p, 
         name: newName, 
-        description: newDescription !== undefined ? descVal : p.description 
+        description: newDescription !== undefined ? descVal : p.description,
+        coverType: newCoverType !== undefined ? newCoverType : p.coverType,
       } : p));
     } else if (type === 'folder') {
-      setPlaylistFolders(prev => prev.map(f => f.id === item.id ? { ...f, name: newName } : f));
+      setPlaylistFolders(prev => prev.map(f => f.id === item.id ? { 
+        ...f, 
+        name: newName,
+        coverType: newCoverType !== undefined ? newCoverType : f.coverType,
+      } : f));
     } else if (type === 'group') {
       setPlaylistGroups(prev => prev.map(g => g.id === item.id ? { ...g, name: newName } : g));
     }
@@ -4307,6 +4313,7 @@ export const App: React.FC = () => {
         type={renameItemTarget?.type || 'playlist'}
         initialName={renameItemTarget?.item?.name || ''}
         initialDescription={renameItemTarget?.type === 'playlist' ? (renameItemTarget?.item as Playlist)?.description : undefined}
+        initialCoverType={renameItemTarget?.item?.coverType}
         language={language}
         onClose={() => setRenameItemTarget(null)}
         onRename={handleRenameItem}

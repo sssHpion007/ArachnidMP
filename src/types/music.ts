@@ -31,7 +31,7 @@ export interface Track {
   isMissing?: boolean;
 }
 
-export type FolderCoverType = 'icon' | 'first_playlist' | 'collage';
+export type FolderCoverType = 'icon' | 'first_playlist' | 'collage' | 'cycle';
 
 export interface PlaylistFolder {
   id: string;
@@ -41,7 +41,7 @@ export interface PlaylistFolder {
   order?: number;
   color?: string;
   icon?: string; // Icon identifier (e.g. 'gamepad', 'headphones', 'music', 'flame')
-  coverType?: FolderCoverType; // 'icon' (default) | 'first_playlist' | 'collage'
+  coverType?: FolderCoverType; // 'icon' (default) | 'first_playlist' | 'collage' | 'cycle'
   createdAt: number;
 }
 
@@ -59,6 +59,7 @@ export interface Playlist {
   name: string;
   description?: string;
   coverArt?: string;
+  coverType?: FolderCoverType;
   trackIds: string[];
   isSystem?: boolean;
   icon?: string;
