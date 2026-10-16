@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
 import { Play, ListPlus, Edit3, Trash2, FolderOpen, Layers, Palette } from 'lucide-react';
 import { PlaylistFolder, PlaylistGroup } from '../types/music';
 import { AppLanguage } from '../i18n';
@@ -35,6 +35,7 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
   onMoveToGroup,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: y, left: x });
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -54,16 +55,40 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
     };
   }, [onClose]);
 
-  const menuWidth = 220;
-  const menuHeight = 260;
-  const posX = Math.min(x, window.innerWidth - menuWidth - 16);
-  const posY = Math.min(y, window.innerHeight - menuHeight - 16);
+  useLayoutEffect(() => {
+    if (!menuRef.current) return;
+    const rect = menuRef.current.getBoundingClientRect();
+    const margin = 12;
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+
+    let left = x;
+    let top = y;
+
+    // Horizontal check: flip or clamp if overflowing right edge
+    if (left + rect.width > winW - margin) {
+      const leftward = left - rect.width;
+      left = leftward >= margin ? leftward : Math.max(margin, winW - rect.width - margin);
+    }
+
+    // Vertical check: flip upward or clamp if overflowing bottom edge
+    if (top + rect.height > winH - margin) {
+      const upwardTop = top - rect.height;
+      if (upwardTop >= margin) {
+        top = upwardTop;
+      } else {
+        top = Math.max(margin, winH - rect.height - margin);
+      }
+    }
+
+    setPos({ top, left });
+  }, [x, y]);
 
   return (
     <div
       ref={menuRef}
-      style={{ left: `${posX}px`, top: `${posY}px` }}
-      className="fixed z-50 w-56 bg-md3-surface-container-highest rounded-2xl shadow-2xl border border-md3-outline-variant/40 py-1.5 text-xs select-none animate-in fade-in zoom-in-95 duration-100"
+      style={{ left: `${pos.left}px`, top: `${pos.top}px` }}
+      className="fixed z-50 w-56 bg-md3-surface-container-highest rounded-2xl shadow-2xl border border-md3-outline-variant/40 py-1.5 text-xs select-none animate-in fade-in zoom-in-95 duration-100 max-h-[calc(100vh-24px)] overflow-y-auto custom-scrollbar"
     >
       <div className="px-3 py-1.5 text-[11px] font-bold text-md3-on-surface-variant/80 border-b border-md3-outline-variant/20 truncate">
         {language === 'ru' ? 'Папка:' : 'Folder:'} {folder.name}

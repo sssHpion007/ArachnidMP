@@ -220,7 +220,7 @@ export const App: React.FC = () => {
   const [editingFolderTarget, setEditingFolderTarget] = useState<PlaylistFolder | null>(null);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState<boolean>(false);
   const [editingGroupTarget, setEditingGroupTarget] = useState<PlaylistGroup | null>(null);
-  const [playlistCreationTarget, setPlaylistCreationTarget] = useState<{ folderId?: string | null; groupId?: string | null } | null>(null);
+  const [playlistCreationTarget, setPlaylistCreationTarget] = useState<{ folderId?: string | null; groupId?: string | null; initialTrackIds?: string[] } | null>(null);
   const [folderCreationTarget, setFolderCreationTarget] = useState<{ parentId?: string | null; groupId?: string | null } | null>(null);
   const [deleteFolderTarget, setDeleteFolderTarget] = useState<PlaylistFolder | null>(null);
   const [renameItemTarget, setRenameItemTarget] = useState<{
@@ -2757,8 +2757,8 @@ export const App: React.FC = () => {
     }));
   };
 
-  const handleCreatePlaylist = (folderId?: string | null, groupId?: string | null) => {
-    setPlaylistCreationTarget({ folderId, groupId });
+  const handleCreatePlaylist = (folderId?: string | null, groupId?: string | null, initialTrackIds?: string[]) => {
+    setPlaylistCreationTarget({ folderId, groupId, initialTrackIds });
     setIsCreatePlaylistOpen(true);
   };
 
@@ -2768,7 +2768,7 @@ export const App: React.FC = () => {
       name: name.trim(),
       description: description?.trim() || undefined,
       coverType: coverType || 'first_playlist',
-      trackIds: Array.from(selectedTrackIds),
+      trackIds: playlistCreationTarget?.initialTrackIds ? [...playlistCreationTarget.initialTrackIds] : [],
       isSystem: false,
       folderId: playlistCreationTarget?.folderId || null,
       groupId: playlistCreationTarget?.groupId || null,
@@ -4189,6 +4189,8 @@ export const App: React.FC = () => {
           track={contextMenu.track}
           selectedTrackIds={selectedTrackIds}
           playlists={playlists}
+          folders={playlistFolders}
+          groups={playlistGroups}
           language={language}
           onClose={() => setContextMenu(null)}
           onPlay={(t) => playTrackWithContext(t, filteredTracks)}
@@ -4208,6 +4210,7 @@ export const App: React.FC = () => {
           }}
           onToggleFavorite={handleToggleFavorite}
           onAddToPlaylist={handleDropTracksToPlaylist}
+          onCreatePlaylistWithTracks={(trackIds) => handleCreatePlaylist(null, null, trackIds)}
           onRemoveTracks={handleRequestRemoveTracks}
           onDeleteFromDisk={handleRequestDeleteFromDisk}
           onOpenTrackDetails={(t) => setTrackDetailsTarget(t)}
