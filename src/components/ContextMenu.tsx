@@ -9,7 +9,8 @@ import {
   Trash,
   Trash2,
   Info,
-  FolderSearch
+  FolderSearch,
+  RotateCw
 } from 'lucide-react';
 import { Track, Playlist } from '../types/music';
 import { AppLanguage } from '../i18n';
@@ -32,6 +33,7 @@ interface ContextMenuProps {
   onDeleteFromDisk?: (trackIds: string[]) => void;
   onOpenTrackDetails?: (track: Track) => void;
   onRelocateTrack?: (track: Track) => void;
+  onReloadTracks?: (trackIds: string[]) => void;
 }
 
 export const ContextMenu: React.FC<ContextMenuProps> = ({
@@ -52,6 +54,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   onDeleteFromDisk,
   onOpenTrackDetails,
   onRelocateTrack,
+  onReloadTracks,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -170,6 +173,24 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
           >
             <Info className="w-3.5 h-3.5 text-md3-primary" />
             <span>{language === 'ru' ? 'Сведения о треке' : 'Track Details'}</span>
+          </button>
+        )}
+
+        {onReloadTracks && (
+          <button
+            onClick={() => {
+              onReloadTracks(targetIds);
+              onClose();
+            }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left cursor-pointer"
+          >
+            <RotateCw className="w-3.5 h-3.5 text-md3-primary" />
+            <span>
+              {language === 'ru' 
+                ? (targetIds.length > 1 ? `Перечитать файлы (${targetIds.length})` : 'Перечитать из файла')
+                : (targetIds.length > 1 ? `Reload from files (${targetIds.length})` : 'Reload from file')
+              }
+            </span>
           </button>
         )}
 

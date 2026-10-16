@@ -1926,16 +1926,43 @@ export const App: React.FC = () => {
 
     const toAdd: Track[] = [];
     const plTargetIds: string[] = [];
+    const updatedMap = new Map<string, Partial<Track>>();
 
     for (const nt of newTracks) {
       const pathKey = normalizeTrackPath(nt.path);
       const titleArtistKey = `${nt.title.trim().toLowerCase()}|||${nt.artist.trim().toLowerCase()}`;
 
-      const isDuplicate = (pathKey && existingPaths.has(pathKey)) || (titleArtistKey !== '|||' && titleArtistKey !== 'unknown|||unknown artist' && existingKeys.has(titleArtistKey));
-      if (isDuplicate) {
-        const existing = prevTracks.find(t => (pathKey && normalizeTrackPath(t.path) === pathKey) || (titleArtistKey !== '|||' && titleArtistKey !== 'unknown|||unknown artist' && `${t.title.trim().toLowerCase()}|||${t.artist.trim().toLowerCase()}` === titleArtistKey));
+      const isPathMatch = !!pathKey && existingPaths.has(pathKey);
+      const isTitleArtistMatch = titleArtistKey !== '|||' && titleArtistKey !== 'unknown|||unknown artist' && existingKeys.has(titleArtistKey);
+
+      if (isPathMatch || isTitleArtistMatch) {
+        const existing = prevTracks.find(t => (isPathMatch && normalizeTrackPath(t.path) === pathKey) || (isTitleArtistMatch && `${t.title.trim().toLowerCase()}|||${t.artist.trim().toLowerCase()}` === titleArtistKey));
         if (existing) {
           plTargetIds.push(existing.id);
+          // If the physical file path matches, the file might have been replaced on disk or re-imported.
+          // Update the existing track's metadata with the fresh values from the new file!
+          if (isPathMatch) {
+            updatedMap.set(existing.id, {
+              title: nt.title,
+              artist: nt.artist,
+              album: nt.album,
+              duration: nt.duration || existing.duration,
+              src: nt.src,
+              coverArt: nt.coverArt !== undefined ? nt.coverArt : existing.coverArt,
+              genre: nt.genre,
+              year: nt.year,
+              trackNumber: nt.trackNumber,
+              trackTotal: nt.trackTotal,
+              format: nt.format,
+              fileSize: nt.fileSize,
+              lyrics: nt.lyrics || undefined,
+              composer: nt.composer,
+              contentGroup: nt.contentGroup,
+              comment: nt.comment,
+              conductor: nt.conductor,
+              lyricist: nt.lyricist,
+            });
+          }
         }
         continue;
       }
@@ -1947,6 +1974,22 @@ export const App: React.FC = () => {
       }
       toAdd.push(nt);
       plTargetIds.push(nt.id);
+    }
+
+    if (updatedMap.size > 0) {
+      setTracks(prev => prev.map(t => {
+        const updates = updatedMap.get(t.id);
+        return updates ? { ...t, ...updates } : t;
+      }));
+      setCurrentTrack(prev => {
+        if (!prev) return prev;
+        const updates = updatedMap.get(prev.id);
+        return updates ? { ...prev, ...updates } : prev;
+      });
+      setQueue(prev => prev.map(t => {
+        const updates = updatedMap.get(t.id);
+        return updates ? { ...t, ...updates } : t;
+      }));
     }
 
     if (toAdd.length > 0) {
@@ -3478,6 +3521,112 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleReloadTracks = async (trackIds: string[]) => {
+    if (!isTauri() || trackIds.length === 0) return;
+    const targetTracks = tracksRef.current.filter(t => trackIds.includes(t.id) && t.path);
+    if (targetTracks.length === 0) return;
+
+    try {
+      const paths = targetTracks.map(t => t.path as string);
+      const reloaded = await invoke<any[]>('read_audio_files', { paths });
+      if (reloaded && reloaded.length > 0) {
+        const reloadedMap = new Map<string, any>(reloaded.map(r => [normalizeTrackPath(r.path), r]));
+
+        setTracks(prev => prev.map(t => {
+          if (!t.path) return t;
+          const r = reloadedMap.get(normalizeTrackPath(t.path));
+          if (!r) return t;
+          let coverArt = r.cover_art;
+          if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+            coverArt = convertFileSrc(coverArt);
+          }
+          return {
+            ...t,
+            title: r.title,
+            artist: r.artist,
+            album: r.album,
+            duration: r.duration_seconds || t.duration,
+            coverArt: coverArt !== undefined ? coverArt : t.coverArt,
+            genre: r.genre || undefined,
+            year: r.year || undefined,
+            trackNumber: r.track_number || undefined,
+            trackTotal: r.track_total || undefined,
+            lyrics: r.lyrics || undefined,
+            composer: r.composer || undefined,
+            contentGroup: r.content_group || undefined,
+            comment: r.comment || undefined,
+            conductor: r.conductor || undefined,
+            lyricist: r.lyricist || undefined,
+            format: r.format || t.format,
+            fileSize: r.file_size || t.fileSize,
+          };
+        }));
+
+        setCurrentTrack(prev => {
+          if (!prev || !prev.path) return prev;
+          const r = reloadedMap.get(normalizeTrackPath(prev.path));
+          if (!r) return prev;
+          let coverArt = r.cover_art;
+          if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+            coverArt = convertFileSrc(coverArt);
+          }
+          return {
+            ...prev,
+            title: r.title,
+            artist: r.artist,
+            album: r.album,
+            duration: r.duration_seconds || prev.duration,
+            coverArt: coverArt !== undefined ? coverArt : prev.coverArt,
+            genre: r.genre || undefined,
+            year: r.year || undefined,
+            trackNumber: r.track_number || undefined,
+            trackTotal: r.track_total || undefined,
+            lyrics: r.lyrics || undefined,
+            composer: r.composer || undefined,
+            contentGroup: r.content_group || undefined,
+            comment: r.comment || undefined,
+            conductor: r.conductor || undefined,
+            lyricist: r.lyricist || undefined,
+            format: r.format || prev.format,
+            fileSize: r.file_size || prev.fileSize,
+          };
+        });
+
+        setQueue(prev => prev.map(t => {
+          if (!t.path) return t;
+          const r = reloadedMap.get(normalizeTrackPath(t.path));
+          if (!r) return t;
+          let coverArt = r.cover_art;
+          if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+            coverArt = convertFileSrc(coverArt);
+          }
+          return {
+            ...t,
+            title: r.title,
+            artist: r.artist,
+            album: r.album,
+            duration: r.duration_seconds || t.duration,
+            coverArt: coverArt !== undefined ? coverArt : t.coverArt,
+            genre: r.genre || undefined,
+            year: r.year || undefined,
+            trackNumber: r.track_number || undefined,
+            trackTotal: r.track_total || undefined,
+            lyrics: r.lyrics || undefined,
+            composer: r.composer || undefined,
+            contentGroup: r.content_group || undefined,
+            comment: r.comment || undefined,
+            conductor: r.conductor || undefined,
+            lyricist: r.lyricist || undefined,
+            format: r.format || t.format,
+            fileSize: r.file_size || t.fileSize,
+          };
+        }));
+      }
+    } catch (err) {
+      console.warn('Failed to reload track metadata from disk:', err);
+    }
+  };
+
   const handleSortChange = (col: string) => {
     if (sortBy === col) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -4032,6 +4181,7 @@ export const App: React.FC = () => {
           onDeleteFromDisk={handleRequestDeleteFromDisk}
           onOpenTrackDetails={(t) => setTrackDetailsTarget(t)}
           onRelocateTrack={handleRelocateTrack}
+          onReloadTracks={handleReloadTracks}
         />
       )}
 
@@ -4243,6 +4393,7 @@ export const App: React.FC = () => {
         language={language}
         onSeek={handleSeek}
         onSaveLyrics={handleSaveLyrics}
+        onReloadLyrics={(id) => handleReloadTracks([id])}
         onClose={() => setIsLyricsOpen(false)}
       />
 

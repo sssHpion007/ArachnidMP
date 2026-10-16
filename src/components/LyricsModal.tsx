@@ -10,7 +10,8 @@ import {
   FileText,
   Clock,
   Copy,
-  PenTool
+  PenTool,
+  RotateCw
 } from 'lucide-react';
 import { Track } from '../types/music';
 import { AppLanguage } from '../i18n';
@@ -24,6 +25,7 @@ interface LyricsModalProps {
   language?: AppLanguage;
   onSeek?: (time: number) => void;
   onSaveLyrics: (trackId: string, lyrics: string, isInstrumental: boolean, lyricist?: string) => void;
+  onReloadLyrics?: (trackId: string) => Promise<void> | void;
   onClose: () => void;
 }
 
@@ -40,6 +42,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
   language = 'ru',
   onSeek,
   onSaveLyrics,
+  onReloadLyrics,
   onClose,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -47,6 +50,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
   const [editedLyricist, setEditedLyricist] = useState('');
   const [isInstrumental, setIsInstrumental] = useState(false);
   const [copiedLyrics, setCopiedLyrics] = useState(false);
+  const [isReloading, setIsReloading] = useState(false);
   const activeLineRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -64,7 +68,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
       setIsEditing(false);
       setCopiedLyrics(false);
     }
-  }, [activeTrack, isOpen]);
+  }, [activeTrack?.id, activeTrack?.lyrics, activeTrack?.lyricist, activeTrack?.isInstrumental, isOpen]);
 
   // Parse LRC formatted lyrics if timestamps exist: [mm:ss.xx] or [mm:ss]
   const { isSynced, lines } = useMemo(() => {
@@ -222,6 +226,26 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {/* Small Reload from File Button */}
+            {onReloadLyrics && (
+              <button
+                onClick={async () => {
+                  if (isReloading) return;
+                  setIsReloading(true);
+                  try {
+                    await onReloadLyrics(track.id);
+                  } finally {
+                    setTimeout(() => setIsReloading(false), 600);
+                  }
+                }}
+                title={language === 'ru' ? 'Перечитать слова из файла' : 'Reload lyrics from file'}
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold bg-md3-surface-container text-md3-on-surface hover:bg-md3-surface-container-high border border-md3-outline-variant/20 transition-all cursor-pointer hover:scale-102 active:scale-95"
+              >
+                <RotateCw className={`w-3.5 h-3.5 text-md3-primary ${isReloading ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">{language === 'ru' ? 'Обновить' : 'Reload'}</span>
+              </button>
+            )}
+
             {/* Small Copy Lyrics Button (if lyrics exist) */}
             {hasLyricsText && (
               <button

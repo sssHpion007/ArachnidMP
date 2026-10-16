@@ -289,6 +289,37 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
         cover_art = find_folder_cover_art(path);
     }
 
+    if lyrics.is_none() {
+        let lrc_path = path.with_extension("lrc");
+        let candidate_lrc = if lrc_path.is_file() {
+            Some(lrc_path)
+        } else {
+            let lrc_upper = path.with_extension("LRC");
+            if lrc_upper.is_file() {
+                Some(lrc_upper)
+            } else {
+                None
+            }
+        };
+        if let Some(target_lrc) = candidate_lrc {
+            if let Ok(bytes) = std::fs::read(&target_lrc) {
+                let text = if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+                    String::from_utf8_lossy(&bytes[3..]).to_string()
+                } else if bytes.starts_with(&[0xFF, 0xFE]) {
+                    let u16_chars: Vec<u16> = bytes[2..].chunks_exact(2)
+                        .map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+                    String::from_utf16_lossy(&u16_chars)
+                } else {
+                    String::from_utf8_lossy(&bytes).to_string()
+                };
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    lyrics = Some(trimmed.to_string());
+                }
+            }
+        }
+    }
+
     let id = format!("track_{}_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis(), rand_suffix());
 
     Some(TrackMetadata {
