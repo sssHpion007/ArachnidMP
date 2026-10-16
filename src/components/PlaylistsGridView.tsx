@@ -52,6 +52,7 @@ interface PlaylistsGridViewProps {
   onMoveFolderToGroup: (folderId: string, groupId: string | null) => void;
   onReorderPlaylists: (reorderedPlaylists: Playlist[]) => void;
   onReorderFolders?: (reorderedFolders: PlaylistFolder[]) => void;
+  onReorderItems?: (reorderedPlaylists: Playlist[], reorderedFolders: PlaylistFolder[]) => void;
   onEditFolder?: (folder: PlaylistFolder) => void;
 }
 
@@ -66,6 +67,36 @@ interface DragState {
   currentY: number;
   isDragging: boolean;
 }
+
+interface GridItem {
+  id: string;
+  type: 'folder' | 'playlist';
+  order: number;
+  item: PlaylistFolder | Playlist;
+}
+
+const getContainerItems = (
+  containerFolders: PlaylistFolder[],
+  containerPlaylists: Playlist[],
+  allFolders: PlaylistFolder[],
+  allPlaylists: Playlist[]
+): GridItem[] => {
+  const items: GridItem[] = [
+    ...containerFolders.map((f) => ({
+      id: f.id,
+      type: 'folder' as const,
+      order: f.order !== undefined ? f.order : (allFolders.indexOf(f) * 10),
+      item: f,
+    })),
+    ...containerPlaylists.map((p) => ({
+      id: p.id,
+      type: 'playlist' as const,
+      order: p.order !== undefined ? p.order : ((allFolders.length + allPlaylists.indexOf(p)) * 10),
+      item: p,
+    })),
+  ];
+  return items.sort((a, b) => a.order - b.order);
+};
 
 const getFolderColorRgba = (color: string | undefined, alpha: number): string => {
   if (!color || color === 'default') {
@@ -92,6 +123,7 @@ interface FolderCardItemProps {
   covers?: string[];
   stats: { playlistsCount: number; subfoldersCount: number; totalTracks: number };
   isDropTarget: boolean;
+  dropPosition?: 'before' | 'after' | null;
   isSelfDragging: boolean;
   language?: AppLanguage;
   onPointerDown: (e: React.PointerEvent) => void;
@@ -105,6 +137,7 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
   covers,
   stats,
   isDropTarget,
+  dropPosition,
   isSelfDragging,
   language = 'ru',
   onPointerDown,
@@ -143,15 +176,6 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
     ? `linear-gradient(145deg, ${getFolderColorRgba(folder.color, 0.36)}, ${getFolderColorRgba(folder.color, 0.22)})`
     : `linear-gradient(145deg, ${getFolderColorRgba(folder.color, 0.22)}, ${getFolderColorRgba(folder.color, 0.12)})`;
 
-  // Inner icon badge background
-  const iconBadgeBg = isHovered
-    ? getFolderColorRgba(folder.color, 0.48)
-    : getFolderColorRgba(folder.color, 0.30);
-
-  const iconBadgeBorder = isHovered
-    ? getFolderColorRgba(folder.color, 0.70)
-    : getFolderColorRgba(folder.color, 0.38);
-
   return (
     <div
       data-folder-id={folder.id}
@@ -165,18 +189,24 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
         borderColor: borderCard,
         boxShadow: shadowCard,
       }}
-      className={`group relative flex flex-col p-4 rounded-3xl transition-all duration-200 cursor-pointer select-none border touch-none ${
-        !isHovered && !isDropTarget ? 'bg-md3-surface-container-low shadow-sm' : ''
-      } ${isDropTarget ? 'ring-2 scale-[1.02]' : 'hover:scale-[1.01]'} ${
+      className={`group relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
+        !isHovered && !isDropTarget ? 'bg-md3-surface-container-low hover:bg-md3-surface-container border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md' : ''
+      } ${isDropTarget ? 'ring-2 scale-[1.02] shadow-lg' : ''} ${
         isSelfDragging ? 'opacity-30' : ''
       }`}
     >
+      {/* Visual Insertion Indicator Bars */}
+      {dropPosition === 'before' && (
+        <div className="absolute -left-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 animate-pulse z-30" />
+      )}
+      {dropPosition === 'after' && (
+        <div className="absolute -right-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 animate-pulse z-30" />
+      )}
+
       {/* Visual Folder Icon / Playlist Cover / Collage Preview */}
-      {hasImages ? (
-        <div 
-          className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest mb-3 shadow-inner pointer-events-none transition-all duration-300 border border-md3-outline-variant/20"
-        >
-          {coverType === 'first_playlist' || covers.length === 1 ? (
+      <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest mb-3 shadow-inner pointer-events-none transition-all duration-300 border border-md3-outline-variant/20">
+        {hasImages ? (
+          coverType === 'first_playlist' || covers.length === 1 ? (
             <img
               src={covers[0]}
               alt={folder.name}
@@ -201,113 +231,69 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
               <img src={covers[2]} alt="" draggable={false} className="w-full h-full object-cover" />
               <img src={covers[3]} alt="" draggable={false} className="w-full h-full object-cover" />
             </div>
-          )}
-
-          {/* Small folder badge in top-left to clearly indicate it's a folder */}
-          <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/60 text-[10px] font-semibold text-white/95 backdrop-blur-xs flex items-center gap-1 shadow-xs z-20">
-            <IconComponent className="w-3 h-3 text-white/90" />
-            <span>{language === 'ru' ? 'Папка' : 'Folder'}</span>
-          </div>
-
-          {/* Quick Play Folder Button */}
-          {stats.totalTracks > 0 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onPlayFolder(folder);
-              }}
-              title={language === 'ru' ? "Воспроизвести всю папку" : "Play entire folder"}
-              style={{
-                backgroundColor: baseColor,
-              }}
-              className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer"
-            >
-              <Play className="w-5 h-5 fill-current ml-0.5" />
-            </button>
-          )}
-
-          {isDropTarget && (
-            <div 
-              className="absolute inset-0 backdrop-blur-xs flex items-center justify-center"
-              style={{ backgroundColor: getFolderColorRgba(folder.color, 0.3) }}
-            >
-              <span 
-                className="px-2.5 py-1 rounded-full text-md3-on-primary text-[10px] font-bold shadow-md"
-                style={{ backgroundColor: baseColor }}
-              >
-                {language === 'ru' ? 'Переместить в папку' : 'Move to folder'}
-              </span>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div 
-          className="relative aspect-square w-full rounded-2xl overflow-hidden flex flex-col items-center justify-center mb-3 shadow-inner pointer-events-none transition-all duration-300 border"
-          style={{
-            background: previewBg,
-            borderColor: getFolderColorRgba(folder.color, isHovered ? 0.45 : 0.20),
-          }}
-        >
-          {/* Inner Icon Badge - Colored background and border */}
+          )
+        ) : (
           <div 
-            className="w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-300 group-hover:scale-110 shadow-sm border"
-            style={{ 
-              backgroundColor: iconBadgeBg,
-              borderColor: iconBadgeBorder,
-            }}
+            className="w-full h-full flex items-center justify-center relative transition-transform duration-300 group-hover:scale-105 pointer-events-none"
+            style={{ background: previewBg }}
           >
             <IconComponent 
-              className="w-9 h-9 transition-colors" 
+              className="w-12 h-12 transition-transform duration-300 group-hover:scale-110 drop-shadow-sm" 
               style={{ color: baseColor }}
             />
           </div>
+        )}
 
-          {/* Quick Play Folder Button */}
-          {stats.totalTracks > 0 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onPlayFolder(folder);
-              }}
-              title={language === 'ru' ? "Воспроизвести всю папку" : "Play entire folder"}
-              style={{
-                backgroundColor: baseColor,
-              }}
-              className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer"
-            >
-              <Play className="w-5 h-5 fill-current ml-0.5" />
-            </button>
-          )}
+        {/* Small folder badge in top-left to clearly indicate it's a folder */}
+        <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/60 text-[10px] font-semibold text-white/95 backdrop-blur-xs flex items-center gap-1 shadow-xs z-20">
+          <IconComponent className="w-3 h-3 text-white/90" />
+          <span>{language === 'ru' ? 'Папка' : 'Folder'}</span>
+        </span>
 
-          {isDropTarget && (
-            <div 
-              className="absolute inset-0 backdrop-blur-xs flex items-center justify-center"
-              style={{ backgroundColor: getFolderColorRgba(folder.color, 0.3) }}
-            >
-              <span 
-                className="px-2.5 py-1 rounded-full text-md3-on-primary text-[10px] font-bold shadow-md"
-                style={{ backgroundColor: baseColor }}
-              >
-                {language === 'ru' ? 'Переместить в папку' : 'Move to folder'}
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Folder Info */}
-      <div className="min-w-0 pointer-events-none">
-        <div className="flex items-center gap-1.5">
-          <h3 
-            className="font-bold text-sm text-md3-on-surface truncate transition-colors"
-            style={isHovered ? { color: baseColor } : undefined}
+        {/* Floating Quick Play Folder Button (matches playlist card) */}
+        {stats.totalTracks > 0 && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onPlayFolder(folder);
+            }}
+            title={language === 'ru' ? "Воспроизвести всю папку" : "Play entire folder"}
+            style={{
+              backgroundColor: baseColor,
+            }}
+            className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer"
           >
-            {folder.name}
-          </h3>
-        </div>
+            <Play className="w-5 h-5 fill-current ml-0.5" />
+          </button>
+        )}
+
+        {isDropTarget && (
+          <div 
+            className="absolute inset-0 backdrop-blur-xs flex items-center justify-center z-25"
+            style={{ backgroundColor: getFolderColorRgba(folder.color, 0.3) }}
+          >
+            <span 
+              className="px-2.5 py-1 rounded-full text-md3-on-primary text-[10px] font-bold shadow-md"
+              style={{ backgroundColor: baseColor }}
+            >
+              {language === 'ru' ? 'Переместить в папку' : 'Move to folder'}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Title & Stats (matches playlist card) */}
+      <div className="min-w-0 pointer-events-none">
+        <h3 
+          className="font-bold text-sm text-md3-on-surface truncate group-hover:text-md3-primary transition-colors"
+          style={isHovered ? { color: baseColor } : undefined}
+        >
+          {folder.name}
+        </h3>
         <p className="text-xs text-md3-on-surface-variant/80 truncate mt-0.5 font-medium">
-          {stats.playlistsCount} {stats.playlistsCount === 1 ? 'плейлист' : stats.playlistsCount < 5 ? 'плейлиста' : 'плейлистов'}
-          {stats.subfoldersCount > 0 && ` • ${stats.subfoldersCount} папок`}
+          {stats.playlistsCount} {language === 'ru' ? (stats.playlistsCount === 1 ? 'плейлист' : stats.playlistsCount < 5 ? 'плейлиста' : 'плейлистов') : (stats.playlistsCount === 1 ? 'playlist' : 'playlists')}
+          {stats.totalTracks > 0 && ` • ${stats.totalTracks} ${language === 'ru' ? (stats.totalTracks === 1 ? 'трек' : 'треков') : (stats.totalTracks === 1 ? 'track' : 'tracks')}`}
+          {stats.subfoldersCount > 0 && ` • ${stats.subfoldersCount} ${language === 'ru' ? 'папок' : 'folders'}`}
         </p>
       </div>
     </div>
@@ -343,6 +329,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   onMoveFolderToGroup,
   onReorderPlaylists,
   onReorderFolders,
+  onReorderItems,
   onEditFolder,
 }) => {
   // Navigation state: current folder view (null = root)
@@ -367,7 +354,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   const [hoveredFolderId, setHoveredFolderId] = useState<string | null>(null);
   const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);
   const [hoveredCrumbId, setHoveredCrumbId] = useState<string | null | 'root'>(null);
-  const [dropTargetPlaylist, setDropTargetPlaylist] = useState<{ id: string; position: 'before' | 'after' } | null>(null);
+  const [dropTargetItem, setDropTargetItem] = useState<{ id: string; type: 'playlist' | 'folder'; position: 'before' | 'after' } | null>(null);
   const [dropTargetGroup, setDropTargetGroup] = useState<{ id: string; position: 'before' | 'after' } | null>(null);
 
   // Sync ref with state
@@ -488,6 +475,103 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     return covers;
   };
 
+  const handleReorderItem = (
+    draggedId: string,
+    draggedType: 'playlist' | 'folder',
+    targetId: string,
+    targetType: 'playlist' | 'folder',
+    position: 'before' | 'after'
+  ) => {
+    // 1. Identify target's container
+    let destFolderId: string | null = null;
+    let destGroupId: string | null = null;
+
+    if (targetType === 'playlist') {
+      const targetPl = playlists.find((p) => p.id === targetId);
+      if (!targetPl) return;
+      destFolderId = targetPl.folderId || null;
+      destGroupId = targetPl.folderId ? null : (targetPl.groupId || null);
+    } else {
+      const targetFolder = folders.find((f) => f.id === targetId);
+      if (!targetFolder) return;
+      destFolderId = targetFolder.parentId || null;
+      destGroupId = targetFolder.parentId ? null : (targetFolder.groupId || null);
+    }
+
+    // 2. Get all items in destination container
+    const containerFolders = folders.filter(
+      (f) => (f.parentId || null) === destFolderId && (destFolderId ? true : (f.groupId || null) === destGroupId)
+    );
+    const containerPlaylists = playlists.filter(
+      (p) => (p.folderId || null) === destFolderId && (destFolderId ? true : (p.groupId || null) === destGroupId)
+    );
+
+    // Current sorted list of items in destination
+    let items = getContainerItems(containerFolders, containerPlaylists, folders, playlists);
+
+    // Remove dragged item if already in this container
+    const existingIndex = items.findIndex((i) => i.id === draggedId);
+    let draggedEntry: GridItem | null = null;
+    if (existingIndex !== -1) {
+      draggedEntry = items.splice(existingIndex, 1)[0];
+    } else {
+      if (draggedType === 'playlist') {
+        const pl = playlists.find((p) => p.id === draggedId);
+        if (pl) draggedEntry = { id: pl.id, type: 'playlist', order: 0, item: pl };
+      } else {
+        const f = folders.find((f) => f.id === draggedId);
+        if (f) draggedEntry = { id: f.id, type: 'folder', order: 0, item: f };
+      }
+    }
+
+    if (!draggedEntry) return;
+
+    // Find target index in items
+    let targetIndex = items.findIndex((i) => i.id === targetId);
+    if (targetIndex === -1) targetIndex = items.length;
+    if (position === 'after') {
+      targetIndex += 1;
+    }
+
+    items.splice(targetIndex, 0, draggedEntry);
+
+    // Assign sequential order
+    const nextPlaylists = [...playlists];
+    const nextFolders = [...folders];
+
+    items.forEach((entry, idx) => {
+      const newOrder = idx * 10;
+      if (entry.type === 'playlist') {
+        const plIdx = nextPlaylists.findIndex((p) => p.id === entry.id);
+        if (plIdx !== -1) {
+          nextPlaylists[plIdx] = {
+            ...nextPlaylists[plIdx],
+            order: newOrder,
+            folderId: destFolderId,
+            groupId: destFolderId ? null : destGroupId,
+          };
+        }
+      } else {
+        const fIdx = nextFolders.findIndex((f) => f.id === entry.id);
+        if (fIdx !== -1) {
+          nextFolders[fIdx] = {
+            ...nextFolders[fIdx],
+            order: newOrder,
+            parentId: destFolderId,
+            groupId: destFolderId ? null : destGroupId,
+          };
+        }
+      }
+    });
+
+    if (onReorderItems) {
+      onReorderItems(nextPlaylists, nextFolders);
+    } else {
+      onReorderPlaylists(nextPlaylists);
+      onReorderFolders?.(nextFolders);
+    }
+  };
+
   // ---------------- POINTER DRAG & DROP ENGINE ----------------
 
   const handlePointerDown = (
@@ -547,7 +631,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         setHoveredFolderId(null);
         setHoveredGroupId(null);
         setHoveredCrumbId(null);
-        setDropTargetPlaylist(null);
+        setDropTargetItem(null);
         setDropTargetGroup(null);
         return;
       }
@@ -558,7 +642,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         const crumbId = crumbEl.getAttribute('data-crumb-id') as string;
         setHoveredCrumbId(crumbId === 'root' ? 'root' : crumbId);
         setHoveredFolderId(null);
-        setDropTargetPlaylist(null);
+        setDropTargetItem(null);
         setHoveredGroupId(null);
         return;
       } else {
@@ -570,29 +654,39 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
       if (folderEl) {
         const folderId = folderEl.getAttribute('data-folder-id');
         if (folderId && folderId !== current.id) {
-          setHoveredFolderId(folderId);
-          setDropTargetPlaylist(null);
+          const rect = folderEl.getBoundingClientRect();
+          const relX = (e.clientX - rect.left) / rect.width;
+          if (relX < 0.25) {
+            setDropTargetItem({ id: folderId, type: 'folder', position: 'before' });
+            setHoveredFolderId(null);
+          } else if (relX > 0.75) {
+            setDropTargetItem({ id: folderId, type: 'folder', position: 'after' });
+            setHoveredFolderId(null);
+          } else {
+            setDropTargetItem(null);
+            setHoveredFolderId(folderId);
+          }
           setHoveredGroupId(null);
           return;
         }
       }
       setHoveredFolderId(null);
 
-      // Check Playlist Card target (for playlist reordering)
-      if (current.type === 'playlist') {
+      // Check Playlist Card target (for playlist and folder reordering)
+      if (current.type === 'playlist' || current.type === 'folder') {
         const playlistEl = target.closest('[data-playlist-id]');
         if (playlistEl) {
           const playlistId = playlistEl.getAttribute('data-playlist-id');
           if (playlistId && playlistId !== current.id) {
             const rect = playlistEl.getBoundingClientRect();
             const pos = e.clientX < rect.left + rect.width / 2 ? 'before' : 'after';
-            setDropTargetPlaylist({ id: playlistId, position: pos });
+            setDropTargetItem({ id: playlistId, type: 'playlist', position: pos });
             setHoveredGroupId(null);
             return;
           }
         }
       }
-      setDropTargetPlaylist(null);
+      setDropTargetItem(null);
 
       // Check Group Header target (for group reordering)
       if (current.type === 'group') {
@@ -648,51 +742,28 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
           return;
         }
 
-        // 2. Drop on Folder card
-        const folderEl = target.closest('[data-folder-id]');
-        if (folderEl) {
-          const folderId = folderEl.getAttribute('data-folder-id');
-          if (folderId && folderId !== current.id) {
-            if (current.type === 'playlist') {
-              onMovePlaylistToFolder(current.id, folderId);
-            } else if (current.type === 'folder') {
-              onMoveFolderToFolder(current.id, folderId);
-            }
-            cleanupDrag();
-            return;
+        // 2. Drop into Folder (when hovered in center)
+        if (hoveredFolderId && (current.type === 'playlist' || current.type === 'folder')) {
+          if (current.type === 'playlist') {
+            onMovePlaylistToFolder(current.id, hoveredFolderId);
+          } else if (current.type === 'folder' && current.id !== hoveredFolderId) {
+            onMoveFolderToFolder(current.id, hoveredFolderId);
           }
+          cleanupDrag();
+          return;
         }
 
-        // 3. Drop on Playlist card (Reorder)
-        if (current.type === 'playlist') {
-          const playlistEl = target.closest('[data-playlist-id]');
-          if (playlistEl) {
-            const targetPlaylistId = playlistEl.getAttribute('data-playlist-id');
-            const targetPl = playlists.find((p) => p.id === targetPlaylistId);
-            if (targetPl && targetPl.id !== current.id) {
-              const rect = playlistEl.getBoundingClientRect();
-              const isBefore = e.clientX < rect.left + rect.width / 2;
-
-              const nextPlaylists = [...playlists];
-              const fromIndex = nextPlaylists.findIndex((p) => p.id === current.id);
-              if (fromIndex !== -1) {
-                const [draggedPl] = nextPlaylists.splice(fromIndex, 1);
-                const updatedPl: Playlist = {
-                  ...draggedPl,
-                  folderId: targetPl.folderId || null,
-                  groupId: targetPl.folderId ? null : (targetPl.groupId || null),
-                };
-                let toIndex = nextPlaylists.findIndex((p) => p.id === targetPl.id);
-                if (toIndex !== -1) {
-                  if (!isBefore) toIndex += 1;
-                  nextPlaylists.splice(toIndex, 0, updatedPl);
-                  onReorderPlaylists(nextPlaylists);
-                }
-              }
-              cleanupDrag();
-              return;
-            }
-          }
+        // 3. Drop on Item Card (Reorder playlists and folders together!)
+        if (dropTargetItem && (current.type === 'playlist' || current.type === 'folder')) {
+          handleReorderItem(
+            current.id,
+            current.type,
+            dropTargetItem.id,
+            dropTargetItem.type,
+            dropTargetItem.position
+          );
+          cleanupDrag();
+          return;
         }
 
         // 4. Drop on Group Header (Reorder groups)
@@ -745,7 +816,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
       setHoveredFolderId(null);
       setHoveredGroupId(null);
       setHoveredCrumbId(null);
-      setDropTargetPlaylist(null);
+      setDropTargetItem(null);
       setDropTargetGroup(null);
       document.body.style.cursor = '';
       (window as any).__isInternalDragging = false;
@@ -760,7 +831,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
       window.removeEventListener('pointerup', handleWindowPointerUp);
       window.removeEventListener('pointercancel', cleanupDrag);
     };
-  }, [dragState, playlists, groups, folders, onMovePlaylistToFolder, onMovePlaylistToGroup, onMoveFolderToFolder, onMoveFolderToGroup, onReorderPlaylists, onReorderGroups]);
+  }, [dragState, playlists, groups, folders, onMovePlaylistToFolder, onMovePlaylistToGroup, onMoveFolderToFolder, onMoveFolderToGroup, onReorderPlaylists, onReorderFolders, onReorderItems, onReorderGroups]);
 
   // Render a Single Folder Card
   const renderFolderCard = (folder: PlaylistFolder) => {
@@ -768,6 +839,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     const covers = getFolderCovers(folder.id);
     const isHovered = hoveredFolderId === folder.id;
     const isSelfDragging = dragState?.type === 'folder' && dragState?.id === folder.id && dragState.isDragging;
+    const dropPosition = dropTargetItem?.id === folder.id && dropTargetItem?.type === 'folder' ? dropTargetItem.position : null;
 
     return (
       <FolderCardItem
@@ -777,6 +849,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         stats={stats}
         language={language}
         isDropTarget={isHovered}
+        dropPosition={dropPosition}
         isSelfDragging={isSelfDragging}
         onPointerDown={(e) => {
           handlePointerDown(e, {
@@ -805,7 +878,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   const renderPlaylistCard = (playlist: Playlist) => {
     const cover = getPlaylistCover(playlist);
     const totalDuration = getPlaylistDuration(playlist);
-    const isTarget = dropTargetPlaylist?.id === playlist.id;
+    const isTarget = dropTargetItem?.id === playlist.id && dropTargetItem?.type === 'playlist';
     const isSelfDragging = dragState?.type === 'playlist' && dragState?.id === playlist.id && dragState.isDragging;
 
     return (
@@ -837,10 +910,10 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         } ${isSelfDragging ? 'opacity-30' : ''}`}
       >
         {/* Visual Insertion Indicator Bars */}
-        {isTarget && dropTargetPlaylist.position === 'before' && (
+        {isTarget && dropTargetItem?.position === 'before' && (
           <div className="absolute -left-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 animate-pulse z-30" />
         )}
-        {isTarget && dropTargetPlaylist.position === 'after' && (
+        {isTarget && dropTargetItem?.position === 'after' && (
           <div className="absolute -right-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 animate-pulse z-30" />
         )}
 
@@ -1137,8 +1210,11 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-            {subfoldersInside.map(renderFolderCard)}
-            {playlistsInside.map(renderPlaylistCard)}
+            {getContainerItems(subfoldersInside, playlistsInside, folders, playlists).map(ci =>
+              ci.type === 'folder'
+                ? renderFolderCard(ci.item as PlaylistFolder)
+                : renderPlaylistCard(ci.item as Playlist)
+            )}
           </div>
         )}
       </div>
@@ -1409,8 +1485,11 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                         </div>
                       ) : (
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                          {groupFolders.map(renderFolderCard)}
-                          {groupPlaylists.map(renderPlaylistCard)}
+                          {getContainerItems(groupFolders, groupPlaylists, folders, playlists).map(ci =>
+                            ci.type === 'folder'
+                              ? renderFolderCard(ci.item as PlaylistFolder)
+                              : renderPlaylistCard(ci.item as Playlist)
+                          )}
                         </div>
                       )}
                     </div>
@@ -1471,8 +1550,11 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-              {ungroupedFolders.map(renderFolderCard)}
-              {ungroupedPlaylists.map(renderPlaylistCard)}
+              {getContainerItems(ungroupedFolders, ungroupedPlaylists, folders, playlists).map(ci =>
+                ci.type === 'folder'
+                  ? renderFolderCard(ci.item as PlaylistFolder)
+                  : renderPlaylistCard(ci.item as Playlist)
+              )}
             </div>
           )}
         </div>

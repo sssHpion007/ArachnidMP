@@ -3322,11 +3322,16 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleRenameItem = (newName: string) => {
+  const handleRenameItem = (newName: string, newDescription?: string) => {
     if (!renameItemTarget) return;
     const { type, item } = renameItemTarget;
     if (type === 'playlist') {
-      setPlaylists(prev => prev.map(p => p.id === item.id ? { ...p, name: newName } : p));
+      const descVal = newDescription !== undefined ? (newDescription.trim() || undefined) : undefined;
+      setPlaylists(prev => prev.map(p => p.id === item.id ? { 
+        ...p, 
+        name: newName, 
+        description: newDescription !== undefined ? descVal : p.description 
+      } : p));
     } else if (type === 'folder') {
       setPlaylistFolders(prev => prev.map(f => f.id === item.id ? { ...f, name: newName } : f));
     } else if (type === 'group') {
@@ -3918,6 +3923,11 @@ export const App: React.FC = () => {
               onMoveFolderToFolder={handleMoveFolderToFolder}
               onMoveFolderToGroup={handleMoveFolderToGroup}
               onReorderPlaylists={setPlaylists}
+              onReorderFolders={setPlaylistFolders}
+              onReorderItems={(newPlaylists, newFolders) => {
+                setPlaylists(newPlaylists);
+                setPlaylistFolders(newFolders);
+              }}
               onEditFolder={(folder) => setEditingFolderTarget(folder)}
             />
           </div>
@@ -4281,6 +4291,7 @@ export const App: React.FC = () => {
         isOpen={!!renameItemTarget?.isOpen}
         type={renameItemTarget?.type || 'playlist'}
         initialName={renameItemTarget?.item?.name || ''}
+        initialDescription={renameItemTarget?.type === 'playlist' ? (renameItemTarget?.item as Playlist)?.description : undefined}
         language={language}
         onClose={() => setRenameItemTarget(null)}
         onRename={handleRenameItem}

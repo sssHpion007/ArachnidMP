@@ -7,31 +7,35 @@ interface RenameItemModalProps {
   isOpen: boolean;
   type: 'playlist' | 'folder' | 'group';
   initialName: string;
+  initialDescription?: string;
   language?: AppLanguage;
   onClose: () => void;
-  onRename: (newName: string) => void;
+  onRename: (newName: string, newDescription?: string) => void;
 }
 
 export const RenameItemModal: React.FC<RenameItemModalProps> = ({
   isOpen,
   type,
   initialName,
+  initialDescription = '',
   language = 'ru',
   onClose,
   onRename,
 }) => {
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
       setName(initialName);
+      setDescription(initialDescription || '');
       setTimeout(() => {
         inputRef.current?.focus();
         inputRef.current?.select();
       }, 50);
     }
-  }, [isOpen, initialName]);
+  }, [isOpen, initialName, initialDescription]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -72,7 +76,7 @@ export const RenameItemModal: React.FC<RenameItemModalProps> = ({
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!name.trim()) return;
-    onRename(name.trim());
+    onRename(name.trim(), type === 'playlist' ? description.trim() : undefined);
     onClose();
   };
 
@@ -125,6 +129,22 @@ export const RenameItemModal: React.FC<RenameItemModalProps> = ({
               className="w-full px-3.5 py-2.5 rounded-2xl bg-md3-surface-container-highest border border-md3-outline-variant/30 text-md3-on-surface placeholder:text-md3-on-surface-variant/50 text-sm focus:outline-none focus:border-md3-primary transition-colors"
             />
           </div>
+
+          {type === 'playlist' && (
+            <div>
+              <label className="block text-xs font-semibold text-md3-on-surface-variant mb-1.5">
+                {language === 'ru' ? 'Описание (необязательно)' : 'Description (optional)'}
+              </label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder={language === 'ru' ? 'Добавьте описание плейлиста...' : 'Add playlist description...'}
+                rows={3}
+                maxLength={300}
+                className="w-full px-3.5 py-2.5 rounded-2xl bg-md3-surface-container-highest border border-md3-outline-variant/30 text-md3-on-surface placeholder:text-md3-on-surface-variant/50 text-sm focus:outline-none focus:border-md3-primary transition-colors resize-none"
+              />
+            </div>
+          )}
 
           {/* Buttons */}
           <div className="flex items-center justify-end gap-2.5 mt-2 pt-3 border-t border-md3-outline-variant/15">

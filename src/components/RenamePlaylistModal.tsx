@@ -7,7 +7,7 @@ interface RenamePlaylistModalProps {
   isOpen: boolean;
   playlist: Playlist | null;
   onClose: () => void;
-  onRename: (playlist: Playlist, newName: string) => void;
+  onRename: (playlist: Playlist, newName: string, newDescription?: string) => void;
 }
 
 export const RenamePlaylistModal: React.FC<RenamePlaylistModalProps> = ({
@@ -17,11 +17,13 @@ export const RenamePlaylistModal: React.FC<RenamePlaylistModalProps> = ({
   onRename,
 }) => {
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen && playlist) {
       setName(playlist.name);
+      setDescription(playlist.description || '');
       setTimeout(() => {
         inputRef.current?.focus();
         inputRef.current?.select();
@@ -58,7 +60,7 @@ export const RenamePlaylistModal: React.FC<RenamePlaylistModalProps> = ({
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!name.trim()) return;
-    onRename(currentPlaylist, name.trim());
+    onRename(currentPlaylist, name.trim(), description.trim() || undefined);
     onClose();
   };
 
@@ -109,6 +111,20 @@ export const RenamePlaylistModal: React.FC<RenamePlaylistModalProps> = ({
               placeholder="Введите название..."
               className="w-full px-4 py-2.5 rounded-2xl bg-md3-surface text-sm text-md3-on-surface placeholder-md3-on-surface-variant/40 border border-md3-outline-variant/20 focus:border-md3-primary outline-none transition-all shadow-inner"
               maxLength={60}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-md3-on-surface-variant mb-1.5">
+              Описание (необязательно)
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Добавьте описание плейлиста..."
+              rows={3}
+              maxLength={300}
+              className="w-full px-4 py-2.5 rounded-2xl bg-md3-surface text-sm text-md3-on-surface placeholder-md3-on-surface-variant/40 border border-md3-outline-variant/20 focus:border-md3-primary outline-none transition-all shadow-inner resize-none"
             />
           </div>
 

@@ -729,6 +729,7 @@ fn sync_folder_cover_art(folder: &Path, new_cover: Option<&[u8]>) {
         return;
     }
 
+    // Never delete user-provided folder cover files (Folder.jpg / cover.jpg) when editing track tags!
     let make_writable = |p: &Path| {
         if let Ok(meta) = std::fs::metadata(p) {
             let mut perms = meta.permissions();
@@ -740,27 +741,24 @@ fn sync_folder_cover_art(folder: &Path, new_cover: Option<&[u8]>) {
         }
     };
 
-    if let Ok(entries) = std::fs::read_dir(folder) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    let name_lower = name.to_ascii_lowercase();
-                    // Match Windows Media Player generated cover files (AlbumArt*.jpg)
-                    if name_lower.starts_with("albumart") && name_lower.ends_with(".jpg") {
-                        make_writable(&path);
-                        let _ = std::fs::remove_file(&path);
-                    } else if (name_lower == "folder.jpg" || name_lower == "cover.jpg") && new_cover.is_none() {
-                        make_writable(&path);
-                        let _ = std::fs::remove_file(&path);
+    // If new cover is provided, write/overwrite Folder.jpg
+    if let Some(bytes) = new_cover {
+        if let Ok(entries) = std::fs::read_dir(folder) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        let name_lower = name.to_ascii_lowercase();
+                        // Match Windows Media Player generated cover files (AlbumArt*.jpg)
+                        if name_lower.starts_with("albumart") && name_lower.ends_with(".jpg") {
+                            make_writable(&path);
+                            let _ = std::fs::remove_file(&path);
+                        }
                     }
                 }
             }
         }
-    }
 
-    // If new cover is provided, write/overwrite Folder.jpg
-    if let Some(bytes) = new_cover {
         let folder_jpg = folder.join("Folder.jpg");
         make_writable(&folder_jpg);
         let _ = std::fs::write(&folder_jpg, bytes);
@@ -1086,10 +1084,10 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
             .map_err(|e| format!("Failed to save tags to {}: {}", path_str, e))?;
     }
 
-    // Synchronize album art files in the parent folder for Windows Media Player and MusicBee
+    // Synchronize album art files in the parent folder only when an explicit new cover is set
     if let Some(parent) = file_path.parent() {
-        if let Some((ref maybe_bytes, _)) = parsed_cover_art {
-            sync_folder_cover_art(parent, maybe_bytes.as_deref());
+        if let Some((Some(ref bytes), _)) = parsed_cover_art {
+            sync_folder_cover_art(parent, Some(bytes));
         }
     }
 
