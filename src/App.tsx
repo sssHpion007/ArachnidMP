@@ -781,12 +781,18 @@ export const App: React.FC = () => {
     audioEngine.setRepeatMode(repeatMode);
   }, [repeatMode]);
 
-  // Periodically and on view change verify tracks existence
+  // Periodically verify tracks existence in background (not freezing UI on every tab change)
   useEffect(() => {
     if (tracksRef.current.length > 0) {
       verifyTracksExistence(tracksRef.current);
     }
-  }, [currentView, selectedPlaylistId, verifyTracksExistence]);
+    const timer = setInterval(() => {
+      if (tracksRef.current.length > 0) {
+        verifyTracksExistence(tracksRef.current);
+      }
+    }, 300000); // 5 minutes
+    return () => clearInterval(timer);
+  }, [verifyTracksExistence]);
 
   const refreshCustomThemes = async () => {
     if (isTauri()) {
@@ -1303,11 +1309,12 @@ export const App: React.FC = () => {
         result.reverse();
       }
     } else if (sortBy && sortBy !== 'index') {
+      const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
       result.sort((a, b) => {
         let valA: any = a[sortBy as keyof Track] || '';
         let valB: any = b[sortBy as keyof Track] || '';
-        if (typeof valA === 'string') {
-          const cmp = valA.localeCompare(valB);
+        if (typeof valA === 'string' && typeof valB === 'string') {
+          const cmp = collator.compare(valA, valB);
           return sortOrder === 'asc' ? cmp : -cmp;
         }
         return sortOrder === 'asc' ? (valA > valB ? 1 : -1) : (valA < valB ? 1 : -1);

@@ -127,6 +127,52 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   const hasDraggedRef = useRef<boolean>(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  // High-performance virtual scrolling engine
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(600);
+  const rafIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const updateHeight = () => {
+      if (el.clientHeight > 0) {
+        setViewportHeight(el.clientHeight);
+      }
+    };
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const currentScrollTop = e.currentTarget.scrollTop;
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+    }
+    rafIdRef.current = requestAnimationFrame(() => {
+      setScrollTop(currentScrollTop);
+      rafIdRef.current = null;
+    });
+  };
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
+  }, []);
+
+  const rowHeight = isCompact ? 60 : 54;
+  const totalHeight = tracks.length * rowHeight;
+  const OVERSCAN = 6;
+  const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
+  const endIndex = Math.min(tracks.length, Math.ceil((scrollTop + viewportHeight) / rowHeight) + OVERSCAN);
+  const visibleTracks = tracks.slice(startIndex, endIndex);
+  const offsetY = startIndex * rowHeight;
+
   const handlePointerDown = (e: React.PointerEvent, track: Track, index: number) => {
     if (!isReorderable || !onReorderTracks) return;
     if (e.button !== 0) return;
@@ -389,7 +435,8 @@ export const TrackTable: React.FC<TrackTableProps> = ({
       {/* Tracks List */}
       <div 
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto min-h-0 divide-y divide-md3-outline-variant/10 custom-scrollbar"
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto min-h-0 custom-scrollbar relative"
       >
         {tracks.length === 0 ? (
           <div className="h-64 flex flex-col items-center justify-center text-center p-8 text-md3-on-surface-variant">
@@ -406,7 +453,19 @@ export const TrackTable: React.FC<TrackTableProps> = ({
             </p>
           </div>
         ) : (
-          tracks.map((track, idx) => {
+          <div style={{ height: `${totalHeight}px`, position: 'relative', width: '100%' }}>
+            <div
+              style={{
+                transform: `translateY(${offsetY}px)`,
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+              }}
+              className="divide-y divide-md3-outline-variant/10"
+            >
+              {visibleTracks.map((track, relativeIdx) => {
+                const idx = startIndex + relativeIdx;
             const isSelected = selectedTrackIds.has(track.id);
             const isCurrent = currentTrack?.id === track.id;
             const isHovered = hoveredTrackId === track.id;
@@ -423,6 +482,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                 key={track.id}
                 data-track-row-id={track.id}
                 data-track-row-index={idx}
+                style={{ height: `${rowHeight}px` }}
                 onPointerDown={(e) => handlePointerDown(e, track, idx)}
                 onMouseEnter={() => setHoveredTrackId(track.id)}
                 onMouseLeave={() => setHoveredTrackId(null)}
@@ -439,9 +499,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                   }
                 }}
                 onContextMenu={(e) => onOpenContextMenu(e, track)}
-                className={`relative group grid ${gridCols} items-center px-4 ${
-                  isCompact ? 'py-2.5 sm:py-3' : 'py-2'
-                } cursor-pointer ${
+                className={`relative group grid ${gridCols} items-center px-4 cursor-pointer box-border ${
                   isBeingDragged
                     ? 'opacity-30 bg-md3-primary-container/20 border-dashed border border-md3-primary/30'
                     : isSelected
@@ -501,6 +559,8 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                       <img 
                         src={track.coverArt} 
                         alt={track.title} 
+                        loading="lazy"
+                        decoding="async"
                         className="w-full h-full object-cover transition-transform duration-200 group-hover/cover:scale-105 relative z-[1]" 
                         onError={(e) => {
                           e.currentTarget.style.display = 'none';
@@ -612,7 +672,9 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                 </div>
               </div>
             );
-          })
+          })}
+            </div>
+          </div>
         )}
       </div>
 
