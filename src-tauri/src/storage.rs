@@ -917,7 +917,8 @@ pub fn load_modular_data() -> Result<Option<String>, String> {
 
     for t in &tracks_list {
         if let (Some(tid), Some(p)) = (t.get("id").and_then(|i| i.as_str()), t.get("path").and_then(|x| x.as_str())) {
-            path_to_track_id.insert(p.to_lowercase(), tid.to_string());
+            let norm = p.replace('\\', "/").to_lowercase();
+            path_to_track_id.insert(norm, tid.to_string());
         }
     }
 
@@ -998,6 +999,22 @@ pub fn sanitize_playlist_filename(name: &str) -> String {
     }
 }
 
+pub fn normalize_path_components(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            std::path::Component::CurDir => {}
+            _ => {
+                normalized.push(comp);
+            }
+        }
+    }
+    normalized
+}
+
 pub fn write_m3u8_playlist(
     pl_path: &Path,
     pl: &Value,
@@ -1012,6 +1029,13 @@ pub fn write_m3u8_playlist(
 
     if let Some(id) = pl.get("id").and_then(|i| i.as_str()) {
         lines.push(format!("#EXT-ARACHNID-ID:{}", id));
+    }
+    if let Some(desc) = pl.get("description").and_then(|d| d.as_str()) {
+        let desc_trimmed = desc.trim();
+        if !desc_trimmed.is_empty() {
+            let escaped = desc_trimmed.replace("\r\n", "\\n").replace('\n', "\\n");
+            lines.push(format!("#EXT-ARACHNID-DESC:{}", escaped));
+        }
     }
     if let Some(order) = pl.get("order").and_then(|o| o.as_i64()) {
         lines.push(format!("#EXT-ARACHNID-ORDER:{}", order));
@@ -1042,15 +1066,16 @@ pub fn write_m3u8_playlist(
     if let Some(track_ids) = pl.get("trackIds").and_then(|t| t.as_array()) {
         for tid_val in track_ids {
             if let Some(tid) = tid_val.as_str() {
+                lines.push(format!("#EXT-ARACHNID-TRACKID:{}", tid));
                 if let Some((path_opt, artist, title, duration)) = track_map.get(tid) {
                     lines.push(format!("#EXTINF:{},{} - {}", duration, artist, title));
                     if let Some(path) = path_opt {
-                        lines.push(path.clone());
-                    } else {
-                        lines.push(format!("#EXT-ARACHNID-TRACKID:{}", tid));
+                        if let Some(portable) = to_portable_music_path(path, base_dir) {
+                            lines.push(format!("../{}", portable));
+                        } else {
+                            lines.push(path.clone());
+                        }
                     }
-                } else {
-                    lines.push(format!("#EXT-ARACHNID-TRACKID:{}", tid));
                 }
             }
         }
@@ -1077,6 +1102,7 @@ pub fn parse_m3u8_playlist(
 
     let mut name = stem.clone();
     let mut id: Option<String> = None;
+    let mut description: Option<String> = None;
     let mut order: Option<i64> = None;
     let mut folder_id: Option<String> = None;
     let mut group_id: Option<String> = None;
@@ -1086,6 +1112,7 @@ pub fn parse_m3u8_playlist(
     let mut icon: Option<String> = None;
     let mut track_ids = Vec::new();
 
+    let mut pending_track_id: Option<String> = None;
     let mut pending_extinf: Option<(i64, String, String)> = None;
 
     for line in content.lines() {
@@ -1105,6 +1132,13 @@ pub fn parse_m3u8_playlist(
             let n = val.trim();
             if !n.is_empty() {
                 name = n.to_string();
+            }
+            continue;
+        }
+        if let Some(val) = trimmed.strip_prefix("#EXT-ARACHNID-DESC:") {
+            let d = val.trim().replace("\\n", "\n");
+            if !d.is_empty() && d != "null" {
+                description = Some(d);
             }
             continue;
         }
@@ -1161,7 +1195,7 @@ pub fn parse_m3u8_playlist(
         if let Some(val) = trimmed.strip_prefix("#EXT-ARACHNID-TRACKID:") {
             let tid = val.trim().to_string();
             if !tid.is_empty() {
-                track_ids.push(tid);
+                pending_track_id = Some(tid);
             }
             continue;
         }
@@ -1186,29 +1220,60 @@ pub fn parse_m3u8_playlist(
             continue;
         }
 
-        // Audio file path
+        // Audio file path line
+        let norm_trimmed = trimmed.replace('\\', "/");
+        let norm_lower = norm_trimmed.to_lowercase();
+
+        // 1. If we have a pending Arachnid track ID, check if it exists in the library
+        if let Some(ref tid) = pending_track_id {
+            if library_tracks.iter().any(|t| t.get("id").and_then(|i| i.as_str()) == Some(tid.as_str())) {
+                track_ids.push(pending_track_id.take().unwrap());
+                pending_extinf = None;
+                continue;
+            }
+        }
+
         let path_buf = if Path::new(trimmed).is_relative() {
-            if let Some(parent) = file_path.parent() {
-                parent.join(trimmed)
+            if norm_lower.starts_with("music/") {
+                base_dir.join(&norm_trimmed)
+            } else if norm_lower.starts_with("../music/") {
+                base_dir.join(&norm_trimmed["../".len()..])
+            } else if let Some(parent) = file_path.parent() {
+                let from_parent = parent.join(trimmed);
+                if from_parent.is_file() {
+                    from_parent
+                } else if norm_lower.contains("music/") {
+                    if let Some(idx) = norm_lower.find("music/") {
+                        base_dir.join(&norm_trimmed[idx..])
+                    } else {
+                        from_parent
+                    }
+                } else {
+                    from_parent
+                }
             } else {
-                PathBuf::from(trimmed)
+                base_dir.join(trimmed)
             }
         } else {
             PathBuf::from(trimmed)
         };
 
-        let norm_path_str = path_buf.to_string_lossy().to_string();
-        let lower_path = norm_path_str.to_lowercase();
+        // Normalize path components (remove .. and .)
+        let clean_path = normalize_path_components(&path_buf);
+        let norm_path_str = clean_path.to_string_lossy().to_string();
+        let lower_path = norm_path_str.replace('\\', "/").to_lowercase();
 
         if let Some(existing_id) = path_to_id.get(&lower_path) {
             track_ids.push(existing_id.clone());
         } else {
-            let mut hasher = DefaultHasher::new();
-            norm_path_str.hash(&mut hasher);
-            let synth_id = format!("track_{:016x}", hasher.finish());
+            let tid = pending_track_id.take().unwrap_or_else(|| {
+                let mut hasher = DefaultHasher::new();
+                norm_path_str.hash(&mut hasher);
+                format!("track_{:016x}", hasher.finish())
+            });
 
             let (dur, artist, title) = pending_extinf.take().unwrap_or_else(|| {
-                let fname = path_buf
+                let fname = clean_path
                     .file_stem()
                     .map(|s| s.to_string_lossy().to_string())
                     .unwrap_or_else(|| "Track".to_string());
@@ -1216,7 +1281,7 @@ pub fn parse_m3u8_playlist(
             });
 
             let new_track = json!({
-                "id": synth_id,
+                "id": tid,
                 "path": norm_path_str,
                 "title": title,
                 "artist": artist,
@@ -1228,9 +1293,9 @@ pub fn parse_m3u8_playlist(
                 "isFavorite": false
             });
 
-            path_to_id.insert(lower_path, synth_id.clone());
+            path_to_id.insert(lower_path, tid.clone());
             library_tracks.push(new_track);
-            track_ids.push(synth_id);
+            track_ids.push(tid);
         }
 
         pending_extinf = None;
@@ -1245,6 +1310,7 @@ pub fn parse_m3u8_playlist(
     Some(json!({
         "id": final_id,
         "name": name,
+        "description": description,
         "trackIds": track_ids,
         "folderId": folder_id,
         "groupId": group_id,

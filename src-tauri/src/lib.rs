@@ -766,10 +766,29 @@ fn sync_folder_cover_art(folder: &Path, new_cover: Option<&[u8]>) {
 }
 
 fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(), String> {
-    let file_path = Path::new(path_str);
-    if !file_path.is_file() {
+    let base_dir = crate::storage::get_portable_base_dir();
+    let mut file_path_buf = PathBuf::from(path_str);
+    if !file_path_buf.is_file() {
+        let norm = path_str.replace('/', "\\");
+        let p = PathBuf::from(&norm);
+        if p.is_file() {
+            file_path_buf = p;
+        } else if file_path_buf.is_relative() {
+            let rel = base_dir.join(path_str);
+            if rel.is_file() {
+                file_path_buf = rel;
+            } else {
+                let rel_norm = base_dir.join(&norm);
+                if rel_norm.is_file() {
+                    file_path_buf = rel_norm;
+                }
+            }
+        }
+    }
+    if !file_path_buf.is_file() {
         return Err(format!("File not found: {}", path_str));
     }
+    let file_path = &file_path_buf;
 
     // Ensure file is writable on Windows if read-only attribute was set
     if let Ok(meta) = std::fs::metadata(file_path) {
@@ -1115,14 +1134,30 @@ fn notify_shell_file_changed(_file_path: &Path) {}
 
 #[tauri::command]
 fn check_file_exists(path: String) -> bool {
-    Path::new(&path).is_file()
+    let p = Path::new(&path);
+    if p.is_file() {
+        return true;
+    }
+    if p.is_relative() {
+        return crate::storage::get_portable_base_dir().join(p).is_file();
+    }
+    false
 }
 
 #[tauri::command]
 fn batch_check_files_exist(paths: Vec<String>) -> std::collections::HashMap<String, bool> {
+    let base_dir = crate::storage::get_portable_base_dir();
     let mut map = std::collections::HashMap::new();
     for p in paths {
-        map.insert(p.clone(), Path::new(&p).is_file());
+        let path_obj = Path::new(&p);
+        let exists = if path_obj.is_file() {
+            true
+        } else if path_obj.is_relative() {
+            base_dir.join(path_obj).is_file()
+        } else {
+            false
+        };
+        map.insert(p.clone(), exists);
     }
     map
 }

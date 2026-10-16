@@ -1942,36 +1942,38 @@ export const App: React.FC = () => {
       const isPathMatch = !!pathKey && existingPaths.has(pathKey);
       const isTitleArtistMatch = titleArtistKey !== '|||' && titleArtistKey !== 'unknown|||unknown artist' && existingKeys.has(titleArtistKey);
 
-      if (isPathMatch || isTitleArtistMatch) {
-        const existing = prevTracks.find(t => (isPathMatch && normalizeTrackPath(t.path) === pathKey) || (isTitleArtistMatch && `${t.title.trim().toLowerCase()}|||${t.artist.trim().toLowerCase()}` === titleArtistKey));
+      if (isPathMatch) {
+        const existing = prevTracks.find(t => normalizeTrackPath(t.path) === pathKey);
         if (existing) {
           plTargetIds.push(existing.id);
-          // If the physical file path matches, the file might have been replaced on disk or re-imported.
-          // Update the existing track's metadata with the fresh values from the new file!
-          if (isPathMatch) {
-            updatedMap.set(existing.id, {
-              title: nt.title,
-              artist: nt.artist,
-              album: nt.album,
-              duration: nt.duration || existing.duration,
-              src: nt.src,
-              coverArt: nt.coverArt !== undefined ? nt.coverArt : existing.coverArt,
-              genre: nt.genre,
-              year: nt.year,
-              trackNumber: nt.trackNumber,
-              trackTotal: nt.trackTotal,
-              format: nt.format,
-              fileSize: nt.fileSize,
-              lyrics: nt.lyrics || undefined,
-              composer: nt.composer,
-              contentGroup: nt.contentGroup,
-              comment: nt.comment,
-              conductor: nt.conductor,
-              lyricist: nt.lyricist,
-            });
-          }
+          updatedMap.set(existing.id, {
+            ...nt,
+            id: existing.id,
+            isMissing: false,
+            dateAdded: existing.dateAdded,
+            playCount: existing.playCount,
+            isFavorite: existing.isFavorite,
+          });
         }
         continue;
+      }
+
+      if (isTitleArtistMatch) {
+        // Relocate missing tracks if re-imported from a different folder/drive
+        const missingExisting = prevTracks.find(t => t.isMissing && `${t.title.trim().toLowerCase()}|||${t.artist.trim().toLowerCase()}` === titleArtistKey);
+        if (missingExisting) {
+          plTargetIds.push(missingExisting.id);
+          if (pathKey) existingPaths.add(pathKey);
+          updatedMap.set(missingExisting.id, {
+            ...nt,
+            id: missingExisting.id,
+            isMissing: false,
+            dateAdded: missingExisting.dateAdded,
+            playCount: missingExisting.playCount,
+            isFavorite: missingExisting.isFavorite,
+          });
+          continue;
+        }
       }
 
       if (pathKey) existingPaths.add(pathKey);
@@ -3468,7 +3470,10 @@ export const App: React.FC = () => {
       const sourceTracks = targetTracks && targetTracks.length > 0
         ? targetTracks
         : tracks.filter(t => targetIds.has(t.id));
-      const paths = sourceTracks.map(t => t.path).filter((p): p is string => Boolean(p));
+      const paths = sourceTracks
+        .filter(t => !t.isMissing)
+        .map(t => t.path)
+        .filter((p): p is string => Boolean(p));
       if (paths.length > 0) {
         try {
           await invoke('batch_save_track_file_tags', {
@@ -3491,7 +3496,10 @@ export const App: React.FC = () => {
           });
         } catch (e) {
           console.error('Failed to save tags to files:', e);
-          alert(language === 'ru' ? `Ошибка сохранения тегов в файл: ${e}` : `Failed to save tags to file: ${e}`);
+          const errStr = String(e);
+          if (!errStr.includes('File not found')) {
+            alert(language === 'ru' ? `Ошибка сохранения тегов в файл: ${e}` : `Failed to save tags to file: ${e}`);
+          }
         }
       }
     }
