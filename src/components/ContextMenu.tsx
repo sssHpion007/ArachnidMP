@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Play, 
   ListPlus, 
@@ -46,6 +47,7 @@ interface ContextMenuProps {
 
 // ---------------------------------------------------------------------------
 // Reusable Flyout Menu Container with Screen-Boundary Aware Positioning
+// Rendered via Portal with an invisible hover bridge to prevent lost hover
 // ---------------------------------------------------------------------------
 interface FlyoutMenuProps {
   anchorEl: HTMLElement | null;
@@ -62,10 +64,39 @@ const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
   onMouseEnter,
   onMouseLeave,
   children,
-  width = 220,
+  width = 230,
 }) => {
   const flyoutRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [isFlippedLeft, setIsFlippedLeft] = useState(false);
+
+  // Initialize position directly next to anchorEl instead of (0, 0)
+  const calcInitialPos = () => {
+    if (!anchorEl) return { top: 0, left: 0, flipped: false };
+    const anchorRect = anchorEl.getBoundingClientRect();
+    const margin = 8;
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+    const estimatedHeight = 220;
+
+    let left = anchorRect.right - 2;
+    let flipped = false;
+    if (left + width > winW - margin) {
+      left = anchorRect.left - width + 2;
+      flipped = true;
+    }
+    if (left < margin) left = margin;
+
+    let top = anchorRect.top - 4;
+    if (top + estimatedHeight > winH - margin) {
+      top = Math.max(margin, winH - estimatedHeight - margin);
+    }
+    if (top < margin) top = margin;
+
+    return { top, left, flipped };
+  };
+
+  const [pos, setPos] = useState(calcInitialPos);
+  const [isPositioned, setIsPositioned] = useState(false);
 
   useLayoutEffect(() => {
     if (!isOpen || !anchorEl || !flyoutRef.current) return;
@@ -75,41 +106,54 @@ const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
     const winW = window.innerWidth;
     const winH = window.innerHeight;
 
-    // Prefer opening to the right with slight overlap
     let left = anchorRect.right - 2;
-    // If overflowing right edge, flip to left side
+    let flipped = false;
     if (left + flyoutRect.width > winW - margin) {
       left = anchorRect.left - flyoutRect.width + 2;
+      flipped = true;
     }
-    // Clamp horizontally
     if (left < margin) left = margin;
     if (left + flyoutRect.width > winW - margin) {
       left = Math.max(margin, winW - flyoutRect.width - margin);
     }
 
-    // Align vertically with anchor top
     let top = anchorRect.top - 4;
-    // If overflowing bottom edge, shift upward
     if (top + flyoutRect.height > winH - margin) {
       top = Math.max(margin, winH - flyoutRect.height - margin);
     }
     if (top < margin) top = margin;
 
-    setPos({ top, left });
+    setIsFlippedLeft(flipped);
+    setPos({ top, left, flipped });
+    setIsPositioned(true);
   }, [isOpen, anchorEl]);
 
   if (!isOpen || !anchorEl) return null;
 
-  return (
+  return createPortal(
     <div
       ref={flyoutRef}
-      style={{ left: `${pos.left}px`, top: `${pos.top}px`, width: `${width}px` }}
+      style={{ 
+        left: `${pos.left}px`, 
+        top: `${pos.top}px`, 
+        width: `${width}px`,
+        opacity: isPositioned ? 1 : 0,
+        pointerEvents: isPositioned ? 'auto' : 'none',
+      }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className="fixed z-50 bg-md3-surface-container-highest rounded-2xl shadow-2xl border border-md3-outline-variant/40 py-1.5 text-xs select-none animate-in fade-in zoom-in-95 duration-100 max-h-[min(380px,calc(100vh-24px))] overflow-y-auto custom-scrollbar"
+      className={`fixed z-[60] bg-md3-surface-container-highest rounded-2xl shadow-2xl border border-md3-outline-variant/40 py-1.5 text-xs select-none max-h-[min(380px,calc(100vh-24px))] overflow-y-auto custom-scrollbar ${
+        isPositioned ? 'animate-in fade-in zoom-in-95 duration-100' : ''
+      }`}
     >
+      {/* Invisible hover bridge to eliminate gap between anchor button and flyout menu */}
+      <div 
+        className="absolute top-0 bottom-0 pointer-events-auto"
+        style={isFlippedLeft ? { right: '-12px', width: '14px' } : { left: '-12px', width: '14px' }}
+      />
       {children}
-    </div>
+    </div>,
+    document.body
   );
 };
 
@@ -151,26 +195,26 @@ const FolderFlyout: React.FC<FolderFlyoutProps> = ({
   const folderPlaylists = playlists.filter((p) => p.folderId === folder.id && !p.isSystem);
 
   const handleSubfolderEnter = (id: string) => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    setActiveSubfolderId(id);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      setActiveSubfolderId(id);
+    }, 80);
+    onParentMouseEnter?.();
   };
 
   const handleLeafEnter = () => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    setActiveSubfolderId(null);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      setActiveSubfolderId(null);
+    }, 200);
+    onParentMouseEnter?.();
   };
 
   const handleContainerLeave = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       setActiveSubfolderId(null);
-    }, 220);
+    }, 260);
     onParentMouseLeave?.();
   };
 
@@ -294,26 +338,26 @@ const GroupFlyout: React.FC<GroupFlyoutProps> = ({
   const groupPlaylists = playlists.filter((p) => p.groupId === group.id && !p.folderId && !p.isSystem);
 
   const handleFolderEnter = (id: string) => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    setActiveFolderId(id);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      setActiveFolderId(id);
+    }, 80);
+    onParentMouseEnter?.();
   };
 
   const handleLeafEnter = () => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    setActiveFolderId(null);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      setActiveFolderId(null);
+    }, 200);
+    onParentMouseEnter?.();
   };
 
   const handleContainerLeave = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       setActiveFolderId(null);
-    }, 220);
+    }, 260);
     onParentMouseLeave?.();
   };
 
@@ -435,7 +479,9 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const groupRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
   const rootFolderRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
-  const addMenuTimerRef = useRef<any>(null);
+  
+  // Safe grace timers for smooth mouse travel
+  const addMenuCloseTimerRef = useRef<any>(null);
   const subMenuTimerRef = useRef<any>(null);
 
   useEffect(() => {
@@ -494,55 +540,68 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   const rootFolders = folders.filter((f) => !f.groupId && !f.parentId);
   const rootPlaylists = userPlaylists.filter((p) => !p.groupId && !p.folderId);
 
-  // Hover handlers for "Добавить в плейлист"
+  // Safe hover handlers for "Добавить в плейлист"
   const handleAddToPlaylistEnter = () => {
-    if (addMenuTimerRef.current) {
-      clearTimeout(addMenuTimerRef.current);
-      addMenuTimerRef.current = null;
+    if (addMenuCloseTimerRef.current) {
+      clearTimeout(addMenuCloseTimerRef.current);
+      addMenuCloseTimerRef.current = null;
     }
     setIsAddMenuOpen(true);
   };
 
   const handleAddToPlaylistLeave = () => {
-    if (addMenuTimerRef.current) clearTimeout(addMenuTimerRef.current);
-    addMenuTimerRef.current = setTimeout(() => {
+    if (addMenuCloseTimerRef.current) clearTimeout(addMenuCloseTimerRef.current);
+    addMenuCloseTimerRef.current = setTimeout(() => {
       setIsAddMenuOpen(false);
       setActiveGroupId(null);
       setActiveFolderId(null);
-    }, 220);
+    }, 280);
   };
 
   const handleAddMenuContainerEnter = () => {
-    if (addMenuTimerRef.current) {
-      clearTimeout(addMenuTimerRef.current);
-      addMenuTimerRef.current = null;
+    if (addMenuCloseTimerRef.current) {
+      clearTimeout(addMenuCloseTimerRef.current);
+      addMenuCloseTimerRef.current = null;
     }
   };
 
-  // Sub-items inside Add to Playlist
+  // Graceful hover handler for parent menu buttons:
+  // Delays closing the submenu by 280ms so diagonal mouse travel into the flyout is never interrupted
+  const handleParentLeafItemEnter = () => {
+    if (addMenuCloseTimerRef.current) clearTimeout(addMenuCloseTimerRef.current);
+    addMenuCloseTimerRef.current = setTimeout(() => {
+      setIsAddMenuOpen(false);
+      setActiveGroupId(null);
+      setActiveFolderId(null);
+    }, 280);
+  };
+
+  // Sub-items inside Add to Playlist menu
   const handleGroupEnter = (id: string) => {
     if (subMenuTimerRef.current) clearTimeout(subMenuTimerRef.current);
-    setActiveFolderId(null);
-    setActiveGroupId(id);
+    subMenuTimerRef.current = setTimeout(() => {
+      setActiveFolderId(null);
+      setActiveGroupId(id);
+    }, 80);
+    handleAddMenuContainerEnter();
   };
 
   const handleRootFolderEnter = (id: string) => {
     if (subMenuTimerRef.current) clearTimeout(subMenuTimerRef.current);
-    setActiveGroupId(null);
-    setActiveFolderId(id);
+    subMenuTimerRef.current = setTimeout(() => {
+      setActiveGroupId(null);
+      setActiveFolderId(id);
+    }, 80);
+    handleAddMenuContainerEnter();
   };
 
   const handleAddMenuLeafEnter = () => {
     if (subMenuTimerRef.current) clearTimeout(subMenuTimerRef.current);
-    setActiveGroupId(null);
-    setActiveFolderId(null);
-  };
-
-  const handleLeafItemEnter = () => {
-    if (addMenuTimerRef.current) clearTimeout(addMenuTimerRef.current);
-    setIsAddMenuOpen(false);
-    setActiveGroupId(null);
-    setActiveFolderId(null);
+    subMenuTimerRef.current = setTimeout(() => {
+      setActiveGroupId(null);
+      setActiveFolderId(null);
+    }, 200);
+    handleAddMenuContainerEnter();
   };
 
   return (
@@ -561,7 +620,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 
         {/* Play Now */}
         <button
-          onMouseEnter={handleLeafItemEnter}
+          onMouseEnter={handleParentLeafItemEnter}
           onClick={() => {
             onPlay(track);
             onClose();
@@ -574,7 +633,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 
         {/* Play Next */}
         <button
-          onMouseEnter={handleLeafItemEnter}
+          onMouseEnter={handleParentLeafItemEnter}
           onClick={() => {
             onPlayNext([track]);
             onClose();
@@ -587,7 +646,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 
         {/* Add to Queue */}
         <button
-          onMouseEnter={handleLeafItemEnter}
+          onMouseEnter={handleParentLeafItemEnter}
           onClick={() => {
             onAddToQueue([track]);
             onClose();
@@ -620,7 +679,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
         <div className="border-t border-md3-outline-variant/20 my-1 pt-1">
           {onOpenTrackDetails && (
             <button
-              onMouseEnter={handleLeafItemEnter}
+              onMouseEnter={handleParentLeafItemEnter}
               onClick={() => {
                 onOpenTrackDetails(track);
                 onClose();
@@ -634,7 +693,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 
           {onReloadTracks && (
             <button
-              onMouseEnter={handleLeafItemEnter}
+              onMouseEnter={handleParentLeafItemEnter}
               onClick={() => {
                 onReloadTracks(targetIds);
                 onClose();
@@ -646,13 +705,13 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
                 {language === 'ru' 
                   ? (targetIds.length > 1 ? `Перечитать файлы (${targetIds.length})` : 'Перечитать из файла')
                   : (targetIds.length > 1 ? `Reload from files (${targetIds.length})` : 'Reload from file')
-                }
+              }
               </span>
             </button>
           )}
 
           <button
-            onMouseEnter={handleLeafItemEnter}
+            onMouseEnter={handleParentLeafItemEnter}
             onClick={() => {
               onOpenTagEditor();
               onClose();
@@ -670,7 +729,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 
           {/* Favorite */}
           <button
-            onMouseEnter={handleLeafItemEnter}
+            onMouseEnter={handleParentLeafItemEnter}
             onClick={() => {
               onToggleFavorite(track.id);
               onClose();
@@ -689,7 +748,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
           {/* Relocate Track (Указать путь к файлу вручную) */}
           {onRelocateTrack && (
             <button
-              onMouseEnter={handleLeafItemEnter}
+              onMouseEnter={handleParentLeafItemEnter}
               onClick={() => {
                 onRelocateTrack(track);
                 onClose();
@@ -709,7 +768,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 
           {/* Remove from playlist / library */}
           <button
-            onMouseEnter={handleLeafItemEnter}
+            onMouseEnter={handleParentLeafItemEnter}
             onClick={() => {
               onRemoveTracks(targetIds);
               onClose();
@@ -733,7 +792,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
           {/* Delete from Disk */}
           {onDeleteFromDisk && (
             <button
-              onMouseEnter={handleLeafItemEnter}
+              onMouseEnter={handleParentLeafItemEnter}
               onClick={() => {
                 onDeleteFromDisk(targetIds);
                 onClose();
