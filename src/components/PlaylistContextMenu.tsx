@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
-import { Play, ListPlus, Edit3, Trash2, ListX, Folder, FolderSymlink, Layers, Download } from 'lucide-react';
+import { Play, ListPlus, Edit3, Trash2, ListX, Folder, FolderSymlink, Layers, Download, Palette } from 'lucide-react';
 import { Playlist, PlaylistFolder, PlaylistGroup, Track } from '../types/music';
 import { AppLanguage } from '../i18n';
 
@@ -15,6 +15,7 @@ interface PlaylistContextMenuProps {
   onPlay: (playlist: Playlist) => void;
   onAddToQueue: (playlist: Playlist) => void;
   onRename: (playlist: Playlist) => void;
+  onEditPlaylist?: (playlist: Playlist) => void;
   onClear: (playlist: Playlist) => void;
   onDelete: (playlist: Playlist) => void;
   onExportM3U8?: (playlist: Playlist) => void;
@@ -56,6 +57,7 @@ export const PlaylistContextMenu: React.FC<PlaylistContextMenuProps> = ({
   onPlay,
   onAddToQueue,
   onRename,
+  onEditPlaylist,
   onClear,
   onDelete,
   onExportM3U8,
@@ -189,6 +191,19 @@ export const PlaylistContextMenu: React.FC<PlaylistContextMenuProps> = ({
         >
           <Edit3 className="w-3.5 h-3.5 text-md3-primary" />
           <span>{language === 'ru' ? 'Переименовать' : 'Rename'}</span>
+        </button>
+      )}
+
+      {!playlist.isSystem && onEditPlaylist && (
+        <button
+          onClick={() => {
+            onEditPlaylist(playlist);
+            onClose();
+          }}
+          className="w-full flex items-center gap-2.5 px-3 py-2 text-md3-on-surface hover:bg-md3-surface-container transition-colors text-left cursor-pointer"
+        >
+          <Palette className="w-3.5 h-3.5 text-md3-primary" />
+          <span>{language === 'ru' ? 'Оформление плейлиста...' : 'Playlist Appearance...'}</span>
         </button>
       )}
 

@@ -18,7 +18,7 @@ import {
   ShieldAlert,
   FileUp
 } from 'lucide-react';
-import { Playlist, PlaylistFolder, PlaylistGroup, Track } from '../types/music';
+import { Playlist, PlaylistFolder, PlaylistGroup, Track, FolderCoverType } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 import { getFolderIconComponent } from '../theme/folderIcons';
 import { AppLanguage } from '../i18n';
@@ -147,20 +147,45 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [cycleIndex, setCycleIndex] = useState(0);
+  const coversRef = useRef(covers || []);
+  coversRef.current = covers || [];
+
   const IconComponent = getFolderIconComponent(folder.icon);
 
   const baseColor = getFolderColorHex(folder.color);
   const coverType = folder.coverType || 'icon';
   const hasImages = covers && covers.length > 0 && coverType !== 'icon';
 
-  // Slideshow interval for cycling folder covers
+  // Slideshow interval for cycling folder covers with independent stagger and period
   useEffect(() => {
     if (coverType !== 'cycle' || !covers || covers.length <= 1) return;
-    const timer = setInterval(() => {
-      setCycleIndex((prev) => (prev + 1) % covers.length);
-    }, 2500);
-    return () => clearInterval(timer);
-  }, [coverType, covers]);
+
+    let hash = 0;
+    for (let i = 0; i < folder.id.length; i++) {
+      hash = (hash * 31 + folder.id.charCodeAt(i)) >>> 0;
+    }
+    const initialDelay = 400 + (hash % 2600);
+    const intervalPeriod = 3200 + ((hash >> 2) % 1800);
+
+    let intervalId: any = null;
+    const timeoutId = setTimeout(() => {
+      setCycleIndex((prev) => {
+        const len = coversRef.current.length;
+        return len > 0 ? (prev + 1) % len : 0;
+      });
+      intervalId = setInterval(() => {
+        setCycleIndex((prev) => {
+          const len = coversRef.current.length;
+          return len > 0 ? (prev + 1) % len : 0;
+        });
+      }, intervalPeriod);
+    }, initialDelay);
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [coverType, covers?.length, folder.id]);
 
   // Dynamic card background on hover
   const bgCard = isDropTarget
@@ -272,11 +297,10 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
           </div>
         )}
 
-        {/* Small folder badge in top-left to clearly indicate it's a folder */}
-        <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/60 text-[10px] font-semibold text-white/95 backdrop-blur-xs flex items-center gap-1 shadow-xs z-20">
-          <IconComponent className="w-3 h-3 text-white/90" />
-          <span>{language === 'ru' ? 'Папка' : 'Folder'}</span>
-        </span>
+        {/* Folder icon in top-left corner */}
+        <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/60 text-white/95 backdrop-blur-xs flex items-center justify-center shadow-xs z-20 pointer-events-none">
+          <IconComponent className="w-3.5 h-3.5" />
+        </div>
 
         {/* Floating Quick Play Folder Button (matches playlist card) */}
         {stats.totalTracks > 0 && (
@@ -356,17 +380,75 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
   onContextMenu,
   onPlayPlaylist,
 }) => {
+  const [isHovered, setIsHovered] = useState(false);
   const [cycleIndex, setCycleIndex] = useState(0);
-  const coverType = playlist.coverType || 'first_playlist';
-  const hasMultipleCovers = covers.length > 1;
+  const coversRef = useRef(covers || []);
+  coversRef.current = covers || [];
 
+  const IconComponent = getFolderIconComponent(playlist.icon);
+  const baseColor = playlist.color ? getFolderColorHex(playlist.color) : undefined;
+  const coverType: FolderCoverType = (playlist.coverType as FolderCoverType) || 'first_playlist';
+  const hasMultipleCovers = covers && covers.length > 1;
+  const hasImages = (cover || (covers && covers.length > 0)) && coverType !== 'icon';
+
+  // Slideshow interval for cycling playlist covers with independent stagger and period
   useEffect(() => {
-    if (coverType !== 'cycle' || !hasMultipleCovers) return;
-    const timer = setInterval(() => {
-      setCycleIndex((prev) => (prev + 1) % covers.length);
-    }, 2500);
-    return () => clearInterval(timer);
-  }, [coverType, hasMultipleCovers, covers.length]);
+    if (coverType !== 'cycle' || !hasMultipleCovers || covers.length <= 1) return;
+
+    let hash = 0;
+    for (let i = 0; i < playlist.id.length; i++) {
+      hash = (hash * 31 + playlist.id.charCodeAt(i)) >>> 0;
+    }
+    const initialDelay = 400 + (hash % 2600);
+    const intervalPeriod = 3200 + ((hash >> 2) % 1800);
+
+    let intervalId: any = null;
+    const timeoutId = setTimeout(() => {
+      setCycleIndex((prev) => {
+        const len = coversRef.current.length;
+        return len > 0 ? (prev + 1) % len : 0;
+      });
+      intervalId = setInterval(() => {
+        setCycleIndex((prev) => {
+          const len = coversRef.current.length;
+          return len > 0 ? (prev + 1) % len : 0;
+        });
+      }, intervalPeriod);
+    }, initialDelay);
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [coverType, hasMultipleCovers, covers?.length, playlist.id]);
+
+  // Dynamic card background on hover
+  const bgCard = isTarget
+    ? playlist.color ? getFolderColorRgba(playlist.color, 0.22) : undefined
+    : isHovered
+    ? playlist.color ? getFolderColorRgba(playlist.color, 0.12) : undefined
+    : undefined;
+
+  // Dynamic card border: highlighted with playlist color
+  const borderCard = isTarget
+    ? baseColor
+    : isHovered && playlist.color
+    ? getFolderColorRgba(playlist.color, 0.8)
+    : playlist.color
+    ? getFolderColorRgba(playlist.color, 0.24)
+    : undefined;
+
+  // Colored soft glow shadow on hover
+  const shadowCard = isHovered && !isSelfDragging && playlist.color
+    ? `0 12px 28px -6px ${getFolderColorRgba(playlist.color, 0.32)}`
+    : undefined;
+
+  // Fully colored background for the playlist preview container (when icon coverType or empty)
+  const previewBg = isHovered && playlist.color
+    ? `linear-gradient(145deg, ${getFolderColorRgba(playlist.color, 0.36)}, ${getFolderColorRgba(playlist.color, 0.22)})`
+    : playlist.color
+    ? `linear-gradient(145deg, ${getFolderColorRgba(playlist.color, 0.22)}, ${getFolderColorRgba(playlist.color, 0.12)})`
+    : undefined;
 
   return (
     <div
@@ -374,11 +456,18 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
       onPointerDown={onPointerDown}
       onClick={onClick}
       onContextMenu={onContextMenu}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{
+        backgroundColor: bgCard,
+        borderColor: borderCard,
+        boxShadow: shadowCard,
+      }}
       className={`group grid-card-optimized relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
-        isTarget
-          ? 'ring-2 ring-md3-primary scale-[1.02] bg-md3-surface-container border-md3-primary shadow-lg'
-          : 'bg-md3-surface-container-low hover:bg-md3-surface-container border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md'
-      } ${isSelfDragging ? 'opacity-30' : ''}`}
+        !isHovered && !isTarget ? 'bg-md3-surface-container-low hover:bg-md3-surface-container border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md' : ''
+      } ${isTarget ? 'ring-2 scale-[1.02] shadow-lg' : ''} ${
+        isSelfDragging ? 'opacity-30' : ''
+      }`}
     >
       {/* Visual Insertion Indicator Bars */}
       {dropPosition === 'before' && (
@@ -389,63 +478,71 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
       )}
 
       {/* Cover Art Container */}
-      <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest mb-3 shadow-inner pointer-events-none">
-        <div className="w-full h-full flex items-center justify-center text-md3-primary/50 bg-md3-primary/5 absolute inset-0">
-          <ListMusic className="w-12 h-12" />
-        </div>
-
-        {coverType === 'cycle' && hasMultipleCovers ? (
-          <div className="relative w-full h-full z-[1]">
-            {covers.map((c, idx) => (
-              <img
-                key={c + idx}
-                src={c}
-                alt=""
-                draggable={false}
-                loading="lazy"
-                decoding="async"
-                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 pointer-events-none ${
-                  idx === cycleIndex ? 'opacity-100 z-10' : 'opacity-0 z-0'
-                }`}
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-            ))}
+      <div 
+        className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest mb-3 shadow-inner pointer-events-none transition-all duration-300 border border-md3-outline-variant/20"
+        style={previewBg && !hasImages ? { background: previewBg } : undefined}
+      >
+        {hasImages ? (
+          coverType === 'cycle' && hasMultipleCovers ? (
+            <div className="relative w-full h-full z-[1]">
+              {covers.map((c, idx) => (
+                <img
+                  key={c + idx}
+                  src={c}
+                  alt=""
+                  draggable={false}
+                  loading="lazy"
+                  decoding="async"
+                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 pointer-events-none ${
+                    idx === cycleIndex ? 'opacity-100 z-10' : 'opacity-0 z-0'
+                  }`}
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              ))}
+            </div>
+          ) : coverType === 'collage' && hasMultipleCovers ? (
+            covers.length === 2 ? (
+              <div className="w-full h-full grid grid-cols-2 grid-rows-1 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
+                <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              </div>
+            ) : covers.length === 3 ? (
+              <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
+                <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
+                <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <img src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              </div>
+            ) : (
+              <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
+                <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <img src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <img src={covers[3]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              </div>
+            )
+          ) : cover ? (
+            <img
+              src={cover}
+              alt={playlist.name}
+              draggable={false}
+              loading="lazy"
+              decoding="async"
+              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+          ) : null
+        ) : (
+          <div className="w-full h-full flex items-center justify-center pointer-events-none transition-transform duration-300 group-hover:scale-105">
+            <IconComponent 
+              className="w-16 h-16 drop-shadow-md transition-all duration-300"
+              style={{ color: baseColor || 'rgb(var(--md-sys-color-primary-rgb))' }}
+            />
           </div>
-        ) : coverType === 'collage' && hasMultipleCovers ? (
-          covers.length === 2 ? (
-            <div className="w-full h-full grid grid-cols-2 grid-rows-1 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-              <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-            </div>
-          ) : covers.length === 3 ? (
-            <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-              <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
-              <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <img src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-            </div>
-          ) : (
-            <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-              <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <img src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <img src={covers[3]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-            </div>
-          )
-        ) : cover ? (
-          <img
-            src={cover}
-            alt={playlist.name}
-            draggable={false}
-            loading="lazy"
-            decoding="async"
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]"
-            onError={(e) => {
-              e.currentTarget.style.display = 'none';
-            }}
-          />
-        ) : null}
+        )}
 
         {/* Floating Play Button on Hover */}
         {playlist.trackIds.length > 0 && (
@@ -455,10 +552,20 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
               onPlayPlaylist(playlist);
             }}
             title={language === 'ru' ? "Воспроизвести плейлист" : "Play playlist"}
-            className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer"
+            style={baseColor ? { backgroundColor: baseColor } : undefined}
+            className={`pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full ${
+              baseColor ? 'text-white' : 'bg-md3-primary text-md3-on-primary'
+            } flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer`}
           >
             <Play className="w-5 h-5 fill-current ml-0.5" />
           </button>
+        )}
+
+        {/* Small playlist icon badge in top-left when images are shown and icon is custom */}
+        {hasImages && playlist.icon && playlist.icon !== 'list' && (
+          <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/60 text-white/95 backdrop-blur-xs flex items-center justify-center shadow-xs z-20 pointer-events-none">
+            <IconComponent className="w-3.5 h-3.5" />
+          </div>
         )}
 
         {/* System Badge */}
@@ -471,7 +578,10 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
 
       {/* Title & Stats */}
       <div className="min-w-0 pointer-events-none">
-        <h3 className="font-bold text-sm text-md3-on-surface truncate group-hover:text-md3-primary transition-colors">
+        <h3 
+          className="font-bold text-sm text-md3-on-surface truncate transition-colors"
+          style={isHovered && baseColor ? { color: baseColor } : undefined}
+        >
           {playlist.name}
         </h3>
         <p className="text-xs text-md3-on-surface-variant/80 truncate mt-0.5 font-medium">

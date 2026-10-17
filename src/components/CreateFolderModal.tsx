@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FolderPlus, X, Check, Folder, Image, LayoutGrid, Images } from 'lucide-react';
+import { FolderPlus, X, Check, Folder, Image, LayoutGrid, Images, Sparkles, Pipette } from 'lucide-react';
 import { FOLDER_ICONS, FolderIconOption } from '../theme/folderIcons';
 import { PlaylistFolder, FolderCoverType } from '../types/music';
+import { extractDominantColor } from '../theme/material3';
 import { AppLanguage } from '../i18n';
 import { useModalAnimation } from '../utils/useModalAnimation';
 
@@ -11,6 +12,7 @@ interface CreateFolderModalProps {
   onCreate: (name: string, color?: string, icon?: string, coverType?: FolderCoverType) => void;
   parentFolderName?: string;
   folderToEdit?: PlaylistFolder | null;
+  initialCoverArt?: string | null;
   language?: AppLanguage;
 }
 
@@ -30,13 +32,16 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
   onCreate,
   parentFolderName,
   folderToEdit,
+  initialCoverArt,
   language = 'ru',
 }) => {
   const [name, setName] = useState('');
   const [selectedColor, setSelectedColor] = useState('');
   const [selectedIcon, setSelectedIcon] = useState('folder');
   const [coverType, setCoverType] = useState<FolderCoverType>('icon');
+  const [extractedCoverColor, setExtractedCoverColor] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const colorInputRef = useRef<HTMLInputElement>(null);
 
   // Segmented control indicator state for Folder Cover Display
   const coverTypeContainerRef = useRef<HTMLDivElement>(null);
@@ -73,6 +78,19 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
     ro.observe(coverTypeContainerRef.current);
     return () => ro.disconnect();
   }, []);
+
+  // Extract vibrant dominant color from cover art when provided
+  useEffect(() => {
+    if (initialCoverArt && isOpen) {
+      extractDominantColor(initialCoverArt).then((hex) => {
+        if (hex) {
+          setExtractedCoverColor(hex);
+        }
+      });
+    } else {
+      setExtractedCoverColor(null);
+    }
+  }, [initialCoverArt, isOpen]);
 
   const folderColors = getFolderColors(language);
 
@@ -311,9 +329,28 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
 
           {/* Folder Color Accent */}
           <div>
-            <label className="block text-xs font-semibold text-md3-on-surface-variant mb-2">
-              {language === 'ru' ? 'Цветовой акцент' : 'Color Accent'}
-            </label>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <label className="block text-xs font-semibold text-md3-on-surface-variant">
+                {language === 'ru' ? 'Цветовой акцент' : 'Color Accent'}
+              </label>
+
+              {/* Extract from Cover Art Button */}
+              {extractedCoverColor && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedColor(extractedCoverColor)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-md3-surface border border-md3-outline-variant/30 hover:border-md3-primary/60 text-md3-on-surface transition-all cursor-pointer shadow-xs"
+                >
+                  <span
+                    className="w-2.5 h-2.5 rounded-full ring-1 ring-black/20"
+                    style={{ backgroundColor: extractedCoverColor }}
+                  />
+                  <Sparkles className="w-3 h-3 text-md3-primary" />
+                  <span>{language === 'ru' ? 'Цвет по обложке' : 'From Cover'}</span>
+                </button>
+              )}
+            </div>
+
             <div className="flex items-center gap-2.5 flex-wrap">
               {folderColors.map((col) => (
                 <button
@@ -330,6 +367,49 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
                   )}
                 </button>
               ))}
+
+              {/* Extracted Cover Color Swatch */}
+              {extractedCoverColor && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedColor(extractedCoverColor)}
+                  title={language === 'ru' ? `Из обложки (${extractedCoverColor})` : `From Cover (${extractedCoverColor})`}
+                  style={{ backgroundColor: extractedCoverColor }}
+                  className={`w-7 h-7 rounded-full flex items-center justify-center transition-transform hover:scale-110 cursor-pointer shadow-sm relative ${
+                    selectedColor === extractedCoverColor ? 'ring-2 ring-offset-2 ring-offset-md3-surface-container ring-md3-primary scale-110' : ''
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-white drop-shadow-md" />
+                </button>
+              )}
+
+              {/* Custom Color Pipette Button */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => colorInputRef.current?.click()}
+                  title={language === 'ru' ? 'Выбрать свой цвет' : 'Custom Color'}
+                  className="w-7 h-7 rounded-full flex items-center justify-center bg-md3-surface-container-highest border border-md3-outline-variant/40 text-md3-on-surface-variant hover:text-md3-on-surface transition-transform hover:scale-110 cursor-pointer"
+                >
+                  <Pipette className="w-3.5 h-3.5" />
+                </button>
+                <input
+                  ref={colorInputRef}
+                  type="color"
+                  value={selectedColor && selectedColor.startsWith('#') ? selectedColor : '#a855f7'}
+                  onChange={(e) => setSelectedColor(e.target.value)}
+                  className="sr-only"
+                />
+              </div>
+
+              {selectedColor && !folderColors.some(c => c.hex === selectedColor) && selectedColor !== extractedCoverColor && (
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center ring-2 ring-offset-2 ring-offset-md3-surface-container ring-md3-primary scale-110 shadow-sm"
+                  style={{ backgroundColor: selectedColor }}
+                >
+                  <Check className="w-3.5 h-3.5 text-white" />
+                </div>
+              )}
             </div>
           </div>
 

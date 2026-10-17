@@ -63,6 +63,7 @@ export interface Playlist {
   trackIds: string[];
   isSystem?: boolean;
   icon?: string;
+  color?: string;
   folderId?: string | null; // Placed inside a folder ("в папке ... плейлисты")
   groupId?: string | null;  // Placed in a group ("из группы в группу")
   order?: number;

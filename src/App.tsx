@@ -43,6 +43,7 @@ import {
 import { CustomThemeInfo, ThemeContent } from './types/theme';
 import { AppLanguage, detectSystemLanguage } from './i18n';
 import { isNewerVersion, CURRENT_APP_VERSION } from './utils/version';
+import { getFolderIconComponent } from './theme/folderIcons';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { ArrowLeft, Play, Disc3, Mic2, Tag, Trash2, ListMusic } from 'lucide-react';
@@ -216,6 +217,7 @@ export const App: React.FC = () => {
   const handleTrackEndedRef = useRef<() => void>(() => {});
   const [isBatchTagEditorOpen, setIsBatchTagEditorOpen] = useState<boolean>(false);
   const [isCreatePlaylistOpen, setIsCreatePlaylistOpen] = useState<boolean>(false);
+  const [editingPlaylistTarget, setEditingPlaylistTarget] = useState<Playlist | null>(null);
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState<boolean>(false);
   const [editingFolderTarget, setEditingFolderTarget] = useState<PlaylistFolder | null>(null);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState<boolean>(false);
@@ -1369,12 +1371,14 @@ export const App: React.FC = () => {
       const durText = formatDurationText(totalDuration);
       const stats = durText ? `${countText} • ${durText}` : countText;
 
+      const PlaylistIconComp = pl.icon ? getFolderIconComponent(pl.icon) : ListMusic;
+
       return {
         type: 'playlist' as const,
         title: pl.name,
         subtitle: pl.description ? `${stats} — ${pl.description}` : stats,
         coverArt: firstCover,
-        icon: <ListMusic className="w-8 h-8" />,
+        icon: <PlaylistIconComp className="w-8 h-8" />,
         playlist: pl,
       };
     }
@@ -1836,8 +1840,9 @@ export const App: React.FC = () => {
           setIsBatchTagEditorOpen(false);
           return;
         }
-        if (isCreatePlaylistOpen) {
+        if (isCreatePlaylistOpen || editingPlaylistTarget) {
           setIsCreatePlaylistOpen(false);
+          setEditingPlaylistTarget(null);
           return;
         }
         if (isCreateFolderOpen) {
@@ -2762,12 +2767,38 @@ export const App: React.FC = () => {
     setIsCreatePlaylistOpen(true);
   };
 
-  const handleCreatePlaylistSubmit = (name: string, description?: string, coverType?: FolderCoverType) => {
+  const handleCreatePlaylistSubmit = (
+    name: string,
+    description?: string,
+    coverType?: FolderCoverType,
+    color?: string,
+    icon?: string
+  ) => {
+    if (editingPlaylistTarget) {
+      setPlaylists(prev => prev.map(p => {
+        if (p.id === editingPlaylistTarget.id) {
+          return {
+            ...p,
+            name: name.trim(),
+            description: description?.trim() || undefined,
+            coverType: coverType || 'first_playlist',
+            color: color || undefined,
+            icon: icon || undefined,
+          };
+        }
+        return p;
+      }));
+      setEditingPlaylistTarget(null);
+      return;
+    }
+
     const newPl: Playlist = {
       id: `pl_${Date.now()}`,
       name: name.trim(),
       description: description?.trim() || undefined,
       coverType: coverType || 'first_playlist',
+      color: color || undefined,
+      icon: icon || undefined,
       trackIds: playlistCreationTarget?.initialTrackIds ? [...playlistCreationTarget.initialTrackIds] : [],
       isSystem: false,
       folderId: playlistCreationTarget?.folderId || null,
@@ -3186,6 +3217,38 @@ export const App: React.FC = () => {
     }));
     setEditingFolderTarget(null);
   };
+
+  const activePlaylistCover = useMemo(() => {
+    const pl = editingPlaylistTarget;
+    const trackMap = new Map(tracks.map(t => [t.id, t]));
+    if (pl) {
+      for (const tid of pl.trackIds) {
+        const t = trackMap.get(tid);
+        if (t?.coverArt) return t.coverArt;
+      }
+      return null;
+    }
+    if (playlistCreationTarget?.initialTrackIds) {
+      for (const tid of playlistCreationTarget.initialTrackIds) {
+        const t = trackMap.get(tid);
+        if (t?.coverArt) return t.coverArt;
+      }
+    }
+    return null;
+  }, [editingPlaylistTarget, playlistCreationTarget, tracks]);
+
+  const activeFolderCover = useMemo(() => {
+    if (!editingFolderTarget) return null;
+    const folderPlaylists = playlists.filter(p => p.folderId === editingFolderTarget.id);
+    const trackMap = new Map(tracks.map(t => [t.id, t]));
+    for (const pl of folderPlaylists) {
+      for (const tid of pl.trackIds) {
+        const t = trackMap.get(tid);
+        if (t?.coverArt) return t.coverArt;
+      }
+    }
+    return null;
+  }, [editingFolderTarget, playlists, tracks]);
 
   const handleCreateGroupSubmit = (name: string, color?: string, isIsolated?: boolean) => {
     const newGroup: PlaylistGroup = {
@@ -4233,6 +4296,7 @@ export const App: React.FC = () => {
           onPlay={handlePlayPlaylist}
           onAddToQueue={handleAddPlaylistToQueue}
           onRename={(pl) => setRenameItemTarget({ isOpen: true, type: 'playlist', item: pl })}
+          onEditPlaylist={(pl) => setEditingPlaylistTarget(pl)}
           onClear={handleClearPlaylist}
           onDelete={handleDeletePlaylist}
           onExportM3U8={handleExportPlaylistM3U8}
@@ -4260,14 +4324,17 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* Material 3 Create Playlist Modal */}
+      {/* Material 3 Create / Edit Playlist Modal */}
       <CreatePlaylistModal
-        isOpen={isCreatePlaylistOpen}
+        isOpen={isCreatePlaylistOpen || !!editingPlaylistTarget}
         onClose={() => {
           setIsCreatePlaylistOpen(false);
           setPlaylistCreationTarget(null);
+          setEditingPlaylistTarget(null);
         }}
         onCreate={handleCreatePlaylistSubmit}
+        playlistToEdit={editingPlaylistTarget}
+        initialCoverArt={activePlaylistCover}
         folderName={playlistCreationTarget?.folderId ? playlistFolders.find(f => f.id === playlistCreationTarget.folderId)?.name : undefined}
         language={language}
       />
@@ -4281,6 +4348,7 @@ export const App: React.FC = () => {
           setFolderCreationTarget(null);
           setEditingFolderTarget(null);
         }}
+        initialCoverArt={activeFolderCover}
         onCreate={(name, color, icon, coverType) => {
           if (editingFolderTarget) {
             handleSaveEditFolder(name, color, icon, coverType);
