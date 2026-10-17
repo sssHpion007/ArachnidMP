@@ -51,3 +51,10 @@ export const getFolderIconComponent = (iconId?: string) => {
   const found = FOLDER_ICONS.find((i) => i.id === iconId);
   return found ? found.icon : Folder;
 };
+
+export const getFolderColorHex = (color: string | undefined): string => {
+  if (!color || color === 'default') {
+    return 'rgb(var(--md-sys-color-primary-rgb))';
+  }
+  return color;
+};

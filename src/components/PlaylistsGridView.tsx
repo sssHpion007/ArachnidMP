@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { Playlist, PlaylistFolder, PlaylistGroup, Track, FolderCoverType } from '../types/music';
 import { formatTime } from '../services/tagEditor';
-import { getFolderIconComponent } from '../theme/folderIcons';
+import { getFolderIconComponent, getFolderColorHex } from '../theme/folderIcons';
 import { AppLanguage } from '../i18n';
 
 interface PlaylistsGridViewProps {
@@ -107,13 +107,6 @@ const getFolderColorRgba = (color: string | undefined, alpha: number): string =>
     if (c.length === 3) c = c.split('').map(x => x + x).join('');
     const num = parseInt(c, 16);
     return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${alpha})`;
-  }
-  return color;
-};
-
-const getFolderColorHex = (color: string | undefined): string => {
-  if (!color || color === 'default') {
-    return 'rgb(var(--md-sys-color-primary-rgb))';
   }
   return color;
 };
@@ -388,7 +381,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
   coversRef.current = covers || [];
 
   const IconComponent = getFolderIconComponent(playlist.icon);
-  const baseColor = playlist.color ? getFolderColorHex(playlist.color) : undefined;
+  const baseColor = getFolderColorHex(playlist.color);
   const coverType: FolderCoverType = (playlist.coverType as FolderCoverType) || 'first_playlist';
   const hasMultipleCovers = covers && covers.length > 1;
   const hasImages = (cover || (covers && covers.length > 0)) && coverType !== 'icon';
@@ -554,10 +547,10 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
               onPlayPlaylist(playlist);
             }}
             title={language === 'ru' ? "Воспроизвести плейлист" : "Play playlist"}
-            style={baseColor ? { backgroundColor: baseColor } : undefined}
-            className={`pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full ${
-              baseColor ? 'text-white' : 'bg-md3-primary text-md3-on-primary'
-            } flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer`}
+            style={{
+              backgroundColor: baseColor,
+            }}
+            className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer"
           >
             <Play className="w-5 h-5 fill-current ml-0.5" />
           </button>
