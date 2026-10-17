@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { Playlist, PlaylistFolder, PlaylistGroup, Track, FolderCoverType } from '../types/music';
 import { formatTime } from '../services/tagEditor';
-import { getFolderIconComponent, getFolderColorHex } from '../theme/folderIcons';
+import { getFolderIconComponent, getFolderColorHex, getContrastTextColor } from '../theme/folderIcons';
 import { AppLanguage } from '../i18n';
 
 interface PlaylistsGridViewProps {
@@ -146,6 +146,8 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
   const IconComponent = getFolderIconComponent(folder.icon);
 
   const baseColor = getFolderColorHex(folder.color);
+  // Contrasting icon color for the play button when a custom folder color is set
+  const playIconColor = getContrastTextColor(folder.color);
   const coverType = folder.coverType || 'icon';
   const hasImages = covers && covers.length > 0 && coverType !== 'icon';
 
@@ -315,6 +317,7 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
             title={language === 'ru' ? "Воспроизвести всю папку" : "Play entire folder"}
             style={{
               backgroundColor: baseColor,
+              ...(playIconColor ? { color: playIconColor } : {}),
             }}
             className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer"
           >
@@ -390,6 +393,8 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
 
   const IconComponent = getFolderIconComponent(playlist.icon);
   const baseColor = getFolderColorHex(playlist.color);
+  // Contrasting icon color for the play button when a custom playlist color is set
+  const playIconColor = getContrastTextColor(playlist.color);
   const coverType: FolderCoverType = (playlist.coverType as FolderCoverType) || 'first_playlist';
   const hasMultipleCovers = covers && covers.length > 1;
   const hasImages = (cover || (covers && covers.length > 0)) && coverType !== 'icon';
@@ -563,6 +568,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
             title={language === 'ru' ? "Воспроизвести плейлист" : "Play playlist"}
             style={{
               backgroundColor: baseColor,
+              ...(playIconColor ? { color: playIconColor } : {}),
             }}
             className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer"
           >

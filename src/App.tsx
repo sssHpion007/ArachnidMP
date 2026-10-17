@@ -43,7 +43,7 @@ import {
 import { CustomThemeInfo, ThemeContent } from './types/theme';
 import { AppLanguage, detectSystemLanguage } from './i18n';
 import { isNewerVersion, CURRENT_APP_VERSION } from './utils/version';
-import { getFolderIconComponent, getFolderColorHex } from './theme/folderIcons';
+import { getFolderIconComponent, getFolderColorHex, getContrastTextColor } from './theme/folderIcons';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { ArrowLeft, Play, Disc3, Mic2, Tag, Trash2, ListMusic } from 'lucide-react';
@@ -3929,7 +3929,12 @@ export const App: React.FC = () => {
                     }
                   }}
                   title={language === 'ru' ? 'Воспроизвести всё' : 'Play All'}
-                  style={currentDetail.playlist?.color ? { backgroundColor: getFolderColorHex(currentDetail.playlist.color) } : undefined}
+                  style={currentDetail.playlist?.color ? {
+                    backgroundColor: getFolderColorHex(currentDetail.playlist.color),
+                    ...(getContrastTextColor(currentDetail.playlist.color)
+                      ? { color: getContrastTextColor(currentDetail.playlist.color) }
+                      : {}),
+                  } : undefined}
                   className={`flex items-center justify-center gap-1.5 ${
                     isCompact ? 'w-10 h-10 p-0 rounded-full' : 'px-4 py-2.5 rounded-full'
                   } bg-md3-primary text-md3-on-primary text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer shrink-0`}
