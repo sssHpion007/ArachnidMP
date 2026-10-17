@@ -389,4 +389,10 @@ input[type=range]::-webkit-slider-runnable-track {
   will-change: opacity, transform;
 }
 
+/* 6. Hardware-Optimized Grid Cards for smooth library scrolling */
+.grid-card-optimized {
+  content-visibility: auto;
+  contain-intrinsic-size: 180px 240px;
+}
+
 

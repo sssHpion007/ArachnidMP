@@ -199,7 +199,7 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
         borderColor: borderCard,
         boxShadow: shadowCard,
       }}
-      className={`group relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
+      className={`group grid-card-optimized relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
         !isHovered && !isDropTarget ? 'bg-md3-surface-container-low hover:bg-md3-surface-container border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md' : ''
       } ${isDropTarget ? 'ring-2 scale-[1.02] shadow-lg' : ''} ${
         isSelfDragging ? 'opacity-30' : ''
@@ -224,6 +224,8 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
                   src={src}
                   alt=""
                   draggable={false}
+                  loading="lazy"
+                  decoding="async"
                   className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 pointer-events-none ${
                     idx === cycleIndex ? 'opacity-100 z-10' : 'opacity-0 z-0'
                   }`}
@@ -235,25 +237,27 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
               src={covers[0]}
               alt={folder.name}
               draggable={false}
+              loading="lazy"
+              decoding="async"
               className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none"
             />
           ) : covers.length === 2 ? (
             <div className="w-full h-full grid grid-cols-2 grid-rows-1 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
-              <img src={covers[0]} alt="" draggable={false} className="w-full h-full object-cover" />
-              <img src={covers[1]} alt="" draggable={false} className="w-full h-full object-cover" />
+              <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           ) : covers.length === 3 ? (
             <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
-              <img src={covers[0]} alt="" draggable={false} className="w-full h-full object-cover row-span-2" />
-              <img src={covers[1]} alt="" draggable={false} className="w-full h-full object-cover" />
-              <img src={covers[2]} alt="" draggable={false} className="w-full h-full object-cover" />
+              <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
+              <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <img src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           ) : (
             <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
-              <img src={covers[0]} alt="" draggable={false} className="w-full h-full object-cover" />
-              <img src={covers[1]} alt="" draggable={false} className="w-full h-full object-cover" />
-              <img src={covers[2]} alt="" draggable={false} className="w-full h-full object-cover" />
-              <img src={covers[3]} alt="" draggable={false} className="w-full h-full object-cover" />
+              <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <img src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <img src={covers[3]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           )
         ) : (
@@ -370,7 +374,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
       onPointerDown={onPointerDown}
       onClick={onClick}
       onContextMenu={onContextMenu}
-      className={`group relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
+      className={`group grid-card-optimized relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
         isTarget
           ? 'ring-2 ring-md3-primary scale-[1.02] bg-md3-surface-container border-md3-primary shadow-lg'
           : 'bg-md3-surface-container-low hover:bg-md3-surface-container border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md'
@@ -398,6 +402,8 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
                 src={c}
                 alt=""
                 draggable={false}
+                loading="lazy"
+                decoding="async"
                 className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 pointer-events-none ${
                   idx === cycleIndex ? 'opacity-100 z-10' : 'opacity-0 z-0'
                 }`}
@@ -410,21 +416,21 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
         ) : coverType === 'collage' && hasMultipleCovers ? (
           covers.length === 2 ? (
             <div className="w-full h-full grid grid-cols-2 grid-rows-1 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-              <img src={covers[0]} alt="" draggable={false} className="w-full h-full object-cover" />
-              <img src={covers[1]} alt="" draggable={false} className="w-full h-full object-cover" />
+              <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           ) : covers.length === 3 ? (
             <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-              <img src={covers[0]} alt="" draggable={false} className="w-full h-full object-cover row-span-2" />
-              <img src={covers[1]} alt="" draggable={false} className="w-full h-full object-cover" />
-              <img src={covers[2]} alt="" draggable={false} className="w-full h-full object-cover" />
+              <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
+              <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <img src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           ) : (
             <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-              <img src={covers[0]} alt="" draggable={false} className="w-full h-full object-cover" />
-              <img src={covers[1]} alt="" draggable={false} className="w-full h-full object-cover" />
-              <img src={covers[2]} alt="" draggable={false} className="w-full h-full object-cover" />
-              <img src={covers[3]} alt="" draggable={false} className="w-full h-full object-cover" />
+              <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <img src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <img src={covers[3]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           )
         ) : cover ? (
@@ -432,6 +438,8 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
             src={cover}
             alt={playlist.name}
             draggable={false}
+            loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]"
             onError={(e) => {
               e.currentTarget.style.display = 'none';
@@ -574,10 +582,13 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     return crumbs;
   }, [currentFolderId, folders]);
 
+  // Fast O(1) track lookup map to prevent massive loops on large libraries
+  const trackMap = useMemo(() => new Map(tracks.map((t) => [t.id, t])), [tracks]);
+
   // Helpers to get cover art and duration
   const getPlaylistCover = (playlist: Playlist): string | null => {
     for (const id of playlist.trackIds) {
-      const t = tracks.find((tr) => tr.id === id);
+      const t = trackMap.get(id);
       if (t && t.coverArt) return t.coverArt;
     }
     return null;
@@ -586,7 +597,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   const getPlaylistCovers = (playlist: Playlist): string[] => {
     const covers: string[] = [];
     for (const id of playlist.trackIds) {
-      const t = tracks.find((tr) => tr.id === id);
+      const t = trackMap.get(id);
       if (t && t.coverArt && !covers.includes(t.coverArt)) {
         covers.push(t.coverArt);
         if (covers.length >= 8) break;
@@ -598,8 +609,8 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   const getPlaylistDuration = (playlist: Playlist): number => {
     let total = 0;
     for (const id of playlist.trackIds) {
-      const t = tracks.find((tr) => tr.id === id);
-      if (t) total += t.duration || 0;
+      const t = trackMap.get(id);
+      if (t && t.duration && !isNaN(t.duration)) total += t.duration;
     }
     return total;
   };
@@ -653,7 +664,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     if (covers.length < 8) {
       for (const pl of folderPlaylists) {
         for (const tid of pl.trackIds) {
-          const t = tracks.find((tr) => tr.id === tid);
+          const t = trackMap.get(tid);
           if (t && t.coverArt && !covers.includes(t.coverArt)) {
             covers.push(t.coverArt);
             if (covers.length >= 8) break;
@@ -1112,8 +1123,6 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   const isSearchActive = Boolean(searchQuery && searchQuery.trim());
   const normalizedQuery = searchQuery.toLowerCase().trim();
 
-  const trackMap = useMemo(() => new Map(tracks.map((t) => [t.id, t])), [tracks]);
-
   const searchFilteredPlaylists = useMemo(() => {
     if (!isSearchActive) return [];
     return playlists.filter((pl) => {
@@ -1410,55 +1419,68 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         </div>
 
         {/* Global Toolbar Buttons */}
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto">
-          {onOpenPlaylistsFolder && (
-            <button
-              onClick={onOpenPlaylistsFolder}
-              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
-              title={language === 'ru' ? "Открыть папку плейлистов (.m3u8)" : "Open playlists folder (.m3u8)"}
-            >
-              <FolderOpen className="w-4 h-4 text-md3-primary" />
-              <span className="hidden sm:inline">{language === 'ru' ? 'Папка M3U8' : 'M3U8 Folder'}</span>
-            </button>
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0 ml-auto">
+          {/* File & Storage Operations (Disk Location & Import) */}
+          {(onOpenPlaylistsFolder || onImportM3U8) && (
+            <div className="flex items-center gap-1 p-1 rounded-full bg-md3-surface-container/70 border border-md3-outline-variant/20 shadow-xs">
+              {onOpenPlaylistsFolder && (
+                <button
+                  onClick={onOpenPlaylistsFolder}
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high text-xs font-semibold transition-all cursor-pointer"
+                  title={language === 'ru' ? "Открыть расположение плейлистов на диске" : "Open playlists location on disk"}
+                >
+                  <FolderOpen className="w-3.5 h-3.5 text-md3-primary" />
+                  <span className="hidden sm:inline">{language === 'ru' ? 'Положение на диске' : 'Disk Location'}</span>
+                </button>
+              )}
+
+              {onImportM3U8 && (
+                <button
+                  onClick={onImportM3U8}
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high text-xs font-semibold transition-all cursor-pointer"
+                  title={language === 'ru' ? "Импортировать плейлист (.m3u, .m3u8)" : "Import playlist (.m3u, .m3u8)"}
+                >
+                  <FileUp className="w-3.5 h-3.5 text-md3-primary" />
+                  <span className="hidden sm:inline">{language === 'ru' ? 'Импорт' : 'Import'}</span>
+                </button>
+              )}
+            </div>
           )}
 
-          {onImportM3U8 && (
-            <button
-              onClick={onImportM3U8}
-              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
-              title={language === 'ru' ? "Импортировать плейлист (.m3u, .m3u8)" : "Import playlist (.m3u, .m3u8)"}
-            >
-              <FileUp className="w-4 h-4 text-md3-primary" />
-              <span className="hidden sm:inline">{language === 'ru' ? 'Импорт' : 'Import'}</span>
-            </button>
+          {/* Visual Divider between File Operations and Creation Actions */}
+          {(onOpenPlaylistsFolder || onImportM3U8) && (
+            <div className="h-5 w-px bg-md3-outline-variant/30 hidden sm:block" />
           )}
 
-          <button
-            onClick={onCreateGroup}
-            className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3.5 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
-            title={language === 'ru' ? "Создать группу плейлистов" : "Create playlist group"}
-          >
-            <Layers className="w-4 h-4 text-md3-primary" />
-            <span className="hidden sm:inline">{language === 'ru' ? 'Новая группа' : 'New Group'}</span>
-          </button>
+          {/* Creation Actions Group (Group, Folder, Playlist) */}
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <button
+              onClick={onCreateGroup}
+              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3.5 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
+              title={language === 'ru' ? "Создать группу плейлистов" : "Create playlist group"}
+            >
+              <Layers className="w-4 h-4 text-md3-primary" />
+              <span className="hidden sm:inline">{language === 'ru' ? 'Новая группа' : 'New Group'}</span>
+            </button>
 
-          <button
-            onClick={() => onCreateFolder(null, null)}
-            className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3.5 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
-            title={language === 'ru' ? "Создать папку" : "Create folder"}
-          >
-            <FolderPlus className="w-4 h-4 text-md3-primary" />
-            <span className="hidden sm:inline">{language === 'ru' ? 'Новая папка' : 'New Folder'}</span>
-          </button>
+            <button
+              onClick={() => onCreateFolder(null, null)}
+              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3.5 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
+              title={language === 'ru' ? "Создать папку" : "Create folder"}
+            >
+              <FolderPlus className="w-4 h-4 text-md3-primary" />
+              <span className="hidden sm:inline">{language === 'ru' ? 'Новая папка' : 'New Folder'}</span>
+            </button>
 
-          <button
-            onClick={() => onCreatePlaylist(null, null)}
-            className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-4 sm:py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 shadow-md transition-all cursor-pointer"
-            title={language === 'ru' ? "Создать плейлист" : "Create playlist"}
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">{language === 'ru' ? 'Новый плейлист' : 'New Playlist'}</span>
-          </button>
+            <button
+              onClick={() => onCreatePlaylist(null, null)}
+              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-4 sm:py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 shadow-md transition-all cursor-pointer"
+              title={language === 'ru' ? "Создать плейлист" : "Create playlist"}
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">{language === 'ru' ? 'Новый плейлист' : 'New Playlist'}</span>
+            </button>
+          </div>
         </div>
       </div>
 

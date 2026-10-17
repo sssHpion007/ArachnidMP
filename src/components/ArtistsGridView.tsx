@@ -18,59 +18,56 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
   onSelectArtist,
   onPlayArtist,
 }) => {
+  // Precompute grouped artists in a single pass with precalculated search index
   const allArtists = useMemo(() => {
-    const map = new Map<string, { name: string; coverArt?: string; tracks: Track[]; albumsCount: number }>();
+    const map = new Map<string, {
+      name: string;
+      coverArt?: string;
+      tracks: Track[];
+      albumSet: Set<string>;
+      albumsCount: number;
+      searchStr: string;
+    }>();
 
     for (const t of tracks) {
-      const artistKey = t.artist ? t.artist.trim() : 'Неизвестный исполнитель';
-      if (!map.has(artistKey)) {
-        map.set(artistKey, {
+      const artistKey = t.artist ? t.artist.trim() : (language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist');
+      let item = map.get(artistKey);
+      if (!item) {
+        const albumSet = new Set<string>();
+        albumSet.add(t.album || 'Unknown');
+        item = {
           name: artistKey,
           coverArt: t.coverArt,
           tracks: [t],
-          albumsCount: 0,
-        });
+          albumSet,
+          albumsCount: 1,
+          searchStr: `${artistKey} ${t.title || ''} ${t.album || ''}`.toLowerCase(),
+        };
+        map.set(artistKey, item);
       } else {
-        const item = map.get(artistKey)!;
         item.tracks.push(t);
+        item.albumSet.add(t.album || 'Unknown');
         if (!item.coverArt && t.coverArt) item.coverArt = t.coverArt;
+        item.searchStr += ` ${t.title?.toLowerCase() || ''}`;
       }
     }
 
-    // Compute distinct album count per artist
-    for (const item of map.values()) {
-      const albumSet = new Set(item.tracks.map((t) => t.album || 'Unknown'));
-      item.albumsCount = albumSet.size;
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+    const list = Array.from(map.values());
+    for (const item of list) {
+      item.albumsCount = item.albumSet.size;
     }
+    return list.sort((a, b) => collator.compare(a.name, b.name));
+  }, [tracks, language]);
 
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [tracks]);
-
+  // High-performance search filtering
   const artists = useMemo(() => {
-    if (!searchQuery.trim()) return allArtists;
     const q = searchQuery.toLowerCase().trim();
-    return allArtists.filter((a) =>
-      a.name.toLowerCase().includes(q) ||
-      a.tracks.some((t) =>
-        t.title.toLowerCase().includes(q) ||
-        (t.album && t.album.toLowerCase().includes(q))
-      )
-    );
+    if (!q) return allArtists;
+    return allArtists.filter((a) => a.searchStr.includes(q));
   }, [allArtists, searchQuery]);
 
   if (allArtists.length === 0) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none text-md3-on-surface-variant">
-        <div className="w-20 h-20 rounded-full bg-md3-surface-container-high flex items-center justify-center mb-4 text-md3-primary">
-          <Mic2 className="w-10 h-10" />
-        </div>
-        <h2 className="text-xl font-bold text-md3-on-surface mb-2">Исполнители не найдены</h2>
-        <p className="text-sm max-w-md">Добавьте аудиотреки в библиотеку, чтобы увидеть исполнителей.</p>
-      </div>
-    );
-  }
-
-  if (artists.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none text-md3-on-surface-variant">
         <div className="w-20 h-20 rounded-full bg-md3-surface-container-high flex items-center justify-center mb-4 text-md3-primary">
@@ -124,7 +121,7 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
           <div
             key={artist.name}
             onClick={() => onSelectArtist(artist.name)}
-            className="group flex flex-col items-center text-center p-4 rounded-3xl bg-md3-surface-container-low hover:bg-md3-surface-container transition-all duration-200 cursor-pointer border border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md"
+            className="group grid-card-optimized flex flex-col items-center text-center p-4 rounded-3xl bg-md3-surface-container-low hover:bg-md3-surface-container transition-all duration-200 cursor-pointer border border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md"
           >
             {/* Circle Avatar Container */}
             <div className="relative w-32 h-32 rounded-full overflow-hidden bg-md3-surface-container-high shadow-md mb-3 group-hover:shadow-lg transition-shadow">
@@ -132,7 +129,9 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
                 <img
                   src={artist.coverArt}
                   alt={artist.name}
-                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  loading="lazy"
+                  decoding="async"
+                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none"
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-md3-primary/10 text-md3-primary">
@@ -146,27 +145,27 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
                   e.stopPropagation();
                   onPlayArtist(artist.tracks);
                 }}
-                title={`Воспроизвести все треки ${artist.name}`}
-                className="absolute inset-0 m-auto w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary shadow-lg flex items-center justify-center opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 hover:scale-110 active:scale-95"
+                title={language === 'ru' ? `Воспроизвести все треки ${artist.name}` : `Play all tracks by ${artist.name}`}
+                className="absolute inset-0 m-auto w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary shadow-lg flex items-center justify-center opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 hover:scale-110 active:scale-95 cursor-pointer"
               >
                 <Play className="w-5 h-5 fill-current ml-0.5" />
               </button>
             </div>
 
             {/* Info */}
-            <h3 className="font-bold text-sm text-md3-on-surface truncate w-full group-hover:text-md3-primary transition-colors">
+            <h3 className="font-bold text-sm text-md3-on-surface truncate w-full group-hover:text-md3-primary transition-colors pointer-events-none">
               {artist.name}
             </h3>
 
-            <div className="flex items-center justify-center gap-2 mt-1.5 text-[11px] text-md3-on-surface-variant/70">
+            <div className="flex items-center justify-center gap-2 mt-1.5 text-[11px] text-md3-on-surface-variant/70 pointer-events-none">
               <span className="flex items-center gap-1">
                 <Music2 className="w-3 h-3" />
-                {artist.tracks.length} трек{artist.tracks.length % 10 === 1 && artist.tracks.length % 100 !== 11 ? '' : 'ов'}
+                {artist.tracks.length} {language === 'ru' ? (artist.tracks.length % 10 === 1 && artist.tracks.length % 100 !== 11 ? 'трек' : artist.tracks.length % 10 < 5 && artist.tracks.length % 10 > 1 && (artist.tracks.length % 100 < 10 || artist.tracks.length % 100 >= 20) ? 'трека' : 'треков') : (artist.tracks.length === 1 ? 'track' : 'tracks')}
               </span>
               <span>•</span>
               <span className="flex items-center gap-1">
                 <Disc className="w-3 h-3" />
-                {artist.albumsCount} альб.
+                {artist.albumsCount} {language === 'ru' ? 'альб.' : 'alb.'}
               </span>
             </div>
           </div>

@@ -1,6 +1,6 @@
 [package]
 name = "arachnid"
-version = "0.4.57"
+version = "0.4.58"
 description = "Arachnid Music Player - Modern Material You 3 Player with MusicBee Power"
 authors = ["sssHpion007"]
 edition = "2021"

@@ -19,39 +19,52 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
   onSelectAlbum,
   onPlayAlbum,
 }) => {
+  // Precompute grouped albums with precalculated totalDuration and searchStr
   const allAlbums = useMemo(() => {
-    const map = new Map<string, { name: string; artist: string; year?: number; coverArt?: string; tracks: Track[] }>();
+    const map = new Map<string, {
+      name: string;
+      artist: string;
+      year?: number;
+      coverArt?: string;
+      tracks: Track[];
+      totalDuration: number;
+      searchStr: string;
+    }>();
 
     for (const t of tracks) {
-      const albumKey = t.album ? t.album.trim() : 'Без альбома';
-      if (!map.has(albumKey)) {
-        map.set(albumKey, {
+      const albumKey = t.album ? t.album.trim() : (language === 'ru' ? 'Без альбома' : 'No Album');
+      const dur = t.duration && !isNaN(t.duration) ? t.duration : 0;
+      let existing = map.get(albumKey);
+
+      if (!existing) {
+        existing = {
           name: albumKey,
-          artist: t.artist || 'Неизвестный исполнитель',
+          artist: t.artist ? t.artist.trim() : (language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist'),
           year: t.year,
           coverArt: t.coverArt,
           tracks: [t],
-        });
+          totalDuration: dur,
+          searchStr: `${albumKey} ${t.artist || ''} ${t.year || ''} ${t.title || ''}`.toLowerCase(),
+        };
+        map.set(albumKey, existing);
       } else {
-        const item = map.get(albumKey)!;
-        item.tracks.push(t);
-        if (!item.coverArt && t.coverArt) item.coverArt = t.coverArt;
-        if (!item.year && t.year) item.year = t.year;
+        existing.tracks.push(t);
+        existing.totalDuration += dur;
+        if (!existing.coverArt && t.coverArt) existing.coverArt = t.coverArt;
+        if (!existing.year && t.year) existing.year = t.year;
+        existing.searchStr += ` ${t.title?.toLowerCase() || ''}`;
       }
     }
 
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [tracks]);
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+    return Array.from(map.values()).sort((a, b) => collator.compare(a.name, b.name));
+  }, [tracks, language]);
 
+  // High-performance search filtering
   const albums = useMemo(() => {
-    if (!searchQuery.trim()) return allAlbums;
     const q = searchQuery.toLowerCase().trim();
-    return allAlbums.filter((a) =>
-      a.name.toLowerCase().includes(q) ||
-      a.artist.toLowerCase().includes(q) ||
-      (a.year && a.year.toString().includes(q)) ||
-      a.tracks.some((t) => t.title.toLowerCase().includes(q))
-    );
+    if (!q) return allAlbums;
+    return allAlbums.filter((a) => a.searchStr.includes(q));
   }, [allAlbums, searchQuery]);
 
   if (allAlbums.length === 0) {
@@ -104,70 +117,69 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-5">
-        {albums.map((album) => {
-          const totalDuration = album.tracks.reduce((acc, t) => acc + (t.duration || 0), 0);
-          return (
-            <div
-              key={album.name}
-              onClick={() => onSelectAlbum(album.name)}
-              className="group flex flex-col p-3 rounded-3xl bg-md3-surface-container-low hover:bg-md3-surface-container transition-all duration-200 cursor-pointer border border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md"
-            >
-              {/* Cover Container */}
-              <div className="relative aspect-square rounded-2xl overflow-hidden bg-md3-surface-container-high shadow-md mb-3">
-                {album.coverArt ? (
-                  <img
-                    src={album.coverArt}
-                    alt={album.name}
-                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-md3-primary/10 text-md3-primary">
-                    <Disc3 className="w-12 h-12" />
-                  </div>
-                )}
-
-                {/* Hover Play Button */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onPlayAlbum(album.tracks);
-                  }}
-                  title="Воспроизвести альбом"
-                  className="absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary shadow-lg flex items-center justify-center opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 hover:scale-110 active:scale-95"
-                >
-                  <Play className="w-5 h-5 fill-current ml-0.5" />
-                </button>
-              </div>
-
-              {/* Info */}
-              <div className="min-w-0">
-                <h3 className="font-bold text-sm text-md3-on-surface truncate group-hover:text-md3-primary transition-colors">
-                  {album.name}
-                </h3>
-                <p className="text-xs text-md3-on-surface-variant truncate mt-0.5 font-medium">
-                  {album.artist}
-                </p>
-                <div className="flex items-center gap-2 mt-2 text-[11px] text-md3-on-surface-variant/70">
-                  <span className="flex items-center gap-1">
-                    <Music2 className="w-3 h-3" />
-                    {album.tracks.length}
-                  </span>
-                  <span>•</span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {formatTime(totalDuration)}
-                  </span>
-                  {album.year && (
-                    <>
-                      <span>•</span>
-                      <span>{album.year}</span>
-                    </>
-                  )}
+        {albums.map((album) => (
+          <div
+            key={album.name}
+            onClick={() => onSelectAlbum(album.name)}
+            className="group grid-card-optimized flex flex-col p-3 rounded-3xl bg-md3-surface-container-low hover:bg-md3-surface-container transition-all duration-200 cursor-pointer border border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md"
+          >
+            {/* Cover Container */}
+            <div className="relative aspect-square rounded-2xl overflow-hidden bg-md3-surface-container-high shadow-md mb-3">
+              {album.coverArt ? (
+                <img
+                  src={album.coverArt}
+                  alt={album.name}
+                  loading="lazy"
+                  decoding="async"
+                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-md3-primary/10 text-md3-primary">
+                  <Disc3 className="w-12 h-12" />
                 </div>
+              )}
+
+              {/* Hover Play Button */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPlayAlbum(album.tracks);
+                }}
+                title={language === 'ru' ? 'Воспроизвести альбом' : 'Play album'}
+                className="absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary shadow-lg flex items-center justify-center opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 hover:scale-110 active:scale-95 cursor-pointer"
+              >
+                <Play className="w-5 h-5 fill-current ml-0.5" />
+              </button>
+            </div>
+
+            {/* Info */}
+            <div className="min-w-0 pointer-events-none">
+              <h3 className="font-bold text-sm text-md3-on-surface truncate group-hover:text-md3-primary transition-colors">
+                {album.name}
+              </h3>
+              <p className="text-xs text-md3-on-surface-variant truncate mt-0.5 font-medium">
+                {album.artist}
+              </p>
+              <div className="flex items-center gap-2 mt-2 text-[11px] text-md3-on-surface-variant/70">
+                <span className="flex items-center gap-1">
+                  <Music2 className="w-3 h-3" />
+                  {album.tracks.length}
+                </span>
+                <span>•</span>
+                <span className="flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  {formatTime(album.totalDuration)}
+                </span>
+                {album.year && (
+                  <>
+                    <span>•</span>
+                    <span>{album.year}</span>
+                  </>
+                )}
               </div>
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
     </div>
   );
