@@ -298,7 +298,18 @@ export const TopBar: React.FC<TopBarProps> = ({
                 ref={(el) => { tabRefs.current[tab.id] = el; }}
                 tabIndex={-1}
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => onSelectView(tab.id)}
+                onClick={() => {
+                  const el = tabRefs.current[tab.id];
+                  if (el) {
+                    setIndicatorStyle({
+                      left: el.offsetLeft,
+                      width: el.offsetWidth,
+                      height: el.offsetHeight,
+                      opacity: 1,
+                    });
+                  }
+                  onSelectView(tab.id);
+                }}
                 title={tab.label}
                 className={`relative z-10 flex items-center gap-1.5 h-full ${
                   isNarrow ? 'px-2.5 py-1' : isCompact ? 'px-2.5 py-1' : 'px-3.5 py-1'

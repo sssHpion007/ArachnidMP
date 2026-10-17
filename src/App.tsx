@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, startTransition } from 'react';
 import { Track, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode, FadeMode, FolderCoverType } from './types/music';
 import { TitleBar } from './components/TitleBar';
 import { TopBar, MainViewType } from './components/TopBar';
@@ -1306,6 +1306,12 @@ export const App: React.FC = () => {
       );
     }
 
+    const isGridViewActive = !selectedPlaylistId && !selectedAlbum && !selectedArtist && !selectedGenre && (currentView === 'albums' || currentView === 'artists' || currentView === 'genres' || currentView === 'playlists');
+    if (isGridViewActive) {
+      // Fast path: avoid expensive full-library Intl.Collator sort during tab navigation to grid views
+      return result;
+    }
+
     if (sortBy === 'custom') {
       if (sortOrder === 'desc') {
         result.reverse();
@@ -1471,8 +1477,10 @@ export const App: React.FC = () => {
   };
 
   const handleSelectView = (view: MainViewType) => {
-    setCurrentView(view);
-    handleBackToGrid();
+    startTransition(() => {
+      setCurrentView(view);
+      handleBackToGrid();
+    });
   };
 
   // Prevent buttons from retaining focus on click so keyboard shortcuts never highlight or re-trigger them

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect, memo } from 'react';
 import { Tag, Play, Music2, Clock } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
@@ -12,6 +12,15 @@ interface GenresGridViewProps {
   onPlayGenre: (tracks: Track[]) => void;
 }
 
+interface GenreData {
+  name: string;
+  tracks: Track[];
+  trackIdSet: Set<string>;
+  totalDuration: number;
+  coverArt?: string;
+  searchStr: string;
+}
+
 const GENRE_GRADIENTS = [
   'from-violet-600/30 to-purple-800/40',
   'from-blue-600/30 to-indigo-800/40',
@@ -23,6 +32,69 @@ const GENRE_GRADIENTS = [
   'from-teal-600/30 to-emerald-800/40',
 ];
 
+// Module-level memoization cache to prevent expensive re-grouping when switching tabs
+let cachedTracksRef: Track[] | null = null;
+let cachedLangRef: string | null = null;
+let cachedGenres: GenreData[] = [];
+
+// Memoized GenreCard item component for zero-cost re-renders
+const GenreCard = memo<{
+  genre: GenreData;
+  index: number;
+  language: AppLanguage;
+  onSelectGenre: (name: string) => void;
+  onPlayGenre: (tracks: Track[]) => void;
+}>(({ genre, index, language, onSelectGenre, onPlayGenre }) => {
+  const gradient = GENRE_GRADIENTS[index % GENRE_GRADIENTS.length];
+
+  return (
+    <div
+      onClick={() => onSelectGenre(genre.name)}
+      className="group grid-card-optimized relative overflow-hidden rounded-3xl p-5 bg-md3-surface-container-low hover:bg-md3-surface-container transition-all duration-200 cursor-pointer border border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md flex flex-col justify-between aspect-[4/3]"
+    >
+      {/* Subtle background gradient overlay */}
+      <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-50 group-hover:opacity-75 transition-opacity pointer-events-none`} />
+
+      {/* Top: Icon & Play Button */}
+      <div className="relative z-10 flex items-center justify-between pointer-events-none">
+        <div className="w-10 h-10 rounded-2xl bg-md3-surface-container-high/80 backdrop-blur-sm flex items-center justify-center text-md3-primary shadow-sm">
+          <Tag className="w-5 h-5" />
+        </div>
+
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onPlayGenre(genre.tracks);
+          }}
+          title={language === 'ru' ? `Воспроизвести жанр ${genre.name}` : `Play genre ${genre.name}`}
+          className="pointer-events-auto w-10 h-10 rounded-full bg-md3-primary text-md3-on-primary shadow-lg flex items-center justify-center opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 hover:scale-110 active:scale-95 cursor-pointer"
+        >
+          <Play className="w-4 h-4 fill-current ml-0.5" />
+        </button>
+      </div>
+
+      {/* Bottom: Info */}
+      <div className="relative z-10 min-w-0 mt-4 pointer-events-none">
+        <h3 className="font-bold text-base text-md3-on-surface truncate group-hover:text-md3-primary transition-colors">
+          {genre.name}
+        </h3>
+        <div className="flex items-center gap-2 mt-1 text-[11px] text-md3-on-surface-variant/80">
+          <span className="flex items-center gap-1">
+            <Music2 className="w-3 h-3" />
+            {genre.tracks.length}
+          </span>
+          <span>•</span>
+          <span className="flex items-center gap-1">
+            <Clock className="w-3 h-3" />
+            {formatTime(genre.totalDuration)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+});
+GenreCard.displayName = 'GenreCard';
+
 export const GenresGridView: React.FC<GenresGridViewProps> = ({
   tracks,
   searchQuery = '',
@@ -30,20 +102,17 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
   onSelectGenre,
   onPlayGenre,
 }) => {
-  // Precompute grouped genres with O(1) deduplication and precalculated total duration
+  // Precompute grouped genres with module-level cache
   const allGenres = useMemo(() => {
-    const map = new Map<string, {
-      name: string;
-      tracks: Track[];
-      trackIdSet: Set<string>;
-      totalDuration: number;
-      coverArt?: string;
-      searchStr: string;
-    }>();
+    if (cachedTracksRef === tracks && cachedLangRef === language && cachedGenres.length > 0) {
+      return cachedGenres;
+    }
 
+    const map = new Map<string, GenreData>();
     const noGenreLabel = language === 'ru' ? 'Без жанра' : 'No Genre';
 
-    for (const t of tracks) {
+    for (let i = 0; i < tracks.length; i++) {
+      const t = tracks[i];
       const genreList = t.genre
         ? t.genre.split(/[,/;\\]+/).map((g) => g.trim()).filter(Boolean)
         : [noGenreLabel];
@@ -51,7 +120,8 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
       const effectiveGenres = genreList.length > 0 ? genreList : [noGenreLabel];
       const dur = t.duration && !isNaN(t.duration) ? t.duration : 0;
 
-      for (const g of effectiveGenres) {
+      for (let j = 0; j < effectiveGenres.length; j++) {
+        const g = effectiveGenres[j];
         let item = map.get(g);
         if (!item) {
           const trackIdSet = new Set<string>();
@@ -66,7 +136,7 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
           };
           map.set(g, item);
         } else {
-          if (!item.trackIdSet.has(t.id)) { // O(1) set lookup instead of O(N) array search
+          if (!item.trackIdSet.has(t.id)) {
             item.trackIdSet.add(t.id);
             item.tracks.push(t);
             item.totalDuration += dur;
@@ -77,7 +147,12 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
       }
     }
 
-    return Array.from(map.values()).sort((a, b) => b.tracks.length - a.tracks.length);
+    const result = Array.from(map.values()).sort((a, b) => b.tracks.length - a.tracks.length);
+
+    cachedTracksRef = tracks;
+    cachedLangRef = language;
+    cachedGenres = result;
+    return result;
   }, [tracks, language]);
 
   // High-performance search filtering
@@ -86,6 +161,22 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
     if (!q) return allGenres;
     return allGenres.filter((g) => g.searchStr.includes(q));
   }, [allGenres, searchQuery]);
+
+  // Progressive card rendering for instant initial paint & zero dropped frames
+  const [renderedCount, setRenderedCount] = useState(48);
+
+  useEffect(() => {
+    setRenderedCount(48);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (renderedCount < genres.length) {
+      const handle = requestAnimationFrame(() => {
+        setRenderedCount((prev) => Math.min(prev + 48, genres.length));
+      });
+      return () => cancelAnimationFrame(handle);
+    }
+  }, [renderedCount, genres.length]);
 
   if (allGenres.length === 0) {
     return (
@@ -123,6 +214,8 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
     );
   }
 
+  const visibleGenres = renderedCount >= genres.length ? genres : genres.slice(0, renderedCount);
+
   return (
     <div className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
       <div className="flex items-center justify-between mb-6">
@@ -137,56 +230,16 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
-        {genres.map((genre, idx) => {
-          const gradient = GENRE_GRADIENTS[idx % GENRE_GRADIENTS.length];
-
-          return (
-            <div
-              key={genre.name}
-              onClick={() => onSelectGenre(genre.name)}
-              className="group grid-card-optimized relative overflow-hidden rounded-3xl p-5 bg-md3-surface-container-low hover:bg-md3-surface-container transition-all duration-200 cursor-pointer border border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md flex flex-col justify-between aspect-[4/3]"
-            >
-              {/* Subtle background gradient overlay */}
-              <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-50 group-hover:opacity-75 transition-opacity pointer-events-none`} />
-
-              {/* Top: Icon & Play Button */}
-              <div className="relative z-10 flex items-center justify-between pointer-events-none">
-                <div className="w-10 h-10 rounded-2xl bg-md3-surface-container-high/80 backdrop-blur-sm flex items-center justify-center text-md3-primary shadow-sm">
-                  <Tag className="w-5 h-5" />
-                </div>
-
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onPlayGenre(genre.tracks);
-                  }}
-                  title={language === 'ru' ? `Воспроизвести жанр ${genre.name}` : `Play genre ${genre.name}`}
-                  className="pointer-events-auto w-10 h-10 rounded-full bg-md3-primary text-md3-on-primary shadow-lg flex items-center justify-center opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 hover:scale-110 active:scale-95 cursor-pointer"
-                >
-                  <Play className="w-4 h-4 fill-current ml-0.5" />
-                </button>
-              </div>
-
-              {/* Bottom: Info */}
-              <div className="relative z-10 min-w-0 mt-4 pointer-events-none">
-                <h3 className="font-bold text-base text-md3-on-surface truncate group-hover:text-md3-primary transition-colors">
-                  {genre.name}
-                </h3>
-                <div className="flex items-center gap-2 mt-1 text-[11px] text-md3-on-surface-variant/80">
-                  <span className="flex items-center gap-1">
-                    <Music2 className="w-3 h-3" />
-                    {genre.tracks.length}
-                  </span>
-                  <span>•</span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {formatTime(genre.totalDuration)}
-                  </span>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+        {visibleGenres.map((genre, idx) => (
+          <GenreCard
+            key={genre.name}
+            genre={genre}
+            index={idx}
+            language={language}
+            onSelectGenre={onSelectGenre}
+            onPlayGenre={onPlayGenre}
+          />
+        ))}
       </div>
     </div>
   );

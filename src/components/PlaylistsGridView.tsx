@@ -218,8 +218,16 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
         boxShadow: shadowCard,
       }}
       className={`group grid-card-optimized relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
-        !isHovered && !isDropTarget ? 'bg-md3-surface-container-low hover:bg-md3-surface-container border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md' : ''
-      } ${isDropTarget ? 'ring-2 scale-[1.02] shadow-lg' : ''} ${
+        !folder.color
+          ? isHovered
+            ? 'bg-md3-surface-container border-md3-primary/40 shadow-md'
+            : isDropTarget
+            ? 'bg-md3-surface-container border-md3-primary ring-2 ring-md3-primary shadow-lg'
+            : 'bg-md3-surface-container-low hover:bg-md3-surface-container border-md3-outline-variant/15 hover:border-md3-primary/40 shadow-sm hover:shadow-md'
+          : !isHovered && !isDropTarget
+          ? 'bg-md3-surface-container-low hover:bg-md3-surface-container shadow-sm hover:shadow-md'
+          : ''
+      } ${isDropTarget ? 'ring-2 ring-md3-primary scale-[1.02] shadow-lg' : ''} ${
         isSelfDragging ? 'opacity-30' : ''
       }`}
     >
@@ -424,14 +432,12 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
     ? playlist.color ? getFolderColorRgba(playlist.color, 0.12) : undefined
     : undefined;
 
-  // Dynamic card border: highlighted with playlist color
+  // Dynamic card border: highlighted with playlist color or theme primary
   const borderCard = isTarget
-    ? baseColor
-    : isHovered && playlist.color
-    ? getFolderColorRgba(playlist.color, 0.8)
+    ? (playlist.color ? baseColor : 'rgb(var(--md-sys-color-primary-rgb))')
     : playlist.color
-    ? getFolderColorRgba(playlist.color, 0.24)
-    : undefined;
+    ? (isHovered ? getFolderColorRgba(playlist.color, 0.8) : getFolderColorRgba(playlist.color, 0.24))
+    : (isHovered ? 'rgb(var(--md-sys-color-primary-rgb) / 0.45)' : undefined);
 
   // Colored soft glow shadow on hover
   const shadowCard = isHovered && !isSelfDragging && playlist.color
@@ -459,8 +465,16 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
         boxShadow: shadowCard,
       }}
       className={`group grid-card-optimized relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
-        !isHovered && !isTarget ? 'bg-md3-surface-container-low hover:bg-md3-surface-container border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md' : ''
-      } ${isTarget ? 'ring-2 scale-[1.02] shadow-lg' : ''} ${
+        !playlist.color
+          ? isHovered
+            ? 'bg-md3-surface-container border-md3-primary/40 shadow-md'
+            : isTarget
+            ? 'bg-md3-surface-container border-md3-primary ring-2 ring-md3-primary shadow-lg'
+            : 'bg-md3-surface-container-low hover:bg-md3-surface-container border-md3-outline-variant/15 hover:border-md3-primary/40 shadow-sm hover:shadow-md'
+          : !isHovered && !isTarget
+          ? 'bg-md3-surface-container-low hover:bg-md3-surface-container shadow-sm hover:shadow-md'
+          : ''
+      } ${isTarget ? 'ring-2 ring-md3-primary scale-[1.02] shadow-lg' : ''} ${
         isSelfDragging ? 'opacity-30' : ''
       }`}
     >
