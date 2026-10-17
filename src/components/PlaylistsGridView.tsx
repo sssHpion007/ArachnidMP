@@ -298,9 +298,11 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
         )}
 
         {/* Folder icon in top-left corner */}
-        <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/60 text-white/95 backdrop-blur-xs flex items-center justify-center shadow-xs z-20 pointer-events-none">
-          <IconComponent className="w-3.5 h-3.5" />
-        </div>
+        {hasImages && folder.icon && folder.icon !== 'none' && (
+          <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/60 text-white/95 backdrop-blur-xs flex items-center justify-center shadow-xs z-20 pointer-events-none">
+            <IconComponent className="w-3.5 h-3.5" />
+          </div>
+        )}
 
         {/* Floating Quick Play Folder Button (matches playlist card) */}
         {stats.totalTracks > 0 && (
@@ -562,7 +564,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
         )}
 
         {/* Small playlist icon badge in top-left when images are shown and icon is custom */}
-        {hasImages && playlist.icon && playlist.icon !== 'list' && (
+        {hasImages && playlist.icon && playlist.icon !== 'none' && playlist.icon !== 'list' && (
           <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/60 text-white/95 backdrop-blur-xs flex items-center justify-center shadow-xs z-20 pointer-events-none">
             <IconComponent className="w-3.5 h-3.5" />
           </div>

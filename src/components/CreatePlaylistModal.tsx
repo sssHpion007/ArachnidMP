@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ListMusic, X, Check, Image, LayoutGrid, Images, Folder, Sparkles, Pipette } from 'lucide-react';
+import { ListMusic, X, Check, Image, LayoutGrid, Images, Folder, Sparkles, Pipette, Ban } from 'lucide-react';
 import { FolderCoverType, Playlist } from '../types/music';
 import { FOLDER_ICONS, FolderIconOption } from '../theme/folderIcons';
 import { extractDominantColor } from '../theme/material3';
@@ -39,7 +39,7 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
   const [description, setDescription] = useState('');
   const [coverType, setCoverType] = useState<FolderCoverType>('first_playlist');
   const [selectedColor, setSelectedColor] = useState('');
-  const [selectedIcon, setSelectedIcon] = useState('list');
+  const [selectedIcon, setSelectedIcon] = useState('');
   const [extractedCoverColor, setExtractedCoverColor] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const colorInputRef = useRef<HTMLInputElement>(null);
@@ -100,13 +100,13 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
         setDescription(playlistToEdit.description || '');
         setCoverType(playlistToEdit.coverType || 'first_playlist');
         setSelectedColor(playlistToEdit.color || '');
-        setSelectedIcon(playlistToEdit.icon || 'list');
+        setSelectedIcon(playlistToEdit.icon || '');
       } else {
         setName('');
         setDescription('');
         setCoverType('first_playlist');
         setSelectedColor('');
-        setSelectedIcon('list');
+        setSelectedIcon('');
       }
       setTimeout(() => {
         inputRef.current?.focus();
@@ -144,7 +144,7 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
       description.trim() || undefined,
       coverType,
       selectedColor || undefined,
-      selectedIcon || undefined
+      (selectedIcon && selectedIcon !== 'none' ? selectedIcon : undefined)
     );
     onClose();
   };
@@ -325,6 +325,20 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
                 : (language === 'ru' ? 'Иконка (значок и резервный вид)' : 'Icon (badge and fallback)')}
             </label>
             <div className="grid grid-cols-6 sm:grid-cols-9 gap-2 bg-md3-surface-container-highest/60 p-3 rounded-2xl border border-md3-outline-variant/20">
+              {/* Option: No Icon */}
+              <button
+                type="button"
+                onClick={() => setSelectedIcon('')}
+                title={language === 'ru' ? 'Без иконки' : 'No icon'}
+                className={`w-10 h-10 flex items-center justify-center rounded-2xl transition-all mx-auto cursor-pointer ${
+                  !selectedIcon || selectedIcon === 'none'
+                    ? 'bg-md3-primary text-md3-on-primary shadow-md scale-110 ring-2 ring-offset-2 ring-offset-md3-surface-container ring-md3-primary'
+                    : 'text-md3-on-surface-variant/60 hover:text-md3-on-surface hover:bg-md3-surface-container hover:scale-105 border border-dashed border-md3-outline-variant/40'
+                }`}
+              >
+                <Ban className="w-4 h-4" />
+              </button>
+
               {FOLDER_ICONS.map((opt: FolderIconOption) => {
                 const IconComp = opt.icon;
                 const isSelected = selectedIcon === opt.id;
@@ -332,7 +346,7 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
                   <button
                     key={opt.id}
                     type="button"
-                    onClick={() => setSelectedIcon(opt.id)}
+                    onClick={() => setSelectedIcon(prev => prev === opt.id ? '' : opt.id)}
                     title={opt.label}
                     className={`w-10 h-10 flex items-center justify-center rounded-2xl transition-all mx-auto cursor-pointer ${
                       isSelected

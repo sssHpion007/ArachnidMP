@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FolderPlus, X, Check, Folder, Image, LayoutGrid, Images, Sparkles, Pipette } from 'lucide-react';
+import { FolderPlus, X, Check, Folder, Image, LayoutGrid, Images, Sparkles, Pipette, Ban } from 'lucide-react';
 import { FOLDER_ICONS, FolderIconOption } from '../theme/folderIcons';
 import { PlaylistFolder, FolderCoverType } from '../types/music';
 import { extractDominantColor } from '../theme/material3';
@@ -37,7 +37,7 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [selectedColor, setSelectedColor] = useState('');
-  const [selectedIcon, setSelectedIcon] = useState('folder');
+  const [selectedIcon, setSelectedIcon] = useState('');
   const [coverType, setCoverType] = useState<FolderCoverType>('icon');
   const [extractedCoverColor, setExtractedCoverColor] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -99,12 +99,12 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
       if (folderToEdit) {
         setName(folderToEdit.name);
         setSelectedColor(folderToEdit.color || '');
-        setSelectedIcon(folderToEdit.icon || 'folder');
+        setSelectedIcon(folderToEdit.icon || '');
         setCoverType(folderToEdit.coverType || 'icon');
       } else {
         setName('');
         setSelectedColor('');
-        setSelectedIcon('folder');
+        setSelectedIcon('');
         setCoverType('icon');
       }
       setTimeout(() => {
@@ -136,7 +136,12 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!name.trim()) return;
-    onCreate(name.trim(), selectedColor || undefined, selectedIcon || undefined, coverType);
+    onCreate(
+      name.trim(),
+      selectedColor || undefined,
+      (selectedIcon && selectedIcon !== 'none' ? selectedIcon : undefined),
+      coverType
+    );
     onClose();
   };
 
@@ -305,6 +310,20 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
                 : (language === 'ru' ? 'Иконка (резервная для пустой папки)' : 'Fallback Icon (if empty)')}
             </label>
             <div className="grid grid-cols-6 sm:grid-cols-9 gap-2 bg-md3-surface-container-highest/60 p-3 rounded-2xl border border-md3-outline-variant/20">
+              {/* Option: No Icon */}
+              <button
+                type="button"
+                onClick={() => setSelectedIcon('')}
+                title={language === 'ru' ? 'Без иконки' : 'No icon'}
+                className={`w-10 h-10 flex items-center justify-center rounded-2xl transition-all mx-auto cursor-pointer ${
+                  !selectedIcon || selectedIcon === 'none'
+                    ? 'bg-md3-primary text-md3-on-primary shadow-md scale-110 ring-2 ring-offset-2 ring-offset-md3-surface-container ring-md3-primary'
+                    : 'text-md3-on-surface-variant/60 hover:text-md3-on-surface hover:bg-md3-surface-container hover:scale-105 border border-dashed border-md3-outline-variant/40'
+                }`}
+              >
+                <Ban className="w-4 h-4" />
+              </button>
+
               {FOLDER_ICONS.map((opt: FolderIconOption) => {
                 const IconComp = opt.icon;
                 const isSelected = selectedIcon === opt.id;
@@ -312,7 +331,7 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
                   <button
                     key={opt.id}
                     type="button"
-                    onClick={() => setSelectedIcon(opt.id)}
+                    onClick={() => setSelectedIcon(prev => prev === opt.id ? '' : opt.id)}
                     title={opt.label}
                     className={`w-10 h-10 flex items-center justify-center rounded-2xl transition-all mx-auto cursor-pointer ${
                       isSelected
