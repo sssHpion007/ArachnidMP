@@ -1766,7 +1766,7 @@ export const App: React.FC = () => {
       const focusedInput = keyboardTarget?.closest('input') as HTMLInputElement | null;
       const isTextInput = !!focusedInput && !['range', 'checkbox', 'radio', 'button', 'submit', 'file', 'color'].includes(focusedInput.type);
       const isTypingTarget = isTextInput || !!keyboardTarget?.closest('textarea, select, [contenteditable="true"]');
-      if (e.code === 'KeyT' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !isTypingTarget) {
+      if ((e.code === 'KeyT' || e.key.toLowerCase() === 't') && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !isTypingTarget) {
         e.preventDefault();
         e.stopPropagation();
         void openLyricsWindow();
@@ -2161,8 +2161,8 @@ export const App: React.FC = () => {
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [
     isPlaying,
     currentTrack,

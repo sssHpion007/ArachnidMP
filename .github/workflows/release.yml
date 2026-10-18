@@ -68,7 +68,9 @@ jobs:
           $stdoutLog = Join-Path $env:TEMP "Arachnid-startup-$PID.out.log"
           $stderrLog = Join-Path $env:TEMP "Arachnid-startup-$PID.err.log"
           try {
+            $env:ARACHNID_SMOKE_TEST_LYRICS = "1"
             $process = Start-Process -FilePath $exePath -PassThru -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+            Remove-Item Env:ARACHNID_SMOKE_TEST_LYRICS
             Start-Sleep -Seconds 15
             $process.Refresh()
             if ($process.HasExited) {
@@ -83,7 +85,7 @@ jobs:
             Start-Sleep -Milliseconds 500
             $shell.SendKeys('{ESC}')
             Start-Sleep -Milliseconds 300
-            $shell.SendKeys('+t')
+            $shell.SendKeys('+T')
             $deadline = [DateTime]::UtcNow.AddSeconds(10)
             $lyricsWindowFound = $false
             while ([DateTime]::UtcNow -lt $deadline) {

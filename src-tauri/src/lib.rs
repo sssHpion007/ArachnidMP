@@ -1542,6 +1542,9 @@ fn show_window(window: tauri::Window) -> Result<(), String> {
 
 #[tauri::command]
 fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    if std::env::var_os("ARACHNID_SMOKE_TEST_LYRICS").is_some() {
+        eprintln!("Smoke test: show_lyrics_window command invoked");
+    }
     const LYRICS_WINDOW_WIDTH: f64 = 440.0;
     const LYRICS_WINDOW_HEIGHT: f64 = 700.0;
     const WINDOW_GAP: i64 = 12;
