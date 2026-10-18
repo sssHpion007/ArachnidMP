@@ -58,24 +58,3 @@ export const getFolderColorHex = (color: string | undefined): string => {
   }
   return color;
 };
-
-/**
- * Returns a black or white foreground color that maximizes contrast against
- * the given custom hex color. Returns undefined for theme/default colors so
- * the themed `text-md3-on-primary` class can be used instead.
- */
-export const getContrastTextColor = (color: string | undefined): string | undefined => {
-  if (!color || color === 'default' || !color.startsWith('#')) {
-    return undefined;
-  }
-  let c = color.slice(1);
-  if (c.length === 3) c = c.split('').map((x) => x + x).join('');
-  const num = parseInt(c, 16);
-  if (Number.isNaN(num)) return undefined;
-  const r = (num >> 16) & 255;
-  const g = (num >> 8) & 255;
-  const b = num & 255;
-  // Perceptual luminance
-  const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-  return luminance > 150 ? '#000000' : '#ffffff';
-};
