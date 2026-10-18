@@ -3,6 +3,7 @@ import { Tag, Play, Music2, Clock } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage } from '../i18n';
+import { CollectionGridLoading } from './CollectionGridLoading';
 
 interface GenresGridViewProps {
   tracks: Track[];
@@ -50,7 +51,8 @@ const GenreCard = memo<{
   return (
     <div
       onClick={() => onSelectGenre(genre.name)}
-      className="group grid-card-optimized relative overflow-hidden rounded-3xl p-5 bg-md3-surface-container-low hover:bg-md3-surface-container transition-all duration-200 cursor-pointer border border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md flex flex-col justify-between aspect-[4/3]"
+      style={{ animationDelay: `${(index % 12) * 18}ms` }}
+      className="group grid-card-optimized collection-card-enter relative overflow-hidden rounded-3xl p-5 bg-md3-surface-container-low hover:bg-md3-surface-container transition-all duration-200 cursor-pointer border border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md flex flex-col justify-between aspect-[4/3]"
     >
       {/* Subtle background gradient overlay */}
       <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-50 group-hover:opacity-75 transition-opacity pointer-events-none`} />
@@ -102,57 +104,95 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
   onSelectGenre,
   onPlayGenre,
 }) => {
-  // Precompute grouped genres with module-level cache
-  const allGenres = useMemo(() => {
-    if (cachedTracksRef === tracks && cachedLangRef === language && cachedGenres.length > 0) {
-      return cachedGenres;
+  const [genreCollection, setGenreCollection] = useState(() => ({
+    tracks,
+    language,
+    items: cachedTracksRef === tracks && cachedLangRef === language ? cachedGenres : [],
+    isLoading: cachedTracksRef !== tracks || cachedLangRef !== language,
+  }));
+  const isCurrentCollection = genreCollection.tracks === tracks && genreCollection.language === language;
+  const allGenres = isCurrentCollection ? genreCollection.items : [];
+  const isIndexing = !isCurrentCollection || genreCollection.isLoading;
+
+  // Build the index in short tasks so opening the tab can paint immediately.
+  useEffect(() => {
+    if (cachedTracksRef === tracks && cachedLangRef === language) {
+      setGenreCollection({ tracks, language, items: cachedGenres, isLoading: false });
+      return;
     }
 
+    if (tracks.length === 0) {
+      cachedTracksRef = tracks;
+      cachedLangRef = language;
+      cachedGenres = [];
+      setGenreCollection({ tracks, language, items: [], isLoading: false });
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let trackIndex = 0;
     const map = new Map<string, GenreData>();
     const noGenreLabel = language === 'ru' ? 'Без жанра' : 'No Genre';
 
-    for (let i = 0; i < tracks.length; i++) {
-      const t = tracks[i];
-      const genreList = t.genre
-        ? t.genre.split(/[,/;\\]+/).map((g) => g.trim()).filter(Boolean)
-        : [noGenreLabel];
+    const processChunk = () => {
+      if (cancelled) return;
+      const chunkStartedAt = performance.now();
+      const chunkStartIndex = trackIndex;
 
-      const effectiveGenres = genreList.length > 0 ? genreList : [noGenreLabel];
-      const dur = t.duration && !isNaN(t.duration) ? t.duration : 0;
+      while (trackIndex < tracks.length && (trackIndex === chunkStartIndex || performance.now() - chunkStartedAt < 6)) {
+        const t = tracks[trackIndex++];
+        const genreList = t.genre
+          ? t.genre.split(/[,/;\\]+/).map((g) => g.trim()).filter(Boolean)
+          : [noGenreLabel];
+        const effectiveGenres = genreList.length > 0 ? genreList : [noGenreLabel];
+        const dur = t.duration && !isNaN(t.duration) ? t.duration : 0;
 
-      for (let j = 0; j < effectiveGenres.length; j++) {
-        const g = effectiveGenres[j];
-        let item = map.get(g);
-        if (!item) {
-          const trackIdSet = new Set<string>();
-          trackIdSet.add(t.id);
-          item = {
-            name: g,
-            tracks: [t],
-            trackIdSet,
-            totalDuration: dur,
-            coverArt: t.coverArt,
-            searchStr: `${g} ${t.title || ''} ${t.artist || ''} ${t.album || ''}`.toLowerCase(),
-          };
-          map.set(g, item);
-        } else {
-          if (!item.trackIdSet.has(t.id)) {
-            item.trackIdSet.add(t.id);
-            item.tracks.push(t);
-            item.totalDuration += dur;
-            item.searchStr += ` ${t.title?.toLowerCase() || ''} ${t.artist?.toLowerCase() || ''}`;
+        for (let j = 0; j < effectiveGenres.length; j++) {
+          const g = effectiveGenres[j];
+          let item = map.get(g);
+          if (!item) {
+            const trackIdSet = new Set<string>();
+            trackIdSet.add(t.id);
+            item = {
+              name: g,
+              tracks: [t],
+              trackIdSet,
+              totalDuration: dur,
+              coverArt: t.coverArt,
+              searchStr: `${g} ${t.title || ''} ${t.artist || ''} ${t.album || ''}`.toLowerCase(),
+            };
+            map.set(g, item);
+          } else {
+            if (!item.trackIdSet.has(t.id)) {
+              item.trackIdSet.add(t.id);
+              item.tracks.push(t);
+              item.totalDuration += dur;
+              item.searchStr += ` ${t.title?.toLowerCase() || ''} ${t.artist?.toLowerCase() || ''}`;
+            }
+            if (!item.coverArt && t.coverArt) item.coverArt = t.coverArt;
           }
-          if (!item.coverArt && t.coverArt) item.coverArt = t.coverArt;
         }
       }
-    }
 
-    const result = Array.from(map.values()).sort((a, b) => b.tracks.length - a.tracks.length);
+      if (trackIndex < tracks.length) {
+        timeoutId = setTimeout(processChunk, 0);
+        return;
+      }
 
-    cachedTracksRef = tracks;
-    cachedLangRef = language;
-    cachedGenres = result;
-    return result;
+      const result = Array.from(map.values()).sort((a, b) => b.tracks.length - a.tracks.length);
+      cachedTracksRef = tracks;
+      cachedLangRef = language;
+      cachedGenres = result;
+      setGenreCollection({ tracks, language, items: result, isLoading: false });
+    };
+
+    setGenreCollection({ tracks, language, items: [], isLoading: true });
+    timeoutId = setTimeout(processChunk, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
   }, [tracks, language]);
 
   // High-performance search filtering
@@ -163,20 +203,31 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
   }, [allGenres, searchQuery]);
 
   // Progressive card rendering for instant initial paint & zero dropped frames
-  const [renderedCount, setRenderedCount] = useState(48);
+  const [renderedCount, setRenderedCount] = useState(24);
 
   useEffect(() => {
-    setRenderedCount(48);
+    setRenderedCount(24);
   }, [searchQuery]);
 
   useEffect(() => {
     if (renderedCount < genres.length) {
       const handle = requestAnimationFrame(() => {
-        setRenderedCount((prev) => Math.min(prev + 48, genres.length));
+        setRenderedCount((prev) => Math.min(prev + 24, genres.length));
       });
       return () => cancelAnimationFrame(handle);
     }
   }, [renderedCount, genres.length]);
+
+  if (isIndexing) {
+    return (
+      <CollectionGridLoading
+        title={language === 'ru' ? 'Жанры' : 'Genres'}
+        kind="genres"
+        columnsClassName="grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
+        language={language}
+      />
+    );
+  }
 
   if (allGenres.length === 0) {
     return (

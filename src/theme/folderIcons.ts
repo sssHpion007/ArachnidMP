@@ -17,7 +17,14 @@ import {
   Car, 
   Moon, 
   BookOpen, 
-  Trophy 
+  Trophy,
+  Skull,
+  Bug,
+  Cat,
+  Crown,
+  Sword,
+  CloudLightning,
+  Dumbbell
 } from 'lucide-react';
 
 export interface FolderIconOption {
@@ -25,6 +32,27 @@ export interface FolderIconOption {
   label: string;
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
 }
+
+const HornedDemon: React.FC<{ className?: string; style?: React.CSSProperties }> = ({ className, style }) =>
+  React.createElement(
+    'svg',
+    {
+      viewBox: '0 0 24 24',
+      fill: 'none',
+      stroke: 'currentColor',
+      strokeWidth: 2,
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
+      className,
+      style,
+      'aria-hidden': true,
+    },
+    React.createElement('path', { d: 'M8.2 8.2C5.8 7.1 4.1 5 3.6 2.5c2.8.5 5.2 2.2 6.5 4.8' }),
+    React.createElement('path', { d: 'M15.8 8.2c2.4-1.1 4.1-3.2 4.6-5.7-2.8.5-5.2 2.2-6.5 4.8' }),
+    React.createElement('path', { d: 'M5 12.2c0-3.5 3-5.8 7-5.8s7 2.3 7 5.8v3c0 4.1-2.8 6.3-7 6.3s-7-2.2-7-6.3v-3Z' }),
+    React.createElement('path', { d: 'm8 14 2.5-1v2.2L8 14Zm8 0-2.5-1v2.2L16 14Z' }),
+    React.createElement('path', { d: 'M9 18c1.7 1 4.3 1 6 0m-4.5.5v1m3-1v1' })
+  );
 
 export const FOLDER_ICONS: FolderIconOption[] = [
   { id: 'folder', label: 'Папка', icon: Folder },
@@ -45,6 +73,14 @@ export const FOLDER_ICONS: FolderIconOption[] = [
   { id: 'book', label: 'Учёба / Фокус', icon: BookOpen },
   { id: 'trophy', label: 'Награды / Топ', icon: Trophy },
   { id: 'smile', label: 'Позитив', icon: Smile },
+  { id: 'ghost', label: 'Демон', icon: HornedDemon },
+  { id: 'skull', label: 'Хоррор / Метал', icon: Skull },
+  { id: 'bug', label: 'Насекомые / Пауки', icon: Bug },
+  { id: 'cat', label: 'Кошки', icon: Cat },
+  { id: 'crown', label: 'Королевское / Топ', icon: Crown },
+  { id: 'sword', label: 'Игры / Битвы', icon: Sword },
+  { id: 'storm', label: 'Шторм / Электроника', icon: CloudLightning },
+  { id: 'fitness', label: 'Тренировки / Спорт', icon: Dumbbell },
 ];
 
 export const getFolderIconComponent = (iconId?: string) => {
@@ -102,12 +138,24 @@ export const getThemedPlayIconColor = (
   const lIcon = relLum(sr, sg, sb);
   const contrast = (Math.max(lBg, lIcon) + 0.05) / (Math.min(lBg, lIcon) + 0.05);
 
+  const hex = (v: number) => v.toString(16).padStart(2, '0');
+  const shadedColor = `#${hex(sr)}${hex(sg)}${hex(sb)}`;
   if (contrast >= 3.0) {
-    const hex = (v: number) => v.toString(16).padStart(2, '0');
-    return `#${hex(sr)}${hex(sg)}${hex(sb)}`;
+    return shadedColor;
   }
 
-  // Fallback: maximum-contrast plain black/white
+  // If even the theme-direction endpoint (black in dark mode, white in light
+  // mode) cannot meet 3:1, no icon in that direction can. Preserve the tinted
+  // shade rather than switching to the opposite, visually jarring color.
+  const endpointLuminance = isDarkTheme ? relLum(0, 0, 0) : relLum(255, 255, 255);
+  const endpointContrast =
+    (Math.max(lBg, endpointLuminance) + 0.05) /
+    (Math.min(lBg, endpointLuminance) + 0.05);
+  if (endpointContrast < 3.0) {
+    return shadedColor;
+  }
+
+  // Fallback: maximum-contrast plain black/white when it can meet the target.
   const perceptual = 0.299 * r + 0.587 * g + 0.114 * b;
   return perceptual > 150 ? '#000000' : '#ffffff';
 };

@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect, memo } from 'react';
 import { Mic2, Play, Music2, Disc } from 'lucide-react';
 import { Track } from '../types/music';
 import { AppLanguage } from '../i18n';
+import { CollectionGridLoading } from './CollectionGridLoading';
 
 interface ArtistsGridViewProps {
   tracks: Track[];
@@ -28,14 +29,16 @@ let cachedArtists: ArtistData[] = [];
 // Memoized ArtistCard item component for zero-cost re-renders
 const ArtistCard = memo<{
   artist: ArtistData;
+  index: number;
   language: AppLanguage;
   onSelectArtist: (name: string) => void;
   onPlayArtist: (tracks: Track[]) => void;
-}>(({ artist, language, onSelectArtist, onPlayArtist }) => {
+}>(({ artist, index, language, onSelectArtist, onPlayArtist }) => {
   return (
     <div
       onClick={() => onSelectArtist(artist.name)}
-      className="group grid-card-optimized flex flex-col items-center text-center p-4 rounded-3xl bg-md3-surface-container-low hover:bg-md3-surface-container transition-all duration-200 cursor-pointer border border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md"
+      style={{ animationDelay: `${(index % 12) * 18}ms` }}
+      className="group grid-card-optimized collection-card-enter flex flex-col items-center text-center p-4 rounded-3xl bg-md3-surface-container-low hover:bg-md3-surface-container transition-all duration-200 cursor-pointer border border-md3-outline-variant/15 hover:border-md3-primary/30 shadow-sm hover:shadow-md"
     >
       {/* Circle Avatar Container */}
       <div className="relative w-32 h-32 rounded-full overflow-hidden bg-md3-surface-container-high shadow-md mb-3 group-hover:shadow-lg transition-shadow">
@@ -94,50 +97,88 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
   onSelectArtist,
   onPlayArtist,
 }) => {
-  // Precompute grouped artists in a single pass with module-level cache
-  const allArtists = useMemo(() => {
-    if (cachedTracksRef === tracks && cachedLangRef === language && cachedArtists.length > 0) {
-      return cachedArtists;
+  const [artistCollection, setArtistCollection] = useState(() => ({
+    tracks,
+    language,
+    items: cachedTracksRef === tracks && cachedLangRef === language ? cachedArtists : [],
+    isLoading: cachedTracksRef !== tracks || cachedLangRef !== language,
+  }));
+  const isCurrentCollection = artistCollection.tracks === tracks && artistCollection.language === language;
+  const allArtists = isCurrentCollection ? artistCollection.items : [];
+  const isIndexing = !isCurrentCollection || artistCollection.isLoading;
+
+  // Build the index in short tasks so opening the tab can paint immediately.
+  useEffect(() => {
+    if (cachedTracksRef === tracks && cachedLangRef === language) {
+      setArtistCollection({ tracks, language, items: cachedArtists, isLoading: false });
+      return;
     }
 
+    if (tracks.length === 0) {
+      cachedTracksRef = tracks;
+      cachedLangRef = language;
+      cachedArtists = [];
+      setArtistCollection({ tracks, language, items: [], isLoading: false });
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let trackIndex = 0;
     const map = new Map<string, ArtistData>();
     const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
 
-    for (let i = 0; i < tracks.length; i++) {
-      const t = tracks[i];
-      const artistKey = t.artist ? t.artist.trim() : unknownArtistLabel;
-      let item = map.get(artistKey);
-      if (!item) {
-        const albumSet = new Set<string>();
-        albumSet.add(t.album || 'Unknown');
-        item = {
-          name: artistKey,
-          coverArt: t.coverArt,
-          tracks: [t],
-          albumSet,
-          albumsCount: 1,
-          searchStr: `${artistKey} ${t.title || ''} ${t.album || ''}`.toLowerCase(),
-        };
-        map.set(artistKey, item);
-      } else {
-        item.tracks.push(t);
-        item.albumSet.add(t.album || 'Unknown');
-        if (!item.coverArt && t.coverArt) item.coverArt = t.coverArt;
-        item.searchStr += ` ${t.title?.toLowerCase() || ''}`;
+    const processChunk = () => {
+      if (cancelled) return;
+      const chunkStartedAt = performance.now();
+      const chunkStartIndex = trackIndex;
+
+      while (trackIndex < tracks.length && (trackIndex === chunkStartIndex || performance.now() - chunkStartedAt < 6)) {
+        const t = tracks[trackIndex++];
+        const artistKey = t.artist ? t.artist.trim() : unknownArtistLabel;
+        let item = map.get(artistKey);
+        if (!item) {
+          const albumSet = new Set<string>();
+          albumSet.add(t.album || 'Unknown');
+          item = {
+            name: artistKey,
+            coverArt: t.coverArt,
+            tracks: [t],
+            albumSet,
+            albumsCount: 1,
+            searchStr: `${artistKey} ${t.title || ''} ${t.album || ''}`.toLowerCase(),
+          };
+          map.set(artistKey, item);
+        } else {
+          item.tracks.push(t);
+          item.albumSet.add(t.album || 'Unknown');
+          if (!item.coverArt && t.coverArt) item.coverArt = t.coverArt;
+          item.searchStr += ` ${t.title?.toLowerCase() || ''}`;
+        }
       }
-    }
 
-    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-    const list = Array.from(map.values());
-    for (let i = 0; i < list.length; i++) {
-      list[i].albumsCount = list[i].albumSet.size;
-    }
-    const result = list.sort((a, b) => collator.compare(a.name, b.name));
+      if (trackIndex < tracks.length) {
+        timeoutId = setTimeout(processChunk, 0);
+        return;
+      }
 
-    cachedTracksRef = tracks;
-    cachedLangRef = language;
-    cachedArtists = result;
-    return result;
+      const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+      const result = Array.from(map.values());
+      for (const artist of result) artist.albumsCount = artist.albumSet.size;
+      result.sort((a, b) => collator.compare(a.name, b.name));
+
+      cachedTracksRef = tracks;
+      cachedLangRef = language;
+      cachedArtists = result;
+      setArtistCollection({ tracks, language, items: result, isLoading: false });
+    };
+
+    setArtistCollection({ tracks, language, items: [], isLoading: true });
+    timeoutId = setTimeout(processChunk, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
   }, [tracks, language]);
 
   // High-performance search filtering
@@ -148,20 +189,31 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
   }, [allArtists, searchQuery]);
 
   // Progressive card rendering for instant initial paint & zero dropped frames
-  const [renderedCount, setRenderedCount] = useState(48);
+  const [renderedCount, setRenderedCount] = useState(24);
 
   useEffect(() => {
-    setRenderedCount(48);
+    setRenderedCount(24);
   }, [searchQuery]);
 
   useEffect(() => {
     if (renderedCount < artists.length) {
       const handle = requestAnimationFrame(() => {
-        setRenderedCount((prev) => Math.min(prev + 48, artists.length));
+        setRenderedCount((prev) => Math.min(prev + 24, artists.length));
       });
       return () => cancelAnimationFrame(handle);
     }
   }, [renderedCount, artists.length]);
+
+  if (isIndexing) {
+    return (
+      <CollectionGridLoading
+        title={language === 'ru' ? 'Исполнители' : 'Artists'}
+        kind="artists"
+        columnsClassName="grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7"
+        language={language}
+      />
+    );
+  }
 
   if (allArtists.length === 0) {
     return (
@@ -215,10 +267,11 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-5">
-        {visibleArtists.map((artist) => (
+        {visibleArtists.map((artist, index) => (
           <ArtistCard
             key={artist.name}
             artist={artist}
+            index={index}
             language={language}
             onSelectArtist={onSelectArtist}
             onPlayArtist={onPlayArtist}
