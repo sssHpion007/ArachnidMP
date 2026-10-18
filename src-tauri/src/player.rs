@@ -420,6 +420,38 @@ fn append_smooth_source<S: Source<Item = i16> + Send + 'static>(
     handle
 }
 
+fn log_default_output_device(context: &str) -> Option<String> {
+    let device = rodio::cpal::default_host().default_output_device();
+    let Some(device) = device else {
+        logger::log("WARN", "AUDIO_DEVICE", &format!("{}: no default output device", context));
+        return None;
+    };
+
+    let name = device.name().unwrap_or_else(|e| format!("<name unavailable: {}>", e));
+    match device.default_output_config() {
+        Ok(config) => logger::log(
+            "INFO",
+            "AUDIO_DEVICE",
+            &format!(
+                "{}: name={:?}, sample_rate={}Hz, channels={}, sample_format={:?}, buffer_size={:?}",
+                context,
+                name,
+                config.sample_rate().0,
+                config.channels(),
+                config.sample_format(),
+                config.buffer_size(),
+            ),
+        ),
+        Err(e) => logger::log(
+            "WARN",
+            "AUDIO_DEVICE",
+            &format!("{}: name={:?}, output config unavailable: {}", context, name, e),
+        ),
+    }
+
+    Some(name)
+}
+
 fn run_player_thread(
     rx: Receiver<PlayerCmd>,
     shared_state: Arc<Mutex<NativePlayerState>>,
@@ -455,19 +487,19 @@ fn run_player_thread(
         Ok(s) => s,
         Err(e) => {
             eprintln!("NativePlayer: Failed to open default audio output: {:?}", e);
+            logger::log("ERROR", "AUDIO_DEVICE", &format!("Failed to open default output stream: {:?}", e));
             return;
         }
     };
 
-    let mut current_device_name: Option<String> = rodio::cpal::default_host()
-        .default_output_device()
-        .and_then(|d| d.name().ok());
+    let mut current_device_name = log_default_output_device("initial output stream");
     let mut last_device_check = Instant::now();
 
     let mut sink = match Sink::try_new(&stream_handle) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("NativePlayer: Failed to create Sink: {:?}", e);
+            logger::log("ERROR", "AUDIO_DEVICE", &format!("Failed to create initial sink: {:?}", e));
             return;
         }
     };
@@ -487,6 +519,11 @@ fn run_player_thread(
     let mut active_volume_fade: Option<(Instant, f32, f32, Duration)> = None;
 
     let (glitch_tx, glitch_rx) = channel::<GlitchReport>();
+    let mut glitch_window_start = Instant::now();
+    let mut glitch_count = 0u64;
+    let mut glitch_max_delta = 0i32;
+    let mut first_glitch: Option<GlitchReport> = None;
+    let mut last_glitch: Option<GlitchReport> = None;
     let mut current_handle: Option<SmoothSourceHandle> = None;
     let mut preloaded_handle: Option<SmoothSourceHandle> = None;
 
@@ -501,15 +538,35 @@ fn run_player_thread(
             if let Some(dev) = rodio::cpal::default_host().default_output_device() {
                 if let Ok(name) = dev.name() {
                     if current_device_name.as_deref() != Some(&name) {
-                        current_device_name = Some(name);
-                        if let Ok((new_stream, new_handle)) = OutputStream::try_default() {
-                            _stream = new_stream;
-                            stream_handle = new_handle;
-                            sink.stop();
-                            if let Ok(new_sink) = Sink::try_new(&stream_handle) {
-                                sink = new_sink;
+                        logger::log(
+                            "INFO",
+                            "AUDIO_DEVICE",
+                            &format!(
+                                "Default output changed: {:?} -> {:?}; rebuilding stream",
+                                current_device_name.as_deref().unwrap_or("<none>"),
+                                name
+                            ),
+                        );
+                        current_device_name = Some(name.clone());
+                        let stream_reopened = match OutputStream::try_default() {
+                            Ok((new_stream, new_handle)) => {
+                                _stream = new_stream;
+                                stream_handle = new_handle;
+                                log_default_output_device("stream rebuilt after device change");
+                                sink.stop();
+                                match Sink::try_new(&stream_handle) {
+                                    Ok(new_sink) => sink = new_sink,
+                                    Err(e) => logger::log("ERROR", "AUDIO_DEVICE", &format!("Failed to recreate sink: {:?}", e)),
+                                }
+                                true
                             }
+                            Err(e) => {
+                                logger::log("ERROR", "AUDIO_DEVICE", &format!("Failed to reopen output stream after device change: {:?}", e));
+                                false
+                            }
+                        };
 
+                        if stream_reopened {
                             if let Some(ref path) = current_path {
                                 if let Ok(file) = File::open(path) {
                                     if let Ok(mut decoder) = Decoder::new(BufReader::new(file)) {
@@ -566,6 +623,13 @@ fn run_player_thread(
                         }
                     }
                 }
+            } else if current_device_name.is_some() {
+                logger::log(
+                    "ERROR",
+                    "AUDIO_DEVICE",
+                    &format!("Default output device disappeared; previous device was {:?}", current_device_name),
+                );
+                current_device_name = None;
             }
         }
 
@@ -592,16 +656,38 @@ fn run_player_thread(
                         repeat_one = r;
                     }
 
-                    logger::log("AUDIO", "PLAYER", &format!("Play command received: {:?} (offset={:.3}s, vol={:.2})", path, offset_secs, volume));
+                    logger::log(
+                        "AUDIO",
+                        "PLAYER",
+                        &format!(
+                            "Play command received: {:?} (offset={:.3}s, vol={:.2}, fade_out_previous={}, repeat_one={}, fade_mode={}, fade_duration={:.2}s)",
+                            path,
+                            offset_secs,
+                            volume,
+                            fade_out_previous,
+                            repeat_one,
+                            fade_mode,
+                            fade_duration,
+                        ),
+                    );
 
                     // Immediately ensure we are routing to the active default audio device
                     if let Some(dev) = rodio::cpal::default_host().default_output_device() {
                         if let Ok(name) = dev.name() {
                             if current_device_name.as_deref() != Some(&name) {
-                                current_device_name = Some(name);
-                                if let Ok((new_stream, new_handle)) = OutputStream::try_default() {
-                                    _stream = new_stream;
-                                    stream_handle = new_handle;
+                                logger::log(
+                                    "INFO",
+                                    "AUDIO_DEVICE",
+                                    &format!("Default output changed before Play: {:?} -> {:?}", current_device_name.as_deref().unwrap_or("<none>"), name),
+                                );
+                                current_device_name = Some(name.clone());
+                                match OutputStream::try_default() {
+                                    Ok((new_stream, new_handle)) => {
+                                        _stream = new_stream;
+                                        stream_handle = new_handle;
+                                        log_default_output_device("stream reopened before Play");
+                                    }
+                                    Err(e) => logger::log("ERROR", "AUDIO_DEVICE", &format!("Failed to reopen output stream before Play: {:?}", e)),
                                 }
                             }
                         }
@@ -741,10 +827,16 @@ fn run_player_thread(
                         if let Some(dev) = rodio::cpal::default_host().default_output_device() {
                             if let Ok(name) = dev.name() {
                                 if current_device_name.as_deref() != Some(&name) {
-                                    current_device_name = Some(name);
+                                    logger::log(
+                                        "INFO",
+                                        "AUDIO_DEVICE",
+                                        &format!("Default output changed before Resume: {:?} -> {:?}", current_device_name.as_deref().unwrap_or("<none>"), name),
+                                    );
+                                    current_device_name = Some(name.clone());
                                     if let Ok((new_stream, new_handle)) = OutputStream::try_default() {
                                         _stream = new_stream;
                                         stream_handle = new_handle;
+                                        log_default_output_device("stream reopened before Resume");
                                         sink.stop();
                                         if let Ok(new_sink) = Sink::try_new(&stream_handle) {
                                             sink = new_sink;
@@ -1205,21 +1297,50 @@ fn run_player_thread(
             }
         }
 
-        // Drain and log real-time glitch reports from the audio callback inspector
+        // Drain sample-level reports but write at most one summary per second to avoid log I/O storms.
         while let Ok(glitch) = glitch_rx.try_recv() {
-            logger::log(
-                "AUDIO",
-                "POP_DETECTED",
-                &format!(
-                    "Step discontinuity: Delta={} (from {:+} to {:+}) at {:.3}s (sample #{}, ch {})",
-                    glitch.delta,
-                    glitch.prev_val,
-                    glitch.curr_val,
-                    glitch.time_secs,
-                    glitch.sample_pos,
-                    glitch.channel
-                ),
-            );
+            glitch_count += 1;
+            glitch_max_delta = glitch_max_delta.max(glitch.delta);
+            if first_glitch.is_none() {
+                first_glitch = Some(glitch.clone());
+            }
+            last_glitch = Some(glitch);
+        }
+
+        if glitch_window_start.elapsed() >= Duration::from_secs(1) {
+            if let (Some(first), Some(last)) = (first_glitch.as_ref(), last_glitch.as_ref()) {
+                let playback_position = if is_playing && !is_paused {
+                    play_start_pos + play_start_instant.elapsed().as_secs_f64()
+                } else {
+                    play_start_pos
+                };
+                logger::log(
+                    "AUDIO",
+                    "POP_DETECTED",
+                    &format!(
+                        "{} decoded-PCM sample discontinuities (threshold=14000) in 1s; max_delta={}, first={:+}->{:+} at source={:.3}s sample={} ch={}, last={:+}->{:+} at source={:.3}s sample={} ch={}, track={:?}, playback_position={:.3}s",
+                        glitch_count,
+                        glitch_max_delta,
+                        first.prev_val,
+                        first.curr_val,
+                        first.time_secs,
+                        first.sample_pos,
+                        first.channel,
+                        last.prev_val,
+                        last.curr_val,
+                        last.time_secs,
+                        last.sample_pos,
+                        last.channel,
+                        current_path,
+                        playback_position,
+                    ),
+                );
+            }
+            glitch_window_start = Instant::now();
+            glitch_count = 0;
+            glitch_max_delta = 0;
+            first_glitch = None;
+            last_glitch = None;
         }
 
         // 3. Keep shared state synchronized for instant query

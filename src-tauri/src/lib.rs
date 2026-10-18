@@ -2085,8 +2085,15 @@ pub fn run() {
     }
 
     tauri::Builder::default()
-        .on_window_event(|_window, event| {
+        .on_window_event(|window, event| {
             match event {
+                tauri::WindowEvent::Focused(focused) => {
+                    logger::log(
+                        "INFO",
+                        "WINDOW_FOCUS",
+                        &format!("window={} focused={}", window.label(), focused),
+                    );
+                }
                 tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed => {
                     clean_exit();
                 }
@@ -2094,6 +2101,7 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            logger::initialize_session_clock();
             logger::set_app_handle(app.handle().clone());
             logger::log("INFO", "SYSTEM", &format!("Arachnid Music Player v{} started", get_app_version()));
             Ok(())
