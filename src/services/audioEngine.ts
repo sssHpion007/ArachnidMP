@@ -278,7 +278,8 @@ class AudioEngine {
     autoPlay: boolean = true,
     isTrackChange: boolean = true,
     durationHint?: number,
-    nativePath?: string
+    nativePath?: string,
+    fadeOutPrevious: boolean = true
   ): Promise<void> {
     this.currentTrackSrc = src;
     this.currentTrackPath = nativePath || '';
@@ -308,6 +309,7 @@ class AudioEngine {
           volume: this.getEffectiveVolume(),
           durationHint: durationHint || null,
           repeatOne: this.repeatMode === 'one',
+          fadeOutPrevious,
         });
 
         await invoke('native_set_repeat_one', {

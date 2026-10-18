@@ -2379,7 +2379,7 @@ export const App: React.FC = () => {
   };
 
   // Plays a specific track at an existing index in the queue without replacing the queue
-  const playQueueIndex = async (index: number) => {
+  const playQueueIndex = async (index: number, fadeOutPrevious = true) => {
     if (index < 0 || index >= queue.length) return;
     const track = queue[index];
     if (track.isMissing) {
@@ -2391,7 +2391,7 @@ export const App: React.FC = () => {
     setCurrentTime(0);
     setDuration(track.duration || 0);
     try {
-      await audioEngine.playTrack(track.src, true, true, track.duration, track.path);
+      await audioEngine.playTrack(track.src, true, true, track.duration, track.path, fadeOutPrevious);
       setIsPlaying(true);
     } catch (e) {
       console.warn('Queue playback start error:', e);
@@ -2475,15 +2475,16 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleNext = () => {
+  const handleNext = (isAutomaticAdvance = false) => {
     if (queue.length === 0) return;
+    const fadeOutPrevious = !isAutomaticAdvance;
     if (isShuffled) {
       const nextIdx = Math.floor(Math.random() * queue.length);
-      playQueueIndex(nextIdx);
+      playQueueIndex(nextIdx, fadeOutPrevious);
       return;
     }
     const nextIdx = (queueIndex + 1) % queue.length;
-    playQueueIndex(nextIdx);
+    playQueueIndex(nextIdx, fadeOutPrevious);
   };
 
   const handlePrev = (forcePrevious: boolean = false) => {
@@ -2526,10 +2527,10 @@ export const App: React.FC = () => {
       }
       return;
     } else if (repeatMode === 'all') {
-      handleNext();
+      handleNext(true);
     } else {
       if (queueIndex < queue.length - 1) {
-        handleNext();
+        handleNext(true);
       } else {
         setIsPlaying(false);
       }

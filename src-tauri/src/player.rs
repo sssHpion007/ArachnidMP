@@ -26,6 +26,7 @@ pub struct SmoothSourceHandle {
     target_gain_fp: Arc<AtomicU32>, // 0 to 1_000_000 (1_000_000 = 1.0)
     gain_step_fp: Arc<AtomicU32>,   // step per audio frame
     is_silent: Arc<AtomicBool>,
+    snap_gain_to_target: Arc<AtomicBool>,
     sample_rate: u32,
 }
 
@@ -35,6 +36,7 @@ impl SmoothSourceHandle {
             target_gain_fp: Arc::new(AtomicU32::new(0)),
             gain_step_fp: Arc::new(AtomicU32::new(10_000)),
             is_silent: Arc::new(AtomicBool::new(true)),
+            snap_gain_to_target: Arc::new(AtomicBool::new(false)),
             sample_rate: sample_rate.max(8000),
         }
     }
@@ -45,11 +47,21 @@ impl SmoothSourceHandle {
         let frames = ((self.sample_rate as f64) * (dur_ms as f64 / 1000.0)).max(32.0) as u32;
         let step = (1_000_000 / frames).max(1);
 
+        self.snap_gain_to_target.store(false, Ordering::Release);
         self.gain_step_fp.store(step, Ordering::Release);
         self.target_gain_fp.store(target_fp, Ordering::Release);
         if target_fp > 0 {
             self.is_silent.store(false, Ordering::Release);
         }
+    }
+
+    /// Set the source gain immediately for a new track, without a fade-in.
+    pub fn set_gain_immediately(&self, target_volume: f32) {
+        let target_fp = ((target_volume.clamp(0.0, 1.0) * 1_000_000.0) as u32).min(1_000_000);
+        self.gain_step_fp.store(1_000_000, Ordering::Relaxed);
+        self.target_gain_fp.store(target_fp, Ordering::Relaxed);
+        self.snap_gain_to_target.store(true, Ordering::Release);
+        self.is_silent.store(target_fp == 0, Ordering::Release);
     }
 
     pub fn is_silent(&self) -> bool {
@@ -117,11 +129,15 @@ where
         self.curr_channel += 1;
         if self.curr_channel >= self.channels as usize {
             self.curr_channel = 0;
-            // On audio frame boundary, smoothly advance gain towards target
+            // On audio frame boundary, either snap to a new track's target gain
+            // or smoothly advance for fades such as pause and manual switch-out.
+            let snap_to_target = self.handle.snap_gain_to_target.swap(false, Ordering::AcqRel);
             let target = self.handle.target_gain_fp.load(Ordering::Relaxed);
             let step = self.handle.gain_step_fp.load(Ordering::Relaxed);
 
-            if self.current_gain_fp < target {
+            if snap_to_target {
+                self.current_gain_fp = target;
+            } else if self.current_gain_fp < target {
                 self.current_gain_fp = (self.current_gain_fp + step).min(target);
             } else if self.current_gain_fp > target {
                 if self.current_gain_fp <= step {
@@ -210,6 +226,7 @@ pub enum PlayerCmd {
         volume: f32,
         duration_hint: Option<f64>,
         repeat_one: Option<bool>,
+        fade_out_previous: bool,
     },
     Pause,
     Resume,
@@ -302,6 +319,7 @@ impl NativePlayer {
         volume: f32,
         duration_hint: Option<f64>,
         repeat_one: Option<bool>,
+        fade_out_previous: bool,
     ) -> Result<(), String> {
         let sender = self.sender.lock().map_err(|e| e.to_string())?;
         sender
@@ -311,6 +329,7 @@ impl NativePlayer {
                 volume,
                 duration_hint,
                 repeat_one,
+                fade_out_previous,
             })
             .map_err(|e| e.to_string())
     }
@@ -561,6 +580,7 @@ fn run_player_thread(
                     volume,
                     duration_hint,
                     repeat_one: rep_opt,
+                    fade_out_previous,
                 } => {
                     user_target_volume = volume;
                     preloaded_next_loop = false;
@@ -585,8 +605,9 @@ fn run_player_thread(
                         }
                     }
 
-                    // Smooth sample-accurate fade out of previous track if currently playing
-                    if is_playing && !is_paused {
+                    // Fade the outgoing track only for a user-requested switch.
+                    // Automatic queue advances must preserve the current track's full ending.
+                    if fade_out_previous && is_playing && !is_paused {
                         if let Some(ref handle) = current_handle {
                             let fade_out_ms = if fade_mode != "off" && fade_duration > 0.05 {
                                 (fade_duration.min(0.6).max(0.08) * 1000.0) as u64
@@ -668,12 +689,9 @@ fn run_player_thread(
                                 is_playing = true;
                                 is_paused = false;
 
-                                let fade_in_ms = if fade_mode != "off" && fade_duration > 0.05 && user_target_volume > 0.01 {
-                                    (fade_duration.min(2.0).max(0.08) * 1000.0) as u64
-                                } else {
-                                    15
-                                };
-                                handle.fade_to(user_target_volume, fade_in_ms);
+                                // Do not crossfade the incoming track: start it immediately
+                                // at the target volume after any outgoing manual fade.
+                                handle.set_gain_immediately(user_target_volume);
                                 sink.play();
                                 current_volume = user_target_volume;
                             }
@@ -1003,8 +1021,10 @@ fn run_player_thread(
             let elapsed = play_start_instant.elapsed().as_secs_f64();
             let current_pos = play_start_pos + elapsed;
 
-            // End-of-track fade out
-            let should_fade_at_end = (fade_mode == "always") || (fade_mode == "track_change_and_pause" && !repeat_one);
+            // The normal "track_change_and_pause" mode must leave the whole
+            // track audible for automatic queue advance, even in "always" mode.
+            // Preserve the existing "always" fade only for repeat-one looping.
+            let should_fade_at_end = fade_mode == "always" && repeat_one;
             if should_fade_at_end && fade_duration > 0.1 && current_duration > fade_duration {
                 let remaining = current_duration - current_pos;
                 if remaining <= fade_duration && remaining >= 0.0 {

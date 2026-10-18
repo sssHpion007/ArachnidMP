@@ -213,6 +213,8 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
 
   const { isRendered, drawerClass } = useDrawerAnimation(isOpen, 180);
 
+  // Scroll only when the drawer opens. While it is open, let the user browse
+  // without jumping the list every time a different track becomes active.
   useEffect(() => {
     if (!isOpen || !isRendered || queue.length === 0) return;
 
@@ -229,7 +231,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
     });
 
     return () => cancelAnimationFrame(frameId);
-  }, [isOpen, isRendered, queue.length, queueIndex, currentTrack?.id]);
+  }, [isOpen, isRendered]);
 
   if (!isRendered) return null;
 

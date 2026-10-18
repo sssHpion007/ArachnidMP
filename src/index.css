@@ -395,4 +395,26 @@ input[type=range]::-webkit-slider-runnable-track {
   contain-intrinsic-size: 180px 240px;
 }
 
+@keyframes collectionCardEnter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.collection-card-enter {
+  animation: collectionCardEnter 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: opacity, transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collection-card-enter {
+    animation: none;
+    will-change: auto;
+  }
+}
 
