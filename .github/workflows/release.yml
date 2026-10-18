@@ -209,6 +209,14 @@ jobs:
             throw
           }
 
+      - name: Upload Windows test build
+        if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arachnid-v0.4.77-Windows-Test
+          path: src-tauri/target/release/arachnid.exe
+          if-no-files-found: error
+
       - name: Prepare Portable Artifacts
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         shell: pwsh
@@ -234,10 +242,14 @@ jobs:
             echo "Invalid release tag '$RELEASE_TAG'. Expected vMAJOR.MINOR.PATCH." >&2
             exit 1
           fi
-          gh release create "$RELEASE_TAG" artifacts/* \
-            --target "$GITHUB_SHA" \
-            --title "Arachnid Music Player $RELEASE_TAG [Windows]" \
-            --notes-file RELEASE_NOTES.md \
-            --latest
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" artifacts/* --clobber
+          else
+            gh release create "$RELEASE_TAG" artifacts/* \
+              --target "$GITHUB_SHA" \
+              --title "Arachnid Music Player $RELEASE_TAG [Windows]" \
+              --notes-file RELEASE_NOTES.md \
+              --latest
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
