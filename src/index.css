@@ -127,6 +127,47 @@ input[type=range]::-webkit-slider-thumb:hover {
   transform: scale(1.2);
 }
 
+/* Mini-player timeline: keep a filled progress track instead of a thumb-only accent. */
+input.mini-player-timeline {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+
+input.mini-player-timeline::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    to right,
+    var(--md-sys-color-primary) 0%,
+    var(--md-sys-color-primary) var(--progress),
+    var(--md-sys-color-surface-container-highest) var(--progress),
+    var(--md-sys-color-surface-container-highest) 100%
+  );
+}
+
+input.mini-player-timeline::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--md-sys-color-surface-container-highest);
+}
+
+input.mini-player-timeline::-moz-range-progress {
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--md-sys-color-primary);
+}
+
+input.mini-player-timeline::-moz-range-thumb {
+  height: 14px;
+  width: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--md-sys-color-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
 input[type=range]::-webkit-slider-runnable-track {
   width: 100%;
   height: 6px;

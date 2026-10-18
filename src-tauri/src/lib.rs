@@ -1619,6 +1619,46 @@ async fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> 
 }
 
 #[tauri::command]
+async fn show_track_details_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    const DETAILS_WINDOW_WIDTH: f64 = 640.0;
+    const DETAILS_WINDOW_HEIGHT: f64 = 720.0;
+    const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--max-old-space-size=256\"";
+
+    let details_window = match app_handle.get_webview_window("track-details") {
+        Some(window) => window,
+        None => WebviewWindowBuilder::new(
+            &app_handle,
+            "track-details",
+            WebviewUrl::App("index.html?trackDetailsWindow=1".into()),
+        )
+        .title("Arachnid — Track Details")
+        .inner_size(DETAILS_WINDOW_WIDTH, DETAILS_WINDOW_HEIGHT)
+        .min_inner_size(460.0, 500.0)
+        .additional_browser_args(MAIN_WEBVIEW_ARGS)
+        .visible(false)
+        .build()
+        .map_err(|e| format!("Unable to create track details window: {}", e))?,
+    };
+
+    let _ = details_window.unminimize();
+    details_window
+        .show()
+        .map_err(|e| format!("Unable to show track details window: {}", e))?;
+    details_window
+        .set_focus()
+        .map_err(|e| format!("Unable to focus track details window: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_track_details_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window("track-details") {
+        window.hide().map_err(|e| format!("Unable to hide track details window: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn hide_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("lyrics") {
         window.hide().map_err(|e| format!("Unable to hide lyrics window: {}", e))?;
@@ -2286,6 +2326,8 @@ pub fn run() {
             show_window,
             show_lyrics_window,
             hide_lyrics_window,
+            show_track_details_window,
+            hide_track_details_window,
             download_and_install_update,
             is_window_maximized,
             open_app_folder,

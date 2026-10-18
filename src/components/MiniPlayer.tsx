@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Disc3,
   Heart,
+  Info,
   Layers,
   Mic2,
   Library,
@@ -324,26 +325,24 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     <div className="flex min-h-0 flex-1 bg-md3-background text-md3-on-background">
       <section className="relative flex h-full w-[320px] shrink-0 flex-col overflow-hidden border-r border-md3-outline-variant/15 bg-md3-surface">
         <div className="flex min-h-0 flex-1 flex-col items-center gap-3 px-5 pb-3 pt-4">
-          <button
-            type="button"
-            onClick={() => currentTrack && onOpenTrackDetails(currentTrack)}
-            disabled={!currentTrack}
-            title={currentTrack ? text(language, 'Открыть сведения о треке', 'Open track details') : undefined}
-            className="mx-auto flex aspect-square w-full max-w-[280px] shrink-0 items-center justify-center overflow-hidden rounded-[24px] bg-md3-surface-container-high shadow-xl disabled:cursor-default"
+          <div
+            data-tauri-drag-region
+            aria-label={text(language, 'Перетащить окно мини-плеера', 'Drag the mini-player window')}
+            className="mx-auto flex aspect-square w-full max-w-[280px] shrink-0 items-center justify-center overflow-hidden rounded-[24px] bg-md3-surface-container-high shadow-xl"
           >
             {currentTrack?.coverArt ? (
               <img src={currentTrack.coverArt} alt={currentTrack.title} className="h-full w-full object-cover" />
             ) : (
               <Disc3 className="h-24 w-24 text-md3-primary/40" strokeWidth={1.25} />
             )}
-          </button>
+          </div>
 
-          <div className="relative w-full min-w-0 px-8">
+          <div className="flex w-full min-w-0 items-center gap-1">
             <button
               type="button"
               onClick={() => currentTrack && onOpenTrackDetails(currentTrack)}
               disabled={!currentTrack}
-              className="block w-full truncate text-center disabled:cursor-default"
+              className="min-w-0 flex-1 truncate text-center disabled:cursor-default"
               title={currentTrack ? text(language, 'Открыть сведения о треке', 'Open track details') : undefined}
             >
               <span className="block truncate text-base font-bold text-md3-on-surface">
@@ -354,16 +353,27 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
               </span>
             </button>
             {currentTrack && (
-              <button
-                type="button"
-                onClick={event => onToggleFavorite(currentTrack.id, event)}
-                title={currentTrack.isFavorite ? text(language, 'Убрать из избранного', 'Remove from favorites') : text(language, 'Добавить в избранное', 'Add to favorites')}
-                aria-label={currentTrack.isFavorite ? text(language, 'Убрать из избранного', 'Remove from favorites') : text(language, 'Добавить в избранное', 'Add to favorites')}
-                aria-pressed={currentTrack.isFavorite}
-                className={`absolute right-0 top-1/2 -translate-y-1/2 rounded-full p-2 transition-colors ${currentTrack.isFavorite ? 'text-red-500' : 'text-md3-on-surface-variant hover:text-red-500'}`}
-              >
-                <Heart size={18} className={currentTrack.isFavorite ? 'fill-current' : ''} />
-              </button>
+              <div className="flex shrink-0 items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => onOpenTrackDetails(currentTrack)}
+                  title={text(language, 'Сведения о треке', 'Track details')}
+                  aria-label={text(language, 'Сведения о треке', 'Track details')}
+                  className="rounded-full p-2 text-md3-on-surface-variant transition-colors hover:bg-md3-surface-container-high hover:text-md3-primary"
+                >
+                  <Info size={17} />
+                </button>
+                <button
+                  type="button"
+                  onClick={event => onToggleFavorite(currentTrack.id, event)}
+                  title={currentTrack.isFavorite ? text(language, 'Убрать из избранного', 'Remove from favorites') : text(language, 'Добавить в избранное', 'Add to favorites')}
+                  aria-label={currentTrack.isFavorite ? text(language, 'Убрать из избранного', 'Remove from favorites') : text(language, 'Добавить в избранное', 'Add to favorites')}
+                  aria-pressed={currentTrack.isFavorite}
+                  className={`rounded-full p-2 transition-colors ${currentTrack.isFavorite ? 'text-red-500' : 'text-md3-on-surface-variant hover:text-red-500'}`}
+                >
+                  <Heart size={18} className={currentTrack.isFavorite ? 'fill-current' : ''} />
+                </button>
+              </div>
             )}
           </div>
 
@@ -377,7 +387,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
               value={safeTime}
               disabled={!currentTrack}
               onChange={event => onSeek(Number(event.target.value))}
-              className="h-1.5 w-full cursor-pointer accent-md3-primary disabled:cursor-default"
+              className="mini-player-timeline h-2.5 w-full cursor-pointer disabled:cursor-default"
+              style={{ '--progress': `${safeDuration > 0 ? (safeTime / safeDuration) * 100 : 0}%` } as React.CSSProperties}
             />
             <div className="flex justify-between font-mono text-[10px] text-md3-on-surface-variant">
               <span>{formatTime(safeTime)}</span>

@@ -48,6 +48,8 @@ import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { LYRICS_WINDOW_EVENTS } from './utils/lyricsWindowEvents';
 import type { LyricsWindowAction, LyricsWindowPayload } from './utils/lyricsWindowEvents';
+import { TRACK_DETAILS_WINDOW_EVENTS } from './utils/trackDetailsWindowEvents';
+import type { TrackDetailsWindowAction, TrackDetailsWindowPayload } from './utils/trackDetailsWindowEvents';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { LogicalSize, PhysicalSize } from '@tauri-apps/api/dpi';
 import { MiniPlayer } from './components/MiniPlayer';
@@ -251,6 +253,11 @@ export const App: React.FC = () => {
   const [deleteTracksTarget, setDeleteTracksTarget] = useState<string[] | null>(null);
   const [deleteFromDiskTarget, setDeleteFromDiskTarget] = useState<string[] | null>(null);
   const [trackDetailsTarget, setTrackDetailsTarget] = useState<Track | null>(null);
+  const trackDetailsWindowPayloadRef = useRef<TrackDetailsWindowPayload>({ track: null, language });
+  trackDetailsWindowPayloadRef.current = {
+    track: trackDetailsTarget ? { ...trackDetailsTarget, localFile: undefined } : null,
+    language,
+  };
   const [isLyricsOpen, setIsLyricsOpen] = useState<boolean>(false);
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; track: Track } | null>(null);
@@ -366,6 +373,14 @@ export const App: React.FC = () => {
         console.warn('Unable to restore standard window size:', error);
       }
     }
+    setTrackDetailsTarget(null);
+    if (isTauri()) {
+      try {
+        await invoke('hide_track_details_window');
+      } catch (error) {
+        console.warn('Unable to close track details window while leaving mini mode:', error);
+      }
+    }
     setIsMiniMode(false);
   }, []);
 
@@ -395,6 +410,16 @@ export const App: React.FC = () => {
     if (isMiniMode && !(await resizeMiniWindow(MINI_WINDOW_WIDTH))) return;
     setMiniLyricsMode('closed');
   }, [isMiniMode, resizeMiniWindow]);
+
+  const openMiniTrackDetails = useCallback(async (track: Track) => {
+    setTrackDetailsTarget(track);
+    if (!isTauri()) return;
+    try {
+      await invoke('show_track_details_window');
+    } catch (error) {
+      console.error('Unable to open the separate track details window:', error);
+    }
+  }, []);
 
   const openLyricsWindow = useCallback(async () => {
     const previousLyricsMode = miniLyricsMode;
@@ -511,6 +536,45 @@ export const App: React.FC = () => {
       miniLyricsChannelRef.current = null;
     };
   }, [attachMiniLyrics, closeMiniLyrics]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let unlistenReady: (() => void) | undefined;
+    let unlistenAction: (() => void) | undefined;
+
+    const sendCurrentState = () => {
+      void emitTo('track-details', TRACK_DETAILS_WINDOW_EVENTS.state, trackDetailsWindowPayloadRef.current).catch(() => {});
+    };
+
+    void listen<null>(TRACK_DETAILS_WINDOW_EVENTS.ready, sendCurrentState).then(unlisten => {
+      if (disposed) unlisten();
+      else unlistenReady = unlisten;
+    }).catch(error => console.error('Unable to listen for track details window:', error));
+
+    void listen<TrackDetailsWindowAction>(TRACK_DETAILS_WINDOW_EVENTS.action, event => {
+      if (event.payload.type === 'close') {
+        setTrackDetailsTarget(null);
+        void invoke('hide_track_details_window').catch(error => {
+          console.warn('Unable to hide track details window:', error);
+        });
+      }
+    }).then(unlisten => {
+      if (disposed) unlisten();
+      else unlistenAction = unlisten;
+    }).catch(error => console.error('Unable to listen for track details window actions:', error));
+
+    return () => {
+      disposed = true;
+      unlistenReady?.();
+      unlistenAction?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    void emitTo('track-details', TRACK_DETAILS_WINDOW_EVENTS.state, trackDetailsWindowPayloadRef.current).catch(() => {});
+  }, [trackDetailsTarget, language]);
 
   useEffect(() => {
     if (isTauri()) {
@@ -4143,11 +4207,14 @@ export const App: React.FC = () => {
           onPlayQueueTrack={index => { void playQueueIndex(index); }}
           onPlayTrack={(track, context) => playTrackWithContext(track, context)}
           onClearQueue={handleClearQueue}
-          onToggleLyrics={openLyricsWindow}
+          onToggleLyrics={() => {
+            if (miniLyricsMode === 'closed') void attachMiniLyrics();
+            else void closeMiniLyrics();
+          }}
           onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
           onOpenEQ={() => setIsEQOpen(true)}
           onToggleFavorite={handleToggleFavorite}
-          onOpenTrackDetails={track => setTrackDetailsTarget(track)}
+          onOpenTrackDetails={track => { void openMiniTrackDetails(track); }}
           onDetachLyrics={openLyricsWindow}
           onAttachLyrics={attachMiniLyrics}
           onCloseLyrics={closeMiniLyrics}
@@ -4156,12 +4223,6 @@ export const App: React.FC = () => {
           isOpen={isEQOpen}
           language={language}
           onClose={() => setIsEQOpen(false)}
-        />
-        <TrackDetailsModal
-          isOpen={!!trackDetailsTarget}
-          track={trackDetailsTarget}
-          language={language}
-          onClose={() => setTrackDetailsTarget(null)}
         />
         </>
       ) : (
