@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { Playlist, PlaylistFolder, PlaylistGroup, Track, FolderCoverType } from '../types/music';
 import { formatTime } from '../services/tagEditor';
-import { getFolderIconComponent, getFolderColorHex } from '../theme/folderIcons';
+import { getFolderIconComponent, getFolderColorHex, getThemedPlayIconColor } from '../theme/folderIcons';
 import { AppLanguage } from '../i18n';
 
 interface PlaylistsGridViewProps {
@@ -54,6 +54,7 @@ interface PlaylistsGridViewProps {
   onReorderFolders?: (reorderedFolders: PlaylistFolder[]) => void;
   onReorderItems?: (reorderedPlaylists: Playlist[], reorderedFolders: PlaylistFolder[]) => void;
   onEditFolder?: (folder: PlaylistFolder) => void;
+  isDarkTheme?: boolean;
 }
 
 interface DragState {
@@ -123,6 +124,7 @@ interface FolderCardItemProps {
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onPlayFolder: (folder: PlaylistFolder) => void;
+  isDarkTheme?: boolean;
 }
 
 const FolderCardItem: React.FC<FolderCardItemProps> = ({
@@ -137,6 +139,7 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
   onClick,
   onContextMenu,
   onPlayFolder,
+  isDarkTheme = true,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [cycleIndex, setCycleIndex] = useState(0);
@@ -146,6 +149,8 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
   const IconComponent = getFolderIconComponent(folder.icon);
 
   const baseColor = getFolderColorHex(folder.color);
+  // Play icon shade absorbs the folder color hue and follows the theme direction
+  const playIconColor = getThemedPlayIconColor(folder.color, isDarkTheme);
   const coverType = folder.coverType || 'icon';
   const hasImages = covers && covers.length > 0 && coverType !== 'icon';
 
@@ -313,7 +318,11 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
               onPlayFolder(folder);
             }}
             title={language === 'ru' ? "Воспроизвести всю папку" : "Play entire folder"}
-            className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer"
+            style={{
+              backgroundColor: baseColor,
+              ...(playIconColor ? { color: playIconColor } : {}),
+            }}
+            className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer"
           >
             <Play className="w-5 h-5 fill-current ml-0.5" />
           </button>
@@ -364,6 +373,7 @@ interface PlaylistCardItemProps {
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onPlayPlaylist: (playlist: Playlist) => void;
+  isDarkTheme?: boolean;
 }
 
 const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
@@ -379,6 +389,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
   onClick,
   onContextMenu,
   onPlayPlaylist,
+  isDarkTheme = true,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [cycleIndex, setCycleIndex] = useState(0);
@@ -387,6 +398,8 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
 
   const IconComponent = getFolderIconComponent(playlist.icon);
   const baseColor = getFolderColorHex(playlist.color);
+  // Play icon shade absorbs the playlist color hue and follows the theme direction
+  const playIconColor = getThemedPlayIconColor(playlist.color, isDarkTheme);
   const coverType: FolderCoverType = (playlist.coverType as FolderCoverType) || 'first_playlist';
   const hasMultipleCovers = covers && covers.length > 1;
   const hasImages = (cover || (covers && covers.length > 0)) && coverType !== 'icon';
@@ -558,7 +571,11 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
               onPlayPlaylist(playlist);
             }}
             title={language === 'ru' ? "Воспроизвести плейлист" : "Play playlist"}
-            className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer"
+            style={{
+              backgroundColor: baseColor,
+              ...(playIconColor ? { color: playIconColor } : {}),
+            }}
+            className="pointer-events-auto absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full text-md3-on-primary flex items-center justify-center shadow-xl opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 z-20 cursor-pointer"
           >
             <Play className="w-5 h-5 fill-current ml-0.5" />
           </button>
@@ -627,6 +644,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   onReorderFolders,
   onReorderItems,
   onEditFolder,
+  isDarkTheme = true,
 }) => {
   // Navigation state: current folder view (null = root)
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
@@ -1185,6 +1203,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
           onOpenFolderContextMenu(e, folder);
         }}
         onPlayFolder={onPlayFolder}
+        isDarkTheme={isDarkTheme}
       />
     );
   };
@@ -1228,6 +1247,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
           onOpenPlaylistContextMenu(e, playlist);
         }}
         onPlayPlaylist={onPlayPlaylist}
+        isDarkTheme={isDarkTheme}
       />
     );
   };
