@@ -2,6 +2,8 @@ mod discord;
 mod storage;
 mod player;
 mod logger;
+#[cfg(target_os = "windows")]
+mod portable_updater;
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -1669,60 +1671,97 @@ fn clean_exit() -> ! {
 }
 
 #[tauri::command]
-async fn download_and_install_update(
-    window: tauri::Window,
-    url: String,
-) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        use std::io::{Read, Write};
-        use tauri::Emitter;
+async fn download_and_install_update(window: tauri::Window, tag: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            use std::io::Read;
+            use tauri::Emitter;
 
-        let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        let exe_dir = current_exe
-            .parent()
-            .ok_or_else(|| "Cannot get executable directory".to_string())?;
-        let update_id = format!(
-            "{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        );
-        let temp_update_file = exe_dir.join(format!(".update_temp-{}.tmp", update_id));
-        logger::log("INFO", "UPDATER", &format!("Downloading update asset to {}.", temp_update_file.display()));
+            // Tags are used only as one path component in a fixed public GitHub
+            // repository URL; reject anything that is not a plain vX.Y.Z tag.
+            let version = tag
+                .strip_prefix('v')
+                .ok_or_else(|| "Invalid release tag.".to_string())?;
+            let parts: Vec<&str> = version.split('.').collect();
+            if parts.len() != 3 || parts.iter().any(|part| part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit())) {
+                return Err("Invalid release tag.".to_string());
+            }
 
-        // 1. Download via ureq with auto-redirects (bypasses browser CORS completely)
-        let download_result = (|| -> Result<(), String> {
-            let response = ureq::get(&url)
+            let api_url = format!(
+                "https://api.github.com/repos/sssHpion007/ArachnidMP/releases/tags/{tag}"
+            );
+            let api_response = ureq::get(&api_url)
+                .set("User-Agent", "Arachnid-Music-Player-Updater")
+                .set("Accept", "application/vnd.github+json")
+                .call()
+                .map_err(|error| format!("Unable to read the GitHub release metadata: {error}"))?;
+            let mut metadata_text = String::new();
+            api_response
+                .into_reader()
+                .read_to_string(&mut metadata_text)
+                .map_err(|error| format!("Unable to read GitHub release metadata: {error}"))?;
+            let release: serde_json::Value = serde_json::from_str(&metadata_text)
+                .map_err(|error| format!("Invalid GitHub release metadata: {error}"))?;
+            if release.get("tag_name").and_then(serde_json::Value::as_str) != Some(tag.as_str())
+                || release.get("draft").and_then(serde_json::Value::as_bool) == Some(true)
+            {
+                return Err("GitHub returned metadata for a different or unpublished release.".to_string());
+            }
+
+            let asset = release
+                .get("assets")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|assets| {
+                    assets.iter().find(|asset| {
+                        asset.get("name").and_then(serde_json::Value::as_str)
+                            == Some("Arachnid-Portable.exe")
+                    })
+                })
+                .ok_or_else(|| "The selected release has no Arachnid portable executable.".to_string())?;
+            let digest = asset
+                .get("digest")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|value| value.strip_prefix("sha256:"))
+                .filter(|value| value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit()))
+                .ok_or_else(|| "GitHub did not provide a valid SHA-256 release digest.".to_string())?
+                .to_ascii_lowercase();
+            let download_url = format!(
+                "https://github.com/sssHpion007/ArachnidMP/releases/download/{tag}/Arachnid-Portable.exe"
+            );
+            logger::log(
+                "INFO",
+                "UPDATER",
+                &format!("Downloading release {tag}; checksum comes from GitHub release metadata."),
+            );
+
+            let response = ureq::get(&download_url)
                 .set("User-Agent", "Arachnid-Music-Player-Updater")
                 .call()
-                .map_err(|e| format!("ureq request failed: {}", e))?;
-
+                .map_err(|error| format!("Update download failed: {error}"))?;
             let total_size = response
                 .header("Content-Length")
-                .and_then(|s| s.parse::<u64>().ok())
+                .and_then(|value| value.parse::<u64>().ok())
                 .unwrap_or(0);
-
             let mut reader = response.into_reader();
-            let mut file = std::fs::File::create(&temp_update_file)
-                .map_err(|e| format!("Failed to create update file: {}", e))?;
-
-            let mut buffer = [0u8; 65536];
-            let mut downloaded: u64 = 0;
-            let mut last_percent: u32 = 0;
+            let mut payload = Vec::new();
+            let mut buffer = [0u8; 64 * 1024];
+            let mut downloaded = 0u64;
+            let mut last_percent = u32::MAX;
+            const MAX_UPDATE_BYTES: u64 = 300 * 1024 * 1024;
 
             loop {
-                let n = reader
+                let count = reader
                     .read(&mut buffer)
-                    .map_err(|e| format!("Failed reading stream: {}", e))?;
-                if n == 0 {
+                    .map_err(|error| format!("Unable to read update download: {error}"))?;
+                if count == 0 {
                     break;
                 }
-                file.write_all(&buffer[..n])
-                    .map_err(|e| format!("Failed writing to disk: {}", e))?;
-                downloaded += n as u64;
-
+                downloaded += count as u64;
+                if downloaded > MAX_UPDATE_BYTES {
+                    return Err("The downloaded update exceeds the allowed size.".to_string());
+                }
+                payload.extend_from_slice(&buffer[..count]);
                 let percent = if total_size > 0 {
                     ((downloaded as f64 / total_size as f64) * 100.0).min(100.0) as u32
                 } else {
@@ -1741,212 +1780,52 @@ async fn download_and_install_update(
                 }
             }
 
-            Ok(())
-        })();
+            let _ = window.emit(
+                "update-progress",
+                serde_json::json!({
+                    "downloaded": downloaded,
+                    "total": if total_size == 0 { downloaded } else { total_size },
+                    "percent": 100
+                }),
+            );
+            logger::log("INFO", "UPDATER", &format!("Downloaded {downloaded} bytes for {tag}."));
+            let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
+            let stage = portable_updater::prepare(&current_exe, &payload, &digest)?;
 
-        // 2. Windows native fallback: curl.exe
-        if let Err(ureq_err) = download_result {
-            logger::log("WARN", "UPDATER", &format!("ureq download failed; trying Windows curl fallback: {}", ureq_err));
-            #[cfg(target_os = "windows")]
-            {
-                use std::process::Command;
-                let status = Command::new("curl.exe")
-                    .args(&["-L", "-f", "-s", "-S", "-o", &temp_update_file.to_string_lossy(), &url])
-                    .status();
-
-                if status.is_err() || !status.unwrap().success() {
-                    let _ = std::fs::remove_file(&temp_update_file);
-                    logger::log("ERROR", "UPDATER", &format!("Both update download attempts failed: {}", ureq_err));
-                    return Err(format!("Download failed: {}", ureq_err));
+            // The app's WebView2 children normally share a kill-on-close Job
+            // Object. Disable that policy only for the short handoff, then
+            // require the helper to signal readiness before closing the player.
+            if let Err(error) = windows_process_grouping::set_job_kill_on_close(false) {
+                let _ = std::fs::remove_dir_all(&stage);
+                return Err(format!("Cannot detach the update helper safely: {error}"));
+            }
+            match portable_updater::spawn_ready_helper(&stage) {
+                Ok(helper) => {
+                    logger::log(
+                        "INFO",
+                        "UPDATER",
+                        &format!("Native portable updater is ready (PID {}).", helper.id()),
+                    );
+                    drop(helper);
+                    clean_exit();
+                }
+                Err(error) => {
+                    let _ = windows_process_grouping::set_job_kill_on_close(true);
+                    let _ = std::fs::remove_dir_all(&stage);
+                    logger::log("ERROR", "UPDATER", &error);
+                    Err(error)
                 }
             }
-            #[cfg(not(target_os = "windows"))]
-            {
-                let _ = std::fs::remove_file(&temp_update_file);
-                return Err(ureq_err);
-            }
-        }
-
-        // 3. Verify downloaded file integrity
-        let meta = match std::fs::metadata(&temp_update_file) {
-            Ok(meta) => meta,
-            Err(error) => {
-                let _ = std::fs::remove_file(&temp_update_file);
-                return Err(error.to_string());
-            }
-        };
-        logger::log("INFO", "UPDATER", &format!("Downloaded {} bytes.", meta.len()));
-        if meta.len() < 1_000_000 {
-            let _ = std::fs::remove_file(&temp_update_file);
-            logger::log("ERROR", "UPDATER", "Downloaded update file is too small or incomplete.");
-            return Err("Downloaded update file is too small or incomplete".to_string());
-        }
-        let mut signature = [0u8; 2];
-        let signature_read = std::fs::File::open(&temp_update_file)
-            .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut signature));
-        if signature_read.is_err() || signature != *b"MZ" {
-            let _ = std::fs::remove_file(&temp_update_file);
-            logger::log("ERROR", "UPDATER", "The downloaded update did not have a valid Windows executable signature.");
-            return Err("The downloaded update is not a valid Windows executable".to_string());
-        }
-
-        // 4. In-place replacement via a detached PowerShell helper and restart
-        #[cfg(target_os = "windows")]
-        {
-            logger::log("INFO", "UPDATER", "Download validated; scheduling in-place replacement and player restart.");
-            if let Err(error) = schedule_windows_update(&current_exe, &temp_update_file, &update_id) {
-                let _ = std::fs::remove_file(&temp_update_file);
-                logger::log("ERROR", "UPDATER", &format!("Failed to schedule update replacement: {}", error));
-                return Err(error);
-            }
-            logger::log("INFO", "UPDATER", "Update helper scheduled; closing the current player process.");
-            clean_exit();
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            let _ = std::fs::rename(&temp_update_file, &current_exe);
-            Ok(())
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[cfg(target_os = "windows")]
-fn schedule_windows_update(
-    current_exe: &Path,
-    update_file: &Path,
-    update_id: &str,
-) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
-    const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
-    const DETACHED_PROCESS: u32 = 0x00000008;
-
-    let mut backup_os = current_exe.as_os_str().to_os_string();
-    backup_os.push(format!(".old.{}", update_id));
-    let backup_path = PathBuf::from(backup_os);
-    let script_path = std::env::temp_dir().join(format!("Arachnid-Updater-{}.ps1", update_id));
-    let error_path = std::env::temp_dir().join(format!("Arachnid-Update-Error-{}.txt", update_id));
-    let log_path = std::env::temp_dir().join(format!("Arachnid-Update-Log-{}.txt", update_id));
-
-    let quote_ps = |path: &Path| path.to_string_lossy().replace('\'', "''");
-    let script = include_str!("../updater.ps1")
-        .replace("__TARGET__", &quote_ps(current_exe))
-        .replace("__SOURCE__", &quote_ps(update_file))
-        .replace("__BACKUP__", &quote_ps(&backup_path))
-        .replace("__SCRIPT__", &quote_ps(&script_path))
-        .replace("__ERROR__", &quote_ps(&error_path))
-        .replace("__LOG__", &quote_ps(&log_path))
-        .replace("__SUCCESS__", "")
-        .replace("__PARENT_PID__", &std::process::id().to_string());
-
-    // BOM is required by Windows PowerShell 5.1 when paths contain non-ASCII characters.
-    let mut script_bytes = vec![0xEF, 0xBB, 0xBF];
-    script_bytes.extend_from_slice(script.as_bytes());
-    std::fs::write(&script_path, script_bytes)
-        .map_err(|e| format!("Unable to write the update helper: {}", e))?;
-    let _ = std::fs::write(&log_path, "Updater launch requested by Arachnid.\r\n");
-    logger::log("INFO", "UPDATER", &format!("Prepared detached updater for {}.", current_exe.display()));
-
-    // The app's Windows Job Object normally kills every child when its last
-    // handle closes. Temporarily disable that policy so the updater survives
-    // clean_exit even on systems where CREATE_BREAKAWAY_FROM_JOB is restricted.
-    if let Err(error) = windows_process_grouping::set_job_kill_on_close(false) {
-        let _ = std::fs::remove_file(&script_path);
-        logger::log("ERROR", "UPDATER", &format!("Could not detach updater from player shutdown: {}", error));
-        return Err(format!("Unable to detach updater from player shutdown: {}", error));
-    }
-
-    let script_arg = script_path.to_string_lossy().into_owned();
-    let spawn_result = Command::new("powershell.exe")
-        .current_dir(std::env::temp_dir())
-        .args([
-            "-NoLogo",
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-WindowStyle",
-            "Hidden",
-            "-File",
-            &script_arg,
-        ])
-        .creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS)
-        .spawn();
-
-    match spawn_result {
-        Ok(child) => {
-            logger::log("INFO", "UPDATER", &format!("Detached updater helper started with PID {}.", child.id()));
-            Ok(())
-        }
-        Err(error) => {
-            let _ = windows_process_grouping::set_job_kill_on_close(true);
-            let _ = std::fs::remove_file(&script_path);
-            logger::log("ERROR", "UPDATER", &format!("Unable to start the detached updater: {}", error));
-            Err(format!("Unable to start the detached updater: {}", error))
-        }
-    }
-}
-
-#[tauri::command]
-fn apply_in_place_update(base64_data: String) -> Result<(), String> {
-    let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = current_exe
-        .parent()
-        .ok_or_else(|| "Cannot get executable directory".to_string())?;
-    let update_id = format!(
-        "{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    );
-    let temp_update_file = exe_dir.join(format!(".update_temp-{}.tmp", update_id));
-
-    let bytes = BASE64_STANDARD
-        .decode(base64_data.trim())
-        .map_err(|e| format!("Failed to decode base64 update data: {}", e))?;
-
-    if let Err(error) = std::fs::write(&temp_update_file, &bytes) {
-        let _ = std::fs::remove_file(&temp_update_file);
-        return Err(format!("Failed to write update binary: {}", error));
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let mut signature = [0u8; 2];
-        if let Err(error) = std::fs::File::open(&temp_update_file)
-            .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut signature))
-        {
-            let _ = std::fs::remove_file(&temp_update_file);
-            return Err(format!("Unable to verify update executable: {}", error));
-        }
-        if signature != *b"MZ" {
-            let _ = std::fs::remove_file(&temp_update_file);
-            return Err("The update data is not a valid Windows executable".to_string());
-        }
-        if let Err(error) = schedule_windows_update(&current_exe, &temp_update_file, &update_id) {
-            let _ = std::fs::remove_file(&temp_update_file);
-            return Err(error);
-        }
-        clean_exit();
+        })
+        .await
+        .map_err(|error| error.to_string())?
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = std::fs::rename(&temp_update_file, &current_exe);
-        Ok(())
+        let _ = (window, tag);
+        Err("In-app portable updates are currently supported on Windows only.".to_string())
     }
-}
-
-#[tauri::command]
-fn is_window_maximized(window: tauri::Window) -> Result<bool, String> {
-    window.is_maximized().map_err(|e| e.to_string())
 }
 
 #[cfg(target_os = "windows")]
@@ -2305,13 +2184,31 @@ fn import_previous_update_diagnostics() {
     }
 }
 
+#[cfg(target_os = "windows")]
+pub fn run_portable_update_helper_if_requested() -> bool {
+    let is_helper = std::env::args_os()
+        .nth(1)
+        .is_some_and(|argument| argument.to_string_lossy() == portable_updater::HELPER_FLAG);
+    if !is_helper {
+        return false;
+    }
+    if let Err(error) = portable_updater::run_helper() {
+        eprintln!("Arachnid portable updater failed: {error}");
+        std::process::exit(1);
+    }
+    true
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let base_dir = storage::get_portable_base_dir();
     storage::init_storage_structure(&base_dir);
 
     #[cfg(target_os = "windows")]
-    cleanup_legacy_update_artifacts();
+    {
+        portable_updater::cleanup_completed();
+        cleanup_legacy_update_artifacts();
+    }
 
     #[cfg(target_os = "windows")]
     {
@@ -2385,7 +2282,6 @@ pub fn run() {
             show_lyrics_window,
             hide_lyrics_window,
             download_and_install_update,
-            apply_in_place_update,
             is_window_maximized,
             open_app_folder,
             open_url,

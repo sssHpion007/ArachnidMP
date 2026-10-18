@@ -464,7 +464,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleInstallUpdate = async () => {
     const downloadTarget = latestRelease?.downloadUrl || latestRelease?.assetUrl;
-    if (!downloadTarget) {
+    if (!downloadTarget || !latestRelease?.tagName) {
       if (latestRelease?.htmlUrl) {
         handleDownloadUpdate(latestRelease.htmlUrl);
       }
@@ -492,7 +492,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         });
 
         try {
-          await invoke('download_and_install_update', { url: downloadTarget });
+          await invoke('download_and_install_update', { tag: latestRelease.tagName });
           setUpdateStatus('installing');
         } finally {
           unlisten();

@@ -1,6 +1,6 @@
 [package]
 name = "arachnid"
-version = "0.4.79"
+version = "0.4.80"
 description = "Arachnid Music Player - Modern Material You 3 Player with MusicBee Power"
 authors = ["sssHpion007"]
 edition = "2021"
@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["protocol-asset"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.10"
 lofty = "0.21"
 walkdir = "2.4"
 base64 = "0.22"
