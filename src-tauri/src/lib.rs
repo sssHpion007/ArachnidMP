@@ -5,7 +5,7 @@ mod logger;
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tauri::{Manager, State};
+use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 use base64::prelude::*;
 use lofty::config::{ParseOptions, ParsingMode, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
@@ -1542,9 +1542,21 @@ fn show_window(window: tauri::Window) -> Result<(), String> {
 
 #[tauri::command]
 fn show_mini_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
-    let lyrics_window = app_handle
-        .get_webview_window("lyrics")
-        .ok_or_else(|| "Lyrics window is not configured".to_string())?;
+    let lyrics_window = match app_handle.get_webview_window("lyrics") {
+        Some(window) => window,
+        None => WebviewWindowBuilder::new(
+            &app_handle,
+            "lyrics",
+            WebviewUrl::App("index.html?miniLyrics=1".into()),
+        )
+        .title("Arachnid Lyrics")
+        .inner_size(340.0, 620.0)
+        .min_inner_size(280.0, 360.0)
+        .decorations(false)
+        .visible(false)
+        .build()
+        .map_err(|e| e.to_string())?,
+    };
 
     if let Some(main_window) = app_handle.get_webview_window("main") {
         if let (Ok(position), Ok(size)) = (main_window.outer_position(), main_window.outer_size()) {

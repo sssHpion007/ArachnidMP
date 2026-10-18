@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Release version tag (for example v0.4.71)'
+        description: 'Release version tag (for example v0.4.72)'
         required: true
         type: string
 
@@ -53,6 +53,28 @@ jobs:
             Get-Content build.log -Tail 150 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             exit 1
+          }
+
+      - name: Smoke test Windows executable startup
+        shell: pwsh
+        run: |
+          $exePath = Join-Path $PWD "src-tauri/target/release/arachnid.exe"
+          if (-not (Test-Path $exePath)) {
+            throw "arachnid.exe was not found for startup smoke test."
+          }
+          $process = $null
+          try {
+            $process = Start-Process -FilePath $exePath -PassThru
+            Start-Sleep -Seconds 15
+            $process.Refresh()
+            if ($process.HasExited) {
+              throw "arachnid.exe exited during startup smoke test with code $($process.ExitCode)."
+            }
+            Write-Host "arachnid.exe remained running for 15 seconds."
+          } finally {
+            if ($process -and -not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
           }
 
       - name: Prepare Portable Artifacts
