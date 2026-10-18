@@ -7,7 +7,7 @@ mod portable_updater;
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 use base64::prelude::*;
 use lofty::config::{ParseOptions, ParsingMode, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
@@ -1636,6 +1636,11 @@ fn minimize_window(window: tauri::Window) -> Result<(), String> {
 fn trim_memory() {
     #[cfg(target_os = "windows")]
     windows_process_grouping::trim_working_set();
+}
+
+#[tauri::command]
+fn is_window_maximized(window: tauri::Window) -> Result<bool, String> {
+    window.is_maximized().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
