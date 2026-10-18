@@ -2451,7 +2451,7 @@ export const App: React.FC = () => {
     setCurrentTime(0);
     setDuration(0);
     setIsLyricsOpen(false);
-    audioEngine.stop();
+    audioEngine.stop(true);
   };
 
   const handlePlayPause = async () => {

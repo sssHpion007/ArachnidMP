@@ -230,7 +230,9 @@ pub enum PlayerCmd {
     },
     Pause,
     Resume,
-    Stop,
+    Stop {
+        fade_out: bool,
+    },
     Seek {
         position_secs: f64,
     },
@@ -344,9 +346,9 @@ impl NativePlayer {
         sender.send(PlayerCmd::Resume).map_err(|e| e.to_string())
     }
 
-    pub fn stop(&self) -> Result<(), String> {
+    pub fn stop(&self, fade_out: bool) -> Result<(), String> {
         let sender = self.sender.lock().map_err(|e| e.to_string())?;
-        sender.send(PlayerCmd::Stop).map_err(|e| e.to_string())
+        sender.send(PlayerCmd::Stop { fade_out }).map_err(|e| e.to_string())
     }
 
     pub fn seek(&self, position_secs: f64) -> Result<(), String> {
@@ -786,13 +788,18 @@ fn run_player_thread(
                         logger::log("AUDIO", "RESUME", &format!("Resumed from pos={:.3}s (vol={:.2})", play_start_pos, user_target_volume));
                     }
                 }
-                PlayerCmd::Stop => {
+                PlayerCmd::Stop { fade_out } => {
                     active_volume_fade = None;
                     is_scrub_holding = false;
                     if is_playing && !is_paused {
                         if let Some(ref handle) = current_handle {
-                            handle.fade_to(0.0, 12);
-                            handle.wait_until_silent(Duration::from_millis(25));
+                            let fade_out_ms = if fade_out && fade_mode != "off" && current_volume > 0.01 {
+                                (fade_duration.min(2.0).max(0.08) * 1000.0) as u64
+                            } else {
+                                12
+                            };
+                            handle.fade_to(0.0, fade_out_ms);
+                            handle.wait_until_silent(Duration::from_millis(fade_out_ms + 25));
                         }
                     }
                     sink.stop();

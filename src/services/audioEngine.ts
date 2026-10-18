@@ -59,6 +59,7 @@ function getSilentAudioUrl(): string {
 class AudioEngine {
   private audio: HTMLAudioElement;
   private isUsingNative: boolean = false;
+  private stopFadeInterval: number | null = null;
 
   // Playback State
   private isPlaying: boolean = false;
@@ -281,6 +282,7 @@ class AudioEngine {
     nativePath?: string,
     fadeOutPrevious: boolean = true
   ): Promise<void> {
+    this.cancelStopFade();
     this.currentTrackSrc = src;
     this.currentTrackPath = nativePath || '';
 
@@ -406,15 +408,45 @@ class AudioEngine {
     }
   }
 
-  public stop(): void {
+  private cancelStopFade(): void {
+    if (this.stopFadeInterval !== null) {
+      window.clearInterval(this.stopFadeInterval);
+      this.stopFadeInterval = null;
+    }
+  }
+
+  public stop(fadeOut: boolean = false): void {
+    const wasPlaying = this.isPlaying;
     this.isPlaying = false;
     this.playbackPosition = 0;
+    this.cancelStopFade();
 
     if (this.isUsingNative && isTauri()) {
-      invoke('native_stop').catch(() => {});
+      invoke('native_stop', { fadeOut }).catch(() => {});
       try {
         this.audio.pause();
       } catch (_) {}
+      return;
+    }
+
+    const startVolume = this.getEffectiveVolume();
+    const fadeDurationMs = this.fadeMode === 'off'
+      ? 12
+      : Math.round(Math.min(2.0, Math.max(0.08, this.fadeDuration)) * 1000);
+    if (fadeOut && wasPlaying && !this.audio.paused && startVolume > 0.01) {
+      const startTime = performance.now();
+      this.stopFadeInterval = window.setInterval(() => {
+        const progress = Math.min(1, (performance.now() - startTime) / fadeDurationMs);
+        this.audio.volume = this.getEffectiveVolume() * (1 - progress);
+        if (progress >= 1) {
+          this.cancelStopFade();
+          this.audio.pause();
+          try {
+            this.audio.currentTime = 0;
+          } catch (_) {}
+          this.audio.volume = this.getEffectiveVolume();
+        }
+      }, 16);
       return;
     }
 

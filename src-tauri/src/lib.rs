@@ -1165,7 +1165,7 @@ fn batch_check_files_exist(paths: Vec<String>) -> std::collections::HashMap<Stri
 #[tauri::command]
 async fn delete_files_from_disk(paths: Vec<String>, state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
     // If playback is currently active, stop native player to release any file locks
-    let _ = state.player.stop();
+    let _ = state.player.stop(false);
 
     tauri::async_runtime::spawn_blocking(move || {
         // Short grace pause for Windows filesystem handle closure
@@ -2541,8 +2541,11 @@ fn native_resume(state: tauri::State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn native_stop(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    state.player.stop()
+fn native_stop(
+    state: tauri::State<'_, AppState>,
+    fade_out: Option<bool>,
+) -> Result<(), String> {
+    state.player.stop(fade_out.unwrap_or(false))
 }
 
 #[tauri::command]
