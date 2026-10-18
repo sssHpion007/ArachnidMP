@@ -17,7 +17,15 @@ import {
   Car, 
   Moon, 
   BookOpen, 
-  Trophy 
+  Trophy,
+  Ghost,
+  Skull,
+  Bug,
+  Cat,
+  Crown,
+  Sword,
+  CloudLightning,
+  Dumbbell
 } from 'lucide-react';
 
 export interface FolderIconOption {
@@ -45,6 +53,14 @@ export const FOLDER_ICONS: FolderIconOption[] = [
   { id: 'book', label: 'Учёба / Фокус', icon: BookOpen },
   { id: 'trophy', label: 'Награды / Топ', icon: Trophy },
   { id: 'smile', label: 'Позитив', icon: Smile },
+  { id: 'ghost', label: 'Демон / Призрак', icon: Ghost },
+  { id: 'skull', label: 'Хоррор / Метал', icon: Skull },
+  { id: 'bug', label: 'Насекомые / Пауки', icon: Bug },
+  { id: 'cat', label: 'Кошки', icon: Cat },
+  { id: 'crown', label: 'Королевское / Топ', icon: Crown },
+  { id: 'sword', label: 'Игры / Битвы', icon: Sword },
+  { id: 'storm', label: 'Шторм / Электроника', icon: CloudLightning },
+  { id: 'fitness', label: 'Тренировки / Спорт', icon: Dumbbell },
 ];
 
 export const getFolderIconComponent = (iconId?: string) => {

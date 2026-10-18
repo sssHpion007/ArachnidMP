@@ -60,6 +60,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
   const dropTargetRef = useRef<typeof dropTarget>(null);
   const hasDraggedRef = useRef<boolean>(false);
   const listContainerRef = useRef<HTMLDivElement>(null);
+  const currentTrackRowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     dragStateRef.current = dragState;
@@ -212,6 +213,24 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
 
   const { isRendered, drawerClass } = useDrawerAnimation(isOpen, 180);
 
+  useEffect(() => {
+    if (!isOpen || !isRendered || queue.length === 0) return;
+
+    const frameId = requestAnimationFrame(() => {
+      const container = listContainerRef.current;
+      const currentRow = currentTrackRowRef.current;
+      if (!container || !currentRow) return;
+
+      const containerRect = container.getBoundingClientRect();
+      const rowRect = currentRow.getBoundingClientRect();
+      const rowTop = rowRect.top - containerRect.top + container.scrollTop;
+      const centeredScrollTop = rowTop - (container.clientHeight - currentRow.offsetHeight) / 2;
+      container.scrollTo({ top: Math.max(0, centeredScrollTop), behavior: 'auto' });
+    });
+
+    return () => cancelAnimationFrame(frameId);
+  }, [isOpen, isRendered, queue.length, queueIndex, currentTrack?.id]);
+
   if (!isRendered) return null;
 
   return (
@@ -275,6 +294,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
             return (
               <div
                 key={`${track.id}-${idx}`}
+                ref={isCurrent ? currentTrackRowRef : undefined}
                 data-queue-row-index={idx}
                 onPointerDown={(e) => handlePointerDown(e, idx)}
                 className={`relative group flex items-center justify-between p-2 rounded-2xl transition-all select-none ${

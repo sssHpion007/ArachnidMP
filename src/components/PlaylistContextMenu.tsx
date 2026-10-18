@@ -98,7 +98,7 @@ interface FlyoutMenuProps {
   width?: number;
 }
 
-const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
+export const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
   anchorEl,
   onMouseEnter,
   onMouseLeave,
@@ -149,6 +149,7 @@ const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
       }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
+      onMouseDown={(event) => event.stopPropagation()}
       className="fixed z-[60] bg-md3-surface-container-highest rounded-2xl shadow-2xl border border-md3-outline-variant/40 py-1.5 text-xs select-none max-h-[min(380px,calc(100vh-24px))] overflow-y-auto custom-scrollbar anim-menu-fade"
     >
       {/* Invisible hover bridge between anchor button and flyout menu */}
@@ -176,7 +177,7 @@ interface SubfolderMoveFlyoutProps {
   onParentMouseLeave?: () => void;
 }
 
-const SubfolderMoveFlyout: React.FC<SubfolderMoveFlyoutProps> = ({
+export const SubfolderMoveFlyout: React.FC<SubfolderMoveFlyoutProps> = ({
   folder,
   anchorEl,
   folders,

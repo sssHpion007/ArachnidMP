@@ -4326,6 +4326,7 @@ export const App: React.FC = () => {
           x={folderContextMenu.x}
           y={folderContextMenu.y}
           folder={folderContextMenu.folder}
+          folders={playlistFolders}
           groups={playlistGroups}
           language={language}
           onClose={() => setFolderContextMenu(null)}
@@ -4335,6 +4336,7 @@ export const App: React.FC = () => {
           onRename={(f) => setRenameItemTarget({ isOpen: true, type: 'folder', item: f })}
           onEditFolder={(f) => setEditingFolderTarget(f)}
           onDelete={(f) => setDeleteFolderTarget(f)}
+          onMoveToFolder={handleMoveFolderToFolder}
           onMoveToGroup={handleMoveFolderToGroup}
         />
       )}
