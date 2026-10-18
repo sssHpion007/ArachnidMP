@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
+  ChevronLeft,
   Disc3,
   Heart,
   Mic2,
@@ -28,6 +29,28 @@ import { MiniLyricsPane, MiniLyricsTrack } from './MiniLyricsPane';
 
 type LyricsMode = 'closed' | 'attached' | 'detached';
 type BottomPanel = 'queue' | 'library' | null;
+type LibraryTab = 'tracks' | 'playlists' | 'albums' | 'artists' | 'favorites' | 'genres';
+type LibraryCollectionType = 'albums' | 'artists' | 'genres';
+interface MiniLibraryCollection { name: string; tracks: Track[]; coverArt?: string; }
+
+const groupTracks = (tracks: Track[], getNames: (track: Track) => string | string[] | undefined) => {
+  const groups = new Map<string, Track[]>();
+  tracks.forEach(track => {
+    const names = getNames(track);
+    (Array.isArray(names) ? names : [names]).forEach(value => {
+      const name = value?.trim();
+      if (!name) return;
+      const group = groups.get(name);
+      if (group) group.push(track);
+      else groups.set(name, [track]);
+    });
+  });
+  return [...groups.entries()].map(([name, groupedTracks]): MiniLibraryCollection => ({
+    name,
+    tracks: groupedTracks,
+    coverArt: groupedTracks.find(track => track.coverArt)?.coverArt,
+  })).sort((a, b) => a.name.localeCompare(b.name));
+};
 
 interface MiniPlayerProps {
   currentTrack: Track | null;
@@ -107,7 +130,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   onCloseLyrics,
 }) => {
   const [bottomPanel, setBottomPanel] = useState<BottomPanel>(null);
+  const [libraryTab, setLibraryTab] = useState<LibraryTab>('tracks');
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
+  const [selectedCollection, setSelectedCollection] = useState<{ type: LibraryCollectionType; name: string } | null>(null);
   const [isCompactVolHovered, setIsCompactVolHovered] = useState(false);
   const volHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queueActiveItemRef = useRef<HTMLButtonElement>(null);
@@ -119,11 +144,27 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const safeDuration = duration > 0 ? duration : (currentTrack?.duration || 0);
   const safeTime = Math.max(0, Math.min(safeDuration || 0, currentTime));
   const currentPlaylist = playlists.find(playlist => playlist.id === selectedPlaylistId) || null;
+  const albums = useMemo(() => groupTracks(tracks, track => track.album?.trim() || text(language, 'Без альбома', 'No Album')), [language, tracks]);
+  const artists = useMemo(() => groupTracks(tracks, track => track.artist?.trim() || text(language, 'Неизвестный исполнитель', 'Unknown Artist')), [language, tracks]);
+  const genres = useMemo(() => groupTracks(tracks, track => {
+    const values = track.genre?.split(/[,/;\\]+/).map(genre => genre.trim()).filter(Boolean);
+    return values?.length ? [...new Set(values)] : text(language, 'Без жанра', 'No Genre');
+  }), [language, tracks]);
+  const selectedCollectionGroup = selectedCollection
+    ? (selectedCollection.type === 'albums' ? albums : selectedCollection.type === 'artists' ? artists : genres)
+      .find(group => group.name === selectedCollection.name) || null
+    : null;
   const libraryTracks = useMemo(() => {
-    if (!currentPlaylist) return tracks;
-    const byId = new Map(tracks.map(track => [track.id, track]));
-    return currentPlaylist.trackIds.map(id => byId.get(id)).filter((track): track is Track => !!track);
-  }, [currentPlaylist, tracks]);
+    if (currentPlaylist) {
+      const byId = new Map(tracks.map(track => [track.id, track]));
+      return currentPlaylist.trackIds.map(id => byId.get(id)).filter((track): track is Track => !!track);
+    }
+    if (selectedCollection) return selectedCollectionGroup?.tracks || [];
+    if (libraryTab === 'favorites') return tracks.filter(track => track.isFavorite);
+    if (libraryTab === 'tracks') return tracks;
+    return [];
+  }, [currentPlaylist, libraryTab, selectedCollection, selectedCollectionGroup, tracks]);
+  const visibleCollections = libraryTab === 'albums' ? albums : libraryTab === 'artists' ? artists : genres;
   const lyricsTrack: MiniLyricsTrack | null = currentTrack ? {
     title: currentTrack.title,
     artist: currentTrack.artist,
@@ -172,14 +213,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
 
   return (
     <div className="flex min-h-0 flex-1 bg-md3-background text-md3-on-background">
-      <section className="relative flex h-full w-[380px] shrink-0 flex-col overflow-hidden border-r border-md3-outline-variant/15 bg-md3-surface">
+      <section className="relative flex h-full w-[320px] shrink-0 flex-col overflow-hidden border-r border-md3-outline-variant/15 bg-md3-surface">
         <div className="flex min-h-0 flex-1 flex-col items-center gap-3 px-5 pb-3 pt-4">
           <button
             type="button"
             onClick={() => currentTrack && onOpenTrackDetails(currentTrack)}
             disabled={!currentTrack}
             title={currentTrack ? text(language, 'Открыть сведения о треке', 'Open track details') : undefined}
-            className="flex aspect-square w-full max-h-[min(48vh,320px)] items-center justify-center overflow-hidden rounded-[24px] bg-md3-surface-container-high shadow-xl disabled:cursor-default"
+            className="mx-auto flex aspect-square w-full max-w-[280px] shrink-0 items-center justify-center overflow-hidden rounded-[24px] bg-md3-surface-container-high shadow-xl disabled:cursor-default"
           >
             {currentTrack?.coverArt ? (
               <img src={currentTrack.coverArt} alt={currentTrack.title} className="h-full w-full object-cover" />
@@ -367,7 +408,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                 <header className="flex h-11 shrink-0 items-center gap-2 border-b border-md3-outline-variant/15 px-4">
                   <ListMusic size={16} className="text-md3-primary" />
                   <strong className="flex-1 text-xs">{text(language, 'Очередь воспроизведения', 'Play queue')} · {queue.length}</strong>
-                  <button type="button" onClick={() => setBottomPanel('library')} className="rounded-lg px-2 py-1 text-[10px] text-md3-primary hover:bg-md3-primary/10">{text(language, 'Библиотека', 'Library')}</button>
+                  <button type="button" onClick={() => { setLibraryTab('tracks'); setSelectedPlaylistId(null); setSelectedCollection(null); setBottomPanel('library'); }} className="rounded-lg px-2 py-1 text-[10px] text-md3-primary hover:bg-md3-primary/10">{text(language, 'Библиотека', 'Library')}</button>
                   <button type="button" onClick={onClearQueue} disabled={queue.length === 0} className="rounded-lg px-2 py-1 text-[10px] text-md3-on-surface-variant hover:bg-md3-surface-container-high disabled:opacity-30">{text(language, 'Очистить', 'Clear')}</button>
                   <button type="button" onClick={() => setBottomPanel(null)} aria-label={text(language, 'Закрыть', 'Close')} className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"><X size={15} /></button>
                 </header>
@@ -387,31 +428,102 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
               </>
             ) : (
               <>
-                <header className="flex h-11 shrink-0 items-center gap-2 border-b border-md3-outline-variant/15 px-3">
-                  <Library size={16} className="text-md3-primary" />
-                  <strong className="min-w-0 flex-1 truncate text-xs">{currentPlaylist?.name || text(language, 'Библиотека', 'Library')}</strong>
-                  <button type="button" onClick={() => setSelectedPlaylistId(null)} className={`rounded-lg px-2 py-1 text-[10px] ${!currentPlaylist ? 'bg-md3-primary/15 text-md3-primary' : 'text-md3-on-surface-variant hover:bg-md3-surface-container-high'}`}>{text(language, 'Все треки', 'All tracks')}</button>
+                <header className="flex h-11 shrink-0 items-center gap-1.5 border-b border-md3-outline-variant/15 px-2">
+                  {(currentPlaylist || selectedCollection) && (
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedPlaylistId(null); setSelectedCollection(null); }}
+                      aria-label={text(language, 'Назад к библиотеке', 'Back to library')}
+                      className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"
+                    ><ChevronLeft size={16} /></button>
+                  )}
+                  <Library size={15} className="shrink-0 text-md3-primary" />
+                  <strong className="min-w-0 flex-1 truncate text-[11px]">
+                    {currentPlaylist?.name || selectedCollectionGroup?.name || text(language, 'Библиотека', 'Library')}
+                  </strong>
+                  <button type="button" onClick={() => setBottomPanel('queue')} title={text(language, 'Очередь', 'Queue')} className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"><ListMusic size={15} /></button>
                   <button type="button" onClick={() => setBottomPanel(null)} aria-label={text(language, 'Закрыть', 'Close')} className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"><X size={15} /></button>
                 </header>
-                <div className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-md3-outline-variant/10 px-2 py-2 custom-scrollbar">
-                  {playlists.map(playlist => (
-                    <button key={playlist.id} type="button" onClick={() => setSelectedPlaylistId(playlist.id)} className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] ${selectedPlaylistId === playlist.id ? 'bg-md3-primary text-md3-on-primary' : 'bg-md3-surface-container-high text-md3-on-surface-variant hover:text-md3-on-surface'}`}>
-                      {playlist.name}
-                    </button>
-                  ))}
-                </div>
+                <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-md3-outline-variant/10 px-2 py-1.5 custom-scrollbar">
+                  {(['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'] as LibraryTab[]).map(tab => {
+                    const label = tab === 'tracks' ? text(language, 'Треки', 'Tracks')
+                      : tab === 'playlists' ? text(language, 'Плейлисты', 'Playlists')
+                        : tab === 'albums' ? text(language, 'Альбомы', 'Albums')
+                          : tab === 'artists' ? text(language, 'Артисты', 'Artists')
+                            : tab === 'favorites' ? text(language, 'Избранное', 'Favorites')
+                              : text(language, 'Жанры', 'Genres');
+                    const active = (currentPlaylist || selectedCollection) ? tab === libraryTab : libraryTab === tab;
+                    return (
+                      <button
+                        key={tab}
+                        type="button"
+                        onClick={() => { setLibraryTab(tab); setSelectedPlaylistId(null); setSelectedCollection(null); }}
+                        className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] transition-colors ${active ? 'bg-md3-primary text-md3-on-primary' : 'bg-md3-surface-container-high text-md3-on-surface-variant hover:text-md3-on-surface'}`}
+                      >{label}</button>
+                    );
+                  })}
+                </nav>
                 <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2">
-                  {libraryTracks.map(track => (
-                    <button key={track.id} type="button" onClick={() => onPlayTrack(track, libraryTracks)} className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-md3-on-surface hover:bg-md3-surface-container-high">
-                      {track.coverArt ? <img src={track.coverArt} alt="" className="h-9 w-9 shrink-0 rounded-lg object-cover" /> : <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-md3-surface-container-high"><Music2 size={15} /></span>}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-medium">{track.title}</span>
-                        <span className="block truncate text-[10px] text-md3-on-surface-variant">{track.artist}</span>
-                      </span>
-                      <span className="text-[10px] tabular-nums text-md3-on-surface-variant">{formatTime(track.duration)}</span>
-                    </button>
-                  ))}
-                  {libraryTracks.length === 0 && <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'В этом списке нет треков', 'No tracks in this list')}</p>}
+                  {libraryTab === 'playlists' && !currentPlaylist && !selectedCollection && (
+                    playlists.length > 0 ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        {playlists.map(playlist => {
+                          const cover = playlist.coverArt || tracks.find(track => playlist.trackIds.includes(track.id) && track.coverArt)?.coverArt;
+                          return (
+                            <button
+                              key={playlist.id}
+                              type="button"
+                              onClick={() => { setLibraryTab('tracks'); setSelectedCollection(null); setSelectedPlaylistId(playlist.id); }}
+                              className="group relative aspect-[1.18] min-w-0 overflow-hidden rounded-xl bg-md3-surface-container-high text-left transition-transform hover:scale-[1.02]"
+                            >
+                              {cover ? <img src={cover} alt="" className="absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" /> : <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/25 to-md3-surface-container-high"><ListMusic size={28} className="text-md3-primary/70" /></div>}
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
+                              <span className="absolute inset-x-2 bottom-2 min-w-0 text-white">
+                                <span className="block truncate text-[11px] font-semibold">{playlist.name}</span>
+                                <span className="block truncate text-[9px] text-white/75">{playlist.trackIds.length} {text(language, 'треков', 'tracks')}</span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Плейлистов пока нет', 'No playlists yet')}</p>
+                  )}
+                  {(['albums', 'artists', 'genres'] as LibraryTab[]).includes(libraryTab) && !selectedCollection && (
+                    visibleCollections.length > 0 ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        {visibleCollections.map(group => (
+                          <button
+                            key={group.name}
+                            type="button"
+                            onClick={() => setSelectedCollection({ type: libraryTab as LibraryCollectionType, name: group.name })}
+                            className="group relative aspect-[1.18] min-w-0 overflow-hidden rounded-xl bg-md3-surface-container-high text-left"
+                          >
+                            {group.coverArt ? <img src={group.coverArt} alt="" className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high"><Disc3 size={28} className="text-md3-primary/65" /></div>}
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+                            <span className="absolute inset-x-2 bottom-2 min-w-0 text-white">
+                              <span className="block truncate text-[11px] font-semibold">{group.name}</span>
+                              <span className="block truncate text-[9px] text-white/75">{group.tracks.length} {text(language, 'треков', 'tracks')}</span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Ничего не найдено', 'Nothing here yet')}</p>
+                  )}
+                  {(libraryTab === 'tracks' || libraryTab === 'favorites' || currentPlaylist || selectedCollection) && (
+                    <>
+                      {libraryTracks.map(track => (
+                        <button key={track.id} type="button" onClick={() => onPlayTrack(track, libraryTracks)} className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-md3-on-surface hover:bg-md3-surface-container-high">
+                          {track.coverArt ? <img src={track.coverArt} alt="" className="h-9 w-9 shrink-0 rounded-lg object-cover" /> : <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-md3-surface-container-high"><Music2 size={15} /></span>}
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-xs font-medium">{track.title}</span>
+                            <span className="block truncate text-[10px] text-md3-on-surface-variant">{track.artist}</span>
+                          </span>
+                          <span className="text-[10px] tabular-nums text-md3-on-surface-variant">{formatTime(track.duration)}</span>
+                        </button>
+                      ))}
+                      {libraryTracks.length === 0 && <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, libraryTab === 'favorites' ? 'В избранном пока нет треков' : 'В этом списке нет треков', libraryTab === 'favorites' ? 'No favorite tracks yet' : 'No tracks in this list')}</p>}
+                    </>
+                  )}
                 </div>
               </>
             )}

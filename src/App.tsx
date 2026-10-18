@@ -51,6 +51,10 @@ import { MiniPlayer } from './components/MiniPlayer';
 import { MiniLyricsTrack } from './components/MiniLyricsPane';
 import { ArrowLeft, Play, Disc3, Mic2, Tag, Trash2, ListMusic } from 'lucide-react';
 
+const MINI_WINDOW_WIDTH = 320;
+const MINI_WINDOW_HEIGHT = 560;
+const MINI_WINDOW_WITH_LYRICS_WIDTH = 620;
+
 const INITIAL_PLAYLISTS: Playlist[] = [
   {
     id: 'pl_favorites',
@@ -310,7 +314,8 @@ export const App: React.FC = () => {
     if (!isTauri()) return;
     try {
       const win = getCurrentWebviewWindow();
-      await win.setSize(new LogicalSize(width, 660));
+      await win.setResizable(false);
+      await win.setSize(new LogicalSize(width, MINI_WINDOW_HEIGHT));
     } catch (error) {
       console.warn('Unable to resize mini-player window:', error);
     }
@@ -325,8 +330,9 @@ export const App: React.FC = () => {
         const size = await win.outerSize().catch(() => new PhysicalSize(1280, 820));
         miniWindowRestoreRef.current = { wasMaximized, width: size.width, height: size.height };
         if (wasMaximized) await win.unmaximize();
-        await win.setMinSize(new LogicalSize(340, 480));
-        await win.setSize(new LogicalSize(miniLyricsMode === 'attached' ? 700 : 380, 660));
+        await win.setMinSize(new LogicalSize(MINI_WINDOW_WIDTH, MINI_WINDOW_HEIGHT));
+        await win.setResizable(false);
+        await win.setSize(new LogicalSize(miniLyricsMode === 'attached' ? MINI_WINDOW_WITH_LYRICS_WIDTH : MINI_WINDOW_WIDTH, MINI_WINDOW_HEIGHT));
       } catch (error) {
         console.warn('Unable to resize window for mini-player mode:', error);
       }
@@ -365,7 +371,7 @@ export const App: React.FC = () => {
     if (isTauri()) {
       try { await invoke('hide_mini_lyrics_window'); } catch (_) {}
     }
-    if (isMiniMode) await resizeMiniWindow(700);
+    if (isMiniMode) await resizeMiniWindow(MINI_WINDOW_WITH_LYRICS_WIDTH);
   }, [isMiniMode, resizeMiniWindow]);
 
   const closeMiniLyrics = useCallback(async () => {
@@ -373,7 +379,7 @@ export const App: React.FC = () => {
     if (isTauri()) {
       try { await invoke('hide_mini_lyrics_window'); } catch (_) {}
     }
-    if (isMiniMode) await resizeMiniWindow(380);
+    if (isMiniMode) await resizeMiniWindow(MINI_WINDOW_WIDTH);
   }, [isMiniMode, resizeMiniWindow]);
 
   const detachMiniLyrics = useCallback(async () => {
@@ -381,7 +387,7 @@ export const App: React.FC = () => {
     if (isTauri()) {
       try { await invoke('show_mini_lyrics_window'); } catch (error) { console.warn('Unable to open lyrics window:', error); }
     }
-    await resizeMiniWindow(380);
+    await resizeMiniWindow(MINI_WINDOW_WIDTH);
   }, [resizeMiniWindow]);
 
   const toggleMiniLyrics = useCallback(() => {

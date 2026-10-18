@@ -76,7 +76,7 @@ export const MiniLyricsPane: React.FC<MiniLyricsPaneProps> = ({
   }, [activeLineIndex]);
 
   return (
-    <aside className={`flex min-h-0 flex-col bg-md3-surface-container-low ${detached ? 'h-screen w-screen' : 'h-full w-[310px] shrink-0 border-l border-md3-outline-variant/20'}`}>
+    <aside className={`flex min-h-0 flex-col bg-md3-surface-container-low ${detached ? 'h-screen w-screen' : 'h-full w-[300px] shrink-0 border-l border-md3-outline-variant/20'}`}>
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-md3-outline-variant/15 px-3">
         <div data-tauri-drag-region className="flex h-full min-w-0 flex-1 flex-col justify-center">
           <div className="text-xs font-bold text-md3-on-surface">{language === 'ru' ? 'Текст песни' : 'Lyrics'}</div>
