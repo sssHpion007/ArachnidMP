@@ -1689,7 +1689,15 @@ async fn download_and_install_update(
         let exe_dir = current_exe
             .parent()
             .ok_or_else(|| "Cannot get executable directory".to_string())?;
-        let temp_update_file = exe_dir.join(".update_temp.tmp");
+        let update_id = format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        );
+        let temp_update_file = exe_dir.join(format!(".update_temp-{}.tmp", update_id));
 
         // 1. Download via ureq with auto-redirects (bypasses browser CORS completely)
         let download_result = (|| -> Result<(), String> {
@@ -1753,17 +1761,25 @@ async fn download_and_install_update(
                     .status();
 
                 if status.is_err() || !status.unwrap().success() {
+                    let _ = std::fs::remove_file(&temp_update_file);
                     return Err(format!("Download failed: {}", ureq_err));
                 }
             }
             #[cfg(not(target_os = "windows"))]
             {
+                let _ = std::fs::remove_file(&temp_update_file);
                 return Err(ureq_err);
             }
         }
 
         // 3. Verify downloaded file integrity
-        let meta = std::fs::metadata(&temp_update_file).map_err(|e| e.to_string())?;
+        let meta = match std::fs::metadata(&temp_update_file) {
+            Ok(meta) => meta,
+            Err(error) => {
+                let _ = std::fs::remove_file(&temp_update_file);
+                return Err(error.to_string());
+            }
+        };
         if meta.len() < 1_000_000 {
             let _ = std::fs::remove_file(&temp_update_file);
             return Err("Downloaded update file is too small or incomplete".to_string());
@@ -1779,64 +1795,10 @@ async fn download_and_install_update(
         // 4. In-place replacement via detached batch updater and restart
         #[cfg(target_os = "windows")]
         {
-            use std::process::Command;
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
-
-            let bat_path = exe_dir.join(".updater.bat");
-            let _ = std::fs::remove_file(&bat_path);
-            let _ = std::fs::remove_file(format!("{}.old", current_exe.to_string_lossy()));
-
-            let bat_content = format!(
-                r#"@echo off
-setlocal EnableExtensions
-chcp 65001 >nul
-set "target={target}"
-set "source={source}"
-set "backup={target}.old"
-set /a attempts=0
-:retry
-set /a attempts+=1
-ping 127.0.0.1 -n 3 >nul
-if exist "%target%" (
-  move /y "%target%" "%backup%" >nul 2>&1
-  if exist "%target%" goto wait_retry
-)
-if not exist "%source%" goto rollback
-move /y "%source%" "%target%" >nul 2>&1
-if exist "%target%" goto success
-:rollback
-if not exist "%target%" if exist "%backup%" move /y "%backup%" "%target%" >nul 2>&1
-:wait_retry
-if %attempts% GEQ 30 goto failed
-ping 127.0.0.1 -n 2 >nul
-goto retry
-:success
-start "" "%target%"
-ping 127.0.0.1 -n 3 >nul
-if exist "%backup%" del /f /q "%backup%" >nul 2>&1
-(goto) 2>nul & del "%~f0"
-goto :eof
-:failed
-if not exist "%target%" if exist "%backup%" move /y "%backup%" "%target%" >nul 2>&1
-if exist "%target%" start "" "%target%"
-echo Failed to replace the application executable. > "%TEMP%\arachnid-update-failed.txt"
-"#,
-                target = current_exe.to_string_lossy(),
-                source = temp_update_file.to_string_lossy()
-            );
-
-            std::fs::write(&bat_path, &bat_content)
-                .map_err(|e| format!("Failed to write updater script: {}", e))?;
-
-            Command::new("cmd.exe")
-                .current_dir(std::env::temp_dir())
-                .args(&["/c", &bat_path.to_string_lossy()])
-                .creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
-                .spawn()
-                .map_err(|e| format!("Failed to start the update helper: {}", e))?;
-
+            if let Err(error) = schedule_windows_update(&current_exe, &temp_update_file, &update_id) {
+                let _ = std::fs::remove_file(&temp_update_file);
+                return Err(error);
+            }
             clean_exit();
         }
 
@@ -1850,60 +1812,117 @@ echo Failed to replace the application executable. > "%TEMP%\arachnid-update-fai
     .map_err(|e| e.to_string())?
 }
 
+#[cfg(target_os = "windows")]
+fn schedule_windows_update(
+    current_exe: &Path,
+    update_file: &Path,
+    update_id: &str,
+) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
+    const DETACHED_PROCESS: u32 = 0x00000008;
+
+    let mut backup_os = current_exe.as_os_str().to_os_string();
+    backup_os.push(format!(".old.{}", update_id));
+    let backup_path = PathBuf::from(backup_os);
+    let script_path = std::env::temp_dir().join(format!("Arachnid-Updater-{}.ps1", update_id));
+    let error_path = std::env::temp_dir().join(format!("Arachnid-Update-Error-{}.txt", update_id));
+
+    let quote_ps = |path: &Path| path.to_string_lossy().replace('\'', "''");
+    let script = include_str!("../updater.ps1")
+        .replace("__TARGET__", &quote_ps(current_exe))
+        .replace("__SOURCE__", &quote_ps(update_file))
+        .replace("__BACKUP__", &quote_ps(&backup_path))
+        .replace("__SCRIPT__", &quote_ps(&script_path))
+        .replace("__ERROR__", &quote_ps(&error_path))
+        .replace("__SUCCESS__", "")
+        .replace("__PARENT_PID__", &std::process::id().to_string());
+
+    // BOM is required by Windows PowerShell 5.1 when paths contain non-ASCII characters.
+    let mut script_bytes = vec![0xEF, 0xBB, 0xBF];
+    script_bytes.extend_from_slice(script.as_bytes());
+    std::fs::write(&script_path, script_bytes)
+        .map_err(|e| format!("Unable to write the update helper: {}", e))?;
+
+    // The app's Windows Job Object normally kills every child when its last
+    // handle closes. Temporarily disable that policy so the updater survives
+    // clean_exit even on systems where CREATE_BREAKAWAY_FROM_JOB is restricted.
+    if let Err(error) = windows_process_grouping::set_job_kill_on_close(false) {
+        let _ = std::fs::remove_file(&script_path);
+        return Err(format!("Unable to detach updater from player shutdown: {}", error));
+    }
+
+    let script_arg = script_path.to_string_lossy().into_owned();
+    let spawn_result = Command::new("powershell.exe")
+        .current_dir(std::env::temp_dir())
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-WindowStyle",
+            "Hidden",
+            "-File",
+            &script_arg,
+        ])
+        .creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS)
+        .spawn();
+
+    if let Err(error) = spawn_result {
+        let _ = windows_process_grouping::set_job_kill_on_close(true);
+        let _ = std::fs::remove_file(&script_path);
+        return Err(format!("Unable to start the detached updater: {}", error));
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 fn apply_in_place_update(base64_data: String) -> Result<(), String> {
     let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let exe_dir = current_exe
         .parent()
         .ok_or_else(|| "Cannot get executable directory".to_string())?;
-    let temp_update_file = exe_dir.join(".update_temp.tmp");
+    let update_id = format!(
+        "{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
+    let temp_update_file = exe_dir.join(format!(".update_temp-{}.tmp", update_id));
 
     let bytes = BASE64_STANDARD
         .decode(base64_data.trim())
         .map_err(|e| format!("Failed to decode base64 update data: {}", e))?;
 
-    std::fs::write(&temp_update_file, &bytes)
-        .map_err(|e| format!("Failed to write update binary: {}", e))?;
+    if let Err(error) = std::fs::write(&temp_update_file, &bytes) {
+        let _ = std::fs::remove_file(&temp_update_file);
+        return Err(format!("Failed to write update binary: {}", error));
+    }
 
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
-
-        let bat_path = exe_dir.join(".updater.bat");
-        let _ = std::fs::remove_file(&bat_path);
-        let _ = std::fs::remove_file(format!("{}.old", current_exe.to_string_lossy()));
-
-        let bat_content = format!(
-            "@echo off\r\n\
-            chcp 65001 >nul\r\n\
-            ping 127.0.0.1 -n 3 >nul\r\n\
-            :retry\r\n\
-            if exist \"{target}.old\" del /f /q \"{target}.old\" >nul 2>&1\r\n\
-            move /y \"{target}\" \"{target}.old\" >nul 2>&1\r\n\
-            move /y \"{source}\" \"{target}\" >nul 2>&1\r\n\
-            if not exist \"{target}\" (\r\n\
-                ping 127.0.0.1 -n 2 >nul\r\n\
-                goto retry\r\n\
-            )\r\n\
-            start \"\" \"{target}\"\r\n\
-            del /f /q \"{target}.old\" >nul 2>&1\r\n\
-            (goto) 2>nul & del \"%~f0\"\r\n",
-            target = current_exe.to_string_lossy(),
-            source = temp_update_file.to_string_lossy()
-        );
-
-        std::fs::write(&bat_path, &bat_content)
-            .map_err(|e| format!("Failed to write updater script: {}", e))?;
-
-        let _ = Command::new("cmd.exe")
-            .current_dir(std::env::temp_dir())
-            .args(&["/c", &bat_path.to_string_lossy()])
-            .creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
-            .spawn();
-
+        let mut signature = [0u8; 2];
+        if let Err(error) = std::fs::File::open(&temp_update_file)
+            .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut signature))
+        {
+            let _ = std::fs::remove_file(&temp_update_file);
+            return Err(format!("Unable to verify update executable: {}", error));
+        }
+        if signature != *b"MZ" {
+            let _ = std::fs::remove_file(&temp_update_file);
+            return Err("The update data is not a valid Windows executable".to_string());
+        }
+        if let Err(error) = schedule_windows_update(&current_exe, &temp_update_file, &update_id) {
+            let _ = std::fs::remove_file(&temp_update_file);
+            return Err(error);
+        }
         clean_exit();
     }
 
@@ -1958,6 +1977,8 @@ mod windows_process_grouping {
     const JOB_OBJECT_LIMIT_BREAKAWAY_OK: u32 = 0x00000800;
     const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: i32 = 9;
 
+    static mut PROCESS_JOB: *mut std::ffi::c_void = std::ptr::null_mut();
+
     extern "system" {
         fn SetCurrentProcessExplicitAppUserModelID(AppID: *const u16) -> i32;
         fn CreateJobObjectW(lpJobAttributes: *mut std::ffi::c_void, lpName: *const u16) -> *mut std::ffi::c_void;
@@ -1994,6 +2015,32 @@ mod windows_process_grouping {
     const TH32CS_SNAPPROCESS: u32 = 0x00000002;
     const PROCESS_SET_QUOTA: u32 = 0x0100;
     const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+
+    pub fn set_job_kill_on_close(enabled: bool) -> Result<(), String> {
+        unsafe {
+            let job = PROCESS_JOB;
+            if job.is_null() {
+                return Ok(());
+            }
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            info.basic_limit_information.limit_flags = if enabled {
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK
+            } else {
+                JOB_OBJECT_LIMIT_BREAKAWAY_OK
+            };
+            let result = SetInformationJobObject(
+                job,
+                JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+                &info as *const _ as *const std::ffi::c_void,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            );
+            if result == 0 {
+                Err(std::io::Error::last_os_error().to_string())
+            } else {
+                Ok(())
+            }
+        }
+    }
 
     pub fn trim_working_set() {
         unsafe {
@@ -2116,7 +2163,6 @@ mod windows_process_grouping {
 
         // 2. Put main process and any child processes (like msedgewebview2.exe) in a dedicated Job Object
         // This groups them cleanly in Windows Task Manager and ensures child processes cleanly close on exit
-        static mut PROCESS_JOB: *mut std::ffi::c_void = std::ptr::null_mut();
         unsafe {
             let job = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
             if !job.is_null() {
@@ -2174,20 +2220,34 @@ mod windows_process_grouping {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn cleanup_legacy_update_artifacts() {
+    // Versions before the detached PowerShell updater left shared-name files behind.
+    // Only remove those stale staging files when a valid player executable exists;
+    // retain any .old backup so it remains available for manual recovery.
+    if let Ok(current_exe) = std::env::current_exe() {
+        let mut signature = [0u8; 2];
+        let is_valid_exe = std::fs::File::open(&current_exe)
+            .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut signature))
+            .is_ok()
+            && signature == *b"MZ";
+        if is_valid_exe {
+            if let Some(parent) = current_exe.parent() {
+                let _ = std::fs::remove_file(parent.join(".updater.bat"));
+                let _ = std::fs::remove_file(parent.join(".update.bat"));
+                let _ = std::fs::remove_file(parent.join(".update_temp.tmp"));
+            }
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let base_dir = storage::get_portable_base_dir();
     storage::init_storage_structure(&base_dir);
 
-    // Clean up temporary update files from previous run if any
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(parent) = current_exe.parent() {
-            let _ = std::fs::remove_file(parent.join(".updater.bat"));
-            let _ = std::fs::remove_file(parent.join(".update.bat"));
-            let _ = std::fs::remove_file(parent.join(".update_temp.tmp"));
-            let _ = std::fs::remove_file(format!("{}.old", current_exe.to_string_lossy()));
-        }
-    }
+    #[cfg(target_os = "windows")]
+    cleanup_legacy_update_artifacts();
 
     #[cfg(target_os = "windows")]
     {
