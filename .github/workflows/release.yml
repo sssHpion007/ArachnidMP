@@ -147,8 +147,17 @@ jobs:
             $startInfo.CreateNoWindow = $true
             $updater = [Diagnostics.Process]::Start($startInfo)
             Stop-Process -Id $parent.Id -Force
-            Start-Sleep -Seconds 3
-            if (-not (Test-Path $backup)) { throw "Updater discarded its backup before validating the replacement." }
+            $backupDeadline = [DateTime]::UtcNow.AddSeconds(15)
+            while ([DateTime]::UtcNow -lt $backupDeadline -and -not $updater.HasExited -and -not (Test-Path $backup)) {
+              Start-Sleep -Milliseconds 200
+            }
+            if (-not (Test-Path $backup)) {
+              $trace = if (Test-Path $logPath) { Get-Content $logPath -Raw } else { "No updater trace was written." }
+              $reason = if (Test-Path $errorPath) { Get-Content $errorPath -Raw } else { "No updater error report was written." }
+              throw "Updater did not create the original-executable backup before startup validation. Error=$reason Trace=$trace"
+            }
+            Start-Sleep -Seconds 2
+            if (-not (Test-Path $backup)) { throw "Updater removed the original backup before validating the replacement executable." }
             if (-not $updater.WaitForExit(45000)) { Stop-Process -Id $updater.Id -Force; throw "Updater helper timed out." }
             if (-not (Test-Path $successPath)) {
               $reason = if (Test-Path $errorPath) { Get-Content $errorPath -Raw } else { "No updater completion marker was written." }
