@@ -102,12 +102,24 @@ export const getThemedPlayIconColor = (
   const lIcon = relLum(sr, sg, sb);
   const contrast = (Math.max(lBg, lIcon) + 0.05) / (Math.min(lBg, lIcon) + 0.05);
 
+  const hex = (v: number) => v.toString(16).padStart(2, '0');
+  const shadedColor = `#${hex(sr)}${hex(sg)}${hex(sb)}`;
   if (contrast >= 3.0) {
-    const hex = (v: number) => v.toString(16).padStart(2, '0');
-    return `#${hex(sr)}${hex(sg)}${hex(sb)}`;
+    return shadedColor;
   }
 
-  // Fallback: maximum-contrast plain black/white
+  // If even the theme-direction endpoint (black in dark mode, white in light
+  // mode) cannot meet 3:1, no icon in that direction can. Preserve the tinted
+  // shade rather than switching to the opposite, visually jarring color.
+  const endpointLuminance = isDarkTheme ? relLum(0, 0, 0) : relLum(255, 255, 255);
+  const endpointContrast =
+    (Math.max(lBg, endpointLuminance) + 0.05) /
+    (Math.min(lBg, endpointLuminance) + 0.05);
+  if (endpointContrast < 3.0) {
+    return shadedColor;
+  }
+
+  // Fallback: maximum-contrast plain black/white when it can meet the target.
   const perceptual = 0.299 * r + 0.587 * g + 0.114 * b;
   return perceptual > 150 ? '#000000' : '#ffffff';
 };
