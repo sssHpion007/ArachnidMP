@@ -91,6 +91,8 @@ jobs:
             $startInfo.CreateNoWindow = $true
             $updater = [Diagnostics.Process]::Start($startInfo)
             Stop-Process -Id $parent.Id -Force
+            Start-Sleep -Seconds 3
+            if (-not (Test-Path $backup)) { throw "Updater discarded its backup before validating the replacement." }
             if (-not $updater.WaitForExit(45000)) { Stop-Process -Id $updater.Id -Force; throw "Updater helper timed out." }
             if (-not (Test-Path $successPath)) {
               $reason = if (Test-Path $errorPath) { Get-Content $errorPath -Raw } else { "No updater completion marker was written." }
@@ -135,8 +137,6 @@ jobs:
             $rollbackStart.CreateNoWindow = $true
             $rollbackUpdater = [Diagnostics.Process]::Start($rollbackStart)
             Stop-Process -Id $rollbackParent.Id -Force
-            Start-Sleep -Seconds 3
-            if (-not (Test-Path $rollbackBackup)) { throw "Updater discarded its backup before validating the replacement." }
             if (-not $rollbackUpdater.WaitForExit(45000)) { Stop-Process -Id $rollbackUpdater.Id -Force; throw "Rollback helper timed out." }
             if (-not (Test-Path $rollbackErrorPath) -or (Test-Path $rollbackBackup) -or (Test-Path $rollbackSource)) {
               throw "Updater rollback did not complete or left staged files behind."
