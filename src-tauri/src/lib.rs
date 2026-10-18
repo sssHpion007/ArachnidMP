@@ -1540,8 +1540,10 @@ fn show_window(window: tauri::Window) -> Result<(), String> {
     Ok(())
 }
 
+// Creating a WebView can wait for the main event loop. Keep this command async
+// so its synchronous builder work does not block the invoking window's UI thread.
 #[tauri::command]
-fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+async fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     if std::env::var_os("ARACHNID_SMOKE_TEST_LYRICS").is_some() {
         eprintln!("Smoke test: show_lyrics_window command invoked");
     }
