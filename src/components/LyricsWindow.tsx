@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { isTauri } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { MiniLyricsPane } from './MiniLyricsPane';
 import { LYRICS_WINDOW_EVENTS } from '../utils/lyricsWindowEvents';
 import type { LyricsWindowAction, LyricsWindowPayload } from '../utils/lyricsWindowEvents';
@@ -15,12 +15,12 @@ const EMPTY_STATE: LyricsWindowPayload = {
   isMiniMode: false,
 };
 
-export const LyricsWindow: React.FC = () => {
+export const LyricsWindow: React.FC<{ crossProcess?: boolean }> = ({ crossProcess = false }) => {
   const [state, setState] = useState<LyricsWindowPayload>(EMPTY_STATE);
   const channelRef = useRef<BroadcastChannel | null>(null);
 
   useEffect(() => {
-    if (isTauri()) {
+    if (isTauri() && !crossProcess) {
       let disposed = false;
       let unlistenState: (() => void) | undefined;
       let unlistenClose: (() => void) | undefined;
@@ -45,8 +45,8 @@ export const LyricsWindow: React.FC = () => {
         }
         unlistenState = unlisten;
         announceReady();
-        // The main webview can mount slightly later than a pre-created hidden window.
-        // Retry the handshake until its first state snapshot arrives.
+        // The player and lyrics companion start independently; retry until the
+        // parent's first state snapshot arrives.
         readyTimer = setInterval(() => {
           if (hasReceivedState) {
             if (readyTimer) clearInterval(readyTimer);
@@ -75,6 +75,11 @@ export const LyricsWindow: React.FC = () => {
     if (typeof BroadcastChannel === 'undefined') return;
     const channel = new BroadcastChannel(CHANNEL_NAME);
     channelRef.current = channel;
+    if (isTauri() && crossProcess) {
+      void invoke('prepare_lyrics_child_window').catch(error => {
+        console.error('Unable to prepare the lyrics companion window:', error);
+      });
+    }
     let hasReceivedState = false;
     const sendReady = () => channel.postMessage({ type: 'lyrics-window-ready' });
     channel.onmessage = event => {
@@ -93,10 +98,10 @@ export const LyricsWindow: React.FC = () => {
       channel.close();
       channelRef.current = null;
     };
-  }, []);
+  }, [crossProcess]);
 
   const sendAction = React.useCallback((action: LyricsWindowAction) => {
-    if (isTauri()) {
+    if (isTauri() && !crossProcess) {
       void emitTo('main', LYRICS_WINDOW_EVENTS.action, action).catch(error => {
         console.warn('Unable to send lyrics window action:', error);
       });
@@ -120,7 +125,7 @@ export const LyricsWindow: React.FC = () => {
         } : {}),
       });
     }
-  }, []);
+  }, [crossProcess]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {

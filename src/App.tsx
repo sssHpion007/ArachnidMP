@@ -432,12 +432,45 @@ export const App: React.FC = () => {
     let disposed = false;
     let unlistenReady: (() => void) | undefined;
     let unlistenAction: (() => void) | undefined;
+    const channel = typeof BroadcastChannel === 'undefined'
+      ? null
+      : new BroadcastChannel('arachnid-mini-player-lyrics');
+    miniLyricsChannelRef.current = channel;
 
     const sendCurrentState = () => {
-      void emitTo('lyrics', LYRICS_WINDOW_EVENTS.state, miniLyricsPayloadRef.current).catch(error => {
-        console.warn('Unable to synchronize the lyrics window:', error);
-      });
+      channel?.postMessage({ type: 'state', payload: miniLyricsPayloadRef.current });
+      if (isTauri()) {
+        void emitTo('lyrics', LYRICS_WINDOW_EVENTS.state, miniLyricsPayloadRef.current).catch(error => {
+          console.warn('Unable to synchronize the lyrics window:', error);
+        });
+      }
     };
+
+    if (channel) {
+      channel.onmessage = event => {
+        if (event.data?.type === 'lyrics-window-ready') {
+          sendCurrentState();
+        } else if (event.data?.type === 'attach-lyrics') {
+          void attachMiniLyrics();
+        } else if (event.data?.type === 'close-lyrics') {
+          void closeMiniLyrics();
+        } else if (event.data?.type === 'seek-lyrics') {
+          const time = Number(event.data.time);
+          if (Number.isFinite(time) && time >= 0) miniLyricsSeekHandlerRef.current(time);
+        } else if (event.data?.type === 'lyrics-keyboard') {
+          document.body.dispatchEvent(new KeyboardEvent('keydown', {
+            key: event.data.key,
+            code: event.data.code,
+            shiftKey: !!event.data.shiftKey,
+            ctrlKey: !!event.data.ctrlKey,
+            metaKey: !!event.data.metaKey,
+            altKey: !!event.data.altKey,
+            bubbles: true,
+            cancelable: true,
+          }));
+        }
+      };
+    }
 
     if (isTauri()) {
       void listen<null>(LYRICS_WINDOW_EVENTS.ready, () => sendCurrentState()).then(unlisten => {
@@ -469,51 +502,21 @@ export const App: React.FC = () => {
         if (disposed) unlisten();
         else unlistenAction = unlisten;
       }).catch(error => console.error('Unable to listen for lyrics window actions:', error));
-
-      return () => {
-        disposed = true;
-        unlistenReady?.();
-        unlistenAction?.();
-      };
     }
 
-    if (typeof BroadcastChannel === 'undefined') return;
-    const channel = new BroadcastChannel('arachnid-mini-player-lyrics');
-    miniLyricsChannelRef.current = channel;
-    channel.onmessage = event => {
-      if (event.data?.type === 'lyrics-window-ready') {
-        channel.postMessage({ type: 'state', payload: miniLyricsPayloadRef.current });
-      } else if (event.data?.type === 'attach-lyrics') {
-        void attachMiniLyrics();
-      } else if (event.data?.type === 'close-lyrics') {
-        void closeMiniLyrics();
-      } else if (event.data?.type === 'seek-lyrics') {
-        const time = Number(event.data.time);
-        if (Number.isFinite(time) && time >= 0) miniLyricsSeekHandlerRef.current(time);
-      } else if (event.data?.type === 'lyrics-keyboard') {
-        document.body.dispatchEvent(new KeyboardEvent('keydown', {
-          key: event.data.key,
-          code: event.data.code,
-          shiftKey: !!event.data.shiftKey,
-          ctrlKey: !!event.data.ctrlKey,
-          metaKey: !!event.data.metaKey,
-          altKey: !!event.data.altKey,
-          bubbles: true,
-          cancelable: true,
-        }));
-      }
-    };
     return () => {
-      channel.close();
+      disposed = true;
+      unlistenReady?.();
+      unlistenAction?.();
+      channel?.close();
       miniLyricsChannelRef.current = null;
     };
   }, [attachMiniLyrics, closeMiniLyrics]);
 
   useEffect(() => {
+    miniLyricsChannelRef.current?.postMessage({ type: 'state', payload: miniLyricsPayloadRef.current });
     if (isTauri()) {
       void emitTo('lyrics', LYRICS_WINDOW_EVENTS.state, miniLyricsPayloadRef.current).catch(() => {});
-    } else {
-      miniLyricsChannelRef.current?.postMessage({ type: 'state', payload: miniLyricsPayloadRef.current });
     }
   }, [currentTrack, currentTime, isPlaying, language, isMiniMode, miniLyricsMode]);
 

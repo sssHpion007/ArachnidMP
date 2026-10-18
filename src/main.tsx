@@ -1,5 +1,6 @@
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { generateCustomOrBuiltinPalette, applyM3ThemeToDOM, DEFAULT_SEED_COLOR } from './theme/material3';
 import './index.css';
@@ -19,17 +20,35 @@ try {
   }
 } catch (_) {}
 
-const isLyricsWindow = new URLSearchParams(window.location.search).get('lyricsWindow') === '1'
-  || new URLSearchParams(window.location.search).get('miniLyrics') === '1';
-const RoutedApp = isLyricsWindow
-  ? lazy(() => import('./components/LyricsWindow').then(module => ({ default: module.LyricsWindow })))
-  : lazy(() => import('./App').then(module => ({ default: module.App })));
+const LyricsWindowRoute = lazy(() => import('./components/LyricsWindow').then(module => ({ default: module.LyricsWindow })));
+const PlayerRoute = lazy(() => import('./App').then(module => ({ default: module.App })));
+
+const StartupRouter: React.FC = () => {
+  const requestedLyricsWindow = new URLSearchParams(window.location.search).get('lyricsWindow') === '1'
+    || new URLSearchParams(window.location.search).get('miniLyrics') === '1';
+  const [route, setRoute] = useState<'pending' | 'lyrics' | 'player'>(requestedLyricsWindow ? 'lyrics' : 'pending');
+
+  useEffect(() => {
+    if (requestedLyricsWindow) return;
+    if (!isTauri()) {
+      setRoute('player');
+      return;
+    }
+    void invoke<boolean>('is_lyrics_child').then(isChild => {
+      setRoute(isChild ? 'lyrics' : 'player');
+    }).catch(() => setRoute('player'));
+  }, [requestedLyricsWindow]);
+
+  if (route === 'pending') return null;
+  if (route === 'lyrics') return <LyricsWindowRoute crossProcess={isTauri()} />;
+  return <PlayerRoute />;
+};
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <ErrorBoundary>
       <Suspense fallback={null}>
-        <RoutedApp />
+        <StartupRouter />
       </Suspense>
     </ErrorBoundary>
   </React.StrictMode>

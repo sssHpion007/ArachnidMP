@@ -5,7 +5,9 @@ mod logger;
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use std::process::{Child, Command};
+use std::sync::Mutex;
+use tauri::{Emitter, Manager, State};
 use base64::prelude::*;
 use lofty::config::{ParseOptions, ParsingMode, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
@@ -1540,109 +1542,119 @@ fn show_window(window: tauri::Window) -> Result<(), String> {
     Ok(())
 }
 
-// Creating a WebView can wait for the main event loop. Keep this command async
-// so its synchronous builder work does not block the invoking window's UI thread.
+#[derive(Default)]
+struct LyricsChildState(Mutex<Option<Child>>);
+
+#[cfg(target_os = "windows")]
+fn focus_lyrics_child_window(pid: u32) -> bool {
+    use std::ffi::c_void;
+
+    #[repr(C)]
+    struct SearchWindow {
+        target_pid: u32,
+        hwnd: *mut c_void,
+    }
+
+    unsafe extern "system" fn find_window(hwnd: *mut c_void, data: isize) -> i32 {
+        let search = &mut *(data as *mut SearchWindow);
+        let mut process_id = 0;
+        GetWindowThreadProcessId(hwnd, &mut process_id);
+        if process_id == search.target_pid && IsWindowVisible(hwnd) != 0 {
+            search.hwnd = hwnd;
+            0
+        } else {
+            1
+        }
+    }
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn EnumWindows(callback: Option<unsafe extern "system" fn(*mut c_void, isize) -> i32>, data: isize) -> i32;
+        fn GetWindowThreadProcessId(hwnd: *mut c_void, process_id: *mut u32) -> u32;
+        fn IsWindowVisible(hwnd: *mut c_void) -> i32;
+        fn ShowWindow(hwnd: *mut c_void, command: i32) -> i32;
+        fn SetForegroundWindow(hwnd: *mut c_void) -> i32;
+    }
+
+    let mut search = SearchWindow { target_pid: pid, hwnd: std::ptr::null_mut() };
+    unsafe {
+        EnumWindows(Some(find_window), &mut search as *mut _ as isize);
+        if search.hwnd.is_null() {
+            return false;
+        }
+        ShowWindow(search.hwnd, 9); // SW_RESTORE
+        SetForegroundWindow(search.hwnd) != 0
+    }
+}
+
+// WebView2 reports 0x8007139F when a second controller is created in this
+// process on Windows, so lyrics runs in a companion process with its own WebView.
 #[tauri::command]
-async fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+fn show_lyrics_window(state: State<'_, LyricsChildState>) -> Result<(), String> {
     if std::env::var_os("ARACHNID_SMOKE_TEST_LYRICS").is_some() {
         eprintln!("Smoke test: show_lyrics_window command invoked");
     }
-    const LYRICS_WINDOW_WIDTH: f64 = 440.0;
-    const LYRICS_WINDOW_HEIGHT: f64 = 700.0;
-    const WINDOW_GAP: i64 = 12;
 
-    let (lyrics_window, created) = match app_handle.get_webview_window("lyrics") {
-        Some(window) => (window, false),
-        None => (
-            WebviewWindowBuilder::new(
-                &app_handle,
-                "lyrics",
-                WebviewUrl::App("index.html?lyricsWindow=1".into()),
-            )
-            .title("Arachnid Lyrics")
-            .inner_size(LYRICS_WINDOW_WIDTH, LYRICS_WINDOW_HEIGHT)
-            .min_inner_size(280.0, 360.0)
-            .decorations(false)
-            .visible(false)
-            .build()
-            .map_err(|e| {
-                let message = format!("Unable to create lyrics window: {}", e);
-                eprintln!("{}", message);
-                message
-            })?,
-            true,
-        ),
-    };
-    if std::env::var_os("ARACHNID_SMOKE_TEST_LYRICS").is_some() {
-        eprintln!("Smoke test: lyrics webview created={}, visible={:?}, title={:?}", created, lyrics_window.is_visible(), lyrics_window.title());
+    let mut child_slot = state.0.lock().map_err(|e| e.to_string())?;
+    if let Some(child) = child_slot.as_mut() {
+        match child.try_wait().map_err(|e| e.to_string())? {
+            None => {
+                #[cfg(target_os = "windows")]
+                let _ = focus_lyrics_child_window(child.id());
+                return Ok(());
+            }
+            Some(_) => *child_slot = None,
+        }
     }
 
-    // Position the lyric window beside the player on first creation. If the
-    // player fills the monitor, center the lyric window there instead.
-    if created {
-      if let Some(main_window) = app_handle.get_webview_window("main") {
-        if let (Ok(main_position), Ok(main_size), Ok(Some(monitor)), Ok(scale_factor)) = (
-            main_window.outer_position(),
-            main_window.outer_size(),
-            main_window.current_monitor(),
-            main_window.scale_factor(),
-        ) {
-            let monitor_position = monitor.position();
-            let monitor_size = monitor.size();
-            let left = monitor_position.x as i64;
-            let top = monitor_position.y as i64;
-            let right = left + monitor_size.width as i64;
-            let bottom = top + monitor_size.height as i64;
-            let lyrics_width = (LYRICS_WINDOW_WIDTH * scale_factor).round() as i64;
-            let lyrics_height = (LYRICS_WINDOW_HEIGHT * scale_factor).round() as i64;
-            let main_x = main_position.x as i64;
-            let main_y = main_position.y as i64;
-            let main_right = main_x + main_size.width as i64;
-            let right_x = main_right + WINDOW_GAP;
-            let left_x = main_x - lyrics_width - WINDOW_GAP;
-            let x = if right_x + lyrics_width <= right {
-                right_x
-            } else if left_x >= left {
-                left_x
-            } else {
-                left + ((monitor_size.width as i64 - lyrics_width).max(0) / 2)
-            };
-            let preferred_y = main_y + (main_size.height as i64 - lyrics_height) / 2;
-            let y = preferred_y.clamp(top, (bottom - lyrics_height).max(top));
-            // Geometry is best-effort; failure to position must not prevent the window opening.
-            let _ = lyrics_window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
-        }
-      }
+    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    let mut command = Command::new(executable);
+    command.arg("--lyrics-child").env("ARACHNID_LYRICS_CHILD", "1");
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
+        command.creation_flags(CREATE_BREAKAWAY_FROM_JOB);
     }
-
-    let _ = lyrics_window.unminimize();
-    lyrics_window.show().map_err(|e| {
-        let message = format!("Unable to show lyrics window: {}", e);
-        if std::env::var_os("ARACHNID_SMOKE_TEST_LYRICS").is_some() {
-            eprintln!("{}", message);
-        }
-        message
-    })?;
-    // Do not refocus the player here: doing so immediately covered the lyrics
-    // window and made the supposedly detached view appear not to open.
-    lyrics_window.set_focus().map_err(|e| {
-        let message = format!("Unable to focus lyrics window: {}", e);
-        if std::env::var_os("ARACHNID_SMOKE_TEST_LYRICS").is_some() {
-            eprintln!("{}", message);
-        }
-        message
-    })?;
+    let child = command
+        .spawn()
+        .map_err(|e| format!("Unable to launch lyrics companion process: {}", e))?;
     if std::env::var_os("ARACHNID_SMOKE_TEST_LYRICS").is_some() {
-        eprintln!("Smoke test: lyrics webview show/focus completed; visible={:?}, title={:?}", lyrics_window.is_visible(), lyrics_window.title());
+        eprintln!("Smoke test: lyrics companion process started, pid={}", child.id());
+    }
+    *child_slot = Some(child);
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_lyrics_window(state: State<'_, LyricsChildState>) -> Result<(), String> {
+    if let Some(mut child) = state.0.lock().map_err(|e| e.to_string())?.take() {
+        let _ = child.kill();
+        let _ = child.wait();
     }
     Ok(())
 }
 
 #[tauri::command]
-fn hide_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
-    if let Some(window) = app_handle.get_webview_window("lyrics") {
-        window.hide().map_err(|e| format!("Unable to hide lyrics window: {}", e))?;
+fn is_lyrics_child() -> bool {
+    std::env::var_os("ARACHNID_LYRICS_CHILD").is_some()
+}
+
+#[tauri::command]
+fn prepare_lyrics_child_window(window: tauri::Window) -> Result<(), String> {
+    if !is_lyrics_child() {
+        return Ok(());
     }
+    window.unmaximize().map_err(|e| e.to_string())?;
+    window.set_title("Arachnid Lyrics").map_err(|e| e.to_string())?;
+    window.set_decorations(false).map_err(|e| e.to_string())?;
+    window.set_resizable(true).map_err(|e| e.to_string())?;
+    window
+        .set_size(tauri::LogicalSize::new(440.0, 700.0))
+        .map_err(|e| e.to_string())?;
+    window.center().map_err(|e| e.to_string())?;
+    window.show().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -2313,6 +2325,7 @@ pub fn run() {
             discord: discord::DiscordService::new(),
             player: player::NativePlayer::new(),
         })
+        .manage(LyricsChildState::default())
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             update_discord_presence,
@@ -2334,6 +2347,8 @@ pub fn run() {
             show_window,
             show_lyrics_window,
             hide_lyrics_window,
+            is_lyrics_child,
+            prepare_lyrics_child_window,
             download_and_install_update,
             apply_in_place_update,
             is_window_maximized,

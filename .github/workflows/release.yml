@@ -107,8 +107,11 @@ jobs:
             Write-Output "::error title=Lyrics window smoke failure::$message"
             throw
           } finally {
-            if ($process -and -not $process.HasExited) {
-              Stop-Process -Id $process.Id -Force
+            if ($process) {
+              Get-Process -Name "arachnid" -ErrorAction SilentlyContinue |
+                Where-Object { $_.Id -ne $process.Id } |
+                Stop-Process -Force -ErrorAction SilentlyContinue
+              if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
             }
             Remove-Item $stdoutLog, $stderrLog -Force -ErrorAction SilentlyContinue
           }
