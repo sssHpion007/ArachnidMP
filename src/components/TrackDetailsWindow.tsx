@@ -16,7 +16,17 @@ export const TrackDetailsWindow: React.FC = () => {
     let disposed = false;
     let unlistenState: (() => void) | undefined;
     let unlistenClose: (() => void) | undefined;
+    let readyTimer: ReturnType<typeof setInterval> | undefined;
+    let hasReceivedState = false;
+    const announceReady = () => {
+      void emitTo('main', TRACK_DETAILS_WINDOW_EVENTS.ready).catch(error => {
+        console.warn('Unable to request track details from the player:', error);
+      });
+    };
+
     void listen<TrackDetailsWindowPayload>(TRACK_DETAILS_WINDOW_EVENTS.state, event => {
+      hasReceivedState = true;
+      if (readyTimer) clearInterval(readyTimer);
       setState(event.payload);
     }).then(unlisten => {
       if (disposed) {
@@ -24,9 +34,14 @@ export const TrackDetailsWindow: React.FC = () => {
         return;
       }
       unlistenState = unlisten;
-      void emitTo('main', TRACK_DETAILS_WINDOW_EVENTS.ready).catch(error => {
-        console.warn('Unable to request track details from the player:', error);
-      });
+      announceReady();
+      readyTimer = setInterval(() => {
+        if (hasReceivedState) {
+          if (readyTimer) clearInterval(readyTimer);
+          return;
+        }
+        announceReady();
+      }, 500);
     }).catch(error => console.error('Unable to listen for track details state:', error));
 
     // The main player owns the window lifecycle and clears its state on close.
@@ -42,6 +57,7 @@ export const TrackDetailsWindow: React.FC = () => {
 
     return () => {
       disposed = true;
+      if (readyTimer) clearInterval(readyTimer);
       unlistenState?.();
       unlistenClose?.();
     };
@@ -53,9 +69,17 @@ export const TrackDetailsWindow: React.FC = () => {
     });
   };
 
+  if (!state.track) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-md3-surface text-sm text-md3-on-surface-variant" role="status">
+        {state.language === 'ru' ? 'Подключение к плееру…' : 'Connecting to the player…'}
+      </div>
+    );
+  }
+
   return (
     <TrackDetailsModal
-      isOpen={!!state.track}
+      isOpen
       track={state.track}
       language={state.language}
       onClose={closeDetails}
