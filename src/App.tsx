@@ -45,10 +45,13 @@ import { AppLanguage, detectSystemLanguage } from './i18n';
 import { isNewerVersion, CURRENT_APP_VERSION } from './utils/version';
 import { getFolderIconComponent, getFolderColorHex, getThemedPlayIconColor } from './theme/folderIcons';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { emitTo, listen } from '@tauri-apps/api/event';
+import { LYRICS_WINDOW_EVENTS } from './utils/lyricsWindowEvents';
+import type { LyricsWindowAction, LyricsWindowPayload } from './utils/lyricsWindowEvents';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { LogicalSize, PhysicalSize } from '@tauri-apps/api/dpi';
 import { MiniPlayer } from './components/MiniPlayer';
-import { MiniLyricsTrack } from './components/MiniLyricsPane';
+import type { MiniLyricsTrack } from './components/MiniLyricsPane';
 import { ArrowLeft, Play, Disc3, Mic2, Tag, Trash2, ListMusic } from 'lucide-react';
 
 const MINI_WINDOW_WIDTH = 320;
@@ -286,17 +289,18 @@ export const App: React.FC = () => {
   const seekDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasPlayingBeforeArrowRef = useRef<boolean>(false);
 
-  const miniLyricsPayloadRef = useRef({
+  const miniLyricsPayloadRef = useRef<LyricsWindowPayload>({
     track: currentTrack ? {
       title: currentTrack.title,
       artist: currentTrack.artist,
       lyrics: currentTrack.lyrics,
       isInstrumental: currentTrack.isInstrumental,
       lyricist: currentTrack.lyricist,
-    } as MiniLyricsTrack : null,
+    } : null,
     currentTime,
     isPlaying,
     language,
+    isMiniMode,
   });
   miniLyricsPayloadRef.current = {
     track: currentTrack ? {
@@ -309,6 +313,7 @@ export const App: React.FC = () => {
     currentTime,
     isPlaying,
     language,
+    isMiniMode,
   };
 
   const resizeMiniWindow = useCallback(async (width: number): Promise<boolean> => {
@@ -371,7 +376,7 @@ export const App: React.FC = () => {
 
   const attachMiniLyrics = useCallback(async () => {
     if (isTauri()) {
-      try { await invoke('hide_mini_lyrics_window'); } catch (error) {
+      try { await invoke('hide_lyrics_window'); } catch (error) {
         console.warn('Unable to hide detached lyrics window:', error);
         return;
       }
@@ -382,7 +387,7 @@ export const App: React.FC = () => {
 
   const closeMiniLyrics = useCallback(async () => {
     if (isTauri()) {
-      try { await invoke('hide_mini_lyrics_window'); } catch (error) {
+      try { await invoke('hide_lyrics_window'); } catch (error) {
         console.warn('Unable to hide detached lyrics window:', error);
         return;
       }
@@ -391,32 +396,87 @@ export const App: React.FC = () => {
     setMiniLyricsMode('closed');
   }, [isMiniMode, resizeMiniWindow]);
 
-  const detachMiniLyrics = useCallback(async () => {
-    setMiniLyricsMode('detached');
+  const openLyricsWindow = useCallback(async () => {
+    const previousLyricsMode = miniLyricsMode;
+    setIsLyricsOpen(false);
+    setIsQueueOpen(false);
+    if (isMiniMode) setMiniLyricsMode('detached');
+
     try {
       if (isTauri()) {
-        await invoke('show_mini_lyrics_window');
+        await invoke('show_lyrics_window');
       } else {
         const popup = window.open(
-          `${window.location.pathname}?miniLyrics=1`,
-          'arachnid-mini-lyrics',
-          'popup=yes,width=340,height=620,resizable=yes'
+          `${window.location.pathname}?lyricsWindow=1`,
+          'arachnid-lyrics-window',
+          'popup=yes,width=440,height=700,resizable=yes'
         );
         if (!popup) throw new Error('The browser blocked the lyrics popup.');
       }
     } catch (error) {
-      setMiniLyricsMode('attached');
-      if (isMiniMode) await resizeMiniWindow(MINI_WINDOW_WITH_LYRICS_WIDTH);
-      console.warn('Unable to detach lyrics:', error);
+      if (isMiniMode) {
+        const fallbackMode = previousLyricsMode === 'closed' ? 'attached' : previousLyricsMode;
+        setMiniLyricsMode(fallbackMode);
+        if (fallbackMode === 'attached') {
+          await resizeMiniWindow(MINI_WINDOW_WITH_LYRICS_WIDTH);
+        }
+      } else {
+        setIsLyricsOpen(true);
+      }
+      console.error('Unable to open the separate lyrics window:', error);
     }
-  }, [isMiniMode, resizeMiniWindow]);
+  }, [isMiniMode, miniLyricsMode, resizeMiniWindow]);
 
-  const toggleMiniLyrics = useCallback(() => {
-    if (miniLyricsMode === 'attached') void closeMiniLyrics();
-    else void attachMiniLyrics();
-  }, [attachMiniLyrics, closeMiniLyrics, miniLyricsMode]);
 
   useEffect(() => {
+    let disposed = false;
+    let unlistenReady: (() => void) | undefined;
+    let unlistenAction: (() => void) | undefined;
+
+    const sendCurrentState = () => {
+      void emitTo('lyrics', LYRICS_WINDOW_EVENTS.state, miniLyricsPayloadRef.current).catch(error => {
+        console.warn('Unable to synchronize the lyrics window:', error);
+      });
+    };
+
+    if (isTauri()) {
+      void listen<null>(LYRICS_WINDOW_EVENTS.ready, () => sendCurrentState()).then(unlisten => {
+        if (disposed) unlisten();
+        else unlistenReady = unlisten;
+      }).catch(error => console.error('Unable to listen for the lyrics window:', error));
+
+      void listen<LyricsWindowAction>(LYRICS_WINDOW_EVENTS.action, event => {
+        const action = event.payload;
+        if (action.type === 'attach') {
+          void attachMiniLyrics();
+        } else if (action.type === 'close') {
+          void closeMiniLyrics();
+        } else if (action.type === 'seek' && Number.isFinite(action.time) && action.time >= 0) {
+          miniLyricsSeekHandlerRef.current(action.time);
+        } else if (action.type === 'keyboard') {
+          document.body.dispatchEvent(new KeyboardEvent('keydown', {
+            key: action.key,
+            code: action.code,
+            shiftKey: action.shiftKey,
+            ctrlKey: action.ctrlKey,
+            metaKey: action.metaKey,
+            altKey: action.altKey,
+            bubbles: true,
+            cancelable: true,
+          }));
+        }
+      }).then(unlisten => {
+        if (disposed) unlisten();
+        else unlistenAction = unlisten;
+      }).catch(error => console.error('Unable to listen for lyrics window actions:', error));
+
+      return () => {
+        disposed = true;
+        unlistenReady?.();
+        unlistenAction?.();
+      };
+    }
+
     if (typeof BroadcastChannel === 'undefined') return;
     const channel = new BroadcastChannel('arachnid-mini-player-lyrics');
     miniLyricsChannelRef.current = channel;
@@ -430,6 +490,17 @@ export const App: React.FC = () => {
       } else if (event.data?.type === 'seek-lyrics') {
         const time = Number(event.data.time);
         if (Number.isFinite(time) && time >= 0) miniLyricsSeekHandlerRef.current(time);
+      } else if (event.data?.type === 'lyrics-keyboard') {
+        document.body.dispatchEvent(new KeyboardEvent('keydown', {
+          key: event.data.key,
+          code: event.data.code,
+          shiftKey: !!event.data.shiftKey,
+          ctrlKey: !!event.data.ctrlKey,
+          metaKey: !!event.data.metaKey,
+          altKey: !!event.data.altKey,
+          bubbles: true,
+          cancelable: true,
+        }));
       }
     };
     return () => {
@@ -439,8 +510,12 @@ export const App: React.FC = () => {
   }, [attachMiniLyrics, closeMiniLyrics]);
 
   useEffect(() => {
-    miniLyricsChannelRef.current?.postMessage({ type: 'state', payload: miniLyricsPayloadRef.current });
-  }, [currentTrack, currentTime, isPlaying, language, miniLyricsMode]);
+    if (isTauri()) {
+      void emitTo('lyrics', LYRICS_WINDOW_EVENTS.state, miniLyricsPayloadRef.current).catch(() => {});
+    } else {
+      miniLyricsChannelRef.current?.postMessage({ type: 'state', payload: miniLyricsPayloadRef.current });
+    }
+  }, [currentTrack, currentTime, isPlaying, language, isMiniMode, miniLyricsMode]);
 
   useEffect(() => {
     languageRef.current = language;
@@ -1691,6 +1766,12 @@ export const App: React.FC = () => {
       const focusedInput = keyboardTarget?.closest('input') as HTMLInputElement | null;
       const isTextInput = !!focusedInput && !['range', 'checkbox', 'radio', 'button', 'submit', 'file', 'color'].includes(focusedInput.type);
       const isTypingTarget = isTextInput || !!keyboardTarget?.closest('textarea, select, [contenteditable="true"]');
+      if (e.code === 'KeyT' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !isTypingTarget) {
+        e.preventDefault();
+        e.stopPropagation();
+        void openLyricsWindow();
+        return;
+      }
       if (e.code === 'KeyF' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !isTypingTarget) {
         e.preventDefault();
         toggleMiniMode();
@@ -2115,6 +2196,7 @@ export const App: React.FC = () => {
     visibleTabs,
     isMiniMode,
     toggleMiniMode,
+    openLyricsWindow,
   ]);
 
   const pendingTauriPathsRef = useRef<Set<string>>(new Set());
@@ -4056,12 +4138,12 @@ export const App: React.FC = () => {
           onPlayQueueTrack={index => { void playQueueIndex(index); }}
           onPlayTrack={(track, context) => playTrackWithContext(track, context)}
           onClearQueue={handleClearQueue}
-          onToggleLyrics={toggleMiniLyrics}
+          onToggleLyrics={openLyricsWindow}
           onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
           onOpenEQ={() => setIsEQOpen(true)}
           onToggleFavorite={handleToggleFavorite}
           onOpenTrackDetails={track => setTrackDetailsTarget(track)}
-          onDetachLyrics={detachMiniLyrics}
+          onDetachLyrics={openLyricsWindow}
           onAttachLyrics={attachMiniLyrics}
           onCloseLyrics={closeMiniLyrics}
         />
@@ -4753,6 +4835,7 @@ export const App: React.FC = () => {
         onSaveLyrics={handleSaveLyrics}
         onReloadLyrics={(id) => handleReloadTracks([id])}
         onClose={() => setIsLyricsOpen(false)}
+        onDetach={() => { void openLyricsWindow(); }}
       />
 
       {/* Missing Tracks Auto-Detection & Relocation Modal */}

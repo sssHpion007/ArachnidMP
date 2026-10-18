@@ -10,6 +10,7 @@ import {
   FileText,
   Clock,
   Copy,
+  ExternalLink,
   PenTool,
   RotateCw
 } from 'lucide-react';
@@ -26,6 +27,7 @@ interface LyricsModalProps {
   onSeek?: (time: number) => void;
   onSaveLyrics: (trackId: string, lyrics: string, isInstrumental: boolean, lyricist?: string) => void;
   onReloadLyrics?: (trackId: string) => Promise<void> | void;
+  onDetach?: () => void;
   onClose: () => void;
 }
 
@@ -43,6 +45,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
   onSeek,
   onSaveLyrics,
   onReloadLyrics,
+  onDetach,
   onClose,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -243,6 +246,18 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
               >
                 <RotateCw className={`w-3.5 h-3.5 text-md3-primary ${isReloading ? 'animate-spin' : ''}`} />
                 <span className="hidden sm:inline">{language === 'ru' ? 'Обновить' : 'Reload'}</span>
+              </button>
+            )}
+
+            {onDetach && (
+              <button
+                type="button"
+                onClick={onDetach}
+                title={language === 'ru' ? 'Открыть в отдельном окне [Shift+T]' : 'Open in a separate window [Shift+T]'}
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold bg-md3-surface-container text-md3-on-surface hover:bg-md3-surface-container-high border border-md3-outline-variant/20 transition-all cursor-pointer"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-md3-primary" />
+                <span className="hidden sm:inline">{language === 'ru' ? 'Отдельное окно' : 'Separate window'}</span>
               </button>
             )}
 

@@ -19,9 +19,10 @@ try {
   }
 } catch (_) {}
 
-const isMiniLyricsWindow = new URLSearchParams(window.location.search).get('miniLyrics') === '1';
-const RoutedApp = isMiniLyricsWindow
-  ? lazy(() => import('./components/MiniLyricsWindow').then(module => ({ default: module.MiniLyricsWindow })))
+const isLyricsWindow = new URLSearchParams(window.location.search).get('lyricsWindow') === '1'
+  || new URLSearchParams(window.location.search).get('miniLyrics') === '1';
+const RoutedApp = isLyricsWindow
+  ? lazy(() => import('./components/LyricsWindow').then(module => ({ default: module.LyricsWindow })))
   : lazy(() => import('./App').then(module => ({ default: module.App })));
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(

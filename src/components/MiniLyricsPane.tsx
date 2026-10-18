@@ -97,9 +97,11 @@ export const MiniLyricsPane: React.FC<MiniLyricsPaneProps> = ({
         </div>
         <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} className="flex shrink-0 items-center gap-1">
           {detached ? (
-            <button type="button" onClick={onAttach} className="rounded-lg px-2 py-1 text-[10px] text-md3-primary hover:bg-md3-primary/10">
-              {language === 'ru' ? 'Прикрепить' : 'Attach'}
-            </button>
+            onAttach && (
+              <button type="button" onClick={onAttach} className="rounded-lg px-2 py-1 text-[10px] text-md3-primary hover:bg-md3-primary/10">
+                {language === 'ru' ? 'Прикрепить' : 'Attach'}
+              </button>
+            )
           ) : (
             <button type="button" onClick={onDetach} className="rounded-lg px-2 py-1 text-[10px] text-md3-primary hover:bg-md3-primary/10">
               {language === 'ru' ? 'Отсоединить' : 'Detach'}
