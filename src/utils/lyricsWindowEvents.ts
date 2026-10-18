@@ -1,0 +1,30 @@
+import type { MiniLyricsTrack } from '../components/MiniLyricsPane';
+import type { AppLanguage } from '../i18n';
+
+export const LYRICS_WINDOW_EVENTS = {
+  ready: 'lyrics-window-ready',
+  state: 'lyrics-window-state',
+  action: 'lyrics-window-action',
+} as const;
+
+export interface LyricsWindowPayload {
+  track: MiniLyricsTrack | null;
+  currentTime: number;
+  isPlaying: boolean;
+  language: AppLanguage;
+  isMiniMode: boolean;
+}
+
+export type LyricsWindowAction =
+  | { type: 'attach' }
+  | { type: 'close' }
+  | { type: 'seek'; time: number }
+  | {
+      type: 'keyboard';
+      key: string;
+      code: string;
+      shiftKey: boolean;
+      ctrlKey: boolean;
+      metaKey: boolean;
+      altKey: boolean;
+    };

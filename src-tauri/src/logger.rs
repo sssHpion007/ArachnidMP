@@ -13,6 +13,7 @@ pub struct LoggerState {
 }
 
 static LOGGER: OnceLock<Mutex<LoggerState>> = OnceLock::new();
+static SESSION_CLOCK: OnceLock<std::time::Instant> = OnceLock::new();
 
 fn get_logger() -> &'static Mutex<LoggerState> {
     LOGGER.get_or_init(|| {
@@ -31,6 +32,10 @@ fn get_logger() -> &'static Mutex<LoggerState> {
     })
 }
 
+pub fn initialize_session_clock() {
+    SESSION_CLOCK.get_or_init(std::time::Instant::now);
+}
+
 pub fn set_app_handle(handle: AppHandle) {
     if let Ok(mut state) = get_logger().lock() {
         state.app_handle = Some(handle);
@@ -40,7 +45,15 @@ pub fn set_app_handle(handle: AppHandle) {
 pub fn log(level: &str, tag: &str, message: &str) {
     let now = chrono::Local::now();
     let timestamp = now.format("%Y-%m-%d %H:%M:%S%.3f");
-    let line = format!("[{}] [{}] [{}] {}", timestamp, level, tag, message);
+    let elapsed = SESSION_CLOCK.get_or_init(std::time::Instant::now).elapsed();
+    let line = format!(
+        "[{} +{:>8.3}s] [{}] [{}] {}",
+        timestamp,
+        elapsed.as_secs_f64(),
+        level,
+        tag,
+        message
+    );
 
     println!("{}", line);
 

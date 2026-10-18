@@ -2,12 +2,22 @@ name: Release Portable Windows
 
 on:
   push:
+    branches:
+      - 'arena/da9dc431-arachnidmp'
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release version tag (for example v0.4.80)'
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
 
 jobs:
   build-windows:
@@ -42,21 +52,151 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             "### ❌ Tauri Build Failed (Last 150 lines):" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8
             '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-            Get-Content build.log -Tail 150 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            $tail = Get-Content build.log -Tail 100
+            $tail | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            $diagnostic = ($tail -join ' ') -replace '%', '%25' -replace "`r", ' ' -replace "`n", ' '
+            Write-Output "::error title=Tauri build diagnostics::$diagnostic"
             exit 1
           }
 
-      - name: Prepare Portable Artifacts
+      - name: Smoke test Windows executable startup
         shell: pwsh
         run: |
+          $exePath = Join-Path $PWD "src-tauri/target/release/arachnid.exe"
+          if (-not (Test-Path $exePath)) {
+            throw "arachnid.exe was not found for startup smoke test."
+          }
+          $process = $null
+          $stdoutLog = Join-Path $env:TEMP "Arachnid-startup-$PID.out.log"
+          $stderrLog = Join-Path $env:TEMP "Arachnid-startup-$PID.err.log"
+          try {
+            $process = Start-Process -FilePath $exePath -PassThru -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+            Start-Sleep -Seconds 15
+            $process.Refresh()
+            if ($process.HasExited) {
+              $stdoutText = if (Test-Path $stdoutLog) { Get-Content $stdoutLog -Raw } else { "" }
+              $stderrText = if (Test-Path $stderrLog) { Get-Content $stderrLog -Raw } else { "" }
+              throw "arachnid.exe exited during startup smoke test with code $($process.ExitCode). stdout=$stdoutText stderr=$stderrText"
+            }
+            Write-Host "arachnid.exe remained running for 15 seconds."
+
+            $shell = New-Object -ComObject WScript.Shell
+            if (-not $shell.AppActivate($process.Id)) { throw "Could not focus the player to test Shift+T." }
+            Start-Sleep -Milliseconds 500
+            $shell.SendKeys('{ESC}')
+            Start-Sleep -Milliseconds 300
+            $shell.SendKeys('+T')
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            $lyricsWindowFound = $false
+            while ([DateTime]::UtcNow -lt $deadline) {
+              if ($shell.AppActivate('Arachnid Lyrics')) { $lyricsWindowFound = $true; break }
+              Start-Sleep -Milliseconds 200
+            }
+            if (-not $lyricsWindowFound) { throw "Shift+T did not show a separate Arachnid Lyrics window." }
+            Start-Sleep -Milliseconds 300
+            $shell.SendKeys('%{F4}')
+            Start-Sleep -Seconds 1
+            $process.Refresh()
+            if ($process.HasExited) { throw "Closing the lyrics window also exited the player." }
+            if ($shell.AppActivate('Arachnid Lyrics')) { throw "The lyrics window remained activatable after closing." }
+            Write-Host "Shift+T opened the separate lyrics window; closing it left the player running."
+          } catch {
+            $stdoutText = if (Test-Path $stdoutLog) { Get-Content $stdoutLog -Raw } else { "" }
+            $stderrText = if (Test-Path $stderrLog) { Get-Content $stderrLog -Raw } else { "" }
+            $message = "$($_.Exception.Message) stdout=$stdoutText stderr=$stderrText" -replace "`r|`n", " "
+            Write-Output "::error title=Lyrics window smoke failure::$message"
+            throw
+          } finally {
+            if ($process -and -not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
+            Remove-Item $stdoutLog, $stderrLog -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Test native portable updater transaction and rollback safety
+        shell: pwsh
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --lib portable_updater::tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Native portable updater tests failed." }
+
+      - name: Smoke test the self-hosted Windows updater helper
+        shell: pwsh
+        run: |
+          $builtExe = Join-Path $PWD "src-tauri/target/release/arachnid.exe"
+          if (-not (Test-Path $builtExe)) { throw "Built portable EXE not found." }
+          $root = Join-Path $env:TEMP "Arachnid 更新 Native Updater Smoke $PID"
+          $stage = Join-Path $root ".arachnid-update-ci-$PID"
+          $target = Join-Path $root "Arachnid Portable Test.exe"
+          $parent = $null
+          $helper = $null
+          $newApp = $null
+          try {
+            New-Item -ItemType Directory -Force -Path $stage | Out-Null
+            Copy-Item $builtExe $target
+            Add-Content -LiteralPath $target -Value "old version marker"
+            Copy-Item $builtExe (Join-Path $stage "helper.exe")
+            Copy-Item $builtExe (Join-Path $stage "payload.exe")
+            $parent = Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', 'ping 127.0.0.1 -n 60 >nul') -PassThru -WindowStyle Hidden
+            $transaction = [ordered]@{
+              target_name = [IO.Path]::GetFileName($target)
+              parent_pid = $parent.Id
+              payload_sha256 = (Get-FileHash (Join-Path $stage "payload.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
+              original_sha256 = (Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant()
+              log_path = Join-Path $env:TEMP "Arachnid-native-updater-smoke-$PID.log"
+            }
+            $transaction | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage "transaction.json") -Encoding utf8
+            $helper = Start-Process -FilePath (Join-Path $stage "helper.exe") -ArgumentList '--arachnid-portable-update-helper' -PassThru -WindowStyle Hidden
+            $readyDeadline = [DateTime]::UtcNow.AddSeconds(12)
+            while ([DateTime]::UtcNow -lt $readyDeadline -and -not (Test-Path (Join-Path $stage "ready"))) {
+              $helper.Refresh()
+              if ($helper.HasExited) { break }
+              Start-Sleep -Milliseconds 100
+            }
+            if (-not (Test-Path (Join-Path $stage "ready"))) {
+              $reason = if (Test-Path (Join-Path $stage "helper-error.txt")) { Get-Content (Join-Path $stage "helper-error.txt") -Raw } else { "Helper did not signal readiness." }
+              throw $reason
+            }
+            Stop-Process -Id $parent.Id -Force
+            if (-not $helper.WaitForExit(45000)) { Stop-Process -Id $helper.Id -Force; throw "Native helper timed out." }
+            if ($helper.ExitCode -ne 0) { throw "Native helper exited with code $($helper.ExitCode)." }
+            $expectedHash = $transaction.payload_sha256
+            $actualHash = (Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -ne $expectedHash) { throw "Native helper did not atomically install the staged executable." }
+            $log = Get-Content $transaction.log_path -Raw
+            if ($log -notmatch "Update succeeded") { throw "Native helper did not log successful startup validation." }
+            $newApp = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $target } | Select-Object -First 1
+            if (-not $newApp) { throw "Native helper did not leave the replacement app running." }
+            Write-Host "Native helper waited for the parent, replaced the portable executable, validated startup, and relaunched the app."
+          } finally {
+            if ($parent) { Stop-Process -Id $parent.Id -Force -ErrorAction SilentlyContinue }
+            if ($helper) { Stop-Process -Id $helper.Id -Force -ErrorAction SilentlyContinue }
+            if ($newApp) { Stop-Process -Id $newApp.Id -Force -ErrorAction SilentlyContinue }
+            Start-Sleep -Seconds 1
+            Remove-Item $root -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item (Join-Path $env:TEMP "Arachnid-native-updater-smoke-$PID.log") -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Upload Windows test build
+        if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arachnid-v0.4.82-Windows-Test
+          path: src-tauri/target/release/arachnid.exe
+          if-no-files-found: error
+
+      - name: Prepare Portable Artifacts
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "Invalid release tag '$env:RELEASE_TAG'. Expected vMAJOR.MINOR.PATCH."
+          }
           New-Item -ItemType Directory -Force -Path artifacts
-          $ver = "${{ github.ref_name }}"
-          if (-not $ver) { $ver = "v0.1.0" }
           if (Test-Path "src-tauri/target/release/arachnid.exe") {
             Copy-Item "src-tauri/target/release/arachnid.exe" -Destination "artifacts/Arachnid-Portable.exe"
-            Compress-Archive -Path "src-tauri/target/release/arachnid.exe" -DestinationPath "artifacts/Arachnid-$ver-Windows-Portable.zip"
-            Write-Host "Created Arachnid-Portable.exe and zip for $ver!"
+            Compress-Archive -Path "src-tauri/target/release/arachnid.exe" -DestinationPath "artifacts/Arachnid-${env:RELEASE_TAG}-Windows-Portable.zip"
+            Write-Host "Created Arachnid-Portable.exe and zip for $env:RELEASE_TAG!"
           } else {
             Write-Error "arachnid.exe was not found in release target!"
           }
@@ -66,10 +206,18 @@ jobs:
         shell: bash
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         run: |
-          gh release delete "${{ github.ref_name }}" --yes --cleanup-tag=false || true
-          gh release create "${{ github.ref_name }}" artifacts/* \
-            --title "Arachnid Music Player ${{ github.ref_name }} [Windows]" \
-            --notes-file RELEASE_NOTES.md \
-            --latest
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag '$RELEASE_TAG'. Expected vMAJOR.MINOR.PATCH." >&2
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" artifacts/* --clobber
+          else
+            gh release create "$RELEASE_TAG" artifacts/* \
+              --target "$GITHUB_SHA" \
+              --title "Arachnid Music Player $RELEASE_TAG [Windows]" \
+              --notes-file RELEASE_NOTES.md \
+              --latest
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

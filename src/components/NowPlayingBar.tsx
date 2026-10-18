@@ -11,6 +11,7 @@ import {
   VolumeX, 
   Volume1,
   Heart, 
+  Info,
   ListMusic, 
   Disc3,
   Mic2,
@@ -49,6 +50,7 @@ interface NowPlayingBarProps {
   onOpenEQ?: () => void;
   onOpenTrackDetails?: (track: Track) => void;
   onOpenLyrics?: () => void;
+  onEnterMiniMode?: () => void;
   discordEnabled?: boolean;
   onToggleDiscord?: () => void;
   showDiscordButton?: boolean;
@@ -80,6 +82,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   onOpenEQ,
   onOpenTrackDetails,
   onOpenLyrics,
+  onEnterMiniMode,
   discordEnabled = true,
   onToggleDiscord,
   showDiscordButton = true,
@@ -342,10 +345,10 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
 
         {/* Tier 1: Track Cover, Title/Artist/Album, and Quick Actions (Heart + Queue) */}
         <div className="w-full flex items-center justify-between gap-2.5">
-          <div 
-            onClick={() => currentTrack && onOpenTrackDetails && onOpenTrackDetails(currentTrack)}
-            title={currentTrack ? (language === 'ru' ? 'Нажмите, чтобы открыть сведения о треке' : 'Click to open track details') : undefined}
-            className={`flex items-center gap-2.5 min-w-0 flex-1 ${currentTrack ? 'cursor-pointer group' : ''}`}
+          <div
+            onClick={() => currentTrack && onEnterMiniMode?.()}
+            title={currentTrack ? (language === 'ru' ? 'Нажмите, чтобы открыть мини-плеер' : 'Click to open the mini player') : undefined}
+            className={`flex items-center gap-2.5 min-w-0 flex-1 ${currentTrack && onEnterMiniMode ? 'cursor-pointer group' : ''}`}
           >
             <div className="w-12 h-12 min-w-[48px] min-h-[48px] max-w-[48px] max-h-[48px] rounded-xl overflow-hidden shrink-0 bg-md3-surface-container shadow-sm border border-md3-outline-variant/15 relative">
               <div className="w-full h-full flex items-center justify-center bg-md3-primary/10 text-md3-primary absolute inset-0">
@@ -380,8 +383,23 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             </div>
           </div>
 
-          {/* Quick Actions on the right: Favorite Heart + Queue Drawer Button */}
+          {/* Quick Actions on the right: Track Details, Favorite Heart + Queue Drawer Button */}
           <div className="flex items-center gap-1 shrink-0">
+            {currentTrack && onOpenTrackDetails && (
+              <button
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenTrackDetails(currentTrack);
+                }}
+                title={language === 'ru' ? 'Сведения о треке' : 'Track details'}
+                aria-label={language === 'ru' ? 'Сведения о треке' : 'Track details'}
+                className="p-2 rounded-full text-md3-on-surface-variant hover:text-md3-primary transition-colors cursor-pointer"
+              >
+                <Info className="w-5 h-5" />
+              </button>
+            )}
             {currentTrack && (
               <button
                 tabIndex={-1}
@@ -851,18 +869,21 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
       {/* Right: Visualizer, Volume, Panels Pill (Lyrics + Queue) */}
       <div className="z-20 relative flex items-center justify-end gap-2 sm:gap-3 shrink-0 ml-auto">
         {/* Animated Spectrum Visualizer */}
-        <div 
-          className="hidden xl:flex items-end gap-1 h-5 px-1 py-0.5 pointer-events-none opacity-80 shrink-0"
-          title={t.controls.spectrum}
+        <button
+          type="button"
+          onClick={onEnterMiniMode}
+          aria-label={language === 'ru' ? 'Открыть мини-плеер' : 'Open mini player'}
+          className="hidden md:flex items-end gap-1 h-7 px-1 py-1 cursor-pointer opacity-80 hover:opacity-100 shrink-0 rounded-md hover:bg-md3-surface-container-high transition-opacity"
+          title={language === 'ru' ? 'Открыть мини-плеер' : 'Open mini player'}
         >
           {visBars.map((height, i) => (
             <span
               key={i}
-              className="w-1 rounded-full bg-md3-primary/80 transition-all duration-75"
+              className="w-1 rounded-full bg-md3-primary/80 transition-all duration-75 pointer-events-none"
               style={{ height: `${height}%` }}
             />
           ))}
-        </div>
+        </button>
 
         {/* Volume controls with smooth slider */}
         <div 

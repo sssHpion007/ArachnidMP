@@ -10,6 +10,7 @@ import {
   FileText,
   Clock,
   Copy,
+  ExternalLink,
   PenTool,
   RotateCw
 } from 'lucide-react';
@@ -26,6 +27,7 @@ interface LyricsModalProps {
   onSeek?: (time: number) => void;
   onSaveLyrics: (trackId: string, lyrics: string, isInstrumental: boolean, lyricist?: string) => void;
   onReloadLyrics?: (trackId: string) => Promise<void> | void;
+  onDetach?: () => void;
   onClose: () => void;
 }
 
@@ -43,6 +45,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
   onSeek,
   onSaveLyrics,
   onReloadLyrics,
+  onDetach,
   onClose,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -199,36 +202,45 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
         className={`w-full max-w-2xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col h-[85vh] max-h-[720px] cursor-default ${dialogClass}`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="p-5 pb-4 border-b border-md3-outline-variant/15 flex items-center justify-between bg-md3-surface-container-high/50 shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-2xl bg-md3-primary/15 text-md3-primary flex items-center justify-center shadow-sm shrink-0">
-              <Mic2 className="w-5 h-5" />
+        {/* Header: track information stays separate from the action toolbar so it never gets covered. */}
+        <div className="shrink-0 border-b border-md3-outline-variant/15 bg-md3-surface-container-high/50">
+          <div className="flex items-start gap-3 px-4 pt-4">
+            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-md3-primary/15 text-md3-primary shadow-sm">
+              <Mic2 className="h-5 w-5" />
             </div>
-            <div className="min-w-0">
-              <h2 className="text-base font-bold text-md3-on-surface leading-tight truncate">
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-base font-bold leading-tight text-md3-on-surface" title={track.title}>
                 {track.title}
               </h2>
-              <div className="flex items-center gap-2 mt-0.5 text-xs text-md3-on-surface-variant truncate font-medium">
-                <span className="truncate">{track.artist}</span>
+              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-md3-on-surface-variant">
+                <span className="min-w-0 max-w-full truncate" title={track.artist}>{track.artist}</span>
                 {track.lyricist && (
-                  <span className="text-[11px] text-md3-primary/90 font-semibold bg-md3-primary/10 px-2 py-0.5 rounded-full shrink-0">
+                  <span className="shrink-0 rounded-full bg-md3-primary/10 px-2 py-0.5 text-[11px] font-semibold text-md3-primary/90">
                     {language === 'ru' ? `Слова: ${track.lyricist}` : `Lyrics: ${track.lyricist}`}
                   </span>
                 )}
                 {isSynced && (
-                  <span className="text-[11px] opacity-75 shrink-0">
-                    {language === 'ru' ? '• Синхронизированный (LRC)' : '• Synchronized (LRC)'}
+                  <span className="shrink-0 text-[11px] opacity-75">
+                    {language === 'ru' ? 'Синхронизированный текст · LRC' : 'Synchronized lyrics · LRC'}
                   </span>
                 )}
               </div>
             </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={language === 'ru' ? 'Закрыть' : 'Close'}
+              title={language === 'ru' ? 'Закрыть [Esc]' : 'Close [Esc]'}
+              className="-mr-1 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-md3-on-surface-variant transition-colors hover:bg-md3-surface-container hover:text-md3-on-surface"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Small Reload from File Button */}
+          <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pt-3">
             {onReloadLyrics && (
               <button
+                type="button"
                 onClick={async () => {
                   if (isReloading) return;
                   setIsReloading(true);
@@ -239,54 +251,59 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                   }
                 }}
                 title={language === 'ru' ? 'Перечитать слова из файла' : 'Reload lyrics from file'}
-                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold bg-md3-surface-container text-md3-on-surface hover:bg-md3-surface-container-high border border-md3-outline-variant/20 transition-all cursor-pointer hover:scale-102 active:scale-95"
+                aria-label={language === 'ru' ? 'Перечитать слова из файла' : 'Reload lyrics from file'}
+                className="inline-flex h-9 items-center gap-2 rounded-full border border-md3-outline-variant/20 bg-md3-surface-container px-3 text-xs font-semibold text-md3-on-surface transition-colors hover:bg-md3-surface-container-high active:scale-95"
               >
-                <RotateCw className={`w-3.5 h-3.5 text-md3-primary ${isReloading ? 'animate-spin' : ''}`} />
-                <span className="hidden sm:inline">{language === 'ru' ? 'Обновить' : 'Reload'}</span>
+                <RotateCw className={`h-3.5 w-3.5 text-md3-primary ${isReloading ? 'animate-spin' : ''}`} />
+                <span>{language === 'ru' ? 'Перечитать' : 'Reload'}</span>
               </button>
             )}
 
-            {/* Small Copy Lyrics Button (if lyrics exist) */}
+            {onDetach && (
+              <button
+                type="button"
+                onClick={onDetach}
+                title={language === 'ru' ? 'Открыть в отдельном окне [Shift+T]' : 'Open in a separate window [Shift+T]'}
+                className="inline-flex h-9 items-center gap-2 rounded-full border border-md3-outline-variant/20 bg-md3-surface-container px-3 text-xs font-semibold text-md3-on-surface transition-colors hover:bg-md3-surface-container-high"
+              >
+                <ExternalLink className="h-3.5 w-3.5 text-md3-primary" />
+                <span>{language === 'ru' ? 'Отдельное окно' : 'Separate window'}</span>
+              </button>
+            )}
+
             {hasLyricsText && (
               <button
+                type="button"
                 onClick={handleCopyLyrics}
                 title={copiedLyrics ? (language === 'ru' ? 'Текст скопирован!' : 'Lyrics copied!') : (language === 'ru' ? 'Скопировать текст песни' : 'Copy lyrics')}
-                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold bg-md3-surface-container text-md3-on-surface hover:bg-md3-surface-container-high border border-md3-outline-variant/20 transition-all cursor-pointer hover:scale-102 active:scale-95"
+                className="inline-flex h-9 items-center gap-2 rounded-full border border-md3-outline-variant/20 bg-md3-surface-container px-3 text-xs font-semibold text-md3-on-surface transition-colors hover:bg-md3-surface-container-high active:scale-95"
               >
                 {copiedLyrics ? (
                   <>
-                    <Check className="w-3.5 h-3.5 text-emerald-500" />
-                    <span className="hidden sm:inline text-emerald-500 font-bold">{language === 'ru' ? 'Скопировано' : 'Copied'}</span>
+                    <Check className="h-3.5 w-3.5 text-emerald-500" />
+                    <span className="font-bold text-emerald-500">{language === 'ru' ? 'Скопировано' : 'Copied'}</span>
                   </>
                 ) : (
                   <>
-                    <Copy className="w-3.5 h-3.5 text-md3-primary" />
-                    <span className="hidden sm:inline">{language === 'ru' ? 'Копировать' : 'Copy'}</span>
+                    <Copy className="h-3.5 w-3.5 text-md3-primary" />
+                    <span>{language === 'ru' ? 'Копировать' : 'Copy'}</span>
                   </>
                 )}
               </button>
             )}
 
-            {/* Edit / View Toggle */}
             <button
+              type="button"
               onClick={() => setIsEditing(!isEditing)}
               title={isEditing ? (language === 'ru' ? 'Просмотр' : 'View') : (language === 'ru' ? 'Редактировать' : 'Edit')}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+              className={`inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-semibold transition-all ${
                 isEditing
                   ? 'bg-md3-primary text-md3-on-primary shadow-sm'
-                  : 'bg-md3-surface-container text-md3-on-surface hover:bg-md3-surface-container-high border border-md3-outline-variant/20'
+                  : 'border border-md3-outline-variant/20 bg-md3-surface-container text-md3-on-surface hover:bg-md3-surface-container-high'
               }`}
             >
-              <Edit3 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{isEditing ? (language === 'ru' ? 'Просмотр' : 'View') : (language === 'ru' ? 'Редактировать' : 'Edit')}</span>
-            </button>
-
-            <button
-              onClick={onClose}
-              title={language === 'ru' ? 'Закрыть [Esc]' : 'Close [Esc]'}
-              className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer"
-            >
-              <X className="w-4 h-4" />
+              <Edit3 className="h-3.5 w-3.5" />
+              <span>{isEditing ? (language === 'ru' ? 'Просмотр' : 'View') : (language === 'ru' ? 'Редактировать' : 'Edit')}</span>
             </button>
           </div>
         </div>

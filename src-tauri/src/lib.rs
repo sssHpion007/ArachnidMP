@@ -2,10 +2,12 @@ mod discord;
 mod storage;
 mod player;
 mod logger;
+#[cfg(target_os = "windows")]
+mod portable_updater;
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tauri::State;
+use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 use base64::prelude::*;
 use lofty::config::{ParseOptions, ParsingMode, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
@@ -1540,6 +1542,130 @@ fn show_window(window: tauri::Window) -> Result<(), String> {
     Ok(())
 }
 
+// The lyrics WebView must use the same additional browser arguments as the
+// main WebView when sharing its WebView2 data directory on Windows.
+#[tauri::command]
+async fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    const LYRICS_WINDOW_WIDTH: f64 = 440.0;
+    const LYRICS_WINDOW_HEIGHT: f64 = 700.0;
+    const WINDOW_GAP: i64 = 12;
+    const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--max-old-space-size=256\"";
+
+    let (lyrics_window, created) = match app_handle.get_webview_window("lyrics") {
+        Some(window) => (window, false),
+        None => (
+            WebviewWindowBuilder::new(
+                &app_handle,
+                "lyrics",
+                WebviewUrl::App("index.html?lyricsWindow=1".into()),
+            )
+            .title("Arachnid Lyrics")
+            .inner_size(LYRICS_WINDOW_WIDTH, LYRICS_WINDOW_HEIGHT)
+            .min_inner_size(280.0, 360.0)
+            .decorations(false)
+            .additional_browser_args(MAIN_WEBVIEW_ARGS)
+            .visible(false)
+            .build()
+            .map_err(|e| format!("Unable to create lyrics window: {}", e))?,
+            true,
+        ),
+    };
+
+    // Position the lyric window beside the player on first creation. If the
+    // player fills the monitor, center the lyric window there instead.
+    if created {
+        if let Some(main_window) = app_handle.get_webview_window("main") {
+            if let (Ok(main_position), Ok(main_size), Ok(Some(monitor)), Ok(scale_factor)) = (
+                main_window.outer_position(),
+                main_window.outer_size(),
+                main_window.current_monitor(),
+                main_window.scale_factor(),
+            ) {
+                let monitor_position = monitor.position();
+                let monitor_size = monitor.size();
+                let left = monitor_position.x as i64;
+                let top = monitor_position.y as i64;
+                let right = left + monitor_size.width as i64;
+                let bottom = top + monitor_size.height as i64;
+                let lyrics_width = (LYRICS_WINDOW_WIDTH * scale_factor).round() as i64;
+                let lyrics_height = (LYRICS_WINDOW_HEIGHT * scale_factor).round() as i64;
+                let main_x = main_position.x as i64;
+                let main_y = main_position.y as i64;
+                let main_right = main_x + main_size.width as i64;
+                let right_x = main_right + WINDOW_GAP;
+                let left_x = main_x - lyrics_width - WINDOW_GAP;
+                let x = if right_x + lyrics_width <= right {
+                    right_x
+                } else if left_x >= left {
+                    left_x
+                } else {
+                    left + ((monitor_size.width as i64 - lyrics_width).max(0) / 2)
+                };
+                let preferred_y = main_y + (main_size.height as i64 - lyrics_height) / 2;
+                let y = preferred_y.clamp(top, (bottom - lyrics_height).max(top));
+                let _ = lyrics_window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
+            }
+        }
+    }
+
+    let _ = lyrics_window.unminimize();
+    lyrics_window
+        .show()
+        .map_err(|e| format!("Unable to show lyrics window: {}", e))?;
+    lyrics_window
+        .set_focus()
+        .map_err(|e| format!("Unable to focus lyrics window: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn show_track_details_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    const DETAILS_WINDOW_WIDTH: f64 = 640.0;
+    const DETAILS_WINDOW_HEIGHT: f64 = 720.0;
+    const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--max-old-space-size=256\"";
+
+    let details_window = match app_handle.get_webview_window("track-details") {
+        Some(window) => window,
+        None => WebviewWindowBuilder::new(
+            &app_handle,
+            "track-details",
+            WebviewUrl::App("index.html?trackDetailsWindow=1".into()),
+        )
+        .title("Arachnid — Track Details")
+        .inner_size(DETAILS_WINDOW_WIDTH, DETAILS_WINDOW_HEIGHT)
+        .min_inner_size(460.0, 500.0)
+        .additional_browser_args(MAIN_WEBVIEW_ARGS)
+        .visible(false)
+        .build()
+        .map_err(|e| format!("Unable to create track details window: {}", e))?,
+    };
+
+    let _ = details_window.unminimize();
+    details_window
+        .show()
+        .map_err(|e| format!("Unable to show track details window: {}", e))?;
+    details_window
+        .set_focus()
+        .map_err(|e| format!("Unable to focus track details window: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_track_details_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window("track-details") {
+        window.hide().map_err(|e| format!("Unable to hide track details window: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window("lyrics") {
+        window.hide().map_err(|e| format!("Unable to hide lyrics window: {}", e))?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn minimize_window(window: tauri::Window) -> Result<(), String> {
     window.minimize().map_err(|e| e.to_string())?;
@@ -1550,6 +1676,11 @@ fn minimize_window(window: tauri::Window) -> Result<(), String> {
 fn trim_memory() {
     #[cfg(target_os = "windows")]
     windows_process_grouping::trim_working_set();
+}
+
+#[tauri::command]
+fn is_window_maximized(window: tauri::Window) -> Result<bool, String> {
+    window.is_maximized().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1585,51 +1716,97 @@ fn clean_exit() -> ! {
 }
 
 #[tauri::command]
-async fn download_and_install_update(
-    window: tauri::Window,
-    url: String,
-) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        use std::io::{Read, Write};
-        use tauri::Emitter;
+async fn download_and_install_update(window: tauri::Window, tag: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            use std::io::Read;
+            use tauri::Emitter;
 
-        let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        let exe_dir = current_exe
-            .parent()
-            .ok_or_else(|| "Cannot get executable directory".to_string())?;
-        let temp_update_file = exe_dir.join(".update_temp.tmp");
+            // Tags are used only as one path component in a fixed public GitHub
+            // repository URL; reject anything that is not a plain vX.Y.Z tag.
+            let version = tag
+                .strip_prefix('v')
+                .ok_or_else(|| "Invalid release tag.".to_string())?;
+            let parts: Vec<&str> = version.split('.').collect();
+            if parts.len() != 3 || parts.iter().any(|part| part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit())) {
+                return Err("Invalid release tag.".to_string());
+            }
 
-        // 1. Download via ureq with auto-redirects (bypasses browser CORS completely)
-        let download_result = (|| -> Result<(), String> {
-            let response = ureq::get(&url)
+            let api_url = format!(
+                "https://api.github.com/repos/sssHpion007/ArachnidMP/releases/tags/{tag}"
+            );
+            let api_response = ureq::get(&api_url)
+                .set("User-Agent", "Arachnid-Music-Player-Updater")
+                .set("Accept", "application/vnd.github+json")
+                .call()
+                .map_err(|error| format!("Unable to read the GitHub release metadata: {error}"))?;
+            let mut metadata_text = String::new();
+            api_response
+                .into_reader()
+                .read_to_string(&mut metadata_text)
+                .map_err(|error| format!("Unable to read GitHub release metadata: {error}"))?;
+            let release: serde_json::Value = serde_json::from_str(&metadata_text)
+                .map_err(|error| format!("Invalid GitHub release metadata: {error}"))?;
+            if release.get("tag_name").and_then(serde_json::Value::as_str) != Some(tag.as_str())
+                || release.get("draft").and_then(serde_json::Value::as_bool) == Some(true)
+            {
+                return Err("GitHub returned metadata for a different or unpublished release.".to_string());
+            }
+
+            let asset = release
+                .get("assets")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|assets| {
+                    assets.iter().find(|asset| {
+                        asset.get("name").and_then(serde_json::Value::as_str)
+                            == Some("Arachnid-Portable.exe")
+                    })
+                })
+                .ok_or_else(|| "The selected release has no Arachnid portable executable.".to_string())?;
+            let digest = asset
+                .get("digest")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|value| value.strip_prefix("sha256:"))
+                .filter(|value| value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit()))
+                .ok_or_else(|| "GitHub did not provide a valid SHA-256 release digest.".to_string())?
+                .to_ascii_lowercase();
+            let download_url = format!(
+                "https://github.com/sssHpion007/ArachnidMP/releases/download/{tag}/Arachnid-Portable.exe"
+            );
+            logger::log(
+                "INFO",
+                "UPDATER",
+                &format!("Downloading release {tag}; checksum comes from GitHub release metadata."),
+            );
+
+            let response = ureq::get(&download_url)
                 .set("User-Agent", "Arachnid-Music-Player-Updater")
                 .call()
-                .map_err(|e| format!("ureq request failed: {}", e))?;
-
+                .map_err(|error| format!("Update download failed: {error}"))?;
             let total_size = response
                 .header("Content-Length")
-                .and_then(|s| s.parse::<u64>().ok())
+                .and_then(|value| value.parse::<u64>().ok())
                 .unwrap_or(0);
-
             let mut reader = response.into_reader();
-            let mut file = std::fs::File::create(&temp_update_file)
-                .map_err(|e| format!("Failed to create update file: {}", e))?;
-
-            let mut buffer = [0u8; 65536];
-            let mut downloaded: u64 = 0;
-            let mut last_percent: u32 = 0;
+            let mut payload = Vec::new();
+            let mut buffer = [0u8; 64 * 1024];
+            let mut downloaded = 0u64;
+            let mut last_percent = u32::MAX;
+            const MAX_UPDATE_BYTES: u64 = 300 * 1024 * 1024;
 
             loop {
-                let n = reader
+                let count = reader
                     .read(&mut buffer)
-                    .map_err(|e| format!("Failed reading stream: {}", e))?;
-                if n == 0 {
+                    .map_err(|error| format!("Unable to read update download: {error}"))?;
+                if count == 0 {
                     break;
                 }
-                file.write_all(&buffer[..n])
-                    .map_err(|e| format!("Failed writing to disk: {}", e))?;
-                downloaded += n as u64;
-
+                downloaded += count as u64;
+                if downloaded > MAX_UPDATE_BYTES {
+                    return Err("The downloaded update exceeds the allowed size.".to_string());
+                }
+                payload.extend_from_slice(&buffer[..count]);
                 let percent = if total_size > 0 {
                     ((downloaded as f64 / total_size as f64) * 100.0).min(100.0) as u32
                 } else {
@@ -1648,155 +1825,52 @@ async fn download_and_install_update(
                 }
             }
 
-            Ok(())
-        })();
+            let _ = window.emit(
+                "update-progress",
+                serde_json::json!({
+                    "downloaded": downloaded,
+                    "total": if total_size == 0 { downloaded } else { total_size },
+                    "percent": 100
+                }),
+            );
+            logger::log("INFO", "UPDATER", &format!("Downloaded {downloaded} bytes for {tag}."));
+            let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
+            let stage = portable_updater::prepare(&current_exe, &payload, &digest)?;
 
-        // 2. Windows native fallback: curl.exe
-        if let Err(ureq_err) = download_result {
-            #[cfg(target_os = "windows")]
-            {
-                use std::process::Command;
-                let status = Command::new("curl.exe")
-                    .args(&["-L", "-f", "-s", "-S", "-o", &temp_update_file.to_string_lossy(), &url])
-                    .status();
-
-                if status.is_err() || !status.unwrap().success() {
-                    return Err(format!("Download failed: {}", ureq_err));
+            // The app's WebView2 children normally share a kill-on-close Job
+            // Object. Disable that policy only for the short handoff, then
+            // require the helper to signal readiness before closing the player.
+            if let Err(error) = windows_process_grouping::set_job_kill_on_close(false) {
+                let _ = std::fs::remove_dir_all(&stage);
+                return Err(format!("Cannot detach the update helper safely: {error}"));
+            }
+            match portable_updater::spawn_ready_helper(&stage) {
+                Ok(helper) => {
+                    logger::log(
+                        "INFO",
+                        "UPDATER",
+                        &format!("Native portable updater is ready (PID {}).", helper.id()),
+                    );
+                    drop(helper);
+                    clean_exit();
+                }
+                Err(error) => {
+                    let _ = windows_process_grouping::set_job_kill_on_close(true);
+                    let _ = std::fs::remove_dir_all(&stage);
+                    logger::log("ERROR", "UPDATER", &error);
+                    Err(error)
                 }
             }
-            #[cfg(not(target_os = "windows"))]
-            {
-                return Err(ureq_err);
-            }
-        }
-
-        // 3. Verify downloaded file integrity
-        let meta = std::fs::metadata(&temp_update_file).map_err(|e| e.to_string())?;
-        if meta.len() < 1_000_000 {
-            let _ = std::fs::remove_file(&temp_update_file);
-            return Err("Downloaded update file is too small or incomplete".to_string());
-        }
-
-        // 4. In-place replacement via detached batch updater and restart
-        #[cfg(target_os = "windows")]
-        {
-            use std::process::Command;
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
-
-            let bat_path = exe_dir.join(".updater.bat");
-            let _ = std::fs::remove_file(&bat_path);
-            let _ = std::fs::remove_file(format!("{}.old", current_exe.to_string_lossy()));
-
-            let bat_content = format!(
-                "@echo off\r\n\
-                chcp 65001 >nul\r\n\
-                ping 127.0.0.1 -n 3 >nul\r\n\
-                :retry\r\n\
-                if exist \"{target}.old\" del /f /q \"{target}.old\" >nul 2>&1\r\n\
-                move /y \"{target}\" \"{target}.old\" >nul 2>&1\r\n\
-                move /y \"{source}\" \"{target}\" >nul 2>&1\r\n\
-                if not exist \"{target}\" (\r\n\
-                    ping 127.0.0.1 -n 2 >nul\r\n\
-                    goto retry\r\n\
-                )\r\n\
-                start \"\" \"{target}\"\r\n\
-                del /f /q \"{target}.old\" >nul 2>&1\r\n\
-                (goto) 2>nul & del \"%~f0\"\r\n",
-                target = current_exe.to_string_lossy(),
-                source = temp_update_file.to_string_lossy()
-            );
-
-            std::fs::write(&bat_path, &bat_content)
-                .map_err(|e| format!("Failed to write updater script: {}", e))?;
-
-            let _ = Command::new("cmd.exe")
-                .current_dir(std::env::temp_dir())
-                .args(&["/c", &bat_path.to_string_lossy()])
-                .creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
-                .spawn();
-
-            clean_exit();
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            let _ = std::fs::rename(&temp_update_file, &current_exe);
-            Ok(())
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-fn apply_in_place_update(base64_data: String) -> Result<(), String> {
-    let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = current_exe
-        .parent()
-        .ok_or_else(|| "Cannot get executable directory".to_string())?;
-    let temp_update_file = exe_dir.join(".update_temp.tmp");
-
-    let bytes = BASE64_STANDARD
-        .decode(base64_data.trim())
-        .map_err(|e| format!("Failed to decode base64 update data: {}", e))?;
-
-    std::fs::write(&temp_update_file, &bytes)
-        .map_err(|e| format!("Failed to write update binary: {}", e))?;
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::process::Command;
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
-
-        let bat_path = exe_dir.join(".updater.bat");
-        let _ = std::fs::remove_file(&bat_path);
-        let _ = std::fs::remove_file(format!("{}.old", current_exe.to_string_lossy()));
-
-        let bat_content = format!(
-            "@echo off\r\n\
-            chcp 65001 >nul\r\n\
-            ping 127.0.0.1 -n 3 >nul\r\n\
-            :retry\r\n\
-            if exist \"{target}.old\" del /f /q \"{target}.old\" >nul 2>&1\r\n\
-            move /y \"{target}\" \"{target}.old\" >nul 2>&1\r\n\
-            move /y \"{source}\" \"{target}\" >nul 2>&1\r\n\
-            if not exist \"{target}\" (\r\n\
-                ping 127.0.0.1 -n 2 >nul\r\n\
-                goto retry\r\n\
-            )\r\n\
-            start \"\" \"{target}\"\r\n\
-            del /f /q \"{target}.old\" >nul 2>&1\r\n\
-            (goto) 2>nul & del \"%~f0\"\r\n",
-            target = current_exe.to_string_lossy(),
-            source = temp_update_file.to_string_lossy()
-        );
-
-        std::fs::write(&bat_path, &bat_content)
-            .map_err(|e| format!("Failed to write updater script: {}", e))?;
-
-        let _ = Command::new("cmd.exe")
-            .current_dir(std::env::temp_dir())
-            .args(&["/c", &bat_path.to_string_lossy()])
-            .creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
-            .spawn();
-
-        clean_exit();
+        })
+        .await
+        .map_err(|error| error.to_string())?
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = std::fs::rename(&temp_update_file, &current_exe);
-        Ok(())
+        let _ = (window, tag);
+        Err("In-app portable updates are currently supported on Windows only.".to_string())
     }
-}
-
-#[tauri::command]
-fn is_window_maximized(window: tauri::Window) -> Result<bool, String> {
-    window.is_maximized().map_err(|e| e.to_string())
 }
 
 #[cfg(target_os = "windows")]
@@ -1838,6 +1912,8 @@ mod windows_process_grouping {
     const JOB_OBJECT_LIMIT_BREAKAWAY_OK: u32 = 0x00000800;
     const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: i32 = 9;
 
+    static mut PROCESS_JOB: *mut std::ffi::c_void = std::ptr::null_mut();
+
     extern "system" {
         fn SetCurrentProcessExplicitAppUserModelID(AppID: *const u16) -> i32;
         fn CreateJobObjectW(lpJobAttributes: *mut std::ffi::c_void, lpName: *const u16) -> *mut std::ffi::c_void;
@@ -1874,6 +1950,32 @@ mod windows_process_grouping {
     const TH32CS_SNAPPROCESS: u32 = 0x00000002;
     const PROCESS_SET_QUOTA: u32 = 0x0100;
     const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+
+    pub fn set_job_kill_on_close(enabled: bool) -> Result<(), String> {
+        unsafe {
+            let job = PROCESS_JOB;
+            if job.is_null() {
+                return Ok(());
+            }
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            info.basic_limit_information.limit_flags = if enabled {
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK
+            } else {
+                JOB_OBJECT_LIMIT_BREAKAWAY_OK
+            };
+            let result = SetInformationJobObject(
+                job,
+                JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+                &info as *const _ as *const std::ffi::c_void,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            );
+            if result == 0 {
+                Err(std::io::Error::last_os_error().to_string())
+            } else {
+                Ok(())
+            }
+        }
+    }
 
     pub fn trim_working_set() {
         unsafe {
@@ -1996,7 +2098,6 @@ mod windows_process_grouping {
 
         // 2. Put main process and any child processes (like msedgewebview2.exe) in a dedicated Job Object
         // This groups them cleanly in Windows Task Manager and ensures child processes cleanly close on exit
-        static mut PROCESS_JOB: *mut std::ffi::c_void = std::ptr::null_mut();
         unsafe {
             let job = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
             if !job.is_null() {
@@ -2054,19 +2155,104 @@ mod windows_process_grouping {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn cleanup_legacy_update_artifacts() {
+    // Versions before the detached PowerShell updater left shared-name files behind.
+    // Only remove those stale staging files when a valid player executable exists;
+    // retain any .old backup so it remains available for manual recovery.
+    if let Ok(current_exe) = std::env::current_exe() {
+        let mut signature = [0u8; 2];
+        let is_valid_exe = std::fs::File::open(&current_exe)
+            .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut signature))
+            .is_ok()
+            && signature == *b"MZ";
+        if is_valid_exe {
+            if let Some(parent) = current_exe.parent() {
+                let _ = std::fs::remove_file(parent.join(".updater.bat"));
+                let _ = std::fs::remove_file(parent.join(".update.bat"));
+                let _ = std::fs::remove_file(parent.join(".update_temp.tmp"));
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn import_previous_update_diagnostics() {
+    use std::time::{Duration, SystemTime};
+
+    let temp_dir = std::env::temp_dir();
+    let logs_dir = storage::get_logs_dir();
+    if let Err(error) = std::fs::create_dir_all(&logs_dir) {
+        logger::log("WARN", "UPDATER", &format!("Unable to create updater log directory: {}", error));
+        return;
+    }
+
+    let entries = match std::fs::read_dir(&temp_dir) {
+        Ok(entries) => entries,
+        Err(error) => {
+            logger::log("WARN", "UPDATER", &format!("Unable to inspect temporary updater logs: {}", error));
+            return;
+        }
+    };
+    let now = SystemTime::now();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("Arachnid-Update-Log-") || path.extension().and_then(|ext| ext.to_str()) != Some("txt") {
+            continue;
+        }
+        let modified = entry.metadata().and_then(|metadata| metadata.modified()).unwrap_or(now);
+        let age = now.duration_since(modified).unwrap_or_default();
+        // Let the detached PowerShell helper finish writing before importing its report.
+        if age < Duration::from_secs(20) {
+            continue;
+        }
+        if age > Duration::from_secs(14 * 24 * 60 * 60) {
+            let _ = std::fs::remove_file(&path);
+            continue;
+        }
+
+        let destination = logs_dir.join(name.replace("Arachnid-Update-Log-", "arachnid_updater_"));
+        if let Err(error) = std::fs::copy(&path, &destination) {
+            logger::log("WARN", "UPDATER", &format!("Unable to preserve updater diagnostic log: {}", error));
+            continue;
+        }
+        if let Ok(contents) = std::fs::read_to_string(&destination) {
+            for line in contents.lines() {
+                let level = if line.contains("CRITICAL:") || line.contains("ERROR:") { "ERROR" } else { "INFO" };
+                logger::log(level, "UPDATER", line);
+            }
+        }
+        logger::log("INFO", "UPDATER", &format!("Saved update attempt details to {}.", destination.display()));
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn run_portable_update_helper_if_requested() -> bool {
+    let is_helper = std::env::args_os()
+        .nth(1)
+        .is_some_and(|argument| argument.to_string_lossy() == portable_updater::HELPER_FLAG);
+    if !is_helper {
+        return false;
+    }
+    if let Err(error) = portable_updater::run_helper() {
+        eprintln!("Arachnid portable updater failed: {error}");
+        std::process::exit(1);
+    }
+    true
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let base_dir = storage::get_portable_base_dir();
     storage::init_storage_structure(&base_dir);
 
-    // Clean up temporary update files from previous run if any
-    if let Ok(current_exe) = std::env::current_exe() {
-        if let Some(parent) = current_exe.parent() {
-            let _ = std::fs::remove_file(parent.join(".updater.bat"));
-            let _ = std::fs::remove_file(parent.join(".update.bat"));
-            let _ = std::fs::remove_file(parent.join(".update_temp.tmp"));
-            let _ = std::fs::remove_file(format!("{}.old", current_exe.to_string_lossy()));
-        }
+    #[cfg(target_os = "windows")]
+    {
+        portable_updater::cleanup_completed();
+        cleanup_legacy_update_artifacts();
     }
 
     #[cfg(target_os = "windows")]
@@ -2085,17 +2271,34 @@ pub fn run() {
     }
 
     tauri::Builder::default()
-        .on_window_event(|_window, event| {
+        .on_window_event(|window, event| {
             match event {
-                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed => {
+                tauri::WindowEvent::Focused(focused) => {
+                    logger::log(
+                        "INFO",
+                        "WINDOW_FOCUS",
+                        &format!("window={} focused={}", window.label(), focused),
+                    );
+                }
+                tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "lyrics" => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed if window.label() == "main" => {
                     clean_exit();
                 }
                 _ => {}
             }
         })
         .setup(|app| {
+            logger::initialize_session_clock();
             logger::set_app_handle(app.handle().clone());
             logger::log("INFO", "SYSTEM", &format!("Arachnid Music Player v{} started", get_app_version()));
+            #[cfg(target_os = "windows")]
+            std::thread::spawn(|| {
+                std::thread::sleep(std::time::Duration::from_secs(25));
+                import_previous_update_diagnostics();
+            });
             Ok(())
         })
         .manage(AppState {
@@ -2121,8 +2324,11 @@ pub fn run() {
             toggle_maximize_window,
             close_window,
             show_window,
+            show_lyrics_window,
+            hide_lyrics_window,
+            show_track_details_window,
+            hide_track_details_window,
             download_and_install_update,
-            apply_in_place_update,
             is_window_maximized,
             open_app_folder,
             open_url,

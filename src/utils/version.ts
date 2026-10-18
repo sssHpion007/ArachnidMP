@@ -10,4 +10,6 @@ export const isNewerVersion = (current: string, latest: string): boolean => {
   return false;
 };
 
-export const CURRENT_APP_VERSION = '0.4.67';
+import packageJson from '../../package.json';
+
+export const CURRENT_APP_VERSION = packageJson.version;

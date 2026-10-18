@@ -135,6 +135,48 @@ input[type=range]::-webkit-slider-runnable-track {
   border-radius: 9999px;
 }
 
+/* Mini-player timeline: keep a filled progress track instead of a thumb-only accent. */
+input.mini-player-timeline {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+
+input.mini-player-timeline::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    to right,
+    var(--md-sys-color-primary) 0%,
+    var(--md-sys-color-primary) var(--progress),
+    var(--md-sys-color-surface-container-highest) var(--progress),
+    var(--md-sys-color-surface-container-highest) 100%
+  );
+}
+
+input.mini-player-timeline::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--md-sys-color-surface-container-highest);
+}
+
+input.mini-player-timeline::-moz-range-progress {
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--md-sys-color-primary);
+}
+
+input.mini-player-timeline::-moz-range-thumb {
+  height: 14px;
+  width: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--md-sys-color-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
+
 /* Markdown styling for Release Notes */
 .markdown-body {
   font-size: 0.8125rem;
@@ -411,7 +453,17 @@ input[type=range]::-webkit-slider-runnable-track {
   will-change: opacity, transform;
 }
 
+@keyframes miniPanelIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.anim-mini-panel-in {
+  animation: miniPanelIn 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .anim-mini-panel-in,
   .collection-card-enter {
     animation: none;
     will-change: auto;

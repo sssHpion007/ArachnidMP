@@ -2,7 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
-export const TitleBar: React.FC = () => {
+interface TitleBarProps {
+  miniMode?: boolean;
+  onRestoreFromMini?: () => void;
+}
+
+export const TitleBar: React.FC<TitleBarProps> = ({ miniMode = false, onRestoreFromMini }) => {
   const [isMaximized, setIsMaximized] = useState(false);
 
   // Check window maximized state, reveal window cleanly and set up resize listener
@@ -101,21 +106,21 @@ export const TitleBar: React.FC = () => {
 
   return (
     <div
-      onDoubleClick={handleToggleMaximize}
-      className="h-7 w-full bg-md3-surface-container-low border-b border-md3-outline-variant/15 flex items-center justify-between select-none z-50 shrink-0 text-md3-on-surface-variant relative"
+      onDoubleClick={miniMode ? undefined : handleToggleMaximize}
+      className={`${miniMode ? 'h-4' : 'h-7'} w-full bg-md3-surface-container-low border-b border-md3-outline-variant/15 flex items-center justify-between select-none z-50 shrink-0 text-md3-on-surface-variant relative`}
     >
       {/* Left: App Logo & Title (Draggable) */}
       <div
         data-tauri-drag-region
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-        className="flex items-center gap-2 pl-3 h-full cursor-default select-none pointer-events-auto"
+        className={`flex items-center ${miniMode ? 'gap-1 pl-2' : 'gap-2 pl-3'} h-full cursor-default select-none pointer-events-auto`}
       >
         <img
           src="/app-logo.png"
           alt="Arachnid"
-          className="w-4 h-4 rounded-md object-contain pointer-events-none shadow-xs"
+          className={`${miniMode ? 'h-2 w-2' : 'h-4 w-4'} rounded-md object-contain pointer-events-none shadow-xs`}
         />
-        <span className="text-[10px] font-bold tracking-wider text-md3-on-surface-variant/90 pointer-events-none">
+        <span className={`${miniMode ? 'text-[6px] tracking-wide' : 'text-[10px] tracking-wider'} font-bold text-md3-on-surface-variant/90 pointer-events-none`}>
           ARACHNID
         </span>
       </div>
@@ -132,6 +137,44 @@ export const TitleBar: React.FC = () => {
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         className="flex items-center h-full shrink-0 select-none pointer-events-auto"
       >
+        {miniMode ? (
+          <>
+            <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={handleMinimize}
+              title="Свернуть"
+              aria-label="Свернуть"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+              className="w-[18px] h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-md3-primary/30 cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
+            >
+              <svg className="w-[6px] h-[6px] pointer-events-none" viewBox="0 0 10 1" fill="currentColor"><rect width="10" height="1" rx="0.5" /></svg>
+            </button>
+            <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onRestoreFromMini}
+              title="Вернуться в основное окно"
+              aria-label="Вернуться в основное окно"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+              className="w-[18px] h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-md3-primary/30 cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
+            >
+              <svg className="w-[6px] h-[6px] pointer-events-none" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="0.6" y="0.6" width="8.8" height="8.8" rx="1" /></svg>
+            </button>
+            <button
+              tabIndex={-1}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={handleClose}
+              title="Закрыть"
+              aria-label="Закрыть"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+              className="w-[18px] h-full flex items-center justify-center text-md3-on-surface-variant hover:bg-md3-primary/20 hover:text-md3-primary active:bg-red-500 active:text-white cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0"
+            >
+              <svg className="w-[6px] h-[6px] pointer-events-none" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"><line x1="1" y1="1" x2="9" y2="9" /><line x1="9" y1="1" x2="1" y2="9" /></svg>
+            </button>
+          </>
+        ) : (
+          <>
         {/* Minimize Button */}
         <button
           tabIndex={-1}
@@ -186,6 +229,8 @@ export const TitleBar: React.FC = () => {
             <line x1="9" y1="1" x2="1" y2="9" />
           </svg>
         </button>
+          </>
+        )}
       </div>
     </div>
   );
