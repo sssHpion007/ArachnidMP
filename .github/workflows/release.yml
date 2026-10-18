@@ -81,6 +81,8 @@ jobs:
             $shell = New-Object -ComObject WScript.Shell
             if (-not $shell.AppActivate($process.Id)) { throw "Could not focus the player to test Shift+T." }
             Start-Sleep -Milliseconds 500
+            $shell.SendKeys('{ESC}')
+            Start-Sleep -Milliseconds 300
             $shell.SendKeys('+t')
             $deadline = [DateTime]::UtcNow.AddSeconds(10)
             $lyricsWindowFound = $false
@@ -97,7 +99,9 @@ jobs:
             if ($shell.AppActivate('Arachnid Lyrics')) { throw "The lyrics window remained activatable after closing." }
             Write-Host "Shift+T opened the separate lyrics window; closing it left the player running."
           } catch {
-            $message = $_.Exception.Message -replace "`r|`n", " "
+            $stdoutText = if (Test-Path $stdoutLog) { Get-Content $stdoutLog -Raw } else { "" }
+            $stderrText = if (Test-Path $stderrLog) { Get-Content $stderrLog -Raw } else { "" }
+            $message = "$($_.Exception.Message) stdout=$stdoutText stderr=$stderrText" -replace "`r|`n", " "
             Write-Output "::error title=Lyrics window smoke failure::$message"
             throw
           } finally {

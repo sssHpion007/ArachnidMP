@@ -1560,7 +1560,11 @@ fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
             .decorations(false)
             .visible(false)
             .build()
-            .map_err(|e| format!("Unable to create lyrics window: {}", e))?,
+            .map_err(|e| {
+                let message = format!("Unable to create lyrics window: {}", e);
+                eprintln!("{}", message);
+                message
+            })?,
             true,
         ),
     };
