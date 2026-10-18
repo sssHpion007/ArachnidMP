@@ -5,9 +5,17 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release version tag (for example v0.4.71)'
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
 
 jobs:
   build-windows:
@@ -50,13 +58,14 @@ jobs:
       - name: Prepare Portable Artifacts
         shell: pwsh
         run: |
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "Invalid release tag '$env:RELEASE_TAG'. Expected vMAJOR.MINOR.PATCH."
+          }
           New-Item -ItemType Directory -Force -Path artifacts
-          $ver = "${{ github.ref_name }}"
-          if (-not $ver) { $ver = "v0.1.0" }
           if (Test-Path "src-tauri/target/release/arachnid.exe") {
             Copy-Item "src-tauri/target/release/arachnid.exe" -Destination "artifacts/Arachnid-Portable.exe"
-            Compress-Archive -Path "src-tauri/target/release/arachnid.exe" -DestinationPath "artifacts/Arachnid-$ver-Windows-Portable.zip"
-            Write-Host "Created Arachnid-Portable.exe and zip for $ver!"
+            Compress-Archive -Path "src-tauri/target/release/arachnid.exe" -DestinationPath "artifacts/Arachnid-${env:RELEASE_TAG}-Windows-Portable.zip"
+            Write-Host "Created Arachnid-Portable.exe and zip for $env:RELEASE_TAG!"
           } else {
             Write-Error "arachnid.exe was not found in release target!"
           }
@@ -66,9 +75,13 @@ jobs:
         shell: bash
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         run: |
-          gh release delete "${{ github.ref_name }}" --yes --cleanup-tag=false || true
-          gh release create "${{ github.ref_name }}" artifacts/* \
-            --title "Arachnid Music Player ${{ github.ref_name }} [Windows]" \
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag '$RELEASE_TAG'. Expected vMAJOR.MINOR.PATCH." >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" artifacts/* \
+            --target "$GITHUB_SHA" \
+            --title "Arachnid Music Player $RELEASE_TAG [Windows]" \
             --notes-file RELEASE_NOTES.md \
             --latest
         env:

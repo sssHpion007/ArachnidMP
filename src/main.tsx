@@ -1,6 +1,5 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
-import { App } from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { generateCustomOrBuiltinPalette, applyM3ThemeToDOM, DEFAULT_SEED_COLOR } from './theme/material3';
 import './index.css';
@@ -20,10 +19,17 @@ try {
   }
 } catch (_) {}
 
+const isMiniLyricsWindow = new URLSearchParams(window.location.search).get('miniLyrics') === '1';
+const RoutedApp = isMiniLyricsWindow
+  ? lazy(() => import('./components/MiniLyricsWindow').then(module => ({ default: module.MiniLyricsWindow })))
+  : lazy(() => import('./App').then(module => ({ default: module.App })));
+
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App />
+      <Suspense fallback={null}>
+        <RoutedApp />
+      </Suspense>
     </ErrorBoundary>
   </React.StrictMode>
 );

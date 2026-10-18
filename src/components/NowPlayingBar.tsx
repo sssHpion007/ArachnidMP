@@ -49,6 +49,7 @@ interface NowPlayingBarProps {
   onOpenEQ?: () => void;
   onOpenTrackDetails?: (track: Track) => void;
   onOpenLyrics?: () => void;
+  onEnterMiniMode?: () => void;
   discordEnabled?: boolean;
   onToggleDiscord?: () => void;
   showDiscordButton?: boolean;
@@ -80,6 +81,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
   onOpenEQ,
   onOpenTrackDetails,
   onOpenLyrics,
+  onEnterMiniMode,
   discordEnabled = true,
   onToggleDiscord,
   showDiscordButton = true,
@@ -851,18 +853,21 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
       {/* Right: Visualizer, Volume, Panels Pill (Lyrics + Queue) */}
       <div className="z-20 relative flex items-center justify-end gap-2 sm:gap-3 shrink-0 ml-auto">
         {/* Animated Spectrum Visualizer */}
-        <div 
-          className="hidden xl:flex items-end gap-1 h-5 px-1 py-0.5 pointer-events-none opacity-80 shrink-0"
-          title={t.controls.spectrum}
+        <button
+          type="button"
+          onClick={onEnterMiniMode}
+          aria-label={language === 'ru' ? 'Открыть мини-плеер' : 'Open mini player'}
+          className="hidden md:flex items-end gap-1 h-7 px-1 py-1 cursor-pointer opacity-80 hover:opacity-100 shrink-0 rounded-md hover:bg-md3-surface-container-high transition-opacity"
+          title={language === 'ru' ? 'Открыть мини-плеер' : 'Open mini player'}
         >
           {visBars.map((height, i) => (
             <span
               key={i}
-              className="w-1 rounded-full bg-md3-primary/80 transition-all duration-75"
+              className="w-1 rounded-full bg-md3-primary/80 transition-all duration-75 pointer-events-none"
               style={{ height: `${height}%` }}
             />
           ))}
-        </div>
+        </button>
 
         {/* Volume controls with smooth slider */}
         <div 

@@ -5,7 +5,7 @@ mod logger;
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tauri::State;
+use tauri::{Manager, State};
 use base64::prelude::*;
 use lofty::config::{ParseOptions, ParsingMode, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
@@ -1541,6 +1541,32 @@ fn show_window(window: tauri::Window) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn show_mini_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let lyrics_window = app_handle
+        .get_webview_window("lyrics")
+        .ok_or_else(|| "Lyrics window is not configured".to_string())?;
+
+    if let Some(main_window) = app_handle.get_webview_window("main") {
+        if let (Ok(position), Ok(size)) = (main_window.outer_position(), main_window.outer_size()) {
+            let x = position.x.saturating_add(size.width.min(i32::MAX as u32) as i32);
+            let _ = lyrics_window.set_position(tauri::PhysicalPosition::new(x, position.y));
+        }
+    }
+
+    lyrics_window.show().map_err(|e| e.to_string())?;
+    lyrics_window.set_focus().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_mini_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window("lyrics") {
+        window.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn minimize_window(window: tauri::Window) -> Result<(), String> {
     window.minimize().map_err(|e| e.to_string())?;
     Ok(())
@@ -2094,7 +2120,11 @@ pub fn run() {
                         &format!("window={} focused={}", window.label(), focused),
                     );
                 }
-                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed => {
+                tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "lyrics" => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed if window.label() == "main" => {
                     clean_exit();
                 }
                 _ => {}
@@ -2129,6 +2159,8 @@ pub fn run() {
             toggle_maximize_window,
             close_window,
             show_window,
+            show_mini_lyrics_window,
+            hide_mini_lyrics_window,
             download_and_install_update,
             apply_in_place_update,
             is_window_maximized,
