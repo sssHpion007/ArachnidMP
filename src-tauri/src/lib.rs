@@ -1690,6 +1690,7 @@ async fn download_and_install_update(
                 .as_nanos()
         );
         let temp_update_file = exe_dir.join(format!(".update_temp-{}.tmp", update_id));
+        logger::log("INFO", "UPDATER", &format!("Downloading update asset to {}.", temp_update_file.display()));
 
         // 1. Download via ureq with auto-redirects (bypasses browser CORS completely)
         let download_result = (|| -> Result<(), String> {
@@ -1745,6 +1746,7 @@ async fn download_and_install_update(
 
         // 2. Windows native fallback: curl.exe
         if let Err(ureq_err) = download_result {
+            logger::log("WARN", "UPDATER", &format!("ureq download failed; trying Windows curl fallback: {}", ureq_err));
             #[cfg(target_os = "windows")]
             {
                 use std::process::Command;
@@ -1754,6 +1756,7 @@ async fn download_and_install_update(
 
                 if status.is_err() || !status.unwrap().success() {
                     let _ = std::fs::remove_file(&temp_update_file);
+                    logger::log("ERROR", "UPDATER", &format!("Both update download attempts failed: {}", ureq_err));
                     return Err(format!("Download failed: {}", ureq_err));
                 }
             }
@@ -1772,8 +1775,10 @@ async fn download_and_install_update(
                 return Err(error.to_string());
             }
         };
+        logger::log("INFO", "UPDATER", &format!("Downloaded {} bytes.", meta.len()));
         if meta.len() < 1_000_000 {
             let _ = std::fs::remove_file(&temp_update_file);
+            logger::log("ERROR", "UPDATER", "Downloaded update file is too small or incomplete.");
             return Err("Downloaded update file is too small or incomplete".to_string());
         }
         let mut signature = [0u8; 2];
@@ -1781,16 +1786,20 @@ async fn download_and_install_update(
             .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut signature));
         if signature_read.is_err() || signature != *b"MZ" {
             let _ = std::fs::remove_file(&temp_update_file);
+            logger::log("ERROR", "UPDATER", "The downloaded update did not have a valid Windows executable signature.");
             return Err("The downloaded update is not a valid Windows executable".to_string());
         }
 
-        // 4. In-place replacement via detached batch updater and restart
+        // 4. In-place replacement via a detached PowerShell helper and restart
         #[cfg(target_os = "windows")]
         {
+            logger::log("INFO", "UPDATER", "Download validated; scheduling in-place replacement and player restart.");
             if let Err(error) = schedule_windows_update(&current_exe, &temp_update_file, &update_id) {
                 let _ = std::fs::remove_file(&temp_update_file);
+                logger::log("ERROR", "UPDATER", &format!("Failed to schedule update replacement: {}", error));
                 return Err(error);
             }
+            logger::log("INFO", "UPDATER", "Update helper scheduled; closing the current player process.");
             clean_exit();
         }
 
@@ -1822,6 +1831,7 @@ fn schedule_windows_update(
     let backup_path = PathBuf::from(backup_os);
     let script_path = std::env::temp_dir().join(format!("Arachnid-Updater-{}.ps1", update_id));
     let error_path = std::env::temp_dir().join(format!("Arachnid-Update-Error-{}.txt", update_id));
+    let log_path = std::env::temp_dir().join(format!("Arachnid-Update-Log-{}.txt", update_id));
 
     let quote_ps = |path: &Path| path.to_string_lossy().replace('\'', "''");
     let script = include_str!("../updater.ps1")
@@ -1830,6 +1840,7 @@ fn schedule_windows_update(
         .replace("__BACKUP__", &quote_ps(&backup_path))
         .replace("__SCRIPT__", &quote_ps(&script_path))
         .replace("__ERROR__", &quote_ps(&error_path))
+        .replace("__LOG__", &quote_ps(&log_path))
         .replace("__SUCCESS__", "")
         .replace("__PARENT_PID__", &std::process::id().to_string());
 
@@ -1838,12 +1849,15 @@ fn schedule_windows_update(
     script_bytes.extend_from_slice(script.as_bytes());
     std::fs::write(&script_path, script_bytes)
         .map_err(|e| format!("Unable to write the update helper: {}", e))?;
+    let _ = std::fs::write(&log_path, "Updater launch requested by Arachnid.\r\n");
+    logger::log("INFO", "UPDATER", &format!("Prepared detached updater for {}.", current_exe.display()));
 
     // The app's Windows Job Object normally kills every child when its last
     // handle closes. Temporarily disable that policy so the updater survives
     // clean_exit even on systems where CREATE_BREAKAWAY_FROM_JOB is restricted.
     if let Err(error) = windows_process_grouping::set_job_kill_on_close(false) {
         let _ = std::fs::remove_file(&script_path);
+        logger::log("ERROR", "UPDATER", &format!("Could not detach updater from player shutdown: {}", error));
         return Err(format!("Unable to detach updater from player shutdown: {}", error));
     }
 
@@ -1864,13 +1878,18 @@ fn schedule_windows_update(
         .creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS)
         .spawn();
 
-    if let Err(error) = spawn_result {
-        let _ = windows_process_grouping::set_job_kill_on_close(true);
-        let _ = std::fs::remove_file(&script_path);
-        return Err(format!("Unable to start the detached updater: {}", error));
+    match spawn_result {
+        Ok(child) => {
+            logger::log("INFO", "UPDATER", &format!("Detached updater helper started with PID {}.", child.id()));
+            Ok(())
+        }
+        Err(error) => {
+            let _ = windows_process_grouping::set_job_kill_on_close(true);
+            let _ = std::fs::remove_file(&script_path);
+            logger::log("ERROR", "UPDATER", &format!("Unable to start the detached updater: {}", error));
+            Err(format!("Unable to start the detached updater: {}", error))
+        }
     }
-
-    Ok(())
 }
 
 #[tauri::command]
@@ -2233,6 +2252,59 @@ fn cleanup_legacy_update_artifacts() {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn import_previous_update_diagnostics() {
+    use std::time::{Duration, SystemTime};
+
+    let temp_dir = std::env::temp_dir();
+    let logs_dir = storage::get_logs_dir();
+    if let Err(error) = std::fs::create_dir_all(&logs_dir) {
+        logger::log("WARN", "UPDATER", &format!("Unable to create updater log directory: {}", error));
+        return;
+    }
+
+    let entries = match std::fs::read_dir(&temp_dir) {
+        Ok(entries) => entries,
+        Err(error) => {
+            logger::log("WARN", "UPDATER", &format!("Unable to inspect temporary updater logs: {}", error));
+            return;
+        }
+    };
+    let now = SystemTime::now();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("Arachnid-Update-Log-") || path.extension().and_then(|ext| ext.to_str()) != Some("txt") {
+            continue;
+        }
+        let modified = entry.metadata().and_then(|metadata| metadata.modified()).unwrap_or(now);
+        let age = now.duration_since(modified).unwrap_or_default();
+        // Let the detached PowerShell helper finish writing before importing its report.
+        if age < Duration::from_secs(20) {
+            continue;
+        }
+        if age > Duration::from_secs(14 * 24 * 60 * 60) {
+            let _ = std::fs::remove_file(&path);
+            continue;
+        }
+
+        let destination = logs_dir.join(name.replace("Arachnid-Update-Log-", "arachnid_updater_"));
+        if let Err(error) = std::fs::copy(&path, &destination) {
+            logger::log("WARN", "UPDATER", &format!("Unable to preserve updater diagnostic log: {}", error));
+            continue;
+        }
+        if let Ok(contents) = std::fs::read_to_string(&destination) {
+            for line in contents.lines() {
+                let level = if line.contains("CRITICAL:") || line.contains("ERROR:") { "ERROR" } else { "INFO" };
+                logger::log(level, "UPDATER", line);
+            }
+        }
+        logger::log("INFO", "UPDATER", &format!("Saved update attempt details to {}.", destination.display()));
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let base_dir = storage::get_portable_base_dir();
@@ -2280,6 +2352,11 @@ pub fn run() {
             logger::initialize_session_clock();
             logger::set_app_handle(app.handle().clone());
             logger::log("INFO", "SYSTEM", &format!("Arachnid Music Player v{} started", get_app_version()));
+            #[cfg(target_os = "windows")]
+            std::thread::spawn(|| {
+                std::thread::sleep(std::time::Duration::from_secs(25));
+                import_previous_update_diagnostics();
+            });
             Ok(())
         })
         .manage(AppState {

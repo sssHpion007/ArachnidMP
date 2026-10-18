@@ -125,6 +125,7 @@ jobs:
             $scriptPath = Join-Path $testRoot "updater-smoke.ps1"
             $errorPath = Join-Path $testRoot "update-error.txt"
             $successPath = Join-Path $testRoot "update-success.txt"
+            $logPath = Join-Path $testRoot "updater.log"
             Copy-Item $builtExe $target
             Copy-Item $builtExe $source
             function Escape-PSLiteral([string] $value) { return $value.Replace("'", "''") }
@@ -135,6 +136,7 @@ jobs:
             $script = $script.Replace("__SCRIPT__", (Escape-PSLiteral $scriptPath))
             $script = $script.Replace("__ERROR__", (Escape-PSLiteral $errorPath))
             $script = $script.Replace("__SUCCESS__", (Escape-PSLiteral $successPath))
+            $script = $script.Replace("__LOG__", (Escape-PSLiteral $logPath))
             $parent = Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', 'ping 127.0.0.1 -n 60 >nul') -PassThru -WindowStyle Hidden
             $script = $script.Replace("__PARENT_PID__", [string]$parent.Id)
             [IO.File]::WriteAllText($scriptPath, $script, [Text.UTF8Encoding]::new($true))
@@ -154,6 +156,9 @@ jobs:
               Remove-Item $testRoot -Recurse -Force -ErrorAction SilentlyContinue
               throw "Updater smoke test failed: $reason"
             }
+            if (-not (Test-Path $logPath) -or -not (Select-String -Path $logPath -Pattern "update succeeded" -Quiet)) {
+              throw "Updater did not leave a successful diagnostic trace."
+            }
             if ((Test-Path $source) -or (Test-Path $backup) -or -not (Test-Path $target)) {
               $updatedProcessId = [int](Get-Content $successPath -Raw)
               Stop-Process -Id $updatedProcessId -Force -ErrorAction SilentlyContinue
@@ -172,6 +177,7 @@ jobs:
             $rollbackScriptPath = Join-Path $rollbackRoot "updater-rollback.ps1"
             $rollbackErrorPath = Join-Path $rollbackRoot "update-error.txt"
             $rollbackSuccessPath = Join-Path $rollbackRoot "update-success.txt"
+            $rollbackLogPath = Join-Path $rollbackRoot "updater.log"
             Copy-Item $builtExe $rollbackTarget
             [IO.File]::WriteAllBytes($rollbackSource, [byte[]](0x4D, 0x5A, 0x00, 0x00))
             $rollbackScript = Get-Content "src-tauri/updater.ps1" -Raw
@@ -181,6 +187,7 @@ jobs:
             $rollbackScript = $rollbackScript.Replace("__SCRIPT__", (Escape-PSLiteral $rollbackScriptPath))
             $rollbackScript = $rollbackScript.Replace("__ERROR__", (Escape-PSLiteral $rollbackErrorPath))
             $rollbackScript = $rollbackScript.Replace("__SUCCESS__", (Escape-PSLiteral $rollbackSuccessPath))
+            $rollbackScript = $rollbackScript.Replace("__LOG__", (Escape-PSLiteral $rollbackLogPath))
             $rollbackParent = Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', 'ping 127.0.0.1 -n 60 >nul') -PassThru -WindowStyle Hidden
             $rollbackScript = $rollbackScript.Replace("__PARENT_PID__", [string]$rollbackParent.Id)
             [IO.File]::WriteAllText($rollbackScriptPath, $rollbackScript, [Text.UTF8Encoding]::new($true))
@@ -194,6 +201,9 @@ jobs:
             if (-not $rollbackUpdater.WaitForExit(45000)) { Stop-Process -Id $rollbackUpdater.Id -Force; throw "Rollback helper timed out." }
             if (-not (Test-Path $rollbackErrorPath) -or (Test-Path $rollbackBackup) -or (Test-Path $rollbackSource)) {
               throw "Updater rollback did not complete or left staged files behind."
+            }
+            if (-not (Test-Path $rollbackLogPath) -or -not (Select-String -Path $rollbackLogPath -Pattern "Rollback restored the original executable" -Quiet)) {
+              throw "Updater rollback diagnostic trace did not record the restored original executable."
             }
             $originalHash = (Get-FileHash $builtExe -Algorithm SHA256).Hash
             $restoredHash = (Get-FileHash $rollbackTarget -Algorithm SHA256).Hash
@@ -213,7 +223,7 @@ jobs:
         if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp'
         uses: actions/upload-artifact@v4
         with:
-          name: Arachnid-v0.4.77-Windows-Test
+          name: Arachnid-v0.4.78-Windows-Test
           path: src-tauri/target/release/arachnid.exe
           if-no-files-found: error
 
