@@ -1571,6 +1571,9 @@ fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
             true,
         ),
     };
+    if std::env::var_os("ARACHNID_SMOKE_TEST_LYRICS").is_some() {
+        eprintln!("Smoke test: lyrics webview created={}, visible={:?}, title={:?}", created, lyrics_window.is_visible(), lyrics_window.title());
+    }
 
     // Position the lyric window beside the player on first creation. If the
     // player fills the monitor, center the lyric window there instead.
@@ -1611,14 +1614,25 @@ fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     }
 
     let _ = lyrics_window.unminimize();
-    lyrics_window
-        .show()
-        .map_err(|e| format!("Unable to show lyrics window: {}", e))?;
+    lyrics_window.show().map_err(|e| {
+        let message = format!("Unable to show lyrics window: {}", e);
+        if std::env::var_os("ARACHNID_SMOKE_TEST_LYRICS").is_some() {
+            eprintln!("{}", message);
+        }
+        message
+    })?;
     // Do not refocus the player here: doing so immediately covered the lyrics
     // window and made the supposedly detached view appear not to open.
-    lyrics_window
-        .set_focus()
-        .map_err(|e| format!("Unable to focus lyrics window: {}", e))?;
+    lyrics_window.set_focus().map_err(|e| {
+        let message = format!("Unable to focus lyrics window: {}", e);
+        if std::env::var_os("ARACHNID_SMOKE_TEST_LYRICS").is_some() {
+            eprintln!("{}", message);
+        }
+        message
+    })?;
+    if std::env::var_os("ARACHNID_SMOKE_TEST_LYRICS").is_some() {
+        eprintln!("Smoke test: lyrics webview show/focus completed; visible={:?}, title={:?}", lyrics_window.is_visible(), lyrics_window.title());
+    }
     Ok(())
 }
 
