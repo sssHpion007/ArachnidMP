@@ -17,6 +17,7 @@ interface MiniLyricsPaneProps {
   onDetach?: () => void;
   onAttach?: () => void;
   onClose?: () => void;
+  onSeek?: (time: number) => void;
 }
 
 interface LyricLine {
@@ -42,7 +43,7 @@ const parseLyrics = (lyrics: string): LyricLine[] => {
     }
     if (timestamps.length) {
       const lyricText = raw.slice(lastIndex).trim();
-      if (lyricText) timestamps.forEach(time => lines.push({ time, text: lyricText }));
+      timestamps.forEach(time => lines.push({ time, text: lyricText }));
     } else {
       lines.push({ time: -1, text: raw });
     }
@@ -59,9 +60,10 @@ export const MiniLyricsPane: React.FC<MiniLyricsPaneProps> = ({
   onDetach,
   onAttach,
   onClose,
+  onSeek,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const activeLineRef = useRef<HTMLDivElement>(null);
+  const activeLineRef = useRef<HTMLButtonElement>(null);
   const lyrics = track?.lyrics?.trim() || '';
   const lines = useMemo(() => parseLyrics(lyrics), [lyrics]);
   const isSynced = lines.some(line => line.time >= 0);
@@ -76,9 +78,14 @@ export const MiniLyricsPane: React.FC<MiniLyricsPaneProps> = ({
   }, [currentTime, isSynced, lines]);
 
   useEffect(() => {
-    if (isSynced && activeLineRef.current && scrollRef.current) {
-      activeLineRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+    const container = scrollRef.current;
+    const activeLine = activeLineRef.current;
+    if (!isSynced || !container || !activeLine) return;
+    const containerRect = container.getBoundingClientRect();
+    const lineRect = activeLine.getBoundingClientRect();
+    const centeredScrollTop = container.scrollTop + lineRect.top - containerRect.top
+      - (container.clientHeight - activeLine.offsetHeight) / 2;
+    container.scrollTo({ top: Math.max(0, centeredScrollTop), behavior: 'smooth' });
   }, [activeLineIndex, isSynced]);
 
   return (
@@ -120,19 +127,22 @@ export const MiniLyricsPane: React.FC<MiniLyricsPaneProps> = ({
                   const isActive = index === activeLineIndex;
                   const isPast = activeLineIndex !== -1 && index < activeLineIndex;
                   return (
-                    <div
+                    <button
                       key={`${line.time}-${index}`}
                       ref={isActive ? activeLineRef : undefined}
-                      className={`rounded-2xl px-3 py-2 transition-all duration-300 ${
+                      type="button"
+                      disabled={line.time < 0 || !onSeek}
+                      onClick={() => line.time >= 0 && onSeek?.(line.time)}
+                      className={`w-full rounded-2xl px-3 py-2 text-sm font-medium leading-relaxed transition-colors duration-300 disabled:cursor-default ${
                         isActive
-                          ? 'scale-[1.03] bg-md3-primary/10 text-base font-extrabold text-md3-primary shadow-sm'
+                          ? 'bg-md3-primary/10 text-md3-primary'
                           : isPast
-                            ? 'text-sm font-medium text-md3-on-surface-variant/50'
-                            : 'text-sm font-medium text-md3-on-surface-variant/70'
+                            ? 'text-md3-on-surface-variant/50'
+                            : 'text-md3-on-surface-variant/70'
                       }`}
                     >
                       {line.text || '♪'}
-                    </div>
+                    </button>
                   );
                 })}
               </div>

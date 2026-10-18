@@ -184,6 +184,7 @@ export const App: React.FC = () => {
   const [miniLyricsMode, setMiniLyricsMode] = useState<'closed' | 'attached' | 'detached'>('closed');
   const miniWindowRestoreRef = useRef<{ wasMaximized: boolean; width: number; height: number } | null>(null);
   const miniLyricsChannelRef = useRef<BroadcastChannel | null>(null);
+  const miniLyricsSeekHandlerRef = useRef<(time: number) => void>(() => {});
 
   // Audio Fading Settings
   const [fadeMode, setFadeMode] = useState<FadeMode>('track_change_and_pause');
@@ -391,13 +392,20 @@ export const App: React.FC = () => {
   }, [isMiniMode, resizeMiniWindow]);
 
   const detachMiniLyrics = useCallback(async () => {
+    setMiniLyricsMode('detached');
     try {
-      if (isMiniMode && !(await resizeMiniWindow(MINI_WINDOW_WIDTH))) {
-        throw new Error('Could not resize the mini-player before detaching lyrics.');
+      if (isTauri()) {
+        await invoke('show_mini_lyrics_window');
+      } else {
+        const popup = window.open(
+          `${window.location.pathname}?miniLyrics=1`,
+          'arachnid-mini-lyrics',
+          'popup=yes,width=340,height=620,resizable=yes'
+        );
+        if (!popup) throw new Error('The browser blocked the lyrics popup.');
       }
-      if (isTauri()) await invoke('show_mini_lyrics_window');
-      setMiniLyricsMode('detached');
     } catch (error) {
+      setMiniLyricsMode('attached');
       if (isMiniMode) await resizeMiniWindow(MINI_WINDOW_WITH_LYRICS_WIDTH);
       console.warn('Unable to detach lyrics:', error);
     }
@@ -419,6 +427,9 @@ export const App: React.FC = () => {
         void attachMiniLyrics();
       } else if (event.data?.type === 'close-lyrics') {
         void closeMiniLyrics();
+      } else if (event.data?.type === 'seek-lyrics') {
+        const time = Number(event.data.time);
+        if (Number.isFinite(time) && time >= 0) miniLyricsSeekHandlerRef.current(time);
       }
     };
     return () => {
@@ -2739,6 +2750,7 @@ export const App: React.FC = () => {
       });
     }
   };
+  miniLyricsSeekHandlerRef.current = handleSeek;
 
   const handleVolumeChange = (vol: number) => {
     volumeRef.current = vol;

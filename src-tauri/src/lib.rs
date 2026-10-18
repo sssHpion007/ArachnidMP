@@ -1542,6 +1542,24 @@ fn show_window(window: tauri::Window) -> Result<(), String> {
 
 #[tauri::command]
 fn show_mini_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    const MINI_PLAYER_WIDTH: f64 = 320.0;
+    const MINI_PLAYER_HEIGHT: f64 = 560.0;
+    const LYRICS_WINDOW_WIDTH: f64 = 340.0;
+    const LYRICS_WINDOW_HEIGHT: f64 = 620.0;
+
+    let main_window = app_handle
+        .get_webview_window("main")
+        .ok_or_else(|| "The main player window is unavailable".to_string())?;
+
+    // Collapse the attached pane before placing the companion window. Doing both
+    // operations here avoids positioning against the old 620 px attached layout.
+    main_window
+        .set_resizable(false)
+        .map_err(|e| format!("Unable to lock mini-player size: {}", e))?;
+    main_window
+        .set_size(tauri::LogicalSize::new(MINI_PLAYER_WIDTH, MINI_PLAYER_HEIGHT))
+        .map_err(|e| format!("Unable to resize mini-player: {}", e))?;
+
     let lyrics_window = match app_handle.get_webview_window("lyrics") {
         Some(window) => window,
         None => WebviewWindowBuilder::new(
@@ -1550,23 +1568,59 @@ fn show_mini_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
             WebviewUrl::App("index.html?miniLyrics=1".into()),
         )
         .title("Arachnid Lyrics")
-        .inner_size(340.0, 620.0)
+        .inner_size(LYRICS_WINDOW_WIDTH, LYRICS_WINDOW_HEIGHT)
         .min_inner_size(280.0, 360.0)
         .decorations(false)
         .visible(false)
         .build()
-        .map_err(|e| e.to_string())?,
+        .map_err(|e| format!("Unable to create lyrics window: {}", e))?,
     };
 
-    if let Some(main_window) = app_handle.get_webview_window("main") {
-        if let (Ok(position), Ok(size)) = (main_window.outer_position(), main_window.outer_size()) {
-            let x = position.x.saturating_add(size.width.min(i32::MAX as u32) as i32);
-            let _ = lyrics_window.set_position(tauri::PhysicalPosition::new(x, position.y));
+    lyrics_window
+        .set_size(tauri::LogicalSize::new(LYRICS_WINDOW_WIDTH, LYRICS_WINDOW_HEIGHT))
+        .map_err(|e| format!("Unable to size lyrics window: {}", e))?;
+
+    // Keep the detached lyrics window visible beside the mini player, even if
+    // the player remains the focused window. Clamp it to the current monitor.
+    if let (Ok(main_position), Ok(scale_factor)) = (main_window.outer_position(), main_window.scale_factor()) {
+        if let Some(monitor) = main_window.current_monitor().ok().flatten() {
+            let monitor_position = monitor.position();
+            let monitor_size = monitor.size();
+            let left = monitor_position.x as i64;
+            let top = monitor_position.y as i64;
+            let right = left + monitor_size.width as i64;
+            let bottom = top + monitor_size.height as i64;
+            let mini_width = (MINI_PLAYER_WIDTH * scale_factor).round() as i64;
+            let lyrics_width = (LYRICS_WINDOW_WIDTH * scale_factor).round() as i64;
+            let lyrics_height = (LYRICS_WINDOW_HEIGHT * scale_factor).round() as i64;
+            let gap = (8.0 * scale_factor).round() as i64;
+            let main_x = main_position.x as i64;
+            let main_y = main_position.y as i64;
+            let right_x = main_x + mini_width + gap;
+            let left_x = main_x - lyrics_width - gap;
+            let x = if right_x + lyrics_width <= right {
+                right_x
+            } else if left_x >= left {
+                left_x
+            } else {
+                (right - lyrics_width).max(left)
+            };
+            let y = main_y.clamp(top, (bottom - lyrics_height).max(top));
+            lyrics_window
+                .set_position(tauri::PhysicalPosition::new(x as i32, y as i32))
+                .map_err(|e| format!("Unable to position lyrics window: {}", e))?;
+        } else if let Ok(main_position) = main_window.outer_position() {
+            let x = main_position.x.saturating_add((MINI_PLAYER_WIDTH * scale_factor).round() as i32);
+            lyrics_window
+                .set_position(tauri::PhysicalPosition::new(x, main_position.y))
+                .map_err(|e| format!("Unable to position lyrics window: {}", e))?;
         }
     }
 
     lyrics_window.show().map_err(|e| e.to_string())?;
-    // Keep keyboard focus on the player so detaching lyrics does not disrupt its controls.
+    // Raise the companion window, then restore focus to the player to keep its controls active.
+    let _ = lyrics_window.set_focus();
+    let _ = main_window.set_focus();
     Ok(())
 }
 

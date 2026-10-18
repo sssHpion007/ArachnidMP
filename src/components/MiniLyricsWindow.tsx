@@ -38,6 +38,7 @@ export const MiniLyricsWindow: React.FC = () => {
 
   const attach = () => channelRef.current?.postMessage({ type: 'attach-lyrics' });
   const close = () => channelRef.current?.postMessage({ type: 'close-lyrics' });
+  const seek = (time: number) => channelRef.current?.postMessage({ type: 'seek-lyrics', time });
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-md3-background text-md3-on-background font-sans">
@@ -48,6 +49,7 @@ export const MiniLyricsWindow: React.FC = () => {
         detached
         onAttach={attach}
         onClose={close}
+        onSeek={seek}
       />
     </div>
   );

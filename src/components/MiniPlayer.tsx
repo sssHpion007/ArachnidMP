@@ -576,6 +576,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
           language={language}
           onDetach={onDetachLyrics}
           onClose={onCloseLyrics}
+          onSeek={onSeek}
         />
       )}
     </div>
