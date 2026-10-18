@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react';
+import { Pin, PinOff } from 'lucide-react';
 import { AppLanguage } from '../i18n';
 
 export interface MiniLyricsTrack {
@@ -98,13 +99,25 @@ export const MiniLyricsPane: React.FC<MiniLyricsPaneProps> = ({
         <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} className="flex shrink-0 items-center gap-1">
           {detached ? (
             onAttach && (
-              <button type="button" onClick={onAttach} className="rounded-lg px-2 py-1 text-[10px] text-md3-primary hover:bg-md3-primary/10">
-                {language === 'ru' ? 'Прикрепить' : 'Attach'}
+              <button
+                type="button"
+                onClick={onAttach}
+                aria-label={language === 'ru' ? 'Прикрепить к мини-плееру' : 'Attach to mini player'}
+                title={language === 'ru' ? 'Прикрепить к мини-плееру' : 'Attach to mini player'}
+                className="rounded-lg p-1.5 text-md3-primary hover:bg-md3-primary/10"
+              >
+                <Pin size={15} />
               </button>
             )
           ) : (
-            <button type="button" onClick={onDetach} className="rounded-lg px-2 py-1 text-[10px] text-md3-primary hover:bg-md3-primary/10">
-              {language === 'ru' ? 'Отсоединить' : 'Detach'}
+            <button
+              type="button"
+              onClick={onDetach}
+              aria-label={language === 'ru' ? 'Открепить от мини-плеера' : 'Detach from mini player'}
+              title={language === 'ru' ? 'Открепить от мини-плеера' : 'Detach from mini player'}
+              className="rounded-lg p-1.5 text-md3-primary hover:bg-md3-primary/10"
+            >
+              <PinOff size={15} />
             </button>
           )}
           <button type="button" onClick={onClose} aria-label={detached ? (language === 'ru' ? 'Закрыть' : 'Close') : (language === 'ru' ? 'Скрыть текст' : 'Hide lyrics')} className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high">

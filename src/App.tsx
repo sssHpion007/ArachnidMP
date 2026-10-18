@@ -400,7 +400,10 @@ export const App: React.FC = () => {
     const previousLyricsMode = miniLyricsMode;
     setIsLyricsOpen(false);
     setIsQueueOpen(false);
-    if (isMiniMode) setMiniLyricsMode('detached');
+    if (isMiniMode) {
+      setMiniLyricsMode('detached');
+      await resizeMiniWindow(MINI_WINDOW_WIDTH);
+    }
 
     try {
       if (isTauri()) {
@@ -4123,6 +4126,8 @@ export const App: React.FC = () => {
           queueIndex={queueIndex}
           tracks={tracks}
           playlists={playlists}
+          playlistFolders={playlistFolders}
+          playlistGroups={playlistGroups}
           language={language}
           lyricsMode={miniLyricsMode}
           discordEnabled={discordEnabled}

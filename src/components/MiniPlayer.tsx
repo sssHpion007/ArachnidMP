@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Disc3,
   Heart,
+  Layers,
   Mic2,
   Library,
   ListMusic,
@@ -23,7 +24,8 @@ import {
   VolumeX,
   X,
 } from 'lucide-react';
-import { Playlist, Track } from '../types/music';
+import { Playlist, PlaylistFolder, PlaylistGroup, Track } from '../types/music';
+import { getFolderColorHex, getFolderIconComponent } from '../theme/folderIcons';
 import { AppLanguage } from '../i18n';
 import { formatTime } from '../services/tagEditor';
 import { MiniLyricsPane, MiniLyricsTrack } from './MiniLyricsPane';
@@ -33,6 +35,9 @@ type BottomPanel = 'queue' | 'library' | null;
 type LibraryTab = 'tracks' | 'playlists' | 'albums' | 'artists' | 'favorites' | 'genres';
 type LibraryCollectionType = 'albums' | 'artists' | 'genres';
 interface MiniLibraryCollection { name: string; tracks: Track[]; coverArt?: string; }
+type MiniPlaylistEntry =
+  | { type: 'folder'; item: PlaylistFolder; order: number }
+  | { type: 'playlist'; item: Playlist; order: number };
 
 const groupTracks = (tracks: Track[], getNames: (track: Track) => string | string[] | undefined) => {
   const groups = new Map<string, Track[]>();
@@ -91,6 +96,37 @@ const MiniTrackRow: React.FC<MiniTrackRowProps> = ({ track, active = false, lang
   </button>
 );
 
+interface MiniLibraryCardProps {
+  title: string;
+  subtitle: string;
+  onClick: () => void;
+  coverArt?: string;
+  icon: React.ReactNode;
+  accentColor?: string;
+}
+
+const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({ title, subtitle, onClick, coverArt, icon, accentColor }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="group relative aspect-[1.18] min-w-0 overflow-hidden rounded-xl border border-md3-outline-variant/15 bg-md3-surface-container-high text-left transition-transform hover:scale-[1.02]"
+    style={accentColor ? { borderColor: accentColor } : undefined}
+  >
+    {coverArt ? (
+      <img src={coverArt} alt="" className="absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" />
+    ) : (
+      <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high text-md3-primary/70">
+        {icon}
+      </div>
+    )}
+    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
+    <span className="absolute inset-x-2 bottom-2 min-w-0 text-white">
+      <span className="block truncate text-[11px] font-semibold">{title}</span>
+      <span className="block truncate text-[9px] text-white/75">{subtitle}</span>
+    </span>
+  </button>
+);
+
 interface MiniPlayerProps {
   currentTrack: Track | null;
   isPlaying: boolean;
@@ -104,6 +140,8 @@ interface MiniPlayerProps {
   queueIndex: number;
   tracks: Track[];
   playlists: Playlist[];
+  playlistFolders: PlaylistFolder[];
+  playlistGroups: PlaylistGroup[];
   language: AppLanguage;
   lyricsMode: LyricsMode;
   discordEnabled: boolean;
@@ -144,6 +182,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   queueIndex,
   tracks,
   playlists,
+  playlistFolders,
+  playlistGroups,
   language,
   lyricsMode,
   discordEnabled,
@@ -171,6 +211,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const [bottomPanel, setBottomPanel] = useState<BottomPanel>(null);
   const [libraryTab, setLibraryTab] = useState<LibraryTab>('tracks');
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
+  const [selectedPlaylistFolderId, setSelectedPlaylistFolderId] = useState<string | null>(null);
+  const [selectedPlaylistGroupId, setSelectedPlaylistGroupId] = useState<string | null>(null);
   const [selectedCollection, setSelectedCollection] = useState<{ type: LibraryCollectionType; name: string } | null>(null);
   const [isCompactVolHovered, setIsCompactVolHovered] = useState(false);
   const volHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -183,6 +225,34 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const safeDuration = duration > 0 ? duration : (currentTrack?.duration || 0);
   const safeTime = Math.max(0, Math.min(safeDuration || 0, currentTime));
   const currentPlaylist = playlists.find(playlist => playlist.id === selectedPlaylistId) || null;
+  const selectedPlaylistFolder = playlistFolders.find(folder => folder.id === selectedPlaylistFolderId) || null;
+  const selectedPlaylistGroup = playlistGroups.find(group => group.id === selectedPlaylistGroupId) || null;
+  const playlistFoldersInView = playlistFolders
+    .filter(folder => selectedPlaylistFolder
+      ? folder.parentId === selectedPlaylistFolder.id
+      : selectedPlaylistGroup
+        ? !folder.parentId && folder.groupId === selectedPlaylistGroup.id
+        : !folder.parentId && !folder.groupId)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const playlistsInView = playlists
+    .filter(playlist => selectedPlaylistFolder
+      ? playlist.folderId === selectedPlaylistFolder.id
+      : selectedPlaylistGroup
+        ? !playlist.folderId && playlist.groupId === selectedPlaylistGroup.id
+        : !playlist.folderId && !playlist.groupId)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const playlistEntriesInView: MiniPlaylistEntry[] = [
+    ...playlistFoldersInView.map(folder => ({
+      type: 'folder' as const,
+      item: folder,
+      order: folder.order ?? playlistFolders.indexOf(folder) * 10,
+    })),
+    ...playlistsInView.map(playlist => ({
+      type: 'playlist' as const,
+      item: playlist,
+      order: playlist.order ?? (playlistFolders.length + playlists.indexOf(playlist)) * 10,
+    })),
+  ].sort((a, b) => a.order - b.order);
   const albums = useMemo(() => groupTracks(tracks, track => track.album?.trim() || text(language, 'Без альбома', 'No Album')), [language, tracks]);
   const artists = useMemo(() => groupTracks(tracks, track => track.artist?.trim() || text(language, 'Неизвестный исполнитель', 'Unknown Artist')), [language, tracks]);
   const genres = useMemo(() => groupTracks(tracks, track => {
@@ -429,7 +499,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
             type="button"
             onClick={() => togglePanel('queue')}
             aria-expanded={bottomPanel !== null}
-            className={`flex h-8 w-full items-center justify-between rounded-full border px-4 text-xs transition-colors ${
+            className={`my-auto flex h-8 w-full items-center justify-between rounded-full border px-4 text-xs transition-colors ${
               bottomPanel === 'queue'
                 ? 'border-md3-primary/30 bg-md3-primary/10 text-md3-primary'
                 : 'border-md3-outline-variant/20 bg-md3-surface-container-low text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface'
@@ -447,7 +517,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                 <header className="flex h-11 shrink-0 items-center gap-2 border-b border-md3-outline-variant/15 px-4">
                   <ListMusic size={16} className="text-md3-primary" />
                   <strong className="flex-1 text-xs">{text(language, 'Очередь воспроизведения', 'Play queue')} · {queue.length}</strong>
-                  <button type="button" onClick={() => { setLibraryTab('tracks'); setSelectedPlaylistId(null); setSelectedCollection(null); setBottomPanel('library'); }} className="rounded-lg px-2 py-1 text-[10px] text-md3-primary hover:bg-md3-primary/10">{text(language, 'Библиотека', 'Library')}</button>
+                  <button type="button" onClick={() => { setLibraryTab('tracks'); setSelectedPlaylistId(null); setSelectedPlaylistFolderId(null); setSelectedPlaylistGroupId(null); setSelectedCollection(null); setBottomPanel('library'); }} className="rounded-lg px-2 py-1 text-[10px] text-md3-primary hover:bg-md3-primary/10">{text(language, 'Библиотека', 'Library')}</button>
                   <button type="button" onClick={onClearQueue} disabled={queue.length === 0} className="rounded-lg px-2 py-1 text-[10px] text-md3-on-surface-variant hover:bg-md3-surface-container-high disabled:opacity-30">{text(language, 'Очистить', 'Clear')}</button>
                   <button type="button" onClick={() => setBottomPanel(null)} aria-label={text(language, 'Закрыть', 'Close')} className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"><X size={15} /></button>
                 </header>
@@ -468,17 +538,22 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
             ) : (
               <>
                 <header className="flex h-11 shrink-0 items-center gap-1.5 border-b border-md3-outline-variant/15 px-2">
-                  {(currentPlaylist || selectedCollection) && (
+                  {(currentPlaylist || selectedCollection || selectedPlaylistFolder || selectedPlaylistGroup) && (
                     <button
                       type="button"
-                      onClick={() => { setSelectedPlaylistId(null); setSelectedCollection(null); }}
-                      aria-label={text(language, 'Назад к библиотеке', 'Back to library')}
+                      onClick={() => {
+                        if (currentPlaylist) setSelectedPlaylistId(null);
+                        else if (selectedCollection) setSelectedCollection(null);
+                        else if (selectedPlaylistFolder) setSelectedPlaylistFolderId(selectedPlaylistFolder.parentId || null);
+                        else if (selectedPlaylistGroup) setSelectedPlaylistGroupId(null);
+                      }}
+                      aria-label={text(language, 'Назад', 'Go back')}
                       className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"
                     ><ChevronLeft size={16} /></button>
                   )}
                   <Library size={15} className="shrink-0 text-md3-primary" />
                   <strong className="min-w-0 flex-1 truncate text-[11px]">
-                    {currentPlaylist?.name || selectedCollectionGroup?.name || text(language, 'Библиотека', 'Library')}
+                    {currentPlaylist?.name || selectedCollectionGroup?.name || selectedPlaylistFolder?.name || selectedPlaylistGroup?.name || text(language, 'Библиотека', 'Library')}
                   </strong>
                   <button type="button" onClick={() => setBottomPanel('queue')} title={text(language, 'Очередь', 'Queue')} className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"><ListMusic size={15} /></button>
                   <button type="button" onClick={() => setBottomPanel(null)} aria-label={text(language, 'Закрыть', 'Close')} className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"><X size={15} /></button>
@@ -496,7 +571,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                       <button
                         key={tab}
                         type="button"
-                        onClick={() => { setLibraryTab(tab); setSelectedPlaylistId(null); setSelectedCollection(null); }}
+                        onClick={() => { setLibraryTab(tab); setSelectedPlaylistId(null); setSelectedPlaylistFolderId(null); setSelectedPlaylistGroupId(null); setSelectedCollection(null); }}
                         className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] transition-colors ${active ? 'bg-md3-primary text-md3-on-primary' : 'bg-md3-surface-container-high text-md3-on-surface-variant hover:text-md3-on-surface'}`}
                       >{label}</button>
                     );
@@ -504,28 +579,93 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                 </nav>
                 <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2">
                   {libraryTab === 'playlists' && !currentPlaylist && !selectedCollection && (
-                    playlists.length > 0 ? (
-                      <div className="grid grid-cols-2 gap-2">
-                        {playlists.map(playlist => {
-                          const cover = playlist.coverArt || tracks.find(track => playlist.trackIds.includes(track.id) && track.coverArt)?.coverArt;
-                          return (
-                            <button
-                              key={playlist.id}
-                              type="button"
-                              onClick={() => { setLibraryTab('tracks'); setSelectedCollection(null); setSelectedPlaylistId(playlist.id); }}
-                              className="group relative aspect-[1.18] min-w-0 overflow-hidden rounded-xl bg-md3-surface-container-high text-left transition-transform hover:scale-[1.02]"
-                            >
-                              {cover ? <img src={cover} alt="" className="absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" /> : <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/25 to-md3-surface-container-high"><ListMusic size={28} className="text-md3-primary/70" /></div>}
-                              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
-                              <span className="absolute inset-x-2 bottom-2 min-w-0 text-white">
-                                <span className="block truncate text-[11px] font-semibold">{playlist.name}</span>
-                                <span className="block truncate text-[9px] text-white/75">{playlist.trackIds.length} {text(language, 'треков', 'tracks')}</span>
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Плейлистов пока нет', 'No playlists yet')}</p>
+                    <div className="space-y-3">
+                      {!selectedPlaylistFolder && !selectedPlaylistGroup && playlistGroups.length > 0 && (
+                        <section className="space-y-1.5">
+                          <h3 className="px-1 text-[9px] font-bold uppercase tracking-wider text-md3-on-surface-variant/75">
+                            {text(language, 'Группы', 'Groups')}
+                          </h3>
+                          <div className="grid grid-cols-2 gap-2">
+                            {playlistGroups.map(group => {
+                              const itemCount = playlistFolders.filter(folder => !folder.parentId && folder.groupId === group.id).length
+                                + playlists.filter(playlist => !playlist.folderId && playlist.groupId === group.id).length;
+                              const color = group.color ? getFolderColorHex(group.color) : undefined;
+                              return (
+                                <MiniLibraryCard
+                                  key={group.id}
+                                  title={group.name}
+                                  subtitle={`${itemCount} ${text(language, 'элементов', 'items')}${group.isIsolated ? ` · ${text(language, 'изолированная', 'isolated')}` : ''}`}
+                                  icon={<Layers size={28} />}
+                                  accentColor={color}
+                                  onClick={() => {
+                                    setSelectedPlaylistGroupId(group.id);
+                                    setSelectedPlaylistFolderId(null);
+                                    setSelectedPlaylistId(null);
+                                  }}
+                                />
+                              );
+                            })}
+                          </div>
+                        </section>
+                      )}
+
+                      {playlistEntriesInView.length > 0 && (
+                        <section className="space-y-1.5">
+                          {(playlistGroups.length > 0 || selectedPlaylistFolder || selectedPlaylistGroup) && (
+                            <h3 className="px-1 text-[9px] font-bold uppercase tracking-wider text-md3-on-surface-variant/75">
+                              {text(language, 'Папки и плейлисты', 'Folders and playlists')}
+                            </h3>
+                          )}
+                          <div className="grid grid-cols-2 gap-2">
+                            {playlistEntriesInView.map(entry => {
+                              if (entry.type === 'folder') {
+                                const folder = entry.item;
+                                const FolderIcon = getFolderIconComponent(folder.icon);
+                                const folderPlaylists = playlists.filter(playlist => playlist.folderId === folder.id);
+                                const folderSubfolders = playlistFolders.filter(child => child.parentId === folder.id);
+                                const cover = folderPlaylists.find(playlist => playlist.coverArt)?.coverArt
+                                  || tracks.find(track => folderPlaylists.some(playlist => playlist.trackIds.includes(track.id)) && track.coverArt)?.coverArt;
+                                return (
+                                  <MiniLibraryCard
+                                    key={`folder-${folder.id}`}
+                                    title={folder.name}
+                                    subtitle={`${folderPlaylists.length + folderSubfolders.length} ${text(language, 'элементов', 'items')}`}
+                                    coverArt={folder.coverType && folder.coverType !== 'icon' ? cover : undefined}
+                                    icon={<FolderIcon size={28} />}
+                                    accentColor={folder.color ? getFolderColorHex(folder.color) : undefined}
+                                    onClick={() => {
+                                      setSelectedPlaylistFolderId(folder.id);
+                                      setSelectedPlaylistId(null);
+                                    }}
+                                  />
+                                );
+                              }
+                              const playlist = entry.item;
+                              const cover = playlist.coverArt || tracks.find(track => playlist.trackIds.includes(track.id) && track.coverArt)?.coverArt;
+                              const PlaylistIcon = playlist.icon ? getFolderIconComponent(playlist.icon) : ListMusic;
+                              return (
+                                <MiniLibraryCard
+                                  key={`playlist-${playlist.id}`}
+                                  title={playlist.name}
+                                  subtitle={`${playlist.trackIds.length} ${text(language, 'треков', 'tracks')}`}
+                                  coverArt={cover}
+                                  icon={<PlaylistIcon size={28} />}
+                                  accentColor={playlist.color ? getFolderColorHex(playlist.color) : undefined}
+                                  onClick={() => setSelectedPlaylistId(playlist.id)}
+                                />
+                              );
+                            })}
+                          </div>
+                        </section>
+                      )}
+
+                      {playlistEntriesInView.length === 0
+                        && ((selectedPlaylistFolder || selectedPlaylistGroup) || playlistGroups.length === 0) && (
+                        <p className="p-6 text-center text-xs text-md3-on-surface-variant">
+                          {text(language, 'Плейлистов и папок пока нет', 'No playlists or folders yet')}
+                        </p>
+                      )}
+                    </div>
                   )}
                   {(['albums', 'artists', 'genres'] as LibraryTab[]).includes(libraryTab) && !selectedCollection && (
                     visibleCollections.length > 0 ? (
