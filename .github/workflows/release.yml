@@ -60,99 +60,100 @@ jobs:
       - name: Smoke test in-place updater replacement and rollback safety
         shell: pwsh
         run: |
-          $builtExe = Join-Path $PWD "src-tauri/target/release/arachnid.exe"
-          if (-not (Test-Path $builtExe)) { throw "arachnid.exe was not found for updater smoke test." }
-
-          $testRoot = Join-Path $env:TEMP "ArachnidUpdaterSmoke-$PID"
-          New-Item -ItemType Directory -Force -Path $testRoot | Out-Null
-          $target = Join-Path $testRoot "arachnid.exe"
-          $source = Join-Path $testRoot ".update-smoke.tmp"
-          $backup = "$target.old.smoke"
-          $scriptPath = Join-Path $testRoot "updater-smoke.ps1"
-          $errorPath = Join-Path $testRoot "update-error.txt"
-          $successPath = Join-Path $testRoot "update-success.txt"
-          Copy-Item $builtExe $target
-          Copy-Item $builtExe $source
-
-          function Escape-PSLiteral([string] $value) { return $value.Replace("'", "''") }
-          $script = Get-Content "src-tauri/updater.ps1" -Raw
-          $script = $script.Replace("__TARGET__", (Escape-PSLiteral $target))
-          $script = $script.Replace("__SOURCE__", (Escape-PSLiteral $source))
-          $script = $script.Replace("__BACKUP__", (Escape-PSLiteral $backup))
-          $script = $script.Replace("__SCRIPT__", (Escape-PSLiteral $scriptPath))
-          $script = $script.Replace("__ERROR__", (Escape-PSLiteral $errorPath))
-          $script = $script.Replace("__SUCCESS__", (Escape-PSLiteral $successPath))
-
-          $parent = Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', 'ping 127.0.0.1 -n 60 >nul') -PassThru -WindowStyle Hidden
-          $script = $script.Replace("__PARENT_PID__", [string]$parent.Id)
-          [IO.File]::WriteAllText($scriptPath, $script, [Text.UTF8Encoding]::new($true))
-
-          $startInfo = [Diagnostics.ProcessStartInfo]::new()
-          $startInfo.FileName = "powershell.exe"
-          $startInfo.Arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
-          $startInfo.UseShellExecute = $false
-          $startInfo.CreateNoWindow = $true
-          $updater = [Diagnostics.Process]::Start($startInfo)
-          Stop-Process -Id $parent.Id -Force
-          if (-not $updater.WaitForExit(45000)) { Stop-Process -Id $updater.Id -Force; throw "Updater helper timed out." }
-          if (-not (Test-Path $successPath)) {
-            $reason = if (Test-Path $errorPath) { Get-Content $errorPath -Raw } else { "No updater completion marker was written." }
-            Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $target } | Stop-Process -Force -ErrorAction SilentlyContinue
-            Remove-Item $testRoot -Recurse -Force -ErrorAction SilentlyContinue
-            throw "Updater smoke test failed: $reason"
-          }
-          if ((Test-Path $source) -or (Test-Path $backup) -or -not (Test-Path $target)) {
+          try {
+            $builtExe = Join-Path $PWD "src-tauri/target/release/arachnid.exe"
+            if (-not (Test-Path $builtExe)) { throw "arachnid.exe was not found for updater smoke test." }
+            $testRoot = Join-Path $env:TEMP "ArachnidUpdaterSmoke-$PID"
+            New-Item -ItemType Directory -Force -Path $testRoot | Out-Null
+            $target = Join-Path $testRoot "arachnid.exe"
+            $source = Join-Path $testRoot ".update-smoke.tmp"
+            $backup = "$target.old.smoke"
+            $scriptPath = Join-Path $testRoot "updater-smoke.ps1"
+            $errorPath = Join-Path $testRoot "update-error.txt"
+            $successPath = Join-Path $testRoot "update-success.txt"
+            Copy-Item $builtExe $target
+            Copy-Item $builtExe $source
+            function Escape-PSLiteral([string] $value) { return $value.Replace("'", "''") }
+            $script = Get-Content "src-tauri/updater.ps1" -Raw
+            $script = $script.Replace("__TARGET__", (Escape-PSLiteral $target))
+            $script = $script.Replace("__SOURCE__", (Escape-PSLiteral $source))
+            $script = $script.Replace("__BACKUP__", (Escape-PSLiteral $backup))
+            $script = $script.Replace("__SCRIPT__", (Escape-PSLiteral $scriptPath))
+            $script = $script.Replace("__ERROR__", (Escape-PSLiteral $errorPath))
+            $script = $script.Replace("__SUCCESS__", (Escape-PSLiteral $successPath))
+            $parent = Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', 'ping 127.0.0.1 -n 60 >nul') -PassThru -WindowStyle Hidden
+            $script = $script.Replace("__PARENT_PID__", [string]$parent.Id)
+            [IO.File]::WriteAllText($scriptPath, $script, [Text.UTF8Encoding]::new($true))
+            $startInfo = [Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = "powershell.exe"
+            $startInfo.Arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
+            $startInfo.UseShellExecute = $false
+            $startInfo.CreateNoWindow = $true
+            $updater = [Diagnostics.Process]::Start($startInfo)
+            Stop-Process -Id $parent.Id -Force
+            if (-not $updater.WaitForExit(45000)) { Stop-Process -Id $updater.Id -Force; throw "Updater helper timed out." }
+            if (-not (Test-Path $successPath)) {
+              $reason = if (Test-Path $errorPath) { Get-Content $errorPath -Raw } else { "No updater completion marker was written." }
+              Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $target } | Stop-Process -Force -ErrorAction SilentlyContinue
+              Remove-Item $testRoot -Recurse -Force -ErrorAction SilentlyContinue
+              throw "Updater smoke test failed: $reason"
+            }
+            if ((Test-Path $source) -or (Test-Path $backup) -or -not (Test-Path $target)) {
+              $updatedProcessId = [int](Get-Content $successPath -Raw)
+              Stop-Process -Id $updatedProcessId -Force -ErrorAction SilentlyContinue
+              Remove-Item $testRoot -Recurse -Force -ErrorAction SilentlyContinue
+              throw "Updater did not finish cleanly (source, backup, or target state is wrong)."
+            }
             $updatedProcessId = [int](Get-Content $successPath -Raw)
             Stop-Process -Id $updatedProcessId -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            # Force the replacement executable to fail at launch and verify the original is restored.
+            $rollbackRoot = Join-Path $testRoot "rollback"
+            New-Item -ItemType Directory -Force -Path $rollbackRoot | Out-Null
+            $rollbackTarget = Join-Path $rollbackRoot "arachnid.exe"
+            $rollbackSource = Join-Path $rollbackRoot ".update-invalid.tmp"
+            $rollbackBackup = "$rollbackTarget.old.rollback"
+            $rollbackScriptPath = Join-Path $rollbackRoot "updater-rollback.ps1"
+            $rollbackErrorPath = Join-Path $rollbackRoot "update-error.txt"
+            $rollbackSuccessPath = Join-Path $rollbackRoot "update-success.txt"
+            Copy-Item $builtExe $rollbackTarget
+            [IO.File]::WriteAllBytes($rollbackSource, [byte[]](0x4D, 0x5A, 0x00, 0x00))
+            $rollbackScript = Get-Content "src-tauri/updater.ps1" -Raw
+            $rollbackScript = $rollbackScript.Replace("__TARGET__", (Escape-PSLiteral $rollbackTarget))
+            $rollbackScript = $rollbackScript.Replace("__SOURCE__", (Escape-PSLiteral $rollbackSource))
+            $rollbackScript = $rollbackScript.Replace("__BACKUP__", (Escape-PSLiteral $rollbackBackup))
+            $rollbackScript = $rollbackScript.Replace("__SCRIPT__", (Escape-PSLiteral $rollbackScriptPath))
+            $rollbackScript = $rollbackScript.Replace("__ERROR__", (Escape-PSLiteral $rollbackErrorPath))
+            $rollbackScript = $rollbackScript.Replace("__SUCCESS__", (Escape-PSLiteral $rollbackSuccessPath))
+            $rollbackParent = Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', 'ping 127.0.0.1 -n 60 >nul') -PassThru -WindowStyle Hidden
+            $rollbackScript = $rollbackScript.Replace("__PARENT_PID__", [string]$rollbackParent.Id)
+            [IO.File]::WriteAllText($rollbackScriptPath, $rollbackScript, [Text.UTF8Encoding]::new($true))
+            $rollbackStart = [Diagnostics.ProcessStartInfo]::new()
+            $rollbackStart.FileName = "powershell.exe"
+            $rollbackStart.Arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$rollbackScriptPath`""
+            $rollbackStart.UseShellExecute = $false
+            $rollbackStart.CreateNoWindow = $true
+            $rollbackUpdater = [Diagnostics.Process]::Start($rollbackStart)
+            Stop-Process -Id $rollbackParent.Id -Force
+            Start-Sleep -Seconds 3
+            if (-not (Test-Path $rollbackBackup)) { throw "Updater discarded its backup before validating the replacement." }
+            if (-not $rollbackUpdater.WaitForExit(45000)) { Stop-Process -Id $rollbackUpdater.Id -Force; throw "Rollback helper timed out." }
+            if (-not (Test-Path $rollbackErrorPath) -or (Test-Path $rollbackBackup) -or (Test-Path $rollbackSource)) {
+              throw "Updater rollback did not complete or left staged files behind."
+            }
+            $originalHash = (Get-FileHash $builtExe -Algorithm SHA256).Hash
+            $restoredHash = (Get-FileHash $rollbackTarget -Algorithm SHA256).Hash
+            if ($originalHash -ne $restoredHash) { throw "Updater did not restore the exact original executable." }
+            Start-Sleep -Seconds 1
+            Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $rollbackTarget } | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
             Remove-Item $testRoot -Recurse -Force -ErrorAction SilentlyContinue
-            throw "Updater did not finish cleanly (source, backup, or target state is wrong)."
+            Write-Host "Updater completed a Windows replacement and restored the exact old executable after a failed launch."
+          } catch {
+            $message = $_.Exception.Message -replace "`r|`n", " "
+            Write-Output "::error title=Updater smoke failure::$message"
+            throw
           }
-          $updatedProcessId = [int](Get-Content $successPath -Raw)
-          Stop-Process -Id $updatedProcessId -Force -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 2
-
-          # Force the replacement executable to fail at launch and verify the original is restored.
-          $rollbackRoot = Join-Path $testRoot "rollback"
-          New-Item -ItemType Directory -Force -Path $rollbackRoot | Out-Null
-          $rollbackTarget = Join-Path $rollbackRoot "arachnid.exe"
-          $rollbackSource = Join-Path $rollbackRoot ".update-invalid.tmp"
-          $rollbackBackup = "$rollbackTarget.old.rollback"
-          $rollbackScriptPath = Join-Path $rollbackRoot "updater-rollback.ps1"
-          $rollbackErrorPath = Join-Path $rollbackRoot "update-error.txt"
-          $rollbackSuccessPath = Join-Path $rollbackRoot "update-success.txt"
-          Copy-Item $builtExe $rollbackTarget
-          [IO.File]::WriteAllBytes($rollbackSource, [byte[]](0x4D, 0x5A, 0x00, 0x00))
-          $rollbackScript = Get-Content "src-tauri/updater.ps1" -Raw
-          $rollbackScript = $rollbackScript.Replace("__TARGET__", (Escape-PSLiteral $rollbackTarget))
-          $rollbackScript = $rollbackScript.Replace("__SOURCE__", (Escape-PSLiteral $rollbackSource))
-          $rollbackScript = $rollbackScript.Replace("__BACKUP__", (Escape-PSLiteral $rollbackBackup))
-          $rollbackScript = $rollbackScript.Replace("__SCRIPT__", (Escape-PSLiteral $rollbackScriptPath))
-          $rollbackScript = $rollbackScript.Replace("__ERROR__", (Escape-PSLiteral $rollbackErrorPath))
-          $rollbackScript = $rollbackScript.Replace("__SUCCESS__", (Escape-PSLiteral $rollbackSuccessPath))
-          $rollbackParent = Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', 'ping 127.0.0.1 -n 60 >nul') -PassThru -WindowStyle Hidden
-          $rollbackScript = $rollbackScript.Replace("__PARENT_PID__", [string]$rollbackParent.Id)
-          [IO.File]::WriteAllText($rollbackScriptPath, $rollbackScript, [Text.UTF8Encoding]::new($true))
-          $rollbackStart = [Diagnostics.ProcessStartInfo]::new()
-          $rollbackStart.FileName = "powershell.exe"
-          $rollbackStart.Arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$rollbackScriptPath`""
-          $rollbackStart.UseShellExecute = $false
-          $rollbackStart.CreateNoWindow = $true
-          $rollbackUpdater = [Diagnostics.Process]::Start($rollbackStart)
-          Stop-Process -Id $rollbackParent.Id -Force
-          Start-Sleep -Seconds 3
-          if (-not (Test-Path $rollbackBackup)) { throw "Updater discarded its backup before validating the replacement." }
-          if (-not $rollbackUpdater.WaitForExit(45000)) { Stop-Process -Id $rollbackUpdater.Id -Force; throw "Rollback helper timed out." }
-          if (-not (Test-Path $rollbackErrorPath) -or (Test-Path $rollbackBackup) -or (Test-Path $rollbackSource)) {
-            throw "Updater rollback did not complete or left staged files behind."
-          }
-          $originalHash = (Get-FileHash $builtExe -Algorithm SHA256).Hash
-          $restoredHash = (Get-FileHash $rollbackTarget -Algorithm SHA256).Hash
-          if ($originalHash -ne $restoredHash) { throw "Updater did not restore the exact original executable." }
-          Start-Sleep -Seconds 1
-          Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $rollbackTarget } | Stop-Process -Force -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 2
-          Remove-Item $testRoot -Recurse -Force -ErrorAction SilentlyContinue
-          Write-Host "Updater completed a Windows replacement and restored the exact old executable after a failed launch."
 
       - name: Smoke test Windows executable startup
         shell: pwsh
