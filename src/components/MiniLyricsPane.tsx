@@ -20,7 +20,7 @@ interface MiniLyricsPaneProps {
 }
 
 interface LyricLine {
-  time: number | null;
+  time: number;
   text: string;
 }
 
@@ -31,6 +31,7 @@ const parseLyrics = (lyrics: string): LyricLine[] => {
   for (const rawLine of lyrics.split('\n')) {
     const raw = rawLine.trim();
     if (!raw) continue;
+    timeRegex.lastIndex = 0;
     const timestamps: number[] = [];
     let match: RegExpExecArray | null;
     let lastIndex = 0;
@@ -39,13 +40,15 @@ const parseLyrics = (lyrics: string): LyricLine[] => {
       timestamps.push(Number(match[1]) * 60 + Number(match[2]) + fraction);
       lastIndex = timeRegex.lastIndex;
     }
-    const text = timestamps.length ? raw.slice(lastIndex).trim() : raw;
-    if (!text) continue;
-    if (timestamps.length) timestamps.forEach(time => lines.push({ time, text }));
-    else lines.push({ time: null, text });
+    if (timestamps.length) {
+      const lyricText = raw.slice(lastIndex).trim();
+      if (lyricText) timestamps.forEach(time => lines.push({ time, text: lyricText }));
+    } else {
+      lines.push({ time: -1, text: raw });
+    }
   }
 
-  return lines.sort((a, b) => (a.time ?? Number.POSITIVE_INFINITY) - (b.time ?? Number.POSITIVE_INFINITY));
+  return lines.sort((a, b) => a.time - b.time);
 };
 
 export const MiniLyricsPane: React.FC<MiniLyricsPaneProps> = ({
@@ -58,22 +61,25 @@ export const MiniLyricsPane: React.FC<MiniLyricsPaneProps> = ({
   onClose,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const activeLineRef = useRef<HTMLParagraphElement>(null);
+  const activeLineRef = useRef<HTMLDivElement>(null);
   const lyrics = track?.lyrics?.trim() || '';
   const lines = useMemo(() => parseLyrics(lyrics), [lyrics]);
-  const isSynced = lines.some(line => line.time !== null);
+  const isSynced = lines.some(line => line.time >= 0);
   const activeLineIndex = useMemo(() => {
-    if (!isSynced) return -1;
+    if (!isSynced || lines.length === 0) return -1;
     let index = -1;
-    lines.forEach((line, i) => {
-      if (line.time !== null && line.time <= currentTime) index = i;
-    });
+    for (let i = 0; i < lines.length; i += 1) {
+      if (lines[i].time >= 0 && lines[i].time <= currentTime) index = i;
+      else if (lines[i].time > currentTime) break;
+    }
     return index;
   }, [currentTime, isSynced, lines]);
 
   useEffect(() => {
-    activeLineRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [activeLineIndex]);
+    if (isSynced && activeLineRef.current && scrollRef.current) {
+      activeLineRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [activeLineIndex, isSynced]);
 
   return (
     <aside className={`flex min-h-0 flex-col bg-md3-surface-container-low ${detached ? 'h-screen w-screen' : 'h-full w-[300px] shrink-0 border-l border-md3-outline-variant/20'}`}>
@@ -106,19 +112,35 @@ export const MiniLyricsPane: React.FC<MiniLyricsPaneProps> = ({
         ) : !lyrics ? (
           <p className="pt-12 text-center text-sm text-md3-on-surface-variant">{language === 'ru' ? 'Текст песни не добавлен' : 'No lyrics available'}</p>
         ) : (
-          <div className="space-y-2">
-            {track.lyricist && <p className="mb-5 text-xs text-md3-on-surface-variant">{language === 'ru' ? 'Слова' : 'Lyrics'}: {track.lyricist}</p>}
-            {lines.map((line, index) => (
-              <p
-                key={`${line.time ?? 'plain'}-${index}`}
-                ref={index === activeLineIndex ? activeLineRef : undefined}
-                className={`whitespace-pre-wrap break-words text-sm leading-relaxed transition-colors ${
-                  index === activeLineIndex ? 'font-semibold text-md3-primary' : 'text-md3-on-surface-variant'
-                }`}
-              >
-                {line.text}
-              </p>
-            ))}
+          <div className="mx-auto max-w-lg">
+            {track.lyricist && <p className="mb-5 text-center text-xs text-md3-on-surface-variant">{language === 'ru' ? 'Слова' : 'Lyrics'}: {track.lyricist}</p>}
+            {isSynced ? (
+              <div className="space-y-3 py-5 text-center">
+                {lines.map((line, index) => {
+                  const isActive = index === activeLineIndex;
+                  const isPast = activeLineIndex !== -1 && index < activeLineIndex;
+                  return (
+                    <div
+                      key={`${line.time}-${index}`}
+                      ref={isActive ? activeLineRef : undefined}
+                      className={`rounded-2xl px-3 py-2 transition-all duration-300 ${
+                        isActive
+                          ? 'scale-[1.03] bg-md3-primary/10 text-base font-extrabold text-md3-primary shadow-sm'
+                          : isPast
+                            ? 'text-sm font-medium text-md3-on-surface-variant/50'
+                            : 'text-sm font-medium text-md3-on-surface-variant/70'
+                      }`}
+                    >
+                      {line.text || '♪'}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-4 text-center text-sm font-medium leading-relaxed text-md3-on-surface whitespace-pre-wrap">
+                {lyrics}
+              </div>
+            )}
           </div>
         )}
       </div>

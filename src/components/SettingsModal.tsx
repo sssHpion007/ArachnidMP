@@ -56,7 +56,7 @@ import { listen } from '@tauri-apps/api/event';
 
 export type ColorSchemeMode = 'dynamic' | 'system' | 'custom';
 
-import { CURRENT_APP_VERSION } from '../utils/version';
+import { CURRENT_APP_VERSION, isNewerVersion } from '../utils/version';
 import { useModalAnimation, useCurtainAnimation } from '../utils/useModalAnimation';
 
 interface SettingsModalProps {
@@ -404,18 +404,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const t = getTranslations(language);
 
-  const isNewerVersion = (current: string, latest: string): boolean => {
-    const c = current.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
-    const l = latest.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
-    for (let i = 0; i < Math.max(c.length, l.length); i++) {
-      const cv = c[i] || 0;
-      const lv = l[i] || 0;
-      if (lv > cv) return true;
-      if (lv < cv) return false;
-    }
-    return false;
-  };
-
   const blobToBase64 = (blob: Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -433,7 +421,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setUpdateStatus('checking');
     setInstallError(null);
     try {
-      const res = await fetch('https://api.github.com/repos/sssHpion007/ArachnidMP/releases/latest');
+      const res = await fetch('https://api.github.com/repos/sssHpion007/ArachnidMP/releases/latest', {
+        cache: 'no-store',
+        headers: { Accept: 'application/vnd.github+json' },
+      });
 
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);

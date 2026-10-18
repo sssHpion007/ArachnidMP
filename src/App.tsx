@@ -310,14 +310,16 @@ export const App: React.FC = () => {
     language,
   };
 
-  const resizeMiniWindow = useCallback(async (width: number) => {
-    if (!isTauri()) return;
+  const resizeMiniWindow = useCallback(async (width: number): Promise<boolean> => {
+    if (!isTauri()) return true;
     try {
       const win = getCurrentWebviewWindow();
       await win.setResizable(false);
       await win.setSize(new LogicalSize(width, MINI_WINDOW_HEIGHT));
+      return true;
     } catch (error) {
       console.warn('Unable to resize mini-player window:', error);
+      return false;
     }
   }, []);
 
@@ -367,28 +369,39 @@ export const App: React.FC = () => {
   }, [enterMiniMode, exitMiniMode, isMiniMode]);
 
   const attachMiniLyrics = useCallback(async () => {
-    setMiniLyricsMode('attached');
     if (isTauri()) {
-      try { await invoke('hide_mini_lyrics_window'); } catch (_) {}
+      try { await invoke('hide_mini_lyrics_window'); } catch (error) {
+        console.warn('Unable to hide detached lyrics window:', error);
+        return;
+      }
     }
-    if (isMiniMode) await resizeMiniWindow(MINI_WINDOW_WITH_LYRICS_WIDTH);
+    if (isMiniMode && !(await resizeMiniWindow(MINI_WINDOW_WITH_LYRICS_WIDTH))) return;
+    setMiniLyricsMode('attached');
   }, [isMiniMode, resizeMiniWindow]);
 
   const closeMiniLyrics = useCallback(async () => {
-    setMiniLyricsMode('closed');
     if (isTauri()) {
-      try { await invoke('hide_mini_lyrics_window'); } catch (_) {}
+      try { await invoke('hide_mini_lyrics_window'); } catch (error) {
+        console.warn('Unable to hide detached lyrics window:', error);
+        return;
+      }
     }
-    if (isMiniMode) await resizeMiniWindow(MINI_WINDOW_WIDTH);
+    if (isMiniMode && !(await resizeMiniWindow(MINI_WINDOW_WIDTH))) return;
+    setMiniLyricsMode('closed');
   }, [isMiniMode, resizeMiniWindow]);
 
   const detachMiniLyrics = useCallback(async () => {
-    setMiniLyricsMode('detached');
-    if (isTauri()) {
-      try { await invoke('show_mini_lyrics_window'); } catch (error) { console.warn('Unable to open lyrics window:', error); }
+    try {
+      if (isMiniMode && !(await resizeMiniWindow(MINI_WINDOW_WIDTH))) {
+        throw new Error('Could not resize the mini-player before detaching lyrics.');
+      }
+      if (isTauri()) await invoke('show_mini_lyrics_window');
+      setMiniLyricsMode('detached');
+    } catch (error) {
+      if (isMiniMode) await resizeMiniWindow(MINI_WINDOW_WITH_LYRICS_WIDTH);
+      console.warn('Unable to detach lyrics:', error);
     }
-    await resizeMiniWindow(MINI_WINDOW_WIDTH);
-  }, [resizeMiniWindow]);
+  }, [isMiniMode, resizeMiniWindow]);
 
   const toggleMiniLyrics = useCallback(() => {
     if (miniLyricsMode === 'attached') void closeMiniLyrics();
@@ -1193,7 +1206,10 @@ export const App: React.FC = () => {
 
     const checkUpdates = async () => {
       try {
-        const res = await fetch('https://api.github.com/repos/sssHpion007/ArachnidMP/releases/latest');
+        const res = await fetch('https://api.github.com/repos/sssHpion007/ArachnidMP/releases/latest', {
+          cache: 'no-store',
+          headers: { Accept: 'application/vnd.github+json' },
+        });
         if (res.ok) {
           const data = await res.json();
           const latestTag = data.tag_name || '';

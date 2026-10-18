@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronLeft,
+  AlertTriangle,
   Disc3,
   Heart,
   Mic2,
@@ -51,6 +52,44 @@ const groupTracks = (tracks: Track[], getNames: (track: Track) => string | strin
     coverArt: groupedTracks.find(track => track.coverArt)?.coverArt,
   })).sort((a, b) => a.name.localeCompare(b.name));
 };
+
+interface MiniTrackRowProps {
+  track: Track;
+  active?: boolean;
+  language: AppLanguage;
+  buttonRef?: React.Ref<HTMLButtonElement>;
+  onClick: () => void;
+}
+
+const MiniTrackRow: React.FC<MiniTrackRowProps> = ({ track, active = false, language, buttonRef, onClick }) => (
+  <button
+    ref={buttonRef}
+    type="button"
+    aria-current={active ? 'true' : undefined}
+    onClick={onClick}
+    className={`group flex w-full min-w-0 items-center gap-2.5 rounded-2xl p-2 text-left transition-colors ${
+      active
+        ? 'bg-md3-primary-container font-semibold text-md3-on-primary-container shadow-sm'
+        : 'text-md3-on-surface hover:bg-md3-surface-container-high'
+    }`}
+  >
+    <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-md3-surface-container-highest shadow-sm">
+      {track.coverArt ? (
+        <img src={track.coverArt} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <span className="flex h-full w-full items-center justify-center bg-md3-primary/10 text-md3-primary/70"><Music2 size={16} /></span>
+      )}
+    </span>
+    <span className="min-w-0 flex-1">
+      <span className={`flex items-center gap-1.5 truncate text-[11px] font-bold ${track.isMissing ? 'text-amber-500 dark:text-amber-400' : ''}`}>
+        <span className="truncate">{track.title}</span>
+        {track.isMissing && <span title={text(language, 'Файл не найден', 'File not found')}><AlertTriangle size={12} className="shrink-0" /></span>}
+      </span>
+      <span className="block truncate text-[10px] text-md3-on-surface-variant">{track.artist}</span>
+    </span>
+    <span className="shrink-0 text-[10px] tabular-nums text-md3-on-surface-variant">{formatTime(track.duration)}</span>
+  </button>
+);
 
 interface MiniPlayerProps {
   currentTrack: Track | null;
@@ -414,14 +453,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                 </header>
                 <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2">
                   {queue.map((track, index) => (
-                    <button key={`${track.id}-${index}`} ref={index === queueIndex ? queueActiveItemRef : undefined} type="button" onClick={() => onPlayQueueTrack(index)} className={`flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left ${index === queueIndex ? 'bg-md3-primary/12 text-md3-primary' : 'text-md3-on-surface hover:bg-md3-surface-container-high'}`}>
-                      {track.coverArt ? <img src={track.coverArt} alt="" className="h-9 w-9 shrink-0 rounded-lg object-cover" /> : <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-md3-surface-container-high"><Music2 size={15} /></span>}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-medium">{track.title}</span>
-                        <span className="block truncate text-[10px] text-md3-on-surface-variant">{track.artist}</span>
-                      </span>
-                      <span className="text-[10px] tabular-nums text-md3-on-surface-variant">{formatTime(track.duration)}</span>
-                    </button>
+                    <MiniTrackRow
+                      key={`${track.id}-${index}`}
+                      track={track}
+                      active={index === queueIndex}
+                      language={language}
+                      buttonRef={index === queueIndex ? queueActiveItemRef : undefined}
+                      onClick={() => onPlayQueueTrack(index)}
+                    />
                   ))}
                   {queue.length === 0 && <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Очередь пуста', 'Queue is empty')}</p>}
                 </div>
@@ -512,14 +551,13 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                   {(libraryTab === 'tracks' || libraryTab === 'favorites' || currentPlaylist || selectedCollection) && (
                     <>
                       {libraryTracks.map(track => (
-                        <button key={track.id} type="button" onClick={() => onPlayTrack(track, libraryTracks)} className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-md3-on-surface hover:bg-md3-surface-container-high">
-                          {track.coverArt ? <img src={track.coverArt} alt="" className="h-9 w-9 shrink-0 rounded-lg object-cover" /> : <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-md3-surface-container-high"><Music2 size={15} /></span>}
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-xs font-medium">{track.title}</span>
-                            <span className="block truncate text-[10px] text-md3-on-surface-variant">{track.artist}</span>
-                          </span>
-                          <span className="text-[10px] tabular-nums text-md3-on-surface-variant">{formatTime(track.duration)}</span>
-                        </button>
+                        <MiniTrackRow
+                          key={track.id}
+                          track={track}
+                          active={track.id === currentTrack?.id}
+                          language={language}
+                          onClick={() => onPlayTrack(track, libraryTracks)}
+                        />
                       ))}
                       {libraryTracks.length === 0 && <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, libraryTab === 'favorites' ? 'В избранном пока нет треков' : 'В этом списке нет треков', libraryTab === 'favorites' ? 'No favorite tracks yet' : 'No tracks in this list')}</p>}
                     </>

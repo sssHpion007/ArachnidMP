@@ -1566,7 +1566,7 @@ fn show_mini_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     }
 
     lyrics_window.show().map_err(|e| e.to_string())?;
-    lyrics_window.set_focus().map_err(|e| e.to_string())?;
+    // Keep keyboard focus on the player so detaching lyrics does not disrupt its controls.
     Ok(())
 }
 
@@ -1714,6 +1714,13 @@ async fn download_and_install_update(
             let _ = std::fs::remove_file(&temp_update_file);
             return Err("Downloaded update file is too small or incomplete".to_string());
         }
+        let mut signature = [0u8; 2];
+        let signature_read = std::fs::File::open(&temp_update_file)
+            .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut signature));
+        if signature_read.is_err() || signature != *b"MZ" {
+            let _ = std::fs::remove_file(&temp_update_file);
+            return Err("The downloaded update is not a valid Windows executable".to_string());
+        }
 
         // 4. In-place replacement via detached batch updater and restart
         #[cfg(target_os = "windows")]
@@ -1728,20 +1735,40 @@ async fn download_and_install_update(
             let _ = std::fs::remove_file(format!("{}.old", current_exe.to_string_lossy()));
 
             let bat_content = format!(
-                "@echo off\r\n\
-                chcp 65001 >nul\r\n\
-                ping 127.0.0.1 -n 3 >nul\r\n\
-                :retry\r\n\
-                if exist \"{target}.old\" del /f /q \"{target}.old\" >nul 2>&1\r\n\
-                move /y \"{target}\" \"{target}.old\" >nul 2>&1\r\n\
-                move /y \"{source}\" \"{target}\" >nul 2>&1\r\n\
-                if not exist \"{target}\" (\r\n\
-                    ping 127.0.0.1 -n 2 >nul\r\n\
-                    goto retry\r\n\
-                )\r\n\
-                start \"\" \"{target}\"\r\n\
-                del /f /q \"{target}.old\" >nul 2>&1\r\n\
-                (goto) 2>nul & del \"%~f0\"\r\n",
+                r#"@echo off
+setlocal EnableExtensions
+chcp 65001 >nul
+set "target={target}"
+set "source={source}"
+set "backup={target}.old"
+set /a attempts=0
+:retry
+set /a attempts+=1
+ping 127.0.0.1 -n 3 >nul
+if exist "%target%" (
+  move /y "%target%" "%backup%" >nul 2>&1
+  if exist "%target%" goto wait_retry
+)
+if not exist "%source%" goto rollback
+move /y "%source%" "%target%" >nul 2>&1
+if exist "%target%" goto success
+:rollback
+if not exist "%target%" if exist "%backup%" move /y "%backup%" "%target%" >nul 2>&1
+:wait_retry
+if %attempts% GEQ 30 goto failed
+ping 127.0.0.1 -n 2 >nul
+goto retry
+:success
+start "" "%target%"
+ping 127.0.0.1 -n 3 >nul
+if exist "%backup%" del /f /q "%backup%" >nul 2>&1
+(goto) 2>nul & del "%~f0"
+goto :eof
+:failed
+if not exist "%target%" if exist "%backup%" move /y "%backup%" "%target%" >nul 2>&1
+if exist "%target%" start "" "%target%"
+echo Failed to replace the application executable. > "%TEMP%\arachnid-update-failed.txt"
+"#,
                 target = current_exe.to_string_lossy(),
                 source = temp_update_file.to_string_lossy()
             );
@@ -1749,11 +1776,12 @@ async fn download_and_install_update(
             std::fs::write(&bat_path, &bat_content)
                 .map_err(|e| format!("Failed to write updater script: {}", e))?;
 
-            let _ = Command::new("cmd.exe")
+            Command::new("cmd.exe")
                 .current_dir(std::env::temp_dir())
                 .args(&["/c", &bat_path.to_string_lossy()])
                 .creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
-                .spawn();
+                .spawn()
+                .map_err(|e| format!("Failed to start the update helper: {}", e))?;
 
             clean_exit();
         }
