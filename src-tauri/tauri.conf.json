@@ -27,23 +27,6 @@
         "theme": "Dark",
         "dragDropEnabled": true,
         "additionalBrowserArgs": "--js-flags=\"--max-old-space-size=256\""
-      },
-      {
-        "label": "lyrics",
-        "title": "Arachnid Lyrics",
-        "url": "index.html?lyricsWindow=1",
-        "width": 440,
-        "height": 700,
-        "minWidth": 280,
-        "minHeight": 360,
-        "center": true,
-        "visible": false,
-        "decorations": false,
-        "resizable": true,
-        "transparent": false,
-        "backgroundColor": "#141218",
-        "theme": "Dark",
-        "dragDropEnabled": false
       }
     ],
     "security": {

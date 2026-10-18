@@ -5,7 +5,7 @@ mod logger;
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use base64::prelude::*;
 use lofty::config::{ParseOptions, ParsingMode, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
@@ -1546,13 +1546,29 @@ fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     const LYRICS_WINDOW_HEIGHT: f64 = 700.0;
     const WINDOW_GAP: i64 = 12;
 
-    let lyrics_window = app_handle
-        .get_webview_window("lyrics")
-        .ok_or_else(|| "The lyrics window was not initialized".to_string())?;
+    let (lyrics_window, created) = match app_handle.get_webview_window("lyrics") {
+        Some(window) => (window, false),
+        None => (
+            WebviewWindowBuilder::new(
+                &app_handle,
+                "lyrics",
+                WebviewUrl::App("index.html?lyricsWindow=1".into()),
+            )
+            .title("Arachnid Lyrics")
+            .inner_size(LYRICS_WINDOW_WIDTH, LYRICS_WINDOW_HEIGHT)
+            .min_inner_size(280.0, 360.0)
+            .decorations(false)
+            .visible(false)
+            .build()
+            .map_err(|e| format!("Unable to create lyrics window: {}", e))?,
+            true,
+        ),
+    };
 
-    // Position the lyric window beside the player when possible. If the player
-    // fills the monitor, center the lyric window on that monitor instead.
-    if let Some(main_window) = app_handle.get_webview_window("main") {
+    // Position the lyric window beside the player on first creation. If the
+    // player fills the monitor, center the lyric window there instead.
+    if created {
+      if let Some(main_window) = app_handle.get_webview_window("main") {
         if let (Ok(main_position), Ok(main_size), Ok(Some(monitor)), Ok(scale_factor)) = (
             main_window.outer_position(),
             main_window.outer_size(),
@@ -1584,6 +1600,7 @@ fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
             // Geometry is best-effort; failure to position must not prevent the window opening.
             let _ = lyrics_window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
         }
+      }
     }
 
     let _ = lyrics_window.unminimize();
@@ -2250,6 +2267,11 @@ pub fn run() {
                 }
                 tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "lyrics" => {
                     api.prevent_close();
+                    let _ = window.emit_to(
+                        "main",
+                        "lyrics-window-action",
+                        serde_json::json!({ "type": "close" }),
+                    );
                     let _ = window.hide();
                 }
                 tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed if window.label() == "main" => {
