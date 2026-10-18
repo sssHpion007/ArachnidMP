@@ -52,8 +52,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             "### ❌ Tauri Build Failed (Last 150 lines):" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8
             '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-            Get-Content build.log -Tail 150 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            $tail = Get-Content build.log -Tail 100
+            $tail | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            $diagnostic = ($tail -join ' ') -replace '%', '%25' -replace "`r", ' ' -replace "`n", ' '
+            Write-Output "::error title=Tauri build diagnostics::$diagnostic"
             exit 1
           }
 
