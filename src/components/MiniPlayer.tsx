@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { isTauri } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   ChevronDown,
   ChevronLeft,
@@ -308,6 +310,13 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     onVolumeChange(nextVolume);
   };
 
+  const handleCoverMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !isTauri()) return;
+    void getCurrentWindow().startDragging().catch(error => {
+      console.warn('Unable to drag the mini-player window:', error);
+    });
+  };
+
   const handleVolumeStepClick = (event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -327,6 +336,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         <div className="flex min-h-0 flex-1 flex-col items-center gap-3 px-5 pb-3 pt-4">
           <div
             data-tauri-drag-region
+            onMouseDown={handleCoverMouseDown}
             aria-label={text(language, 'Перетащить окно мини-плеера', 'Drag the mini-player window')}
             className="mx-auto flex aspect-square w-full max-w-[280px] shrink-0 items-center justify-center overflow-hidden rounded-[24px] bg-md3-surface-container-high shadow-xl"
           >
@@ -338,6 +348,17 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
           </div>
 
           <div className="flex w-full min-w-0 items-center gap-1">
+            {currentTrack && (
+              <button
+                type="button"
+                onClick={() => onOpenTrackDetails(currentTrack)}
+                title={text(language, 'Сведения о треке', 'Track details')}
+                aria-label={text(language, 'Сведения о треке', 'Track details')}
+                className="shrink-0 rounded-full p-2 text-md3-on-surface-variant transition-colors hover:bg-md3-surface-container-high hover:text-md3-primary"
+              >
+                <Info size={17} />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => currentTrack && onOpenTrackDetails(currentTrack)}
@@ -353,27 +374,16 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
               </span>
             </button>
             {currentTrack && (
-              <div className="flex shrink-0 items-center gap-0.5">
-                <button
-                  type="button"
-                  onClick={() => onOpenTrackDetails(currentTrack)}
-                  title={text(language, 'Сведения о треке', 'Track details')}
-                  aria-label={text(language, 'Сведения о треке', 'Track details')}
-                  className="rounded-full p-2 text-md3-on-surface-variant transition-colors hover:bg-md3-surface-container-high hover:text-md3-primary"
-                >
-                  <Info size={17} />
-                </button>
-                <button
-                  type="button"
-                  onClick={event => onToggleFavorite(currentTrack.id, event)}
-                  title={currentTrack.isFavorite ? text(language, 'Убрать из избранного', 'Remove from favorites') : text(language, 'Добавить в избранное', 'Add to favorites')}
-                  aria-label={currentTrack.isFavorite ? text(language, 'Убрать из избранного', 'Remove from favorites') : text(language, 'Добавить в избранное', 'Add to favorites')}
-                  aria-pressed={currentTrack.isFavorite}
-                  className={`rounded-full p-2 transition-colors ${currentTrack.isFavorite ? 'text-red-500' : 'text-md3-on-surface-variant hover:text-red-500'}`}
-                >
-                  <Heart size={18} className={currentTrack.isFavorite ? 'fill-current' : ''} />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={event => onToggleFavorite(currentTrack.id, event)}
+                title={currentTrack.isFavorite ? text(language, 'Убрать из избранного', 'Remove from favorites') : text(language, 'Добавить в избранное', 'Add to favorites')}
+                aria-label={currentTrack.isFavorite ? text(language, 'Убрать из избранного', 'Remove from favorites') : text(language, 'Добавить в избранное', 'Add to favorites')}
+                aria-pressed={currentTrack.isFavorite}
+                className={`shrink-0 rounded-full p-2 transition-colors ${currentTrack.isFavorite ? 'text-red-500' : 'text-md3-on-surface-variant hover:text-red-500'}`}
+              >
+                <Heart size={18} className={currentTrack.isFavorite ? 'fill-current' : ''} />
+              </button>
             )}
           </div>
 

@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Pin, PinOff } from 'lucide-react';
+import { isTauri } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { AppLanguage } from '../i18n';
 
 export interface MiniLyricsTrack {
@@ -65,6 +67,12 @@ export const MiniLyricsPane: React.FC<MiniLyricsPaneProps> = ({
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeLineRef = useRef<HTMLButtonElement>(null);
+  const handleHeaderMouseDown = (event: React.MouseEvent<HTMLElement>) => {
+    if (event.button !== 0 || (event.target as HTMLElement).closest('button') || !isTauri()) return;
+    void getCurrentWindow().startDragging().catch(error => {
+      console.warn('Unable to drag the lyrics window:', error);
+    });
+  };
   const lyrics = track?.lyrics?.trim() || '';
   const lines = useMemo(() => parseLyrics(lyrics), [lyrics]);
   const isSynced = lines.some(line => line.time >= 0);
@@ -91,7 +99,11 @@ export const MiniLyricsPane: React.FC<MiniLyricsPaneProps> = ({
 
   return (
     <aside className={`flex min-h-0 flex-col bg-md3-surface-container-low ${detached ? 'h-screen w-screen' : 'h-full w-[300px] shrink-0 border-l border-md3-outline-variant/20'}`}>
-      <header data-tauri-drag-region className="flex h-11 shrink-0 items-center gap-2 border-b border-md3-outline-variant/15 px-3">
+      <header
+        data-tauri-drag-region
+        onMouseDown={handleHeaderMouseDown}
+        className="flex h-11 shrink-0 items-center gap-2 border-b border-md3-outline-variant/15 px-3"
+      >
         <div data-tauri-drag-region className="flex h-full min-w-0 flex-1 flex-col justify-center">
           <div className="text-xs font-bold text-md3-on-surface">{language === 'ru' ? 'Текст песни' : 'Lyrics'}</div>
           {track && <div className="truncate text-[10px] text-md3-on-surface-variant">{track.title} · {track.artist}</div>}

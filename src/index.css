@@ -127,6 +127,14 @@ input[type=range]::-webkit-slider-thumb:hover {
   transform: scale(1.2);
 }
 
+input[type=range]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 6px;
+  cursor: pointer;
+  background: var(--md-sys-color-surface-container-highest);
+  border-radius: 9999px;
+}
+
 /* Mini-player timeline: keep a filled progress track instead of a thumb-only accent. */
 input.mini-player-timeline {
   -webkit-appearance: none;
@@ -168,13 +176,6 @@ input.mini-player-timeline::-moz-range-thumb {
   cursor: pointer;
 }
 
-input[type=range]::-webkit-slider-runnable-track {
-  width: 100%;
-  height: 6px;
-  cursor: pointer;
-  background: var(--md-sys-color-surface-container-highest);
-  border-radius: 9999px;
-}
 
 /* Markdown styling for Release Notes */
 .markdown-body {
