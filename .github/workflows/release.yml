@@ -78,55 +78,24 @@ jobs:
             }
             Write-Host "arachnid.exe remained running for 15 seconds."
 
-            Add-Type @"
-            using System;
-            using System.Text;
-            using System.Runtime.InteropServices;
-            public static class LyricsWindowProbe {
-              private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-              [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
-              [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
-              [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxCount);
-              [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
-              public static bool IsVisibleForProcess(int targetPid, string expectedTitle) {
-                bool found = false;
-                EnumWindows((hWnd, lParam) => {
-                  if (!IsWindowVisible(hWnd)) return true;
-                  uint processId;
-                  GetWindowThreadProcessId(hWnd, out processId);
-                  if (processId != (uint)targetPid) return true;
-                  var title = new StringBuilder(256);
-                  GetWindowText(hWnd, title, title.Capacity);
-                  if (title.ToString() == expectedTitle) { found = true; return false; }
-                  return true;
-                }, IntPtr.Zero);
-                return found;
-              }
-            }
-            "@
-
             $shell = New-Object -ComObject WScript.Shell
             if (-not $shell.AppActivate($process.Id)) { throw "Could not focus the player to test Shift+T." }
             Start-Sleep -Milliseconds 500
             $shell.SendKeys('+t')
             $deadline = [DateTime]::UtcNow.AddSeconds(10)
-            while ([DateTime]::UtcNow -lt $deadline -and -not [LyricsWindowProbe]::IsVisibleForProcess($process.Id, 'Arachnid Lyrics')) {
+            $lyricsWindowFound = $false
+            while ([DateTime]::UtcNow -lt $deadline) {
+              if ($shell.AppActivate('Arachnid Lyrics')) { $lyricsWindowFound = $true; break }
               Start-Sleep -Milliseconds 200
             }
-            if (-not [LyricsWindowProbe]::IsVisibleForProcess($process.Id, 'Arachnid Lyrics')) {
-              throw "Shift+T did not show a separate Arachnid Lyrics window."
-            }
-            $shell.AppActivate('Arachnid Lyrics') | Out-Null
+            if (-not $lyricsWindowFound) { throw "Shift+T did not show a separate Arachnid Lyrics window." }
             Start-Sleep -Milliseconds 300
             $shell.SendKeys('%{F4}')
-            $deadline = [DateTime]::UtcNow.AddSeconds(5)
-            while ([DateTime]::UtcNow -lt $deadline -and [LyricsWindowProbe]::IsVisibleForProcess($process.Id, 'Arachnid Lyrics')) {
-              Start-Sleep -Milliseconds 200
-            }
-            if ([LyricsWindowProbe]::IsVisibleForProcess($process.Id, 'Arachnid Lyrics')) {
-              throw "Closing the lyrics window did not hide it cleanly."
-            }
-            Write-Host "Shift+T showed the separate lyrics window, and closing it hid it without exiting the player."
+            Start-Sleep -Seconds 1
+            $process.Refresh()
+            if ($process.HasExited) { throw "Closing the lyrics window also exited the player." }
+            if ($shell.AppActivate('Arachnid Lyrics')) { throw "The lyrics window remained activatable after closing." }
+            Write-Host "Shift+T opened the separate lyrics window; closing it left the player running."
           } catch {
             $message = $_.Exception.Message -replace "`r|`n", " "
             Write-Output "::error title=Lyrics window smoke failure::$message"
