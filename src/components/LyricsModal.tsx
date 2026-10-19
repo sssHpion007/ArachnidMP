@@ -237,7 +237,8 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
             </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pt-3">
+          <div className="flex justify-end px-4 pb-3 pt-3">
+            <div className="flex max-w-full flex-wrap items-center justify-end gap-2 rounded-2xl border border-md3-outline-variant/20 bg-md3-surface-container-low p-1.5 shadow-sm">
             {onReloadLyrics && (
               <button
                 type="button"
@@ -305,6 +306,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
               <Edit3 className="h-3.5 w-3.5" />
               <span>{isEditing ? (language === 'ru' ? 'Просмотр' : 'View') : (language === 'ru' ? 'Редактировать' : 'Edit')}</span>
             </button>
+            </div>
           </div>
         </div>
 

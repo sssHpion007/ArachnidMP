@@ -172,6 +172,15 @@ interface MiniPlayerProps {
 }
 
 const text = (language: AppLanguage, ru: string, en: string) => language === 'ru' ? ru : en;
+const queueTrackCount = (count: number, language: AppLanguage) => {
+  if (language !== 'ru') return `${count} ${count === 1 ? 'track' : 'tracks'}`;
+  const lastTwoDigits = count % 100;
+  const lastDigit = count % 10;
+  const noun = lastTwoDigits >= 11 && lastTwoDigits <= 14 ? 'треков'
+    : lastDigit === 1 ? 'трек'
+      : lastDigit >= 2 && lastDigit <= 4 ? 'трека' : 'треков';
+  return `${count} ${noun}`;
+};
 
 export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   currentTrack,
@@ -221,6 +230,29 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const [isCompactVolHovered, setIsCompactVolHovered] = useState(false);
   const volHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queueActiveItemRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const handleMiniPlayerTabKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' && event.code !== 'Tab') return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const tabs: LibraryTab[] = ['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'];
+      const currentIndex = tabs.indexOf(libraryTab);
+      const nextIndex = event.shiftKey
+        ? (currentIndex <= 0 ? tabs.length - 1 : currentIndex - 1)
+        : (currentIndex + 1) % tabs.length;
+      setLibraryTab(tabs[nextIndex]);
+      setSelectedPlaylistId(null);
+      setSelectedPlaylistFolderId(null);
+      setSelectedPlaylistGroupId(null);
+      setSelectedCollection(null);
+      setBottomPanel('library');
+    };
+    window.addEventListener('keydown', handleMiniPlayerTabKey, true);
+    return () => window.removeEventListener('keydown', handleMiniPlayerTabKey, true);
+  }, [libraryTab]);
+
   useEffect(() => {
     if (bottomPanel === 'queue') {
       requestAnimationFrame(() => queueActiveItemRef.current?.scrollIntoView({ block: 'nearest' }));
@@ -338,11 +370,12 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
           <div
             data-tauri-drag-region
             onMouseDown={handleCoverMouseDown}
+            onDragStart={event => event.preventDefault()}
             aria-label={text(language, 'Перетащить окно мини-плеера', 'Drag the mini-player window')}
             className="mx-auto flex aspect-square w-full max-w-[280px] shrink-0 items-center justify-center overflow-hidden rounded-[24px] bg-md3-surface-container-high shadow-xl"
           >
             {currentTrack?.coverArt ? (
-              <img src={currentTrack.coverArt} alt={currentTrack.title} className="h-full w-full object-cover" />
+              <img src={currentTrack.coverArt} alt={currentTrack.title} draggable={false} className="h-full w-full select-none object-cover" />
             ) : (
               <Disc3 className="h-24 w-24 text-md3-primary/40" strokeWidth={1.25} />
             )}
@@ -536,9 +569,12 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
           <div className={`absolute inset-x-0 bottom-0 z-20 flex min-h-[220px] flex-col overflow-hidden rounded-t-2xl border-t border-md3-outline-variant/25 bg-md3-surface-container shadow-[0_-16px_45px_rgba(0,0,0,0.35)] anim-mini-panel-in ${bottomPanel === 'queue' ? 'h-[62%]' : 'max-h-[62%]'}`}>
             {bottomPanel === 'queue' ? (
               <>
-                <header className="flex h-11 shrink-0 items-center gap-2 border-b border-md3-outline-variant/15 px-4">
-                  <ListMusic size={16} className="text-md3-primary" />
-                  <strong className="flex-1 text-xs">{text(language, 'Очередь воспроизведения', 'Play queue')} · {queue.length}</strong>
+                <header className="flex h-12 shrink-0 items-center gap-2 border-b border-md3-outline-variant/15 px-3">
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-md3-primary/10 text-md3-primary"><ListMusic size={15} /></span>
+                    <strong className="min-w-0 truncate text-[11px] font-semibold text-md3-on-surface">{text(language, 'Очередь воспроизведения', 'Play queue')}</strong>
+                    <span className="shrink-0 rounded-full bg-md3-surface-container-high px-2 py-1 text-[9px] font-semibold tabular-nums text-md3-on-surface-variant">{queueTrackCount(queue.length, language)}</span>
+                  </div>
                   <button type="button" onClick={() => { setLibraryTab('tracks'); setSelectedPlaylistId(null); setSelectedPlaylistFolderId(null); setSelectedPlaylistGroupId(null); setSelectedCollection(null); setBottomPanel('library'); }} className="rounded-lg px-2 py-1 text-[10px] text-md3-primary hover:bg-md3-primary/10">{text(language, 'Библиотека', 'Library')}</button>
                   <button
                     type="button"

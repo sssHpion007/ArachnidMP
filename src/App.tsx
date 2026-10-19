@@ -1890,6 +1890,9 @@ export const App: React.FC = () => {
       }
 
       if (e.code === 'Tab' || e.key === 'Tab') {
+        // MiniPlayer owns its own library-tab cycling. Never route Tab through the
+        // standard/compact player navigation while the mini-player is active.
+        if (isMiniMode) return;
         e.preventDefault();
         const now = performance.now();
         // Cooldown applies strictly when holding down the key (auto-repeat)
@@ -1942,7 +1945,10 @@ export const App: React.FC = () => {
         handleToggleRepeat();
       } else if ((e.code === 'KeyT' || e.key.toLowerCase() === 't' || e.key.toLowerCase() === 'е' || e.code === 'KeyL' || e.key.toLowerCase() === 'l' || e.key.toLowerCase() === 'д') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
-        if (currentTrackRef.current) {
+        if (isMiniMode) {
+          if (miniLyricsMode === 'closed') void attachMiniLyrics();
+          else void closeMiniLyrics();
+        } else if (currentTrackRef.current) {
           setIsLyricsOpen(prev => !prev);
         }
       } else if ((e.code === 'KeyE' || e.key.toLowerCase() === 'e' || e.key.toLowerCase() === 'у') && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -2264,6 +2270,9 @@ export const App: React.FC = () => {
     isMiniMode,
     toggleMiniMode,
     openLyricsWindow,
+    miniLyricsMode,
+    attachMiniLyrics,
+    closeMiniLyrics,
   ]);
 
   const pendingTauriPathsRef = useRef<Set<string>>(new Set());
