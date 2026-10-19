@@ -238,16 +238,10 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
     >
       {/* Visual Insertion Indicator Bars */}
       {dropPosition === 'before' && (
-        <div
-          className="pointer-events-none absolute -left-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary"
-          style={{ boxShadow: '0 0 10px rgb(var(--md-sys-color-primary-rgb, 168 121 255) / 0.85)' }}
-        />
+        <div className="pointer-events-none absolute -left-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60" />
       )}
       {dropPosition === 'after' && (
-        <div
-          className="pointer-events-none absolute -right-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary"
-          style={{ boxShadow: '0 0 10px rgb(var(--md-sys-color-primary-rgb, 168 121 255) / 0.85)' }}
-        />
+        <div className="pointer-events-none absolute -right-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60" />
       )}
 
       {/* Visual Folder Icon / Playlist Cover / Collage Preview */}
@@ -496,16 +490,10 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
     >
       {/* Visual Insertion Indicator Bars */}
       {dropPosition === 'before' && (
-        <div
-          className="pointer-events-none absolute -left-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary"
-          style={{ boxShadow: '0 0 10px rgb(var(--md-sys-color-primary-rgb, 168 121 255) / 0.85)' }}
-        />
+        <div className="pointer-events-none absolute -left-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60" />
       )}
       {dropPosition === 'after' && (
-        <div
-          className="pointer-events-none absolute -right-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary"
-          style={{ boxShadow: '0 0 10px rgb(var(--md-sys-color-primary-rgb, 168 121 255) / 0.85)' }}
-        />
+        <div className="pointer-events-none absolute -right-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60" />
       )}
 
       {/* Cover Art Container */}
@@ -1196,7 +1184,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     const stats = getFolderStats(folder.id);
     const covers = getFolderCovers(folder.id);
     const dropPosition = dropTargetItem?.id === folder.id && dropTargetItem?.type === 'folder' ? dropTargetItem.position : null;
-    const isDropTarget = hoveredFolderId === folder.id || dropPosition !== null;
+    const isDropTarget = hoveredFolderId === folder.id;
     const isSelfDragging = dragState?.type === 'folder' && dragState?.id === folder.id && dragState.isDragging;
 
     return (
