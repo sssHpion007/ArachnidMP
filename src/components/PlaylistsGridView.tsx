@@ -1075,28 +1075,41 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
           return;
         }
 
-        // 2. Drop into Folder (when hovered in center)
-        if (hoveredFolderId && (current.type === 'playlist' || current.type === 'folder')) {
-          if (current.type === 'playlist') {
-            onMovePlaylistToFolder(current.id, hoveredFolderId);
-          } else if (current.type === 'folder' && current.id !== hoveredFolderId) {
-            onMoveFolderToFolder(current.id, hoveredFolderId);
+        // Resolve item drops from the pointer-up coordinates instead of the
+        // asynchronously updated hover state. This keeps reordering reliable
+        // when the pointer is released before the last hover-state render lands.
+        if (current.type === 'playlist' || current.type === 'folder') {
+          const folderEl = target.closest('[data-folder-id]');
+          const targetFolderId = folderEl?.getAttribute('data-folder-id');
+          if (folderEl && targetFolderId && targetFolderId !== current.id) {
+            const rect = folderEl.getBoundingClientRect();
+            const relX = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0.5;
+            if (relX < 0.25 || relX > 0.75) {
+              handleReorderItem(
+                current.id,
+                current.type,
+                targetFolderId,
+                'folder',
+                relX < 0.25 ? 'before' : 'after'
+              );
+            } else if (current.type === 'playlist') {
+              onMovePlaylistToFolder(current.id, targetFolderId);
+            } else {
+              onMoveFolderToFolder(current.id, targetFolderId);
+            }
+            cleanupDrag();
+            return;
           }
-          cleanupDrag();
-          return;
-        }
 
-        // 3. Drop on Item Card (Reorder playlists and folders together!)
-        if (dropTargetItem && (current.type === 'playlist' || current.type === 'folder')) {
-          handleReorderItem(
-            current.id,
-            current.type,
-            dropTargetItem.id,
-            dropTargetItem.type,
-            dropTargetItem.position
-          );
-          cleanupDrag();
-          return;
+          const playlistEl = target.closest('[data-playlist-id]');
+          const targetPlaylistId = playlistEl?.getAttribute('data-playlist-id');
+          if (playlistEl && targetPlaylistId && targetPlaylistId !== current.id) {
+            const rect = playlistEl.getBoundingClientRect();
+            const position = e.clientX < rect.left + rect.width / 2 ? 'before' : 'after';
+            handleReorderItem(current.id, current.type, targetPlaylistId, 'playlist', position);
+            cleanupDrag();
+            return;
+          }
         }
 
         // 4. Drop on Group Header (Reorder groups)
