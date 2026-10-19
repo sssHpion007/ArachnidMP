@@ -469,3 +469,28 @@ input.mini-player-timeline::-moz-range-thumb {
     will-change: auto;
   }
 }
+
+/* Collapse lyrics actions to icon buttons when the lyrics window is narrow. */
+.lyrics-modal-container {
+  container: lyrics-modal / inline-size;
+}
+
+@container lyrics-modal (max-width: 600px) {
+  .lyrics-toolbar-actions {
+    gap: 0.25rem;
+    padding: 0.25rem;
+  }
+
+  .lyrics-toolbar-button {
+    width: 2rem;
+    height: 2rem;
+    flex: 0 0 2rem;
+    justify-content: center;
+    gap: 0;
+    padding-inline: 0;
+  }
+
+  .lyrics-toolbar-label {
+    display: none;
+  }
+}

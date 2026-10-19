@@ -199,7 +199,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
       className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md select-none cursor-pointer ${backdropClass}`}
     >
       <div
-        className={`w-full max-w-2xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col h-[85vh] max-h-[720px] cursor-default ${dialogClass}`}
+        className={`lyrics-modal-container w-full max-w-2xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col h-[85vh] max-h-[720px] cursor-default ${dialogClass}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header: track information stays separate from the action toolbar so it never gets covered. */}
@@ -237,75 +237,78 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
             </button>
           </div>
 
-          <div className="flex justify-end px-4 pb-3 pt-3">
-            <div className="flex max-w-full flex-wrap items-center justify-end gap-2 rounded-2xl border border-md3-outline-variant/20 bg-md3-surface-container-low p-1.5 shadow-sm">
-            {onReloadLyrics && (
+          <div className="flex justify-center px-4 pb-3 pt-3">
+            <div className="lyrics-toolbar-actions flex max-w-full flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-md3-outline-variant/20 bg-md3-surface-container-low p-1.5 shadow-sm">
+              {onReloadLyrics && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (isReloading) return;
+                    setIsReloading(true);
+                    try {
+                      await onReloadLyrics(track.id);
+                    } finally {
+                      setTimeout(() => setIsReloading(false), 600);
+                    }
+                  }}
+                  title={language === 'ru' ? 'Перечитать слова из файла' : 'Reload lyrics from file'}
+                  aria-label={language === 'ru' ? 'Перечитать слова из файла' : 'Reload lyrics from file'}
+                  className="lyrics-toolbar-button inline-flex h-8 items-center gap-1.5 rounded-full border border-md3-outline-variant/20 bg-md3-surface-container px-2.5 text-[11px] font-semibold text-md3-on-surface transition-colors hover:bg-md3-surface-container-high active:scale-95"
+                >
+                  <RotateCw className={`h-3 w-3 text-md3-primary ${isReloading ? 'animate-spin' : ''}`} />
+                  <span className="lyrics-toolbar-label">{language === 'ru' ? 'Перечитать' : 'Reload'}</span>
+                </button>
+              )}
+
+              {onDetach && (
+                <button
+                  type="button"
+                  onClick={onDetach}
+                  aria-label={language === 'ru' ? 'Открыть в отдельном окне' : 'Open in a separate window'}
+                  title={language === 'ru' ? 'Открыть в отдельном окне [Shift+T]' : 'Open in a separate window [Shift+T]'}
+                  className="lyrics-toolbar-button inline-flex h-8 items-center gap-1.5 rounded-full border border-md3-outline-variant/20 bg-md3-surface-container px-2.5 text-[11px] font-semibold text-md3-on-surface transition-colors hover:bg-md3-surface-container-high"
+                >
+                  <ExternalLink className="h-3 w-3 text-md3-primary" />
+                  <span className="lyrics-toolbar-label">{language === 'ru' ? 'Отдельное окно' : 'Separate window'}</span>
+                </button>
+              )}
+
+              {hasLyricsText && (
+                <button
+                  type="button"
+                  onClick={handleCopyLyrics}
+                  aria-label={language === 'ru' ? 'Скопировать текст песни' : 'Copy lyrics'}
+                  title={copiedLyrics ? (language === 'ru' ? 'Текст скопирован!' : 'Lyrics copied!') : (language === 'ru' ? 'Скопировать текст песни' : 'Copy lyrics')}
+                  className="lyrics-toolbar-button inline-flex h-8 items-center gap-1.5 rounded-full border border-md3-outline-variant/20 bg-md3-surface-container px-2.5 text-[11px] font-semibold text-md3-on-surface transition-colors hover:bg-md3-surface-container-high active:scale-95"
+                >
+                  {copiedLyrics ? (
+                    <>
+                      <Check className="h-3 w-3 text-emerald-500" />
+                      <span className="lyrics-toolbar-label font-bold text-emerald-500">{language === 'ru' ? 'Скопировано' : 'Copied'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3 w-3 text-md3-primary" />
+                      <span className="lyrics-toolbar-label">{language === 'ru' ? 'Копировать' : 'Copy'}</span>
+                    </>
+                  )}
+                </button>
+              )}
+
               <button
                 type="button"
-                onClick={async () => {
-                  if (isReloading) return;
-                  setIsReloading(true);
-                  try {
-                    await onReloadLyrics(track.id);
-                  } finally {
-                    setTimeout(() => setIsReloading(false), 600);
-                  }
-                }}
-                title={language === 'ru' ? 'Перечитать слова из файла' : 'Reload lyrics from file'}
-                aria-label={language === 'ru' ? 'Перечитать слова из файла' : 'Reload lyrics from file'}
-                className="inline-flex h-9 items-center gap-2 rounded-full border border-md3-outline-variant/20 bg-md3-surface-container px-3 text-xs font-semibold text-md3-on-surface transition-colors hover:bg-md3-surface-container-high active:scale-95"
+                onClick={() => setIsEditing(!isEditing)}
+                aria-label={isEditing ? (language === 'ru' ? 'Просмотр' : 'View lyrics') : (language === 'ru' ? 'Редактировать' : 'Edit lyrics')}
+                title={isEditing ? (language === 'ru' ? 'Просмотр' : 'View') : (language === 'ru' ? 'Редактировать' : 'Edit')}
+                className={`lyrics-toolbar-button inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-semibold transition-all ${
+                  isEditing
+                    ? 'bg-md3-primary text-md3-on-primary shadow-sm'
+                    : 'border border-md3-outline-variant/20 bg-md3-surface-container text-md3-on-surface hover:bg-md3-surface-container-high'
+                }`}
               >
-                <RotateCw className={`h-3.5 w-3.5 text-md3-primary ${isReloading ? 'animate-spin' : ''}`} />
-                <span>{language === 'ru' ? 'Перечитать' : 'Reload'}</span>
+                <Edit3 className="h-3 w-3" />
+                <span className="lyrics-toolbar-label">{isEditing ? (language === 'ru' ? 'Просмотр' : 'View') : (language === 'ru' ? 'Редактировать' : 'Edit')}</span>
               </button>
-            )}
-
-            {onDetach && (
-              <button
-                type="button"
-                onClick={onDetach}
-                title={language === 'ru' ? 'Открыть в отдельном окне [Shift+T]' : 'Open in a separate window [Shift+T]'}
-                className="inline-flex h-9 items-center gap-2 rounded-full border border-md3-outline-variant/20 bg-md3-surface-container px-3 text-xs font-semibold text-md3-on-surface transition-colors hover:bg-md3-surface-container-high"
-              >
-                <ExternalLink className="h-3.5 w-3.5 text-md3-primary" />
-                <span>{language === 'ru' ? 'Отдельное окно' : 'Separate window'}</span>
-              </button>
-            )}
-
-            {hasLyricsText && (
-              <button
-                type="button"
-                onClick={handleCopyLyrics}
-                title={copiedLyrics ? (language === 'ru' ? 'Текст скопирован!' : 'Lyrics copied!') : (language === 'ru' ? 'Скопировать текст песни' : 'Copy lyrics')}
-                className="inline-flex h-9 items-center gap-2 rounded-full border border-md3-outline-variant/20 bg-md3-surface-container px-3 text-xs font-semibold text-md3-on-surface transition-colors hover:bg-md3-surface-container-high active:scale-95"
-              >
-                {copiedLyrics ? (
-                  <>
-                    <Check className="h-3.5 w-3.5 text-emerald-500" />
-                    <span className="font-bold text-emerald-500">{language === 'ru' ? 'Скопировано' : 'Copied'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-3.5 w-3.5 text-md3-primary" />
-                    <span>{language === 'ru' ? 'Копировать' : 'Copy'}</span>
-                  </>
-                )}
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setIsEditing(!isEditing)}
-              title={isEditing ? (language === 'ru' ? 'Просмотр' : 'View') : (language === 'ru' ? 'Редактировать' : 'Edit')}
-              className={`inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-semibold transition-all ${
-                isEditing
-                  ? 'bg-md3-primary text-md3-on-primary shadow-sm'
-                  : 'border border-md3-outline-variant/20 bg-md3-surface-container text-md3-on-surface hover:bg-md3-surface-container-high'
-              }`}
-            >
-              <Edit3 className="h-3.5 w-3.5" />
-              <span>{isEditing ? (language === 'ru' ? 'Просмотр' : 'View') : (language === 'ru' ? 'Редактировать' : 'Edit')}</span>
-            </button>
             </div>
           </div>
         </div>

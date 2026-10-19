@@ -211,7 +211,6 @@ export interface Translations {
     lyrics: string;
     discord: string;
     settings: string;
-    fullscreen: string;
     switchTabs: string;
     dismiss: string;
   };
@@ -428,7 +427,6 @@ export const RU_TRANSLATIONS: Translations = {
     lyrics: 'Открыть / закрыть текст песни',
     discord: 'Переключить статус Discord RPC',
     settings: 'Открыть настройки',
-    fullscreen: 'Полноэкранный режим',
     switchTabs: 'Переключение вкладок навигации',
     dismiss: 'Закрыть окно / Сбросить выбор / Отмена',
   },
@@ -645,7 +643,6 @@ export const EN_TRANSLATIONS: Translations = {
     lyrics: 'Open / Close Lyrics Panel',
     discord: 'Toggle Discord RPC Status',
     settings: 'Open Settings',
-    fullscreen: 'Fullscreen Mode',
     switchTabs: 'Switch Navigation Tabs',
     dismiss: 'Close Modal / Clear Selection / Cancel',
   },

@@ -10,6 +10,13 @@ interface TitleBarProps {
 export const TitleBar: React.FC<TitleBarProps> = ({ miniMode = false, onRestoreFromMini }) => {
   const [isMaximized, setIsMaximized] = useState(false);
 
+  const handleMiniTitleBarMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || (event.target as HTMLElement).closest('button') || !isTauri()) return;
+    void getCurrentWindow().startDragging().catch(error => {
+      console.warn('Unable to drag the mini-player title bar:', error);
+    });
+  }, []);
+
   // Check window maximized state, reveal window cleanly and set up resize listener
   useEffect(() => {
     if (!isTauri()) return;
@@ -106,13 +113,14 @@ export const TitleBar: React.FC<TitleBarProps> = ({ miniMode = false, onRestoreF
 
   return (
     <div
+      onMouseDown={miniMode ? handleMiniTitleBarMouseDown : undefined}
       onDoubleClick={miniMode ? undefined : handleToggleMaximize}
       className={`${miniMode ? 'h-4' : 'h-7'} w-full bg-md3-surface-container-low border-b border-md3-outline-variant/15 flex items-center justify-between select-none z-50 shrink-0 text-md3-on-surface-variant relative`}
     >
       {/* Left: App Logo & Title (Draggable) */}
       <div
-        data-tauri-drag-region
-        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        data-tauri-drag-region={!miniMode ? '' : undefined}
+        style={{ WebkitAppRegion: miniMode ? 'no-drag' : 'drag' } as React.CSSProperties}
         className={`flex items-center ${miniMode ? 'gap-1 pl-2' : 'gap-2 pl-3'} h-full cursor-default select-none pointer-events-auto`}
       >
         <img
@@ -127,8 +135,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({ miniMode = false, onRestoreF
 
       {/* Center Draggable Spacer */}
       <div
-        data-tauri-drag-region
-        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        data-tauri-drag-region={!miniMode ? '' : undefined}
+        style={{ WebkitAppRegion: miniMode ? 'no-drag' : 'drag' } as React.CSSProperties}
         className="flex-1 h-full cursor-default"
       />
 

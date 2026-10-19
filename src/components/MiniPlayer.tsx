@@ -263,7 +263,21 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       if (event.key === 'Tab' || event.code === 'Tab') {
         event.preventDefault();
         event.stopPropagation();
-        openLibraryPanel();
+        if (bottomPanel !== 'library') {
+          openLibraryPanel();
+          return;
+        }
+
+        const tabs: LibraryTab[] = ['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'];
+        const currentIndex = tabs.indexOf(libraryTab);
+        const nextIndex = event.shiftKey
+          ? (currentIndex <= 0 ? tabs.length - 1 : currentIndex - 1)
+          : (currentIndex + 1) % tabs.length;
+        setLibraryTab(tabs[nextIndex]);
+        setSelectedPlaylistId(null);
+        setSelectedPlaylistFolderId(null);
+        setSelectedPlaylistGroupId(null);
+        setSelectedCollection(null);
         return;
       }
 
@@ -299,7 +313,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     };
     window.addEventListener('keydown', handleMiniPlayerKeyboard, true);
     return () => window.removeEventListener('keydown', handleMiniPlayerKeyboard, true);
-  }, [bottomPanel, onPlayQueueTrack, queue.length, queueIndex, queueSelectedIndex]);
+  }, [bottomPanel, libraryTab, onPlayQueueTrack, queue.length, queueIndex, queueSelectedIndex]);
 
   useEffect(() => {
     setQueueSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
@@ -624,7 +638,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         </div>
 
         {bottomPanel && (
-          <div className={`absolute inset-x-0 bottom-0 z-20 flex min-h-[220px] flex-col overflow-hidden rounded-t-2xl border-t border-md3-outline-variant/25 bg-md3-surface-container shadow-[0_-16px_45px_rgba(0,0,0,0.35)] anim-mini-panel-in ${bottomPanel === 'queue' ? 'h-[62%]' : 'max-h-[62%]'}`}>
+          <div className="absolute inset-x-0 bottom-0 z-20 flex h-[62%] min-h-[220px] flex-col overflow-hidden rounded-t-2xl border-t border-md3-outline-variant/25 bg-md3-surface-container shadow-[0_-16px_45px_rgba(0,0,0,0.35)] anim-mini-panel-in">
             {bottomPanel === 'queue' ? (
               <>
                 <header className="flex h-12 shrink-0 items-center gap-1.5 border-b border-md3-outline-variant/15 px-3">

@@ -4,6 +4,20 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { generateCustomOrBuiltinPalette, applyM3ThemeToDOM, DEFAULT_SEED_COLOR } from './theme/material3';
 import './index.css';
 
+// Prevent browser-style search, fullscreen, and reload shortcuts from leaking through the WebView.
+window.addEventListener('keydown', (event) => {
+  const browserReload = event.code === 'F5' || event.key === 'F5'
+    || ((event.ctrlKey || event.metaKey) && !event.altKey && event.code === 'KeyR');
+  const browserSearchOrFullscreen = event.code === 'F3' || event.key === 'F3'
+    || event.code === 'F11' || event.key === 'F11';
+  const browserFocusOrCaret = event.code === 'F6' || event.key === 'F6'
+    || event.code === 'F7' || event.key === 'F7';
+  if (browserReload || browserSearchOrFullscreen || browserFocusOrCaret) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+}, true);
+
 // Immediately apply cached theme before React mounts to eliminate any initial color flash
 try {
   const raw = localStorage.getItem('arachnid_theme_cache');

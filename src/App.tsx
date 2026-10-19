@@ -1961,17 +1961,6 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Fullscreen Hotkey: F11
-      if (e.code === 'F11' || e.key === 'F11') {
-        e.preventDefault();
-        if (!document.fullscreenElement) {
-          document.documentElement.requestFullscreen?.().catch(() => {});
-        } else {
-          document.exitFullscreen?.().catch(() => {});
-        }
-        return;
-      }
-
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
 
@@ -1981,8 +1970,8 @@ export const App: React.FC = () => {
       }
 
       if (e.code === 'Tab' || e.key === 'Tab') {
-        // MiniPlayer owns Tab as a direct library shortcut. Never route it through
-        // standard/compact player navigation while the mini-player is active.
+        // MiniPlayer uses Tab to open the library, then cycle its tabs. Never route
+        // it through standard/compact player navigation while mini mode is active.
         if (isMiniMode) return;
         e.preventDefault();
         const now = performance.now();
