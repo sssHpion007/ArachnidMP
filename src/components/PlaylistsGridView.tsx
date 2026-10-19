@@ -232,7 +232,7 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
           : !isHovered && !isDropTarget
           ? 'bg-md3-surface-container-low hover:bg-md3-surface-container shadow-sm hover:shadow-md'
           : ''
-      } ${isDropTarget ? 'ring-2 ring-md3-primary scale-[1.02] shadow-lg' : ''} ${
+      } ${isDropTarget ? 'ring-2 ring-md3-primary scale-[1.02] shadow-lg reorder-drop-glow' : ''} ${
         isSelfDragging ? 'opacity-30' : ''
       }`}
     >
@@ -484,7 +484,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
           : !isHovered && !isTarget
           ? 'bg-md3-surface-container-low hover:bg-md3-surface-container shadow-sm hover:shadow-md'
           : ''
-      } ${isTarget ? 'ring-2 ring-md3-primary scale-[1.02] shadow-lg' : ''} ${
+      } ${isTarget ? 'ring-2 ring-md3-primary scale-[1.02] shadow-lg reorder-drop-glow' : ''} ${
         isSelfDragging ? 'opacity-30' : ''
       }`}
     >
@@ -1183,9 +1183,9 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   const renderFolderCard = (folder: PlaylistFolder) => {
     const stats = getFolderStats(folder.id);
     const covers = getFolderCovers(folder.id);
-    const isHovered = hoveredFolderId === folder.id;
-    const isSelfDragging = dragState?.type === 'folder' && dragState?.id === folder.id && dragState.isDragging;
     const dropPosition = dropTargetItem?.id === folder.id && dropTargetItem?.type === 'folder' ? dropTargetItem.position : null;
+    const isDropTarget = hoveredFolderId === folder.id || dropPosition !== null;
+    const isSelfDragging = dragState?.type === 'folder' && dragState?.id === folder.id && dragState.isDragging;
 
     return (
       <FolderCardItem
@@ -1194,7 +1194,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         covers={covers}
         stats={stats}
         language={language}
-        isDropTarget={isHovered}
+        isDropTarget={isDropTarget}
         dropPosition={dropPosition}
         isSelfDragging={isSelfDragging}
         onPointerDown={(e) => {
