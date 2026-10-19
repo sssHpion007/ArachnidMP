@@ -20,6 +20,7 @@ import {
   Repeat1,
   Shuffle,
   SlidersHorizontal,
+  Trash2,
   SkipBack,
   SkipForward,
   Volume1,
@@ -532,14 +533,23 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         </div>
 
         {bottomPanel && (
-          <div className="absolute inset-x-0 bottom-0 z-20 flex max-h-[62%] min-h-[220px] flex-col overflow-hidden rounded-t-2xl border-t border-md3-outline-variant/25 bg-md3-surface-container shadow-[0_-16px_45px_rgba(0,0,0,0.35)] anim-mini-panel-in">
+          <div className={`absolute inset-x-0 bottom-0 z-20 flex min-h-[220px] flex-col overflow-hidden rounded-t-2xl border-t border-md3-outline-variant/25 bg-md3-surface-container shadow-[0_-16px_45px_rgba(0,0,0,0.35)] anim-mini-panel-in ${bottomPanel === 'queue' ? 'h-[62%]' : 'max-h-[62%]'}`}>
             {bottomPanel === 'queue' ? (
               <>
                 <header className="flex h-11 shrink-0 items-center gap-2 border-b border-md3-outline-variant/15 px-4">
                   <ListMusic size={16} className="text-md3-primary" />
                   <strong className="flex-1 text-xs">{text(language, 'Очередь воспроизведения', 'Play queue')} · {queue.length}</strong>
                   <button type="button" onClick={() => { setLibraryTab('tracks'); setSelectedPlaylistId(null); setSelectedPlaylistFolderId(null); setSelectedPlaylistGroupId(null); setSelectedCollection(null); setBottomPanel('library'); }} className="rounded-lg px-2 py-1 text-[10px] text-md3-primary hover:bg-md3-primary/10">{text(language, 'Библиотека', 'Library')}</button>
-                  <button type="button" onClick={onClearQueue} disabled={queue.length === 0} className="rounded-lg px-2 py-1 text-[10px] text-md3-on-surface-variant hover:bg-md3-surface-container-high disabled:opacity-30">{text(language, 'Очистить', 'Clear')}</button>
+                  <button
+                    type="button"
+                    onClick={onClearQueue}
+                    disabled={queue.length === 0}
+                    title={text(language, 'Очистить очередь', 'Clear queue')}
+                    aria-label={text(language, 'Очистить очередь', 'Clear queue')}
+                    className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high disabled:opacity-30"
+                  >
+                    <Trash2 size={15} />
+                  </button>
                   <button type="button" onClick={() => setBottomPanel(null)} aria-label={text(language, 'Закрыть', 'Close')} className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"><X size={15} /></button>
                 </header>
                 <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2">
@@ -735,6 +745,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
           track={lyricsTrack}
           currentTime={currentTime}
           language={language}
+          attachedToMiniPlayer
           onDetach={onDetachLyrics}
           onClose={onCloseLyrics}
           onSeek={onSeek}

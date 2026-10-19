@@ -181,7 +181,7 @@ jobs:
         if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp'
         uses: actions/upload-artifact@v4
         with:
-          name: Arachnid-v0.4.83-Windows-Test
+          name: Arachnid-v0.4.84-Windows-Test
           path: src-tauri/target/release/arachnid.exe
           if-no-files-found: error
 

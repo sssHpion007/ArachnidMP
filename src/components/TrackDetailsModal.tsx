@@ -123,11 +123,15 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
 
   return (
     <div
-      onClick={onClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md select-none cursor-pointer ${backdropClass}`}
+      onClick={standaloneWindow ? undefined : onClose}
+      className={standaloneWindow
+        ? `fixed inset-0 z-50 flex h-full w-full select-none bg-md3-surface-container ${backdropClass}`
+        : `fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md select-none cursor-pointer ${backdropClass}`}
     >
       <div
-        className={`w-full max-w-xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col max-h-[90vh] cursor-default ${dialogClass}`}
+        className={standaloneWindow
+          ? `flex h-full w-full flex-col overflow-hidden bg-md3-surface-container cursor-default ${dialogClass}`
+          : `w-full max-w-xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col max-h-[90vh] cursor-default ${dialogClass}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -161,7 +165,7 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="p-6 overflow-y-auto custom-scrollbar space-y-4">
+        <div className={`p-6 overflow-y-auto custom-scrollbar space-y-4 ${standaloneWindow ? 'min-h-0 flex-1' : ''}`}>
           {/* Top Banner: Large Cover & Metadata Beside It */}
           <div className="flex flex-col sm:flex-row items-center sm:items-stretch gap-5 p-5 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/15">
             {/* Large Cover Art */}
