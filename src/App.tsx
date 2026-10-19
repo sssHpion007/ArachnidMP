@@ -1944,6 +1944,7 @@ export const App: React.FC = () => {
           searchInput.blur();
           return;
         }
+        if (isMiniMode) return;
       }
 
       // Settings Hotkey: Ctrl + , (or Cmd + , or Cyrillic Ctrl + б)
@@ -1980,7 +1981,7 @@ export const App: React.FC = () => {
       }
 
       if (e.code === 'Tab' || e.key === 'Tab') {
-        // MiniPlayer owns its own library-tab cycling. Never route Tab through the
+        // MiniPlayer owns Tab as a direct library shortcut. Never route it through
         // standard/compact player navigation while the mini-player is active.
         if (isMiniMode) return;
         e.preventDefault();
@@ -2023,6 +2024,7 @@ export const App: React.FC = () => {
         handlePrev();
       } else if ((e.code === 'KeyQ' || e.key.toLowerCase() === 'q' || e.key.toLowerCase() === 'й') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
+        if (isMiniMode) return;
         setIsQueueOpen(prev => !prev);
       } else if ((e.code === 'KeyX' || e.key.toLowerCase() === 'x' || e.key.toLowerCase() === 'ч') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
@@ -2058,6 +2060,7 @@ export const App: React.FC = () => {
         handleVolumeChange(next);
       // Plain Arrow Down / Up: Navigate through track list
       } else if ((e.code === 'ArrowDown' || e.key === 'ArrowDown') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        if (isMiniMode) return;
         const currentList = filteredTracksRef.current;
         if (currentList.length > 0) {
           e.preventDefault();
@@ -2088,6 +2091,7 @@ export const App: React.FC = () => {
           }
         }
       } else if ((e.code === 'ArrowUp' || e.key === 'ArrowUp') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        if (isMiniMode) return;
         const currentList = filteredTracksRef.current;
         if (currentList.length > 0) {
           e.preventDefault();
@@ -2119,6 +2123,7 @@ export const App: React.FC = () => {
         }
       // Shift + Enter: Edit tags of selected track(s)
       } else if ((e.code === 'Enter' || e.key === 'Enter') && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (isMiniMode) return;
         const anyModalOpen = isSettingsOpen || isEQOpen || isLyricsOpen || isQueueOpen || isBatchTagEditorOpen ||
           isCreatePlaylistOpen || isCreateFolderOpen || isCreateGroupOpen || renameItemTarget ||
           renamePlaylistTarget || deleteFolderTarget || clearPlaylistTarget || deletePlaylistTarget ||
@@ -2138,6 +2143,7 @@ export const App: React.FC = () => {
         }
       // Plain Enter: Play selected track
       } else if ((e.code === 'Enter' || e.key === 'Enter') && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (isMiniMode) return;
         const anyModalOpen = isSettingsOpen || isEQOpen || isLyricsOpen || isQueueOpen || isBatchTagEditorOpen ||
           isCreatePlaylistOpen || isCreateFolderOpen || isCreateGroupOpen || renameItemTarget ||
           renamePlaylistTarget || deleteFolderTarget || clearPlaylistTarget || deletePlaylistTarget ||
