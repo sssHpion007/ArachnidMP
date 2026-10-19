@@ -238,10 +238,10 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
     >
       {/* Visual Insertion Indicator Bars */}
       {dropPosition === 'before' && (
-        <div className="pointer-events-none absolute -left-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60" />
+        <div className="pointer-events-none absolute -left-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60 animate-pulse" />
       )}
       {dropPosition === 'after' && (
-        <div className="pointer-events-none absolute -right-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60" />
+        <div className="pointer-events-none absolute -right-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60 animate-pulse" />
       )}
 
       {/* Visual Folder Icon / Playlist Cover / Collage Preview */}
@@ -490,10 +490,10 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
     >
       {/* Visual Insertion Indicator Bars */}
       {dropPosition === 'before' && (
-        <div className="pointer-events-none absolute -left-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60" />
+        <div className="pointer-events-none absolute -left-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60 animate-pulse" />
       )}
       {dropPosition === 'after' && (
-        <div className="pointer-events-none absolute -right-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60" />
+        <div className="pointer-events-none absolute -right-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60 animate-pulse" />
       )}
 
       {/* Cover Art Container */}
