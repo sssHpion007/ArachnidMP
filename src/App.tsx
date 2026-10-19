@@ -4174,7 +4174,9 @@ export const App: React.FC = () => {
           }
         }}
       />
-      <TitleBar miniMode={isMiniMode} onRestoreFromMini={exitMiniMode} />
+      <div className={isMiniMode && miniLyricsMode === 'attached' ? 'w-[320px] shrink-0' : 'w-full'}>
+        <TitleBar miniMode={isMiniMode} onRestoreFromMini={exitMiniMode} />
+      </div>
       {isMiniMode ? (
         <>
         <MiniPlayer

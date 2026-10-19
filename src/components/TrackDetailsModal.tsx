@@ -22,6 +22,7 @@ import { useModalAnimation } from '../utils/useModalAnimation';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 import { isTauri, invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { AppLanguage } from '../i18n';
 
 interface TrackDetailsModalProps {
@@ -29,6 +30,7 @@ interface TrackDetailsModalProps {
   track: Track | null;
   language?: AppLanguage;
   onClose: () => void;
+  standaloneWindow?: boolean;
 }
 
 export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
@@ -36,6 +38,7 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
   track: incomingTrack,
   language = 'ru',
   onClose,
+  standaloneWindow = false,
 }) => {
   const [copiedPath, setCopiedPath] = useState<boolean>(false);
 
@@ -76,6 +79,13 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
 
   if (!isRendered || !activeTrack) return null;
   const track = activeTrack;
+
+  const handleHeaderMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!standaloneWindow || event.button !== 0 || (event.target as HTMLElement).closest('button') || !isTauri()) return;
+    void getCurrentWindow().startDragging().catch(error => {
+      console.warn('Unable to drag the track details window:', error);
+    });
+  };
 
   const handleOpenLocation = async () => {
     if (activeTrack.path) {
@@ -121,7 +131,12 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-5 pb-4 border-b border-md3-outline-variant/15 flex items-center justify-between bg-md3-surface-container-high/50">
+        <div
+          data-tauri-drag-region={standaloneWindow ? '' : undefined}
+          onMouseDown={handleHeaderMouseDown}
+          style={standaloneWindow ? { WebkitAppRegion: 'drag' } as React.CSSProperties : undefined}
+          className="p-5 pb-4 border-b border-md3-outline-variant/15 flex items-center justify-between bg-md3-surface-container-high/50"
+        >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-md3-primary/15 text-md3-primary flex items-center justify-center shadow-sm">
               <Info className="w-5 h-5" />
@@ -138,6 +153,7 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
 
           <button
             onClick={onClose}
+            style={standaloneWindow ? { WebkitAppRegion: 'no-drag' } as React.CSSProperties : undefined}
             className="p-2 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />

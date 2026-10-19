@@ -1634,6 +1634,7 @@ async fn show_track_details_window(app_handle: tauri::AppHandle) -> Result<(), S
         .title("Arachnid — Track Details")
         .inner_size(DETAILS_WINDOW_WIDTH, DETAILS_WINDOW_HEIGHT)
         .min_inner_size(460.0, 500.0)
+        .decorations(false)
         .additional_browser_args(MAIN_WEBVIEW_ARGS)
         .visible(false)
         .build()
