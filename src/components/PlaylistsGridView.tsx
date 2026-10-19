@@ -401,6 +401,10 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
   const baseColor = getFolderColorHex(playlist.color);
   // Play icon shade absorbs the playlist color hue and follows the theme direction
   const playIconColor = getThemedPlayIconColor(playlist.color, isDarkTheme);
+  const dividerStyle = {
+    backgroundColor: baseColor,
+    boxShadow: `0 0 10px ${getFolderColorRgba(playlist.color, 0.65)}`,
+  };
   const coverType: FolderCoverType = (playlist.coverType as FolderCoverType) || 'first_playlist';
   const hasMultipleCovers = covers && covers.length > 1;
   const hasImages = (cover || (covers && covers.length > 0)) && coverType !== 'icon';
@@ -492,10 +496,10 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
     >
       {/* Visual Insertion Indicator Bars */}
       {dropPosition === 'before' && (
-        <div className="pointer-events-none absolute -left-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60 animate-pulse" />
+        <div className="pointer-events-none absolute -left-2 top-2 bottom-2 z-30 w-1.5 rounded-full shadow-lg animate-pulse" style={dividerStyle} />
       )}
       {dropPosition === 'after' && (
-        <div className="pointer-events-none absolute -right-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60 animate-pulse" />
+        <div className="pointer-events-none absolute -right-2 top-2 bottom-2 z-30 w-1.5 rounded-full shadow-lg animate-pulse" style={dividerStyle} />
       )}
 
       {/* Cover Art Container */}

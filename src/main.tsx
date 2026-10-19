@@ -23,11 +23,14 @@ const searchParams = new URLSearchParams(window.location.search);
 const isLyricsWindow = searchParams.get('lyricsWindow') === '1'
   || searchParams.get('miniLyrics') === '1';
 const isTrackDetailsWindow = searchParams.get('trackDetailsWindow') === '1';
+const isEqualizerWindow = searchParams.get('equalizerWindow') === '1';
 const RoutedApp = isLyricsWindow
   ? lazy(() => import('./components/LyricsWindow').then(module => ({ default: module.LyricsWindow })))
   : isTrackDetailsWindow
     ? lazy(() => import('./components/TrackDetailsWindow').then(module => ({ default: module.TrackDetailsWindow })))
-    : lazy(() => import('./App').then(module => ({ default: module.App })));
+    : isEqualizerWindow
+      ? lazy(() => import('./components/EqualizerWindow').then(module => ({ default: module.EqualizerWindow })))
+      : lazy(() => import('./App').then(module => ({ default: module.App })));
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>

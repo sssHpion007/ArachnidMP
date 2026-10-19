@@ -12,7 +12,6 @@ import {
   Mic2,
   Library,
   ListMusic,
-  MessageCircle,
   Music2,
   Pause,
   Play,
@@ -454,8 +453,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                   aria-pressed={discordEnabled}
                   className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full border shadow-xs transition-colors ${discordEnabled ? 'border-[#5865F2]/40 bg-[#5865F2]/20 text-[#7289da]' : 'border-md3-outline-variant/15 bg-md3-surface-container text-md3-on-surface-variant hover:bg-md3-surface-container-high'}`}
                 >
-                  <MessageCircle size={14} />
-                  <span className={`absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full ${discordEnabled ? 'animate-pulse bg-[#5865F2]' : 'bg-gray-400'}`} />
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${discordEnabled ? 'animate-pulse bg-[#5865F2]' : 'bg-gray-400'}`} />
                 </button>
               )}
             </div>

@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capabilities for Arachnid Music Player",
-  "windows": ["main", "lyrics", "track-details"],
+  "windows": ["main", "lyrics", "track-details", "equalizer"],
   "permissions": [
     "core:default",
     "core:window:default",

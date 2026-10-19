@@ -3,11 +3,14 @@ import { X, SlidersHorizontal, RotateCcw } from 'lucide-react';
 import { EQ_FREQUENCIES, EQ_PRESETS, audioEngine } from '../services/audioEngine';
 import { AppLanguage } from '../i18n';
 import { useModalAnimation } from '../utils/useModalAnimation';
+import { isTauri } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 interface EqualizerModalProps {
   isOpen: boolean;
   language?: AppLanguage;
   onClose: () => void;
+  standaloneWindow?: boolean;
 }
 
 // Custom hook to support smooth touch/mouse drag-to-scroll without visible scrollbars
@@ -80,7 +83,8 @@ const useDragScroll = () => {
 export const EqualizerModal: React.FC<EqualizerModalProps> = ({ 
   isOpen, 
   language = 'ru',
-  onClose 
+  onClose,
+  standaloneWindow = false,
 }) => {
   const [eqValues, setEqValues] = useState<number[]>([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   const [activePreset, setActivePreset] = useState<string>('Flat');
@@ -105,6 +109,13 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({
 
   const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen, 200);
 
+  const handleHeaderMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!standaloneWindow || event.button !== 0 || (event.target as HTMLElement).closest('button') || !isTauri()) return;
+    void getCurrentWindow().startDragging().catch(error => {
+      console.warn('Unable to drag the equalizer window:', error);
+    });
+  };
+
   if (!isRendered) return null;
 
   const handleBandChange = (index: number, val: number) => {
@@ -126,15 +137,24 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({
 
   return (
     <div
-      onClick={onClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 select-none cursor-pointer ${backdropClass}`}
+      onClick={standaloneWindow ? undefined : onClose}
+      className={standaloneWindow
+        ? `fixed inset-0 z-50 flex h-full w-full select-none bg-md3-surface-container cursor-default ${backdropClass}`
+        : `fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 select-none cursor-pointer ${backdropClass}`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`w-full max-w-2xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/30 overflow-hidden flex flex-col cursor-default ${dialogClass}`}
+        className={standaloneWindow
+          ? `flex h-full w-full flex-col overflow-hidden bg-md3-surface-container cursor-default ${dialogClass}`
+          : `w-full max-w-2xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/30 overflow-hidden flex flex-col cursor-default ${dialogClass}`}
       >
         {/* Header */}
-        <div className="p-4 sm:p-5 border-b border-md3-outline-variant/20 flex items-center justify-between bg-md3-surface-container-high shrink-0">
+        <div
+          data-tauri-drag-region={standaloneWindow ? '' : undefined}
+          onMouseDown={handleHeaderMouseDown}
+          style={standaloneWindow ? { WebkitAppRegion: 'drag' } as React.CSSProperties : undefined}
+          className="p-4 sm:p-5 border-b border-md3-outline-variant/20 flex items-center justify-between bg-md3-surface-container-high shrink-0"
+        >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-md3-primary/10 text-md3-primary flex items-center justify-center shrink-0">
               <SlidersHorizontal className="w-5 h-5" />
@@ -153,6 +173,7 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({
           <button
             onClick={onClose}
             title={language === 'ru' ? 'Закрыть [Esc]' : 'Close [Esc]'}
+            style={standaloneWindow ? { WebkitAppRegion: 'no-drag' } as React.CSSProperties : undefined}
             className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />

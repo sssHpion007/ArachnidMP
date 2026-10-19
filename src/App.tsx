@@ -43,13 +43,15 @@ import {
 import { CustomThemeInfo, ThemeContent } from './types/theme';
 import { AppLanguage, detectSystemLanguage } from './i18n';
 import { isNewerVersion, CURRENT_APP_VERSION } from './utils/version';
-import { getFolderIconComponent, getFolderColorHex, getThemedPlayIconColor } from './theme/folderIcons';
+import { getFolderIconComponent } from './theme/folderIcons';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { LYRICS_WINDOW_EVENTS } from './utils/lyricsWindowEvents';
 import type { LyricsWindowAction, LyricsWindowPayload } from './utils/lyricsWindowEvents';
 import { TRACK_DETAILS_WINDOW_EVENTS } from './utils/trackDetailsWindowEvents';
 import type { TrackDetailsWindowAction, TrackDetailsWindowPayload } from './utils/trackDetailsWindowEvents';
+import { EQUALIZER_WINDOW_EVENTS } from './utils/equalizerWindowEvents';
+import type { EqualizerWindowAction, EqualizerWindowPayload } from './utils/equalizerWindowEvents';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { LogicalSize, PhysicalSize } from '@tauri-apps/api/dpi';
 import { MiniPlayer } from './components/MiniPlayer';
@@ -188,6 +190,7 @@ export const App: React.FC = () => {
   const [isMiniMode, setIsMiniMode] = useState(false);
   const [miniLyricsMode, setMiniLyricsMode] = useState<'closed' | 'attached' | 'detached'>('closed');
   const miniWindowRestoreRef = useRef<{ wasMaximized: boolean; width: number; height: number } | null>(null);
+  const equalizerPopupRef = useRef<Window | null>(null);
   const miniLyricsChannelRef = useRef<BroadcastChannel | null>(null);
   const miniLyricsSeekHandlerRef = useRef<(time: number) => void>(() => {});
 
@@ -225,9 +228,12 @@ export const App: React.FC = () => {
 
   // Language & Localization (auto-detects system language on first launch)
   const [language, setLanguage] = useState<AppLanguage>(() => initialThemeCache.language || detectSystemLanguage());
+  const equalizerWindowPayloadRef = useRef<EqualizerWindowPayload>({ language });
+  equalizerWindowPayloadRef.current = { language };
 
   // Modals & Menus
   const [isEQOpen, setIsEQOpen] = useState<boolean>(false);
+  const [isEQWindowOpen, setIsEQWindowOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [hasUpdate, setHasUpdate] = useState<boolean>(false);
   const [cachedReleaseData, setCachedReleaseData] = useState<any>(null);
@@ -354,6 +360,7 @@ export const App: React.FC = () => {
     }
     setIsQueueOpen(false);
     setIsLyricsOpen(false);
+    setIsEQOpen(false);
     setIsMiniMode(true);
   }, [isMiniMode, miniLyricsMode]);
 
@@ -380,7 +387,19 @@ export const App: React.FC = () => {
       } catch (error) {
         console.warn('Unable to close track details window while leaving mini mode:', error);
       }
+      try {
+        await invoke('hide_equalizer_window');
+      } catch (error) {
+        console.warn('Unable to close equalizer window while leaving mini mode:', error);
+      }
+    } else {
+      if (equalizerPopupRef.current && !equalizerPopupRef.current.closed) {
+        equalizerPopupRef.current.close();
+      }
+      equalizerPopupRef.current = null;
     }
+    setIsEQWindowOpen(false);
+    setIsEQOpen(false);
     setIsMiniMode(false);
   }, []);
 
@@ -419,6 +438,38 @@ export const App: React.FC = () => {
     } catch (error) {
       console.error('Unable to open the separate track details window:', error);
     }
+  }, []);
+
+  const openMiniEqualizer = useCallback(async () => {
+    setIsEQOpen(false);
+    setIsEQWindowOpen(true);
+
+    if (isTauri()) {
+      try {
+        await invoke('show_equalizer_window');
+      } catch (error) {
+        setIsEQWindowOpen(false);
+        setIsEQOpen(true);
+        console.error('Unable to open the separate equalizer window:', error);
+      }
+      return;
+    }
+
+    const popup = window.open(
+      `${window.location.pathname}?equalizerWindow=1`,
+      'arachnid-equalizer-window',
+      'popup=yes,width=560,height=460,resizable=yes'
+    );
+    if (!popup) {
+      setIsEQWindowOpen(false);
+      setIsEQOpen(true);
+      return;
+    }
+    equalizerPopupRef.current = popup;
+    popup.addEventListener('beforeunload', () => {
+      if (equalizerPopupRef.current === popup) equalizerPopupRef.current = null;
+      setIsEQWindowOpen(false);
+    }, { once: true });
   }, []);
 
   const openLyricsWindow = useCallback(async () => {
@@ -575,6 +626,45 @@ export const App: React.FC = () => {
     if (!isTauri()) return;
     void emitTo('track-details', TRACK_DETAILS_WINDOW_EVENTS.state, trackDetailsWindowPayloadRef.current).catch(() => {});
   }, [trackDetailsTarget, language]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let unlistenReady: (() => void) | undefined;
+    let unlistenAction: (() => void) | undefined;
+
+    const sendCurrentState = () => {
+      void emitTo('equalizer', EQUALIZER_WINDOW_EVENTS.state, equalizerWindowPayloadRef.current).catch(() => {});
+    };
+
+    void listen<null>(EQUALIZER_WINDOW_EVENTS.ready, sendCurrentState).then(unlisten => {
+      if (disposed) unlisten();
+      else unlistenReady = unlisten;
+    }).catch(error => console.error('Unable to listen for equalizer window:', error));
+
+    void listen<EqualizerWindowAction>(EQUALIZER_WINDOW_EVENTS.action, event => {
+      if (event.payload.type === 'close') {
+        setIsEQWindowOpen(false);
+        void invoke('hide_equalizer_window').catch(error => {
+          console.warn('Unable to hide equalizer window:', error);
+        });
+      }
+    }).then(unlisten => {
+      if (disposed) unlisten();
+      else unlistenAction = unlisten;
+    }).catch(error => console.error('Unable to listen for equalizer window actions:', error));
+
+    return () => {
+      disposed = true;
+      unlistenReady?.();
+      unlistenAction?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    void emitTo('equalizer', EQUALIZER_WINDOW_EVENTS.state, equalizerWindowPayloadRef.current).catch(() => {});
+  }, [isEQWindowOpen, language]);
 
   useEffect(() => {
     if (isTauri()) {
@@ -4223,7 +4313,7 @@ export const App: React.FC = () => {
             else void closeMiniLyrics();
           }}
           onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
-          onOpenEQ={() => setIsEQOpen(true)}
+          onOpenEQ={() => { void openMiniEqualizer(); }}
           onToggleFavorite={handleToggleFavorite}
           onOpenTrackDetails={track => { void openMiniTrackDetails(track); }}
           onDetachLyrics={openLyricsWindow}
@@ -4324,12 +4414,6 @@ export const App: React.FC = () => {
                     }
                   }}
                   title={language === 'ru' ? 'Воспроизвести всё' : 'Play All'}
-                  style={currentDetail.playlist?.color ? {
-                    backgroundColor: getFolderColorHex(currentDetail.playlist.color),
-                    ...(getThemedPlayIconColor(currentDetail.playlist.color, themeMode !== 'light')
-                      ? { color: getThemedPlayIconColor(currentDetail.playlist.color, themeMode !== 'light') }
-                      : {}),
-                  } : undefined}
                   className={`flex items-center justify-center gap-1.5 ${
                     isCompact ? 'w-10 h-10 p-0 rounded-full' : 'px-4 py-2.5 rounded-full'
                   } bg-md3-primary text-md3-on-primary text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer shrink-0`}

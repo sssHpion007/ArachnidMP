@@ -1660,6 +1660,45 @@ fn hide_track_details_window(app_handle: tauri::AppHandle) -> Result<(), String>
 }
 
 #[tauri::command]
+async fn show_equalizer_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--max-old-space-size=256\"";
+
+    let equalizer_window = match app_handle.get_webview_window("equalizer") {
+        Some(window) => window,
+        None => WebviewWindowBuilder::new(
+            &app_handle,
+            "equalizer",
+            WebviewUrl::App("index.html?equalizerWindow=1".into()),
+        )
+        .title("Arachnid — Equalizer")
+        .inner_size(560.0, 460.0)
+        .min_inner_size(500.0, 420.0)
+        .decorations(false)
+        .additional_browser_args(MAIN_WEBVIEW_ARGS)
+        .visible(false)
+        .build()
+        .map_err(|e| format!("Unable to create equalizer window: {}", e))?,
+    };
+
+    let _ = equalizer_window.unminimize();
+    equalizer_window
+        .show()
+        .map_err(|e| format!("Unable to show equalizer window: {}", e))?;
+    equalizer_window
+        .set_focus()
+        .map_err(|e| format!("Unable to focus equalizer window: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_equalizer_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window("equalizer") {
+        window.hide().map_err(|e| format!("Unable to hide equalizer window: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn hide_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("lyrics") {
         window.hide().map_err(|e| format!("Unable to hide lyrics window: {}", e))?;
@@ -2329,6 +2368,8 @@ pub fn run() {
             hide_lyrics_window,
             show_track_details_window,
             hide_track_details_window,
+            show_equalizer_window,
+            hide_equalizer_window,
             download_and_install_update,
             is_window_maximized,
             open_app_folder,
