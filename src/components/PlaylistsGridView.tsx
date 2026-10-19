@@ -209,6 +209,7 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
     ? `linear-gradient(145deg, ${getFolderColorRgba(folder.color, 0.36)}, ${getFolderColorRgba(folder.color, 0.22)})`
     : `linear-gradient(145deg, ${getFolderColorRgba(folder.color, 0.22)}, ${getFolderColorRgba(folder.color, 0.12)})`;
 
+  // content-visibility paint containment clips the edge divider, so it is disabled on drop targets.
   return (
     <div
       data-folder-id={folder.id}
@@ -222,7 +223,7 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
         borderColor: borderCard,
         boxShadow: shadowCard,
       }}
-      className={`group grid-card-optimized relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
+      className={`group ${dropPosition ? '' : 'grid-card-optimized'} relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
         !folder.color
           ? isHovered
             ? 'bg-md3-surface-container border-md3-primary/40 shadow-md'
@@ -461,6 +462,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
     ? `linear-gradient(145deg, ${getFolderColorRgba(playlist.color, 0.22)}, ${getFolderColorRgba(playlist.color, 0.12)})`
     : undefined;
 
+  // content-visibility paint containment clips the edge divider, so it is disabled on drop targets.
   return (
     <div
       data-playlist-id={playlist.id}
@@ -474,7 +476,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
         borderColor: borderCard,
         boxShadow: shadowCard,
       }}
-      className={`group grid-card-optimized relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
+      className={`group ${dropPosition ? '' : 'grid-card-optimized'} relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
         !playlist.color
           ? isHovered
             ? 'bg-md3-surface-container border-md3-primary/40 shadow-md'
