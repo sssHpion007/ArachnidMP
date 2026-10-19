@@ -238,10 +238,16 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
     >
       {/* Visual Insertion Indicator Bars */}
       {dropPosition === 'before' && (
-        <div className="absolute -left-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 z-30" />
+        <div
+          className="pointer-events-none absolute -left-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary"
+          style={{ boxShadow: '0 0 10px rgb(var(--md-sys-color-primary-rgb, 168 121 255) / 0.85)' }}
+        />
       )}
       {dropPosition === 'after' && (
-        <div className="absolute -right-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 z-30" />
+        <div
+          className="pointer-events-none absolute -right-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary"
+          style={{ boxShadow: '0 0 10px rgb(var(--md-sys-color-primary-rgb, 168 121 255) / 0.85)' }}
+        />
       )}
 
       {/* Visual Folder Icon / Playlist Cover / Collage Preview */}
@@ -365,6 +371,7 @@ interface PlaylistCardItemProps {
   cover: string | null;
   covers: string[];
   totalDuration: number;
+  isTarget: boolean;
   dropPosition?: 'before' | 'after' | null;
   isSelfDragging: boolean;
   language?: AppLanguage;
@@ -380,6 +387,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
   cover,
   covers,
   totalDuration,
+  isTarget,
   dropPosition,
   isSelfDragging,
   language = 'ru',
@@ -433,13 +441,17 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
     };
   }, [coverType, hasMultipleCovers, covers?.length, playlist.id]);
 
-  // Dynamic card background and border on hover; reordering itself is shown
-  // only by the before/after indicators at the card edges.
-  const bgCard = isHovered && playlist.color
-    ? getFolderColorRgba(playlist.color, 0.12)
+  // Drop target uses a tonal surface and primary outline, matching the original
+  // card-edge insertion treatment without any pulsing animation.
+  const bgCard = isTarget
+    ? playlist.color ? getFolderColorRgba(playlist.color, 0.22) : undefined
+    : isHovered
+    ? playlist.color ? getFolderColorRgba(playlist.color, 0.12) : undefined
     : undefined;
 
-  const borderCard = playlist.color
+  const borderCard = isTarget
+    ? (playlist.color ? baseColor : 'rgb(var(--md-sys-color-primary-rgb))')
+    : playlist.color
     ? (isHovered ? getFolderColorRgba(playlist.color, 0.8) : getFolderColorRgba(playlist.color, 0.24))
     : (isHovered ? 'rgb(var(--md-sys-color-primary-rgb) / 0.45)' : undefined);
 
@@ -472,18 +484,28 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
         !playlist.color
           ? isHovered
             ? 'bg-md3-surface-container border-md3-primary/40 shadow-md'
+            : isTarget
+            ? 'bg-md3-surface-container border-md3-primary ring-2 ring-md3-primary shadow-lg'
             : 'bg-md3-surface-container-low hover:bg-md3-surface-container border-md3-outline-variant/15 hover:border-md3-primary/40 shadow-sm hover:shadow-md'
-          : !isHovered
+          : !isHovered && !isTarget
           ? 'bg-md3-surface-container-low hover:bg-md3-surface-container shadow-sm hover:shadow-md'
           : ''
-      } ${isSelfDragging ? 'opacity-30' : ''}`}
+      } ${isTarget ? 'ring-2 ring-md3-primary scale-[1.02] shadow-lg' : ''} ${
+        isSelfDragging ? 'opacity-30' : ''
+      }`}
     >
       {/* Visual Insertion Indicator Bars */}
       {dropPosition === 'before' && (
-        <div className="absolute -left-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 z-30" />
+        <div
+          className="pointer-events-none absolute -left-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary"
+          style={{ boxShadow: '0 0 10px rgb(var(--md-sys-color-primary-rgb, 168 121 255) / 0.85)' }}
+        />
       )}
       {dropPosition === 'after' && (
-        <div className="absolute -right-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 z-30" />
+        <div
+          className="pointer-events-none absolute -right-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary"
+          style={{ boxShadow: '0 0 10px rgb(var(--md-sys-color-primary-rgb, 168 121 255) / 0.85)' }}
+        />
       )}
 
       {/* Cover Art Container */}
@@ -1174,7 +1196,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     const stats = getFolderStats(folder.id);
     const covers = getFolderCovers(folder.id);
     const dropPosition = dropTargetItem?.id === folder.id && dropTargetItem?.type === 'folder' ? dropTargetItem.position : null;
-    const isDropTarget = hoveredFolderId === folder.id;
+    const isDropTarget = hoveredFolderId === folder.id || dropPosition !== null;
     const isSelfDragging = dragState?.type === 'folder' && dragState?.id === folder.id && dragState.isDragging;
 
     return (
@@ -1217,9 +1239,8 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     const covers = getPlaylistCovers(playlist);
     const totalDuration = getPlaylistDuration(playlist);
     const isSelfDragging = dragState?.type === 'playlist' && dragState?.id === playlist.id && dragState.isDragging;
-    const dropPosition = dropTargetItem?.id === playlist.id && dropTargetItem?.type === 'playlist'
-      ? dropTargetItem.position
-      : null;
+    const isTarget = dropTargetItem?.id === playlist.id && dropTargetItem?.type === 'playlist';
+    const dropPosition = isTarget ? dropTargetItem?.position : null;
 
     return (
       <PlaylistCardItem
@@ -1228,6 +1249,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         cover={cover}
         covers={covers}
         totalDuration={totalDuration}
+        isTarget={isTarget}
         dropPosition={dropPosition}
         isSelfDragging={isSelfDragging}
         language={language}
