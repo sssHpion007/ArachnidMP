@@ -12,7 +12,6 @@ import {
   Mic2,
   Library,
   ListMusic,
-  MessageCircle,
   Music2,
   Pause,
   Play,
@@ -20,6 +19,7 @@ import {
   Repeat1,
   Shuffle,
   SlidersHorizontal,
+  Trash2,
   SkipBack,
   SkipForward,
   Volume1,
@@ -64,21 +64,25 @@ const groupTracks = (tracks: Track[], getNames: (track: Track) => string | strin
 interface MiniTrackRowProps {
   track: Track;
   active?: boolean;
+  selected?: boolean;
   language: AppLanguage;
   buttonRef?: React.Ref<HTMLButtonElement>;
   onClick: () => void;
 }
 
-const MiniTrackRow: React.FC<MiniTrackRowProps> = ({ track, active = false, language, buttonRef, onClick }) => (
+const MiniTrackRow: React.FC<MiniTrackRowProps> = ({ track, active = false, selected = false, language, buttonRef, onClick }) => (
   <button
     ref={buttonRef}
     type="button"
     aria-current={active ? 'true' : undefined}
+    aria-selected={selected ? true : undefined}
     onClick={onClick}
     className={`group flex w-full min-w-0 items-center gap-2.5 rounded-2xl p-2 text-left transition-colors ${
       active
         ? 'bg-md3-primary-container font-semibold text-md3-on-primary-container shadow-sm'
-        : 'text-md3-on-surface hover:bg-md3-surface-container-high'
+        : selected
+          ? 'bg-md3-primary/10 ring-1 ring-inset ring-md3-primary/50 text-md3-on-surface'
+          : 'text-md3-on-surface hover:bg-md3-surface-container-high'
     }`}
   >
     <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-md3-surface-container-highest shadow-sm">
@@ -171,6 +175,15 @@ interface MiniPlayerProps {
 }
 
 const text = (language: AppLanguage, ru: string, en: string) => language === 'ru' ? ru : en;
+const queueTrackCount = (count: number, language: AppLanguage) => {
+  if (language !== 'ru') return `${count} ${count === 1 ? 'track' : 'tracks'}`;
+  const lastTwoDigits = count % 100;
+  const lastDigit = count % 10;
+  const noun = lastTwoDigits >= 11 && lastTwoDigits <= 14 ? 'треков'
+    : lastDigit === 1 ? 'трек'
+      : lastDigit >= 2 && lastDigit <= 4 ? 'трека' : 'треков';
+  return `${count} ${noun}`;
+};
 
 export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   currentTrack,
@@ -218,13 +231,99 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const [selectedPlaylistGroupId, setSelectedPlaylistGroupId] = useState<string | null>(null);
   const [selectedCollection, setSelectedCollection] = useState<{ type: LibraryCollectionType; name: string } | null>(null);
   const [isCompactVolHovered, setIsCompactVolHovered] = useState(false);
+  const [queueSelectedIndex, setQueueSelectedIndex] = useState(queueIndex);
   const volHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const queueActiveItemRef = useRef<HTMLButtonElement>(null);
+  const queueSelectedItemRef = useRef<HTMLButtonElement>(null);
+
+  const openLibraryPanel = () => {
+    setLibraryTab('tracks');
+    setSelectedPlaylistId(null);
+    setSelectedPlaylistFolderId(null);
+    setSelectedPlaylistGroupId(null);
+    setSelectedCollection(null);
+    setBottomPanel('library');
+  };
+
+  useEffect(() => {
+    const handleMiniPlayerKeyboard = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isEditing = Boolean(target?.closest('input, textarea, select, [contenteditable="true"]'));
+
+      if (event.key === 'Escape' || event.code === 'Escape') {
+        if (bottomPanel) {
+          event.preventDefault();
+          event.stopPropagation();
+          setBottomPanel(null);
+        }
+        return;
+      }
+
+      if (isEditing) return;
+
+      if (event.key === 'Tab' || event.code === 'Tab') {
+        event.preventDefault();
+        event.stopPropagation();
+        if (bottomPanel !== 'library') {
+          openLibraryPanel();
+          return;
+        }
+
+        const tabs: LibraryTab[] = ['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'];
+        const currentIndex = tabs.indexOf(libraryTab);
+        const nextIndex = event.shiftKey
+          ? (currentIndex <= 0 ? tabs.length - 1 : currentIndex - 1)
+          : (currentIndex + 1) % tabs.length;
+        setLibraryTab(tabs[nextIndex]);
+        setSelectedPlaylistId(null);
+        setSelectedPlaylistFolderId(null);
+        setSelectedPlaylistGroupId(null);
+        setSelectedCollection(null);
+        return;
+      }
+
+      if ((event.code === 'KeyQ' || event.key.toLowerCase() === 'q' || event.key.toLowerCase() === 'й')
+        && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (bottomPanel !== 'queue') {
+          setQueueSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
+          setBottomPanel('queue');
+        } else {
+          setBottomPanel(null);
+        }
+        return;
+      }
+
+      if (bottomPanel !== 'queue') return;
+      if ((event.key === 'ArrowDown' || event.code === 'ArrowDown' || event.key === 'ArrowUp' || event.code === 'ArrowUp')
+        && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+        if (queue.length === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const direction = event.key === 'ArrowDown' || event.code === 'ArrowDown' ? 1 : -1;
+        setQueueSelectedIndex(current => Math.max(0, Math.min(queue.length - 1, current + direction)));
+        return;
+      }
+
+      if ((event.key === 'Enter' || event.code === 'Enter') && queue.length > 0) {
+        event.preventDefault();
+        event.stopPropagation();
+        onPlayQueueTrack(Math.max(0, Math.min(queue.length - 1, queueSelectedIndex)));
+      }
+    };
+    window.addEventListener('keydown', handleMiniPlayerKeyboard, true);
+    return () => window.removeEventListener('keydown', handleMiniPlayerKeyboard, true);
+  }, [bottomPanel, libraryTab, onPlayQueueTrack, queue.length, queueIndex, queueSelectedIndex]);
+
+  useEffect(() => {
+    setQueueSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
+  }, [queueIndex, queue.length]);
+
   useEffect(() => {
     if (bottomPanel === 'queue') {
-      requestAnimationFrame(() => queueActiveItemRef.current?.scrollIntoView({ block: 'nearest' }));
+      requestAnimationFrame(() => queueSelectedItemRef.current?.scrollIntoView({ block: 'nearest' }));
     }
-  }, [bottomPanel]);
+  }, [bottomPanel, queueSelectedIndex, queue.length]);
   const safeDuration = duration > 0 ? duration : (currentTrack?.duration || 0);
   const safeTime = Math.max(0, Math.min(safeDuration || 0, currentTime));
   const currentPlaylist = playlists.find(playlist => playlist.id === selectedPlaylistId) || null;
@@ -286,7 +385,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   } : null;
 
   const togglePanel = (panel: Exclude<BottomPanel, null>) => {
-    setBottomPanel(current => current === panel ? null : panel);
+    if (bottomPanel === panel) {
+      setBottomPanel(null);
+      return;
+    }
+    if (panel === 'queue') {
+      setQueueSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
+    }
+    setBottomPanel(panel);
   };
 
   const handleVolumeMouseEnter = () => {
@@ -337,11 +443,12 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
           <div
             data-tauri-drag-region
             onMouseDown={handleCoverMouseDown}
+            onDragStart={event => event.preventDefault()}
             aria-label={text(language, 'Перетащить окно мини-плеера', 'Drag the mini-player window')}
             className="mx-auto flex aspect-square w-full max-w-[280px] shrink-0 items-center justify-center overflow-hidden rounded-[24px] bg-md3-surface-container-high shadow-xl"
           >
             {currentTrack?.coverArt ? (
-              <img src={currentTrack.coverArt} alt={currentTrack.title} className="h-full w-full object-cover" />
+              <img src={currentTrack.coverArt} alt={currentTrack.title} draggable={false} className="h-full w-full select-none object-cover" />
             ) : (
               <Disc3 className="h-24 w-24 text-md3-primary/40" strokeWidth={1.25} />
             )}
@@ -420,8 +527,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                   aria-pressed={discordEnabled}
                   className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full border shadow-xs transition-colors ${discordEnabled ? 'border-[#5865F2]/40 bg-[#5865F2]/20 text-[#7289da]' : 'border-md3-outline-variant/15 bg-md3-surface-container text-md3-on-surface-variant hover:bg-md3-surface-container-high'}`}
                 >
-                  <MessageCircle size={14} />
-                  <span className={`absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full ${discordEnabled ? 'animate-pulse bg-[#5865F2]' : 'bg-gray-400'}`} />
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${discordEnabled ? 'animate-pulse bg-[#5865F2]' : 'bg-gray-400'}`} />
                 </button>
               )}
             </div>
@@ -532,14 +638,26 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         </div>
 
         {bottomPanel && (
-          <div className="absolute inset-x-0 bottom-0 z-20 flex max-h-[62%] min-h-[220px] flex-col overflow-hidden rounded-t-2xl border-t border-md3-outline-variant/25 bg-md3-surface-container shadow-[0_-16px_45px_rgba(0,0,0,0.35)] anim-mini-panel-in">
+          <div className="absolute inset-x-0 bottom-0 z-20 flex h-[62%] min-h-[220px] flex-col overflow-hidden rounded-t-2xl border-t border-md3-outline-variant/25 bg-md3-surface-container shadow-[0_-16px_45px_rgba(0,0,0,0.35)] anim-mini-panel-in">
             {bottomPanel === 'queue' ? (
               <>
-                <header className="flex h-11 shrink-0 items-center gap-2 border-b border-md3-outline-variant/15 px-4">
-                  <ListMusic size={16} className="text-md3-primary" />
-                  <strong className="flex-1 text-xs">{text(language, 'Очередь воспроизведения', 'Play queue')} · {queue.length}</strong>
-                  <button type="button" onClick={() => { setLibraryTab('tracks'); setSelectedPlaylistId(null); setSelectedPlaylistFolderId(null); setSelectedPlaylistGroupId(null); setSelectedCollection(null); setBottomPanel('library'); }} className="rounded-lg px-2 py-1 text-[10px] text-md3-primary hover:bg-md3-primary/10">{text(language, 'Библиотека', 'Library')}</button>
-                  <button type="button" onClick={onClearQueue} disabled={queue.length === 0} className="rounded-lg px-2 py-1 text-[10px] text-md3-on-surface-variant hover:bg-md3-surface-container-high disabled:opacity-30">{text(language, 'Очистить', 'Clear')}</button>
+                <header className="flex h-12 shrink-0 items-center gap-1.5 border-b border-md3-outline-variant/15 px-3">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-md3-primary/10 text-md3-primary"><ListMusic size={15} /></span>
+                  <button type="button" onClick={openLibraryPanel} className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[10px] text-md3-primary hover:bg-md3-primary/10">
+                    <Library size={13} />{text(language, 'Библиотека', 'Library')}
+                  </button>
+                  <span className="min-w-0 flex-1" />
+                  <span className="shrink-0 rounded-full bg-md3-surface-container-high px-2 py-1 text-[9px] font-semibold tabular-nums text-md3-on-surface-variant">{queueTrackCount(queue.length, language)}</span>
+                  <button
+                    type="button"
+                    onClick={onClearQueue}
+                    disabled={queue.length === 0}
+                    title={text(language, 'Очистить очередь', 'Clear queue')}
+                    aria-label={text(language, 'Очистить очередь', 'Clear queue')}
+                    className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high disabled:opacity-30"
+                  >
+                    <Trash2 size={15} />
+                  </button>
                   <button type="button" onClick={() => setBottomPanel(null)} aria-label={text(language, 'Закрыть', 'Close')} className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"><X size={15} /></button>
                 </header>
                 <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2">
@@ -548,8 +666,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                       key={`${track.id}-${index}`}
                       track={track}
                       active={index === queueIndex}
+                      selected={index === queueSelectedIndex}
                       language={language}
-                      buttonRef={index === queueIndex ? queueActiveItemRef : undefined}
+                      buttonRef={index === queueSelectedIndex ? queueSelectedItemRef : undefined}
                       onClick={() => onPlayQueueTrack(index)}
                     />
                   ))}
@@ -576,7 +695,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                   <strong className="min-w-0 flex-1 truncate text-[11px]">
                     {currentPlaylist?.name || selectedCollectionGroup?.name || selectedPlaylistFolder?.name || selectedPlaylistGroup?.name || text(language, 'Библиотека', 'Library')}
                   </strong>
-                  <button type="button" onClick={() => setBottomPanel('queue')} title={text(language, 'Очередь', 'Queue')} className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"><ListMusic size={15} /></button>
+                  <button type="button" onClick={() => togglePanel('queue')} title={text(language, 'Очередь', 'Queue')} className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"><ListMusic size={15} /></button>
                   <button type="button" onClick={() => setBottomPanel(null)} aria-label={text(language, 'Закрыть', 'Close')} className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"><X size={15} /></button>
                 </header>
                 <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-md3-outline-variant/10 px-2 py-1.5 custom-scrollbar">
@@ -735,6 +854,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
           track={lyricsTrack}
           currentTime={currentTime}
           language={language}
+          attachedToMiniPlayer
           onDetach={onDetachLyrics}
           onClose={onCloseLyrics}
           onSeek={onSeek}

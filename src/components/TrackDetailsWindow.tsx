@@ -83,6 +83,7 @@ export const TrackDetailsWindow: React.FC = () => {
       track={state.track}
       language={state.language}
       onClose={closeDetails}
+      standaloneWindow
     />
   );
 };

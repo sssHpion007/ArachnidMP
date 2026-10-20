@@ -136,7 +136,7 @@ export const LyricsWindow: React.FC = () => {
       const supportedCodes = new Set([
         'Space', 'MediaPlayPause', 'MediaStop', 'MediaTrackNext', 'MediaTrackPrevious',
         'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyF', 'KeyQ', 'KeyX',
-        'KeyD', 'KeyR', 'KeyT', 'KeyL', 'KeyE', 'KeyM', 'Comma', 'Tab', 'F11', 'Delete',
+        'KeyD', 'KeyR', 'KeyT', 'KeyL', 'KeyE', 'KeyM', 'Comma', 'Tab', 'Delete',
       ]);
       if (!supportedCodes.has(event.code) || event.isComposing) return;
 

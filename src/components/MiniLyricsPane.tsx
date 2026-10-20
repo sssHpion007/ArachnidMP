@@ -17,6 +17,7 @@ interface MiniLyricsPaneProps {
   currentTime: number;
   language: AppLanguage;
   detached?: boolean;
+  attachedToMiniPlayer?: boolean;
   onDetach?: () => void;
   onAttach?: () => void;
   onClose?: () => void;
@@ -60,6 +61,7 @@ export const MiniLyricsPane: React.FC<MiniLyricsPaneProps> = ({
   currentTime,
   language,
   detached = false,
+  attachedToMiniPlayer = false,
   onDetach,
   onAttach,
   onClose,
@@ -98,7 +100,13 @@ export const MiniLyricsPane: React.FC<MiniLyricsPaneProps> = ({
   }, [activeLineIndex, isSynced]);
 
   return (
-    <aside className={`flex min-h-0 flex-col bg-md3-surface-container-low ${detached ? 'h-screen w-screen' : 'h-full w-[300px] shrink-0 border-l border-md3-outline-variant/20'}`}>
+    <aside className={`flex min-h-0 flex-col bg-md3-surface-container-low ${
+      detached
+        ? 'h-screen w-screen'
+        : attachedToMiniPlayer
+          ? '-mt-4 h-[calc(100%+1rem)] w-[300px] shrink-0 border-l border-md3-outline-variant/20'
+          : 'h-full w-[300px] shrink-0 border-l border-md3-outline-variant/20'
+    }`}>
       <header
         data-tauri-drag-region
         onMouseDown={handleHeaderMouseDown}

@@ -209,6 +209,7 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
     ? `linear-gradient(145deg, ${getFolderColorRgba(folder.color, 0.36)}, ${getFolderColorRgba(folder.color, 0.22)})`
     : `linear-gradient(145deg, ${getFolderColorRgba(folder.color, 0.22)}, ${getFolderColorRgba(folder.color, 0.12)})`;
 
+  // content-visibility paint containment clips the edge divider, so it is disabled on drop targets.
   return (
     <div
       data-folder-id={folder.id}
@@ -222,7 +223,7 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
         borderColor: borderCard,
         boxShadow: shadowCard,
       }}
-      className={`group grid-card-optimized relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
+      className={`group ${dropPosition ? '' : 'grid-card-optimized'} relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
         !folder.color
           ? isHovered
             ? 'bg-md3-surface-container border-md3-primary/40 shadow-md'
@@ -238,10 +239,10 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
     >
       {/* Visual Insertion Indicator Bars */}
       {dropPosition === 'before' && (
-        <div className="absolute -left-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 animate-pulse z-30" />
+        <div className="pointer-events-none absolute -left-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60 animate-pulse" />
       )}
       {dropPosition === 'after' && (
-        <div className="absolute -right-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 animate-pulse z-30" />
+        <div className="pointer-events-none absolute -right-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60 animate-pulse" />
       )}
 
       {/* Visual Folder Icon / Playlist Cover / Collage Preview */}
@@ -400,6 +401,10 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
   const baseColor = getFolderColorHex(playlist.color);
   // Play icon shade absorbs the playlist color hue and follows the theme direction
   const playIconColor = getThemedPlayIconColor(playlist.color, isDarkTheme);
+  const dividerStyle = {
+    backgroundColor: baseColor,
+    boxShadow: `0 0 10px ${getFolderColorRgba(playlist.color, 0.65)}`,
+  };
   const coverType: FolderCoverType = (playlist.coverType as FolderCoverType) || 'first_playlist';
   const hasMultipleCovers = covers && covers.length > 1;
   const hasImages = (cover || (covers && covers.length > 0)) && coverType !== 'icon';
@@ -435,14 +440,14 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
     };
   }, [coverType, hasMultipleCovers, covers?.length, playlist.id]);
 
-  // Dynamic card background on hover
+  // Drop target uses a tonal surface and primary outline, matching the original
+  // card-edge insertion treatment without any pulsing animation.
   const bgCard = isTarget
     ? playlist.color ? getFolderColorRgba(playlist.color, 0.22) : undefined
     : isHovered
     ? playlist.color ? getFolderColorRgba(playlist.color, 0.12) : undefined
     : undefined;
 
-  // Dynamic card border: highlighted with playlist color or theme primary
   const borderCard = isTarget
     ? (playlist.color ? baseColor : 'rgb(var(--md-sys-color-primary-rgb))')
     : playlist.color
@@ -461,6 +466,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
     ? `linear-gradient(145deg, ${getFolderColorRgba(playlist.color, 0.22)}, ${getFolderColorRgba(playlist.color, 0.12)})`
     : undefined;
 
+  // content-visibility paint containment clips the edge divider, so it is disabled on drop targets.
   return (
     <div
       data-playlist-id={playlist.id}
@@ -474,7 +480,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
         borderColor: borderCard,
         boxShadow: shadowCard,
       }}
-      className={`group grid-card-optimized relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
+      className={`group ${dropPosition ? '' : 'grid-card-optimized'} relative flex flex-col p-3 rounded-3xl transition-all duration-150 cursor-pointer select-none border touch-none ${
         !playlist.color
           ? isHovered
             ? 'bg-md3-surface-container border-md3-primary/40 shadow-md'
@@ -490,10 +496,10 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
     >
       {/* Visual Insertion Indicator Bars */}
       {dropPosition === 'before' && (
-        <div className="absolute -left-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 animate-pulse z-30" />
+        <div className="pointer-events-none absolute -left-2 top-2 bottom-2 z-30 w-1.5 rounded-full shadow-lg animate-pulse" style={dividerStyle} />
       )}
       {dropPosition === 'after' && (
-        <div className="absolute -right-2 top-2 bottom-2 w-1.5 bg-md3-primary rounded-full shadow-lg shadow-md3-primary/60 animate-pulse z-30" />
+        <div className="pointer-events-none absolute -right-2 top-2 bottom-2 z-30 w-1.5 rounded-full shadow-lg animate-pulse" style={dividerStyle} />
       )}
 
       {/* Cover Art Container */}
@@ -1075,28 +1081,41 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
           return;
         }
 
-        // 2. Drop into Folder (when hovered in center)
-        if (hoveredFolderId && (current.type === 'playlist' || current.type === 'folder')) {
-          if (current.type === 'playlist') {
-            onMovePlaylistToFolder(current.id, hoveredFolderId);
-          } else if (current.type === 'folder' && current.id !== hoveredFolderId) {
-            onMoveFolderToFolder(current.id, hoveredFolderId);
+        // Resolve item drops from the pointer-up coordinates instead of the
+        // asynchronously updated hover state. This keeps reordering reliable
+        // when the pointer is released before the last hover-state render lands.
+        if (current.type === 'playlist' || current.type === 'folder') {
+          const folderEl = target.closest('[data-folder-id]');
+          const targetFolderId = folderEl?.getAttribute('data-folder-id');
+          if (folderEl && targetFolderId && targetFolderId !== current.id) {
+            const rect = folderEl.getBoundingClientRect();
+            const relX = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0.5;
+            if (relX < 0.25 || relX > 0.75) {
+              handleReorderItem(
+                current.id,
+                current.type,
+                targetFolderId,
+                'folder',
+                relX < 0.25 ? 'before' : 'after'
+              );
+            } else if (current.type === 'playlist') {
+              onMovePlaylistToFolder(current.id, targetFolderId);
+            } else {
+              onMoveFolderToFolder(current.id, targetFolderId);
+            }
+            cleanupDrag();
+            return;
           }
-          cleanupDrag();
-          return;
-        }
 
-        // 3. Drop on Item Card (Reorder playlists and folders together!)
-        if (dropTargetItem && (current.type === 'playlist' || current.type === 'folder')) {
-          handleReorderItem(
-            current.id,
-            current.type,
-            dropTargetItem.id,
-            dropTargetItem.type,
-            dropTargetItem.position
-          );
-          cleanupDrag();
-          return;
+          const playlistEl = target.closest('[data-playlist-id]');
+          const targetPlaylistId = playlistEl?.getAttribute('data-playlist-id');
+          if (playlistEl && targetPlaylistId && targetPlaylistId !== current.id) {
+            const rect = playlistEl.getBoundingClientRect();
+            const position = e.clientX < rect.left + rect.width / 2 ? 'before' : 'after';
+            handleReorderItem(current.id, current.type, targetPlaylistId, 'playlist', position);
+            cleanupDrag();
+            return;
+          }
         }
 
         // 4. Drop on Group Header (Reorder groups)
@@ -1170,9 +1189,9 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   const renderFolderCard = (folder: PlaylistFolder) => {
     const stats = getFolderStats(folder.id);
     const covers = getFolderCovers(folder.id);
-    const isHovered = hoveredFolderId === folder.id;
-    const isSelfDragging = dragState?.type === 'folder' && dragState?.id === folder.id && dragState.isDragging;
     const dropPosition = dropTargetItem?.id === folder.id && dropTargetItem?.type === 'folder' ? dropTargetItem.position : null;
+    const isDropTarget = hoveredFolderId === folder.id;
+    const isSelfDragging = dragState?.type === 'folder' && dragState?.id === folder.id && dragState.isDragging;
 
     return (
       <FolderCardItem
@@ -1181,7 +1200,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         covers={covers}
         stats={stats}
         language={language}
-        isDropTarget={isHovered}
+        isDropTarget={isDropTarget}
         dropPosition={dropPosition}
         isSelfDragging={isSelfDragging}
         onPointerDown={(e) => {
@@ -1213,8 +1232,8 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     const cover = getPlaylistCover(playlist);
     const covers = getPlaylistCovers(playlist);
     const totalDuration = getPlaylistDuration(playlist);
-    const isTarget = dropTargetItem?.id === playlist.id && dropTargetItem?.type === 'playlist';
     const isSelfDragging = dragState?.type === 'playlist' && dragState?.id === playlist.id && dragState.isDragging;
+    const isTarget = dropTargetItem?.id === playlist.id && dropTargetItem?.type === 'playlist';
     const dropPosition = isTarget ? dropTargetItem?.position : null;
 
     return (
@@ -1645,10 +1664,10 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
               >
                 {/* Visual indicator for group reordering */}
                 {isTargetGroup && dropTargetGroup.position === 'before' && (
-                  <div className="absolute top-0 left-4 right-4 h-1 bg-md3-primary rounded-full z-30 animate-pulse shadow-md" />
+                  <div className="absolute top-0 left-4 right-4 h-1 bg-md3-primary rounded-full z-30 shadow-md" />
                 )}
                 {isTargetGroup && dropTargetGroup.position === 'after' && (
-                  <div className="absolute bottom-0 left-4 right-4 h-1 bg-md3-primary rounded-full z-30 animate-pulse shadow-md" />
+                  <div className="absolute bottom-0 left-4 right-4 h-1 bg-md3-primary rounded-full z-30 shadow-md" />
                 )}
 
                 {/* Group Header (Collapsible & Draggable via pointer) */}
