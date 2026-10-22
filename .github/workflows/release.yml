@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'arena/da9dc431-arachnidmp'
+      - 'arena/034a5a55-arachnidmp'
     tags:
       - 'v*'
   workflow_dispatch:
@@ -178,7 +179,7 @@ jobs:
           }
 
       - name: Upload Windows test build
-        if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp' || (github.event_name == 'workflow_dispatch' && inputs.release_tag == 'test-build')
+        if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp' || github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || (github.event_name == 'workflow_dispatch' && inputs.release_tag == 'test-build')
         uses: actions/upload-artifact@v4
         with:
           name: Arachnid-Windows-Test-${{ github.run_number }}-${{ github.sha }}
