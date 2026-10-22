@@ -193,6 +193,8 @@ export const App: React.FC = () => {
   const equalizerPopupRef = useRef<Window | null>(null);
   const miniLyricsChannelRef = useRef<BroadcastChannel | null>(null);
   const miniLyricsSeekHandlerRef = useRef<(time: number) => void>(() => {});
+  const miniLyricsSaveHandlerRef = useRef<(trackId: string, lyrics: string, isInstrumental: boolean, lyricist?: string) => void>(() => {});
+  const miniLyricsReloadHandlerRef = useRef<(trackId: string) => void>(() => {});
 
   // Audio Fading Settings
   const [fadeMode, setFadeMode] = useState<FadeMode>('track_change_and_pause');
@@ -304,6 +306,7 @@ export const App: React.FC = () => {
 
   const miniLyricsPayloadRef = useRef<LyricsWindowPayload>({
     track: currentTrack ? {
+      id: currentTrack.id,
       title: currentTrack.title,
       artist: currentTrack.artist,
       lyrics: currentTrack.lyrics,
@@ -317,6 +320,7 @@ export const App: React.FC = () => {
   });
   miniLyricsPayloadRef.current = {
     track: currentTrack ? {
+      id: currentTrack.id,
       title: currentTrack.title,
       artist: currentTrack.artist,
       lyrics: currentTrack.lyrics,
@@ -532,6 +536,10 @@ export const App: React.FC = () => {
           void closeMiniLyrics();
         } else if (action.type === 'seek' && Number.isFinite(action.time) && action.time >= 0) {
           miniLyricsSeekHandlerRef.current(action.time);
+        } else if (action.type === 'save-lyrics') {
+          miniLyricsSaveHandlerRef.current(action.trackId, action.lyrics, action.isInstrumental, action.lyricist);
+        } else if (action.type === 'reload-lyrics') {
+          miniLyricsReloadHandlerRef.current(action.trackId);
         } else if (action.type === 'keyboard') {
           document.body.dispatchEvent(new KeyboardEvent('keydown', {
             key: action.key,
@@ -569,6 +577,10 @@ export const App: React.FC = () => {
       } else if (event.data?.type === 'seek-lyrics') {
         const time = Number(event.data.time);
         if (Number.isFinite(time) && time >= 0) miniLyricsSeekHandlerRef.current(time);
+      } else if (event.data?.type === 'save-lyrics' && typeof event.data.trackId === 'string') {
+        miniLyricsSaveHandlerRef.current(event.data.trackId, String(event.data.lyrics || ''), !!event.data.isInstrumental, typeof event.data.lyricist === 'string' ? event.data.lyricist : undefined);
+      } else if (event.data?.type === 'reload-lyrics' && typeof event.data.trackId === 'string') {
+        miniLyricsReloadHandlerRef.current(event.data.trackId);
       } else if (event.data?.type === 'lyrics-keyboard') {
         document.body.dispatchEvent(new KeyboardEvent('keydown', {
           key: event.data.key,
@@ -4152,6 +4164,8 @@ export const App: React.FC = () => {
       console.warn('Failed to reload track metadata from disk:', err);
     }
   };
+  miniLyricsSaveHandlerRef.current = handleSaveLyrics;
+  miniLyricsReloadHandlerRef.current = trackId => { void handleReloadTracks([trackId]); };
 
   const handleSortChange = (col: string) => {
     if (sortBy === col) {
@@ -4314,6 +4328,8 @@ export const App: React.FC = () => {
           onDetachLyrics={openLyricsWindow}
           onAttachLyrics={attachMiniLyrics}
           onCloseLyrics={closeMiniLyrics}
+          onSaveLyrics={handleSaveLyrics}
+          onReloadLyrics={id => handleReloadTracks([id])}
         />
         <EqualizerModal
           isOpen={isEQOpen}

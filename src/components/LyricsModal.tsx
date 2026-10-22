@@ -5,10 +5,8 @@ import {
   Edit3, 
   Check, 
   Music2, 
-  Sparkles, 
   Save, 
   FileText,
-  Clock,
   Copy,
   ExternalLink,
   PenTool,
@@ -17,6 +15,7 @@ import {
 import { Track } from '../types/music';
 import { AppLanguage } from '../i18n';
 import { useModalAnimation } from '../utils/useModalAnimation';
+import { LyricsActionsMenu, type LyricsMenuAction } from './LyricsActionsMenu';
 
 interface LyricsModalProps {
   isOpen: boolean;
@@ -54,8 +53,10 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
   const [isInstrumental, setIsInstrumental] = useState(false);
   const [copiedLyrics, setCopiedLyrics] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
   const activeLineRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const contextTargetRef = useRef<HTMLDivElement>(null);
 
   const cachedTrackRef = useRef<Track | null>(incomingTrack);
   if (incomingTrack) {
@@ -70,6 +71,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
       setIsInstrumental(!!activeTrack.isInstrumental);
       setIsEditing(false);
       setCopiedLyrics(false);
+      setIsActionsMenuOpen(false);
     }
   }, [activeTrack?.id, activeTrack?.lyrics, activeTrack?.lyricist, activeTrack?.isInstrumental, isOpen]);
 
@@ -147,7 +149,9 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
-        if (isEditing) {
+        if (isActionsMenuOpen) {
+          setIsActionsMenuOpen(false);
+        } else if (isEditing) {
           setIsEditing(false);
         } else {
           onClose();
@@ -157,7 +161,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
 
     window.addEventListener('keydown', handleGlobalKeyDown, true);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
-  }, [isOpen, isEditing, onClose]);
+  }, [isOpen, isEditing, isActionsMenuOpen, onClose]);
 
   const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen && !!activeTrack, 200);
 
@@ -176,22 +180,76 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
     setIsEditing(false);
   };
 
-  const handleCopyLyrics = () => {
+  const handleCopyLyrics = async () => {
     if (!track.lyrics) return;
-
-    // If lyrics are in LRC format, strip timestamp tags for clean readable text
     const cleanText = track.lyrics
       .split('\n')
       .map(line => line.replace(/\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]/g, '').trim())
       .filter(line => line.length > 0)
       .join('\n');
-
-    navigator.clipboard.writeText(cleanText || track.lyrics);
-    setCopiedLyrics(true);
-    setTimeout(() => setCopiedLyrics(false), 2000);
+    try {
+      await navigator.clipboard.writeText(cleanText || track.lyrics);
+      setCopiedLyrics(true);
+      setTimeout(() => setCopiedLyrics(false), 2000);
+    } catch (error) {
+      console.warn('Unable to copy lyrics:', error);
+    }
   };
 
   const hasLyricsText = !!track.lyrics && track.lyrics.trim().length > 0 && !track.isInstrumental;
+  const currentInstrumentalState = isInstrumental || !!track.isInstrumental;
+  const toggleInstrumentalState = () => {
+    if (currentInstrumentalState) {
+      setIsInstrumental(false);
+      onSaveLyrics(track.id, editedText.trim(), false, editedLyricist.trim());
+    } else {
+      handleMarkInstrumental();
+    }
+  };
+  const lyricsActions: LyricsMenuAction[] = [
+    ...(onReloadLyrics ? [{
+      id: 'reload',
+      label: isReloading
+        ? (language === 'ru' ? 'Перечитываю…' : 'Reloading…')
+        : (language === 'ru' ? 'Перечитать из файла' : 'Reload from file'),
+      icon: RotateCw,
+      disabled: isReloading,
+      onSelect: async () => {
+        setIsReloading(true);
+        try {
+          await onReloadLyrics(track.id);
+        } finally {
+          setTimeout(() => setIsReloading(false), 600);
+        }
+      },
+    }] : []),
+    ...(hasLyricsText ? [{
+      id: 'copy',
+      label: copiedLyrics
+        ? (language === 'ru' ? 'Скопировано' : 'Copied')
+        : (language === 'ru' ? 'Скопировать текст' : 'Copy lyrics'),
+      icon: copiedLyrics ? Check : Copy,
+      onSelect: handleCopyLyrics,
+    }] : []),
+    {
+      id: 'edit',
+      label: isEditing
+        ? (language === 'ru' ? 'Вернуться к тексту' : 'View lyrics')
+        : (language === 'ru' ? 'Редактировать текст' : 'Edit lyrics'),
+      icon: isEditing ? FileText : Edit3,
+      onSelect: () => setIsEditing(value => !value),
+      dividerBefore: !!onReloadLyrics || hasLyricsText,
+    },
+    {
+      id: 'instrumental',
+      label: currentInstrumentalState
+        ? (language === 'ru' ? 'Снять отметку «Инструментал»' : 'Unmark as instrumental')
+        : (language === 'ru' ? 'Отметить как инструментал' : 'Mark as instrumental'),
+      icon: Music2,
+      onSelect: toggleInstrumentalState,
+      dividerBefore: true,
+    },
+  ];
 
   return (
     <div
@@ -199,10 +257,11 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
       className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md select-none cursor-pointer ${backdropClass}`}
     >
       <div
+        ref={contextTargetRef}
         className={`lyrics-modal-container w-full max-w-2xl bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col h-[85vh] max-h-[720px] cursor-default ${dialogClass}`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header: track information stays separate from the action toolbar so it never gets covered. */}
+        {/* Header actions stay compact; the complete action list is available via the menu or right-click. */}
         <div className="shrink-0 border-b border-md3-outline-variant/15 bg-md3-surface-container-high/50">
           <div className="flex items-start gap-3 px-4 pt-4">
             <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-md3-primary/15 text-md3-primary shadow-sm">
@@ -226,88 +285,33 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                 )}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label={language === 'ru' ? 'Закрыть' : 'Close'}
-              title={language === 'ru' ? 'Закрыть [Esc]' : 'Close [Esc]'}
-              className="-mr-1 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-md3-on-surface-variant transition-colors hover:bg-md3-surface-container hover:text-md3-on-surface"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          <div className="flex justify-center px-4 pb-3 pt-3">
-            <div className="lyrics-toolbar-actions flex max-w-full flex-wrap items-center justify-center gap-1.5 rounded-2xl border border-md3-outline-variant/20 bg-md3-surface-container-low p-1.5 shadow-sm">
-              {onReloadLyrics && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (isReloading) return;
-                    setIsReloading(true);
-                    try {
-                      await onReloadLyrics(track.id);
-                    } finally {
-                      setTimeout(() => setIsReloading(false), 600);
-                    }
-                  }}
-                  title={language === 'ru' ? 'Перечитать слова из файла' : 'Reload lyrics from file'}
-                  aria-label={language === 'ru' ? 'Перечитать слова из файла' : 'Reload lyrics from file'}
-                  className="lyrics-toolbar-button inline-flex h-8 items-center gap-1.5 rounded-full border border-md3-outline-variant/20 bg-md3-surface-container px-2.5 text-[11px] font-semibold text-md3-on-surface transition-colors hover:bg-md3-surface-container-high active:scale-95"
-                >
-                  <RotateCw className={`h-3 w-3 text-md3-primary ${isReloading ? 'animate-spin' : ''}`} />
-                  <span className="lyrics-toolbar-label">{language === 'ru' ? 'Перечитать' : 'Reload'}</span>
-                </button>
-              )}
-
+            <div className="-mr-1 -mt-1 flex shrink-0 items-center gap-0.5">
+              <LyricsActionsMenu
+                actions={lyricsActions}
+                language={language}
+                contextTargetRef={contextTargetRef}
+                isOpen={isActionsMenuOpen}
+                onOpenChange={setIsActionsMenuOpen}
+              />
               {onDetach && (
                 <button
                   type="button"
                   onClick={onDetach}
-                  aria-label={language === 'ru' ? 'Открыть в отдельном окне' : 'Open in a separate window'}
-                  title={language === 'ru' ? 'Открыть в отдельном окне [Shift+T]' : 'Open in a separate window [Shift+T]'}
-                  className="lyrics-toolbar-button inline-flex h-8 items-center gap-1.5 rounded-full border border-md3-outline-variant/20 bg-md3-surface-container px-2.5 text-[11px] font-semibold text-md3-on-surface transition-colors hover:bg-md3-surface-container-high"
+                  aria-label={language === 'ru' ? 'Открыть в плавающем окне' : 'Open in a floating window'}
+                  title={language === 'ru' ? 'Открыть в плавающем окне [Shift+T]' : 'Open in a floating window [Shift+T]'}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-md3-primary transition-colors hover:bg-md3-primary/10"
                 >
-                  <ExternalLink className="h-3 w-3 text-md3-primary" />
-                  <span className="lyrics-toolbar-label">{language === 'ru' ? 'Отдельное окно' : 'Separate window'}</span>
+                  <ExternalLink className="h-4 w-4" />
                 </button>
               )}
-
-              {hasLyricsText && (
-                <button
-                  type="button"
-                  onClick={handleCopyLyrics}
-                  aria-label={language === 'ru' ? 'Скопировать текст песни' : 'Copy lyrics'}
-                  title={copiedLyrics ? (language === 'ru' ? 'Текст скопирован!' : 'Lyrics copied!') : (language === 'ru' ? 'Скопировать текст песни' : 'Copy lyrics')}
-                  className="lyrics-toolbar-button inline-flex h-8 items-center gap-1.5 rounded-full border border-md3-outline-variant/20 bg-md3-surface-container px-2.5 text-[11px] font-semibold text-md3-on-surface transition-colors hover:bg-md3-surface-container-high active:scale-95"
-                >
-                  {copiedLyrics ? (
-                    <>
-                      <Check className="h-3 w-3 text-emerald-500" />
-                      <span className="lyrics-toolbar-label font-bold text-emerald-500">{language === 'ru' ? 'Скопировано' : 'Copied'}</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3 w-3 text-md3-primary" />
-                      <span className="lyrics-toolbar-label">{language === 'ru' ? 'Копировать' : 'Copy'}</span>
-                    </>
-                  )}
-                </button>
-              )}
-
               <button
                 type="button"
-                onClick={() => setIsEditing(!isEditing)}
-                aria-label={isEditing ? (language === 'ru' ? 'Просмотр' : 'View lyrics') : (language === 'ru' ? 'Редактировать' : 'Edit lyrics')}
-                title={isEditing ? (language === 'ru' ? 'Просмотр' : 'View') : (language === 'ru' ? 'Редактировать' : 'Edit')}
-                className={`lyrics-toolbar-button inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-semibold transition-all ${
-                  isEditing
-                    ? 'bg-md3-primary text-md3-on-primary shadow-sm'
-                    : 'border border-md3-outline-variant/20 bg-md3-surface-container text-md3-on-surface hover:bg-md3-surface-container-high'
-                }`}
+                onClick={onClose}
+                aria-label={language === 'ru' ? 'Закрыть' : 'Close'}
+                title={language === 'ru' ? 'Закрыть [Esc]' : 'Close [Esc]'}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-md3-on-surface-variant transition-colors hover:bg-md3-surface-container hover:text-md3-on-surface"
               >
-                <Edit3 className="h-3 w-3" />
-                <span className="lyrics-toolbar-label">{isEditing ? (language === 'ru' ? 'Просмотр' : 'View') : (language === 'ru' ? 'Редактировать' : 'Edit')}</span>
+                <X className="h-4 w-4" />
               </button>
             </div>
           </div>

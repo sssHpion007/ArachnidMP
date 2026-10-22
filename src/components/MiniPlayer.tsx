@@ -171,6 +171,8 @@ interface MiniPlayerProps {
   onDetachLyrics: () => void;
   onAttachLyrics: () => void;
   onCloseLyrics: () => void;
+  onSaveLyrics?: (trackId: string, lyrics: string, isInstrumental: boolean, lyricist?: string) => void;
+  onReloadLyrics?: (trackId: string) => Promise<void> | void;
 }
 
 const text = (language: AppLanguage, ru: string, en: string) => language === 'ru' ? ru : en;
@@ -222,6 +224,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   onDetachLyrics,
   onAttachLyrics,
   onCloseLyrics,
+  onSaveLyrics,
+  onReloadLyrics,
 }) => {
   const [bottomPanel, setBottomPanel] = useState<BottomPanel>(null);
   const [renderedPanel, setRenderedPanel] = useState<Exclude<BottomPanel, null>>('library');
@@ -516,6 +520,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   }, [currentPlaylist, libraryTab, selectedCollection, selectedCollectionGroup, tracks]);
   const visibleCollections = libraryTab === 'albums' ? albums : libraryTab === 'artists' ? artists : genres;
   const lyricsTrack: MiniLyricsTrack | null = currentTrack ? {
+    id: currentTrack.id,
     title: currentTrack.title,
     artist: currentTrack.artist,
     lyrics: currentTrack.lyrics,
@@ -1101,6 +1106,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
           onDetach={onDetachLyrics}
           onClose={onCloseLyrics}
           onSeek={onSeek}
+          onSaveLyrics={onSaveLyrics}
+          onReloadLyrics={onReloadLyrics}
         />
       )}
     </div>

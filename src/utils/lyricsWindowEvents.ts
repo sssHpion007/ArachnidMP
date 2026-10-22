@@ -19,6 +19,8 @@ export type LyricsWindowAction =
   | { type: 'attach' }
   | { type: 'close' }
   | { type: 'seek'; time: number }
+  | { type: 'save-lyrics'; trackId: string; lyrics: string; isInstrumental: boolean; lyricist?: string }
+  | { type: 'reload-lyrics'; trackId: string }
   | {
       type: 'keyboard';
       key: string;
