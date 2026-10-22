@@ -4428,6 +4428,7 @@ export const App: React.FC = () => {
           queue={queue}
           queueIndex={queueIndex}
           tracks={tracks}
+          visibleTracks={nonIsolatedTracks}
           playlists={playlists}
           playlistFolders={playlistFolders}
           playlistGroups={playlistGroups}

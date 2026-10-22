@@ -39,6 +39,8 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
   );
   const [selectedIndex, setSelectedIndex] = useState(queueIndex);
   const selectedRowRef = useRef<HTMLDivElement>(null);
+  const pendingSelectionScrollRef = useRef<number | null>(null);
+  const wasOpenRef = useRef(false);
 
   useEffect(() => {
     const handleResize = () => {
@@ -92,7 +94,11 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
         e.preventDefault();
         e.stopPropagation();
         const direction = e.key === 'ArrowDown' ? 1 : -1;
-        setSelectedIndex(current => Math.max(0, Math.min(queue.length - 1, current + direction)));
+        setSelectedIndex(current => {
+          const next = Math.max(0, Math.min(queue.length - 1, current + direction));
+          if (next !== current) pendingSelectionScrollRef.current = next;
+          return next;
+        });
       } else if (e.key === 'Enter' && queue.length > 0) {
         e.preventDefault();
         e.stopPropagation();
@@ -105,11 +111,25 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
   }, [isOpen, onClose, onPlayQueueTrack, queue.length, selectedIndex]);
 
   useEffect(() => {
-    setSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
-  }, [queueIndex, queue.length]);
+    if (!isOpen) {
+      wasOpenRef.current = false;
+      pendingSelectionScrollRef.current = null;
+      return;
+    }
+
+    if (!wasOpenRef.current) {
+      wasOpenRef.current = true;
+      pendingSelectionScrollRef.current = null;
+      setSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
+      return;
+    }
+
+    setSelectedIndex(current => queue.length > 0 ? Math.max(0, Math.min(current, queue.length - 1)) : 0);
+  }, [isOpen, queueIndex, queue.length]);
 
   useEffect(() => {
-    if (!isOpen || queue.length === 0) return;
+    if (!isOpen || pendingSelectionScrollRef.current !== selectedIndex) return;
+    pendingSelectionScrollRef.current = null;
     const frameId = requestAnimationFrame(() => {
       const container = listContainerRef.current;
       const selectedRow = selectedRowRef.current;
@@ -120,7 +140,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
       else if (rowRect.bottom > containerRect.bottom) container.scrollBy({ top: rowRect.bottom - containerRect.bottom, behavior: 'smooth' });
     });
     return () => cancelAnimationFrame(frameId);
-  }, [isOpen, selectedIndex, queue.length]);
+  }, [isOpen, selectedIndex]);
 
   const handlePointerDown = (e: React.PointerEvent, index: number) => {
     if (e.button !== 0) return;
@@ -333,7 +353,10 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
             return (
               <div
                 key={`${track.id}-${idx}`}
-                ref={idx === selectedIndex ? selectedRowRef : isCurrent ? currentTrackRowRef : undefined}
+                ref={node => {
+                  if (idx === selectedIndex) selectedRowRef.current = node;
+                  if (isCurrent) currentTrackRowRef.current = node;
+                }}
                 data-queue-row-index={idx}
                 onPointerDown={(e) => handlePointerDown(e, idx)}
                 className={`relative group flex items-center justify-between p-2 rounded-2xl transition-all select-none ${

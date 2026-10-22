@@ -5,6 +5,7 @@ on:
     branches:
       - 'arena/da9dc431-arachnidmp'
       - 'arena/034a5a55-arachnidmp'
+      - 'arena/cd6430e2-arachnidmp'
     tags:
       - 'v*'
   workflow_dispatch:
@@ -179,14 +180,14 @@ jobs:
           }
 
       - name: Resolve release tag for the requested branch release
-        if: github.ref == 'refs/heads/arena/034a5a55-arachnidmp' && contains(github.event.head_commit.message, '[publish-release]')
+        if: (github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && contains(github.event.head_commit.message, '[publish-release]')
         shell: bash
         run: |
           version=$(node -p "require('./package.json').version")
           echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
 
       - name: Upload Windows test build
-        if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp' || (github.ref == 'refs/heads/arena/034a5a55-arachnidmp' && !contains(github.event.head_commit.message, '[publish-release]')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag == 'test-build')
+        if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp' || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && !contains(github.event.head_commit.message, '[publish-release]')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag == 'test-build')
         uses: actions/upload-artifact@v4
         with:
           name: Arachnid-Windows-Test-${{ github.run_number }}-${{ github.sha }}
@@ -195,7 +196,7 @@ jobs:
           retention-days: 14
 
       - name: Prepare Portable Artifacts
-        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != 'test-build') || (github.ref == 'refs/heads/arena/034a5a55-arachnidmp' && contains(github.event.head_commit.message, '[publish-release]'))
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != 'test-build') || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && contains(github.event.head_commit.message, '[publish-release]'))
         shell: pwsh
         run: |
           if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') {
@@ -213,7 +214,7 @@ jobs:
 
       - name: Publish GitHub Release
         shell: bash
-        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != 'test-build') || (github.ref == 'refs/heads/arena/034a5a55-arachnidmp' && contains(github.event.head_commit.message, '[publish-release]'))
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != 'test-build') || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && contains(github.event.head_commit.message, '[publish-release]'))
         run: |
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Invalid release tag '$RELEASE_TAG'. Expected vMAJOR.MINOR.PATCH." >&2

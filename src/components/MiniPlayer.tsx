@@ -145,6 +145,7 @@ interface MiniPlayerProps {
   queue: Track[];
   queueIndex: number;
   tracks: Track[];
+  visibleTracks: Track[];
   playlists: Playlist[];
   playlistFolders: PlaylistFolder[];
   playlistGroups: PlaylistGroup[];
@@ -198,6 +199,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   queue,
   queueIndex,
   tracks,
+  visibleTracks,
   playlists,
   playlistFolders,
   playlistGroups,
@@ -243,9 +245,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const volHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queueSelectedItemRef = useRef<HTMLButtonElement>(null);
   const queueListRef = useRef<HTMLDivElement>(null);
+  const queuePendingScrollIndexRef = useRef<number | null>(null);
   const libraryListRef = useRef<HTMLDivElement>(null);
   const libraryTracksRef = useRef<Track[]>([]);
   const libraryTrackSelectedItemRef = useRef<HTMLButtonElement>(null);
+  const libraryPendingScrollIndexRef = useRef<number | null>(null);
   const libraryTabsNavRef = useRef<HTMLElement>(null);
   const libraryTabsDragRef = useRef<{ pointerId: number; startX: number; startScrollLeft: number; moved: boolean } | null>(null);
   const libraryTabsPreviousCursorRef = useRef<string | null>(null);
@@ -398,7 +402,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         event.preventDefault();
         event.stopPropagation();
         const direction = isArrowDown ? 1 : -1;
-        setLibraryTrackSelectedIndex(current => Math.max(0, Math.min(listTracks.length - 1, current + direction)));
+        setLibraryTrackSelectedIndex(current => {
+          const next = Math.max(0, Math.min(listTracks.length - 1, current + direction));
+          if (next !== current) libraryPendingScrollIndexRef.current = next;
+          return next;
+        });
         return;
       }
 
@@ -420,7 +428,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         event.preventDefault();
         event.stopPropagation();
         const direction = event.key === 'ArrowDown' || event.code === 'ArrowDown' ? 1 : -1;
-        setQueueSelectedIndex(current => Math.max(0, Math.min(queue.length - 1, current + direction)));
+        setQueueSelectedIndex(current => {
+          const next = Math.max(0, Math.min(queue.length - 1, current + direction));
+          if (next !== current) queuePendingScrollIndexRef.current = next;
+          return next;
+        });
         return;
       }
 
@@ -436,8 +448,43 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   }, [bottomPanel, libraryTab, libraryTrackSelectedIndex, onPlayQueueTrack, onPlayTrack, queue.length, queueIndex, queueSelectedIndex]);
 
   useEffect(() => {
-    setQueueSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
-  }, [queueIndex, queue.length]);
+    setQueueSelectedIndex(current => queue.length > 0 ? Math.max(0, Math.min(current, queue.length - 1)) : 0);
+  }, [queue.length]);
+
+  useEffect(() => {
+    if (bottomPanel !== 'queue') {
+      queuePendingScrollIndexRef.current = null;
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      const list = queueListRef.current;
+      const selectedItem = queueSelectedItemRef.current;
+      if (!list || !selectedItem) return;
+      const listRect = list.getBoundingClientRect();
+      const itemRect = selectedItem.getBoundingClientRect();
+      const rowTop = itemRect.top - listRect.top + list.scrollTop;
+      const centeredScrollTop = rowTop - (list.clientHeight - selectedItem.offsetHeight) / 2;
+      list.scrollTo({ top: Math.max(0, centeredScrollTop), behavior: 'auto' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [bottomPanel]);
+
+  useEffect(() => {
+    if (bottomPanel !== 'queue' || queuePendingScrollIndexRef.current !== queueSelectedIndex) return;
+    queuePendingScrollIndexRef.current = null;
+    const frame = requestAnimationFrame(() => {
+      const list = queueListRef.current;
+      const selectedItem = queueSelectedItemRef.current;
+      if (!list || !selectedItem) return;
+      const listRect = list.getBoundingClientRect();
+      const itemRect = selectedItem.getBoundingClientRect();
+      const visibleTop = listRect.top + list.clientTop;
+      const visibleBottom = visibleTop + list.clientHeight;
+      if (itemRect.top < visibleTop) list.scrollBy({ top: itemRect.top - visibleTop, behavior: 'smooth' });
+      else if (itemRect.bottom > visibleBottom) list.scrollBy({ top: itemRect.bottom - visibleBottom, behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [bottomPanel, queueSelectedIndex, queue.length]);
 
   useEffect(() => {
     if (bottomPanel !== 'library') return;
@@ -533,12 +580,12 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       order: playlist.order ?? (playlistFolders.length + playlists.indexOf(playlist)) * 10,
     })),
   ].sort((a, b) => a.order - b.order);
-  const albums = useMemo(() => groupTracks(tracks, track => track.album?.trim() || text(language, 'Без альбома', 'No Album')), [language, tracks]);
-  const artists = useMemo(() => groupTracks(tracks, track => track.artist?.trim() || text(language, 'Неизвестный исполнитель', 'Unknown Artist')), [language, tracks]);
-  const genres = useMemo(() => groupTracks(tracks, track => {
+  const albums = useMemo(() => groupTracks(visibleTracks, track => track.album?.trim() || text(language, 'Без альбома', 'No Album')), [language, visibleTracks]);
+  const artists = useMemo(() => groupTracks(visibleTracks, track => track.artist?.trim() || text(language, 'Неизвестный исполнитель', 'Unknown Artist')), [language, visibleTracks]);
+  const genres = useMemo(() => groupTracks(visibleTracks, track => {
     const values = track.genre?.split(/[,/;\\]+/).map(genre => genre.trim()).filter(Boolean);
     return values?.length ? [...new Set(values)] : text(language, 'Без жанра', 'No Genre');
-  }), [language, tracks]);
+  }), [language, visibleTracks]);
   const selectedCollectionGroup = selectedCollection
     ? (selectedCollection.type === 'albums' ? albums : selectedCollection.type === 'artists' ? artists : genres)
       .find(group => group.name === selectedCollection.name) || null
@@ -549,10 +596,10 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       return currentPlaylist.trackIds.map(id => byId.get(id)).filter((track): track is Track => !!track);
     }
     if (selectedCollection) return selectedCollectionGroup?.tracks || [];
-    if (libraryTab === 'favorites') return tracks.filter(track => track.isFavorite);
-    if (libraryTab === 'tracks') return tracks;
+    if (libraryTab === 'favorites') return visibleTracks.filter(track => track.isFavorite);
+    if (libraryTab === 'tracks') return visibleTracks;
     return [];
-  }, [currentPlaylist, libraryTab, selectedCollection, selectedCollectionGroup, tracks]);
+  }, [currentPlaylist, libraryTab, selectedCollection, selectedCollectionGroup, tracks, visibleTracks]);
   libraryTracksRef.current = libraryTracks;
 
   useEffect(() => {
@@ -561,7 +608,20 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   }, [currentPlaylist?.id, selectedCollection?.name, libraryTab, libraryTracks, currentTrack?.id]);
 
   useEffect(() => {
-    if (bottomPanel !== 'library') return;
+    if (bottomPanel !== 'library') {
+      libraryPendingScrollIndexRef.current = null;
+      return;
+    }
+    libraryPendingScrollIndexRef.current = null;
+    const frame = requestAnimationFrame(() => {
+      libraryListRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [bottomPanel]);
+
+  useEffect(() => {
+    if (bottomPanel !== 'library' || libraryPendingScrollIndexRef.current !== libraryTrackSelectedIndex) return;
+    libraryPendingScrollIndexRef.current = null;
     const frame = requestAnimationFrame(() => {
       const list = libraryListRef.current;
       const selectedItem = libraryTrackSelectedItemRef.current;
