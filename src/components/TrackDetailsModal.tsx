@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { useModalAnimation } from '../utils/useModalAnimation';
 import { Track } from '../types/music';
-import { formatTime } from '../services/tagEditor';
+import { formatTime, getAudioFormatFromPath } from '../services/tagEditor';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { AppLanguage } from '../i18n';
@@ -112,6 +112,9 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
   const formattedSize = activeTrack.fileSize 
     ? `${(activeTrack.fileSize / (1024 * 1024)).toFixed(2)} ${language === 'ru' ? 'МБ' : 'MB'}` 
     : '—';
+  const formattedFormat = activeTrack.format?.trim()
+    || getAudioFormatFromPath(activeTrack.path || activeTrack.localFile?.name || activeTrack.src)
+    || '—';
 
   const formattedDate = activeTrack.dateAdded 
     ? new Date(activeTrack.dateAdded).toLocaleDateString(language === 'ru' ? 'ru-RU' : 'en-US', { 
@@ -139,7 +142,7 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
           data-tauri-drag-region={standaloneWindow ? '' : undefined}
           onMouseDown={handleHeaderMouseDown}
           style={standaloneWindow ? { WebkitAppRegion: 'drag' } as React.CSSProperties : undefined}
-          className="p-5 pb-4 border-b border-md3-outline-variant/15 flex items-center justify-between bg-md3-surface-container-high/50"
+          className={`${standaloneWindow ? 'px-4 py-3' : 'p-5 pb-4'} border-b border-md3-outline-variant/15 flex items-center justify-between bg-md3-surface-container-high/50`}
         >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-md3-primary/15 text-md3-primary flex items-center justify-center shadow-sm">
@@ -165,11 +168,11 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className={`p-6 overflow-y-auto custom-scrollbar space-y-4 ${standaloneWindow ? 'min-h-0 flex-1' : ''}`}>
+        <div className={`${standaloneWindow ? 'p-4 space-y-3' : 'p-6 space-y-4'} overflow-y-auto custom-scrollbar ${standaloneWindow ? 'min-h-0 flex-1' : ''}`}>
           {/* Top Banner: Large Cover & Metadata Beside It */}
-          <div className="flex flex-col sm:flex-row items-center sm:items-stretch gap-5 p-5 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/15">
+          <div className={`flex ${standaloneWindow ? 'flex-row items-stretch gap-4 p-4 rounded-2xl' : 'flex-col items-center gap-5 p-5 rounded-3xl sm:flex-row sm:items-stretch'} bg-md3-surface-container-low border border-md3-outline-variant/15`}>
             {/* Large Cover Art */}
-            <div className="w-36 h-36 sm:w-44 sm:h-44 rounded-2xl overflow-hidden bg-md3-surface-container-high shadow-lg shrink-0 border border-md3-outline-variant/15 relative">
+            <div className={`${standaloneWindow ? 'w-28 h-28 sm:w-32 sm:h-32' : 'w-36 h-36 sm:w-44 sm:h-44'} rounded-2xl overflow-hidden bg-md3-surface-container-high shadow-lg shrink-0 border border-md3-outline-variant/15 relative`}>
               {track.coverArt ? (
                 <img src={track.coverArt} alt={track.title} className="w-full h-full object-cover" />
               ) : (
@@ -183,7 +186,7 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
             </div>
 
             {/* Metadata Beside Cover */}
-            <div className="min-w-0 flex-1 flex flex-col justify-center space-y-2 text-center sm:text-left">
+            <div className={`min-w-0 flex-1 flex flex-col justify-center space-y-2 ${standaloneWindow ? 'text-left' : 'text-center sm:text-left'}`}>
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-md3-primary/80">
                   {language === 'ru' ? 'Название' : 'Title'}
@@ -225,7 +228,7 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
                   {language === 'ru' ? 'Формат файла' : 'File Format'}
                 </span>
                 <span className="font-bold text-md3-on-surface truncate font-mono">
-                  {track.format || (language === 'ru' ? 'Аудио' : 'Audio')}
+                  {formattedFormat}
                 </span>
               </div>
             </div>

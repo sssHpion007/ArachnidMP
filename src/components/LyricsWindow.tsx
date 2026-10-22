@@ -108,8 +108,19 @@ export const LyricsWindow: React.FC = () => {
             ? 'seek-lyrics'
             : action.type === 'keyboard'
               ? 'lyrics-keyboard'
-              : 'close-lyrics',
+              : action.type === 'save-lyrics'
+                ? 'save-lyrics'
+                : action.type === 'reload-lyrics'
+                  ? 'reload-lyrics'
+                  : 'close-lyrics',
         ...(action.type === 'seek' ? { time: action.time } : {}),
+        ...(action.type === 'save-lyrics' ? {
+          trackId: action.trackId,
+          lyrics: action.lyrics,
+          isInstrumental: action.isInstrumental,
+          lyricist: action.lyricist,
+        } : {}),
+        ...(action.type === 'reload-lyrics' ? { trackId: action.trackId } : {}),
         ...(action.type === 'keyboard' ? {
           key: action.key,
           code: action.code,
@@ -129,7 +140,7 @@ export const LyricsWindow: React.FC = () => {
 
       if (event.code === 'Escape' && !event.ctrlKey && !event.metaKey && !event.altKey) {
         event.preventDefault();
-        sendAction({ type: 'close' });
+        if (!event.repeat) sendAction({ type: 'close' });
         return;
       }
 
@@ -141,6 +152,7 @@ export const LyricsWindow: React.FC = () => {
       if (!supportedCodes.has(event.code) || event.isComposing) return;
 
       event.preventDefault();
+      if (event.repeat) return;
       sendAction({
         type: 'keyboard',
         key: event.key,
@@ -170,6 +182,8 @@ export const LyricsWindow: React.FC = () => {
         onAttach={state.isMiniMode ? attach : undefined}
         onClose={close}
         onSeek={seek}
+        onSaveLyrics={(trackId, lyrics, isInstrumental, lyricist) => sendAction({ type: 'save-lyrics', trackId, lyrics, isInstrumental, lyricist })}
+        onReloadLyrics={trackId => sendAction({ type: 'reload-lyrics', trackId })}
       />
     </div>
   );

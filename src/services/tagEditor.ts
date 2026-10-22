@@ -2,6 +2,13 @@ import * as mm from 'music-metadata-browser';
 import { Track } from '../types/music';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 
+export const getAudioFormatFromPath = (path?: string): string | undefined => {
+  if (!path) return undefined;
+  const cleanPath = path.split(/[?#]/, 1)[0];
+  const extension = cleanPath.match(/\.([a-z0-9]{1,8})$/i)?.[1];
+  return extension?.toUpperCase();
+};
+
 export async function parseAudioFile(file: File): Promise<Track> {
   const fileUrl = URL.createObjectURL(file);
   let title = file.name.replace(/\.[^/.]+$/, '');

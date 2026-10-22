@@ -153,7 +153,7 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({
           data-tauri-drag-region={standaloneWindow ? '' : undefined}
           onMouseDown={handleHeaderMouseDown}
           style={standaloneWindow ? { WebkitAppRegion: 'drag' } as React.CSSProperties : undefined}
-          className="p-4 sm:p-5 border-b border-md3-outline-variant/20 flex items-center justify-between bg-md3-surface-container-high shrink-0"
+          className="px-4 py-3.5 sm:px-5 sm:py-4 border-b border-md3-outline-variant/20 flex items-center justify-between bg-gradient-to-r from-md3-surface-container-high to-md3-surface-container shrink-0"
         >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-md3-primary/10 text-md3-primary flex items-center justify-center shrink-0">
@@ -181,36 +181,39 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({
         </div>
 
         {/* Preset Chips: drag-to-scroll, hidden scrollbars */}
-        <div 
-          ref={presetDrag.ref}
-          onPointerDown={presetDrag.onPointerDown}
-          onPointerMove={presetDrag.onPointerMove}
-          onPointerUp={presetDrag.onPointerUp}
-          onPointerCancel={presetDrag.onPointerCancel}
-          onClickCapture={presetDrag.onClickCapture}
-          className="px-4 sm:px-6 py-2.5 sm:py-3 border-b border-md3-outline-variant/10 flex items-center gap-2 overflow-x-auto no-scrollbar cursor-grab active:cursor-grabbing select-none"
-          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-        >
-          <span className="text-xs font-semibold text-md3-on-surface-variant/70 uppercase mr-1 shrink-0">
+        <div className="px-4 sm:px-5 py-3 border-b border-md3-outline-variant/10 flex items-center gap-3">
+          <span className="text-xs font-semibold text-md3-on-surface-variant/70 uppercase shrink-0">
             {language === 'ru' ? 'Пресеты:' : 'Presets:'}
           </span>
-          {EQ_PRESETS.map((p) => (
-            <button
-              key={p.name}
-              onClick={() => applyPreset(p.name, p.values)}
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer shrink-0 ${
-                activePreset === p.name
-                  ? 'bg-md3-primary text-md3-on-primary font-semibold shadow-sm'
-                  : 'bg-md3-surface-container-high text-md3-on-surface-variant hover:bg-md3-surface-container-highest'
-              }`}
-            >
-              {p.name}
-            </button>
-          ))}
+          <div
+            ref={presetDrag.ref}
+            onPointerDown={presetDrag.onPointerDown}
+            onPointerMove={presetDrag.onPointerMove}
+            onPointerUp={presetDrag.onPointerUp}
+            onPointerCancel={presetDrag.onPointerCancel}
+            onClickCapture={presetDrag.onClickCapture}
+            className="flex min-w-0 flex-1 items-center gap-2.5 overflow-x-auto no-scrollbar cursor-grab active:cursor-grabbing select-none"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
+            {EQ_PRESETS.map((p) => (
+              <button
+                key={p.name}
+                onClick={() => applyPreset(p.name, p.values)}
+                aria-pressed={activePreset === p.name}
+                className={`h-12 w-[88px] shrink-0 whitespace-normal rounded-xl border px-2.5 py-1 text-center text-[11px] font-semibold leading-tight transition-all cursor-pointer ${
+                  activePreset === p.name
+                    ? 'border-md3-primary bg-md3-primary text-md3-on-primary shadow-md shadow-md3-primary/20'
+                    : 'border-md3-outline-variant/20 bg-md3-surface-container-high text-md3-on-surface-variant shadow-sm hover:border-md3-primary/35 hover:bg-md3-surface-container-highest hover:text-md3-on-surface'
+                }`}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
           <button
             onClick={handleReset}
             title={language === 'ru' ? 'Сбросить в 0 dB' : 'Reset to 0 dB'}
-            className="ml-auto p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface transition-colors cursor-pointer shrink-0"
+            className="h-10 w-10 rounded-full border border-md3-outline-variant/20 bg-md3-surface-container-high text-md3-on-surface-variant hover:border-md3-primary/30 hover:bg-md3-surface-container-highest hover:text-md3-on-surface transition-all cursor-pointer shrink-0 flex items-center justify-center"
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
@@ -224,10 +227,10 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({
           onPointerUp={bandsDrag.onPointerUp}
           onPointerCancel={bandsDrag.onPointerCancel}
           onClickCapture={bandsDrag.onClickCapture}
-          className="p-4 sm:p-6 overflow-x-auto no-scrollbar cursor-grab active:cursor-grabbing select-none"
+          className="p-4 sm:p-5 overflow-x-auto no-scrollbar cursor-grab active:cursor-grabbing select-none"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
-          <div className="min-w-[480px]">
+          <div className="min-w-[480px] rounded-2xl border border-md3-outline-variant/15 bg-md3-surface-container-low px-4 py-4 shadow-sm">
             <div className="grid grid-cols-10 gap-2 h-60 items-center justify-items-center">
               {EQ_FREQUENCIES.map((freq, idx) => {
                 const val = eqValues[idx];

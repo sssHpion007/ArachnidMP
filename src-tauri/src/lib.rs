@@ -1620,8 +1620,8 @@ async fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> 
 
 #[tauri::command]
 async fn show_track_details_window(app_handle: tauri::AppHandle) -> Result<(), String> {
-    const DETAILS_WINDOW_WIDTH: f64 = 640.0;
-    const DETAILS_WINDOW_HEIGHT: f64 = 720.0;
+    const DETAILS_WINDOW_WIDTH: f64 = 560.0;
+    const DETAILS_WINDOW_HEIGHT: f64 = 640.0;
     const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--max-old-space-size=256\"";
 
     let details_window = match app_handle.get_webview_window("track-details") {
@@ -1633,7 +1633,7 @@ async fn show_track_details_window(app_handle: tauri::AppHandle) -> Result<(), S
         )
         .title("Arachnid — Track Details")
         .inner_size(DETAILS_WINDOW_WIDTH, DETAILS_WINDOW_HEIGHT)
-        .min_inner_size(460.0, 500.0)
+        .min_inner_size(420.0, 460.0)
         .decorations(false)
         .additional_browser_args(MAIN_WEBVIEW_ARGS)
         .visible(false)
@@ -1671,8 +1671,8 @@ async fn show_equalizer_window(app_handle: tauri::AppHandle) -> Result<(), Strin
             WebviewUrl::App("index.html?equalizerWindow=1".into()),
         )
         .title("Arachnid — Equalizer")
-        .inner_size(560.0, 460.0)
-        .min_inner_size(500.0, 420.0)
+        .inner_size(620.0, 520.0)
+        .min_inner_size(560.0, 460.0)
         .decorations(false)
         .additional_browser_args(MAIN_WEBVIEW_ARGS)
         .visible(false)
