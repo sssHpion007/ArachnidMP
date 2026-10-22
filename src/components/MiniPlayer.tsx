@@ -25,7 +25,6 @@ import {
   Volume1,
   Volume2,
   VolumeX,
-  X,
 } from 'lucide-react';
 import { Playlist, PlaylistFolder, PlaylistGroup, Track } from '../types/music';
 import { getFolderColorHex, getFolderIconComponent } from '../theme/folderIcons';
@@ -225,6 +224,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   onCloseLyrics,
 }) => {
   const [bottomPanel, setBottomPanel] = useState<BottomPanel>(null);
+  const [renderedPanel, setRenderedPanel] = useState<Exclude<BottomPanel, null>>('library');
+  const [isPanelContentRendered, setIsPanelContentRendered] = useState(false);
   const [libraryTab, setLibraryTab] = useState<LibraryTab>('tracks');
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [selectedPlaylistFolderId, setSelectedPlaylistFolderId] = useState<string | null>(null);
@@ -232,8 +233,31 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const [selectedCollection, setSelectedCollection] = useState<{ type: LibraryCollectionType; name: string } | null>(null);
   const [isCompactVolHovered, setIsCompactVolHovered] = useState(false);
   const [queueSelectedIndex, setQueueSelectedIndex] = useState(queueIndex);
+  const [libraryTabIndicator, setLibraryTabIndicator] = useState({ left: 0, top: 0, width: 0, height: 0, opacity: 0 });
   const volHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queueSelectedItemRef = useRef<HTMLButtonElement>(null);
+  const queueListRef = useRef<HTMLDivElement>(null);
+  const libraryTabsNavRef = useRef<HTMLElement>(null);
+  const libraryTabsDragRef = useRef<{ pointerId: number; startX: number; startScrollLeft: number; moved: boolean } | null>(null);
+  const libraryTabsPreviousCursorRef = useRef<string | null>(null);
+  const suppressLibraryTabClickRef = useRef(false);
+  const suppressLibraryTabClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const libraryTabRefs = useRef<Record<LibraryTab, HTMLButtonElement | null>>({
+    tracks: null,
+    playlists: null,
+    albums: null,
+    artists: null,
+    favorites: null,
+    genres: null,
+  });
+
+  const setMiniPanel = (panel: BottomPanel) => {
+    if (panel !== null) {
+      setRenderedPanel(panel);
+      setIsPanelContentRendered(true);
+    }
+    setBottomPanel(panel);
+  };
 
   const openLibraryPanel = () => {
     setLibraryTab('tracks');
@@ -241,8 +265,65 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     setSelectedPlaylistFolderId(null);
     setSelectedPlaylistGroupId(null);
     setSelectedCollection(null);
-    setBottomPanel('library');
+    setMiniPanel('library');
   };
+
+  useEffect(() => {
+    const finishDrag = (pointerId?: number) => {
+      const drag = libraryTabsDragRef.current;
+      if (!drag || (pointerId !== undefined && drag.pointerId !== pointerId)) return;
+      libraryTabsDragRef.current = null;
+      const nav = libraryTabsNavRef.current;
+      nav?.classList.remove('cursor-grabbing');
+      nav?.classList.add('cursor-grab');
+      if (libraryTabsPreviousCursorRef.current !== null) {
+        document.body.style.cursor = libraryTabsPreviousCursorRef.current;
+        libraryTabsPreviousCursorRef.current = null;
+      }
+      if (drag.moved) {
+        suppressLibraryTabClickRef.current = true;
+        if (suppressLibraryTabClickTimerRef.current) clearTimeout(suppressLibraryTabClickTimerRef.current);
+        suppressLibraryTabClickTimerRef.current = setTimeout(() => {
+          suppressLibraryTabClickRef.current = false;
+          suppressLibraryTabClickTimerRef.current = null;
+        }, 0);
+      }
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const drag = libraryTabsDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const deltaX = event.clientX - drag.startX;
+      if (!drag.moved && Math.abs(deltaX) > 4) {
+        drag.moved = true;
+        const nav = libraryTabsNavRef.current;
+        nav?.classList.remove('cursor-grab');
+        nav?.classList.add('cursor-grabbing');
+        libraryTabsPreviousCursorRef.current = document.body.style.cursor;
+        document.body.style.cursor = 'grabbing';
+      }
+      if (drag.moved) {
+        event.preventDefault();
+        const nav = libraryTabsNavRef.current;
+        if (nav) nav.scrollLeft = drag.startScrollLeft - deltaX;
+      }
+    };
+
+    const handlePointerEnd = (event: PointerEvent) => finishDrag(event.pointerId);
+    const handleWindowBlur = () => finishDrag();
+    document.addEventListener('pointermove', handlePointerMove, { passive: false });
+    document.addEventListener('pointerup', handlePointerEnd);
+    document.addEventListener('pointercancel', handlePointerEnd);
+    window.addEventListener('blur', handleWindowBlur);
+    return () => {
+      finishDrag();
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerEnd);
+      document.removeEventListener('pointercancel', handlePointerEnd);
+      window.removeEventListener('blur', handleWindowBlur);
+      if (suppressLibraryTabClickTimerRef.current) clearTimeout(suppressLibraryTabClickTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const handleMiniPlayerKeyboard = (event: KeyboardEvent) => {
@@ -253,7 +334,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         if (bottomPanel) {
           event.preventDefault();
           event.stopPropagation();
-          setBottomPanel(null);
+          setMiniPanel(null);
         }
         return;
       }
@@ -287,9 +368,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         event.stopPropagation();
         if (bottomPanel !== 'queue') {
           setQueueSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
-          setBottomPanel('queue');
+          setMiniPanel('queue');
         } else {
-          setBottomPanel(null);
+          setMiniPanel(null);
         }
         return;
       }
@@ -320,9 +401,67 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   }, [queueIndex, queue.length]);
 
   useEffect(() => {
-    if (bottomPanel === 'queue') {
-      requestAnimationFrame(() => queueSelectedItemRef.current?.scrollIntoView({ block: 'nearest' }));
-    }
+    if (bottomPanel !== 'library') return;
+    const nav = libraryTabsNavRef.current;
+    const activeTab = libraryTabRefs.current[libraryTab];
+    if (!nav || !activeTab) return;
+
+    const updateIndicator = () => {
+      const tab = libraryTabRefs.current[libraryTab];
+      if (!tab) return;
+      setLibraryTabIndicator({
+        left: tab.offsetLeft,
+        top: tab.offsetTop,
+        width: tab.offsetWidth,
+        height: tab.offsetHeight,
+        opacity: 1,
+      });
+    };
+
+    const ensureTabVisible = () => {
+      const tab = libraryTabRefs.current[libraryTab];
+      if (!tab) return;
+      const navRect = nav.getBoundingClientRect();
+      const tabRect = tab.getBoundingClientRect();
+      const visibleLeft = navRect.left + nav.clientLeft;
+      const visibleRight = visibleLeft + nav.clientWidth;
+      if (tabRect.left < visibleLeft) {
+        nav.scrollBy({ left: tabRect.left - visibleLeft, behavior: 'smooth' });
+      } else if (tabRect.right > visibleRight) {
+        nav.scrollBy({ left: tabRect.right - visibleRight, behavior: 'smooth' });
+      }
+    };
+
+    const frame = requestAnimationFrame(() => {
+      updateIndicator();
+      ensureTabVisible();
+    });
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateIndicator) : null;
+    resizeObserver?.observe(nav);
+    return () => {
+      cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
+    };
+  }, [bottomPanel, libraryTab]);
+
+  useEffect(() => {
+    if (bottomPanel !== 'queue') return;
+    const frame = requestAnimationFrame(() => {
+      const list = queueListRef.current;
+      const selectedItem = queueSelectedItemRef.current;
+      if (!list || !selectedItem) return;
+
+      const listRect = list.getBoundingClientRect();
+      const itemRect = selectedItem.getBoundingClientRect();
+      const visibleTop = listRect.top + list.clientTop;
+      const visibleBottom = visibleTop + list.clientHeight;
+      if (itemRect.top < visibleTop) {
+        list.scrollBy({ top: itemRect.top - visibleTop, behavior: 'smooth' });
+      } else if (itemRect.bottom > visibleBottom) {
+        list.scrollBy({ top: itemRect.bottom - visibleBottom, behavior: 'smooth' });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
   }, [bottomPanel, queueSelectedIndex, queue.length]);
   const safeDuration = duration > 0 ? duration : (currentTrack?.duration || 0);
   const safeTime = Math.max(0, Math.min(safeDuration || 0, currentTime));
@@ -386,13 +525,13 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
 
   const togglePanel = (panel: Exclude<BottomPanel, null>) => {
     if (bottomPanel === panel) {
-      setBottomPanel(null);
+      setMiniPanel(null);
       return;
     }
     if (panel === 'queue') {
       setQueueSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
     }
-    setBottomPanel(panel);
+    setMiniPanel(panel);
   };
 
   const handleVolumeMouseEnter = () => {
@@ -417,7 +556,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   };
 
   const handleCoverMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || !isTauri()) return;
+    if (event.button !== 0 || bottomPanel !== null || !isTauri()) return;
     void getCurrentWindow().startDragging().catch(error => {
       console.warn('Unable to drag the mini-player window:', error);
     });
@@ -441,11 +580,15 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       <section className="relative flex h-full w-[320px] shrink-0 flex-col overflow-hidden border-r border-md3-outline-variant/15 bg-md3-surface">
         <div className="flex min-h-0 flex-1 flex-col items-center gap-3 px-5 pb-3 pt-4">
           <div
-            data-tauri-drag-region
+            data-tauri-drag-region={bottomPanel ? undefined : ''}
             onMouseDown={handleCoverMouseDown}
+            onClick={() => { if (bottomPanel) setMiniPanel(null); }}
             onDragStart={event => event.preventDefault()}
-            aria-label={text(language, 'Перетащить окно мини-плеера', 'Drag the mini-player window')}
-            className="mx-auto flex aspect-square w-full max-w-[280px] shrink-0 items-center justify-center overflow-hidden rounded-[24px] bg-md3-surface-container-high shadow-xl"
+            aria-label={bottomPanel
+              ? text(language, 'Нажмите, чтобы закрыть панель', 'Click to close the panel')
+              : text(language, 'Перетащить окно мини-плеера', 'Drag the mini-player window')}
+            title={bottomPanel ? text(language, 'Нажмите, чтобы закрыть панель', 'Click to close the panel') : undefined}
+            className={`mx-auto flex aspect-square w-full max-w-[280px] shrink-0 items-center justify-center overflow-hidden rounded-[24px] bg-md3-surface-container-high shadow-xl ${bottomPanel ? 'cursor-pointer' : ''}`}
           >
             {currentTrack?.coverArt ? (
               <img src={currentTrack.coverArt} alt={currentTrack.title} draggable={false} className="h-full w-full select-none object-cover" />
@@ -637,30 +780,53 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
           </button>
         </div>
 
-        {bottomPanel && (
-          <div className="absolute inset-x-0 bottom-0 z-20 flex h-[62%] min-h-[220px] flex-col overflow-hidden rounded-t-2xl border-t border-md3-outline-variant/25 bg-md3-surface-container shadow-[0_-16px_45px_rgba(0,0,0,0.35)] anim-mini-panel-in">
-            {bottomPanel === 'queue' ? (
+        <div
+          {...(!bottomPanel ? ({ inert: '' } as unknown as React.HTMLAttributes<HTMLDivElement>) : {})}
+          aria-hidden={!bottomPanel}
+          onTransitionEnd={event => {
+            if (event.target === event.currentTarget && !bottomPanel && event.propertyName === 'transform') {
+              setIsPanelContentRendered(false);
+            }
+          }}
+          className={`mini-panel-surface absolute inset-x-0 bottom-0 z-20 flex h-[62%] min-h-[220px] flex-col overflow-hidden rounded-t-2xl border-t border-md3-outline-variant/25 bg-md3-surface-container shadow-[0_-16px_45px_rgba(0,0,0,0.35)] ${bottomPanel ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'}`}
+        >
+          {isPanelContentRendered && (
+            renderedPanel === 'queue' ? (
               <>
                 <header className="flex h-12 shrink-0 items-center gap-1.5 border-b border-md3-outline-variant/15 px-3">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-md3-primary/10 text-md3-primary"><ListMusic size={15} /></span>
-                  <button type="button" onClick={openLibraryPanel} className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[10px] text-md3-primary hover:bg-md3-primary/10">
-                    <Library size={13} />{text(language, 'Библиотека', 'Library')}
+                  <button
+                    type="button"
+                    onClick={openLibraryPanel}
+                    title={text(language, 'Открыть библиотеку', 'Open library')}
+                    className="flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[10px] font-semibold text-md3-primary hover:bg-md3-primary/10"
+                  >
+                    <Library size={14} />
+                    <span>{text(language, 'Библиотека', 'Library')}</span>
                   </button>
                   <span className="min-w-0 flex-1" />
-                  <span className="shrink-0 rounded-full bg-md3-surface-container-high px-2 py-1 text-[9px] font-semibold tabular-nums text-md3-on-surface-variant">{queueTrackCount(queue.length, language)}</span>
+                  <span className="flex h-6 min-w-[58px] shrink-0 items-center justify-center rounded-full bg-md3-surface-container-high px-2 text-[9px] font-semibold tabular-nums text-md3-on-surface-variant">{queueTrackCount(queue.length, language)}</span>
                   <button
                     type="button"
                     onClick={onClearQueue}
                     disabled={queue.length === 0}
                     title={text(language, 'Очистить очередь', 'Clear queue')}
                     aria-label={text(language, 'Очистить очередь', 'Clear queue')}
-                    className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high disabled:opacity-30"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high disabled:opacity-30"
                   >
                     <Trash2 size={15} />
                   </button>
-                  <button type="button" onClick={() => setBottomPanel(null)} aria-label={text(language, 'Закрыть', 'Close')} className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"><X size={15} /></button>
+                  <button
+                    type="button"
+                    onClick={() => togglePanel('queue')}
+                    title={text(language, 'Очередь', 'Queue')}
+                    aria-label={text(language, bottomPanel === 'queue' ? 'Закрыть очередь' : 'Открыть очередь', bottomPanel === 'queue' ? 'Close queue' : 'Open queue')}
+                    aria-pressed={bottomPanel === 'queue'}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-md3-primary/10 text-md3-primary hover:bg-md3-primary/20"
+                  >
+                    <ListMusic size={15} />
+                  </button>
                 </header>
-                <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2">
+                <div ref={queueListRef} className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2">
                   {queue.map((track, index) => (
                     <MiniTrackRow
                       key={`${track.id}-${index}`}
@@ -677,28 +843,103 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
               </>
             ) : (
               <>
-                <header className="flex h-11 shrink-0 items-center gap-1.5 border-b border-md3-outline-variant/15 px-2">
+                <header className="flex h-12 shrink-0 items-center gap-1.5 border-b border-md3-outline-variant/15 px-3">
+                  <button
+                    type="button"
+                    onClick={openLibraryPanel}
+                    title={text(language, 'Открыть библиотеку', 'Open library')}
+                    className="flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[10px] font-semibold text-md3-primary hover:bg-md3-primary/10"
+                  >
+                    <Library size={14} />
+                    <span>{text(language, 'Библиотека', 'Library')}</span>
+                  </button>
                   {(currentPlaylist || selectedCollection || selectedPlaylistFolder || selectedPlaylistGroup) && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (currentPlaylist) setSelectedPlaylistId(null);
-                        else if (selectedCollection) setSelectedCollection(null);
-                        else if (selectedPlaylistFolder) setSelectedPlaylistFolderId(selectedPlaylistFolder.parentId || null);
-                        else if (selectedPlaylistGroup) setSelectedPlaylistGroupId(null);
-                      }}
-                      aria-label={text(language, 'Назад', 'Go back')}
-                      className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"
-                    ><ChevronLeft size={16} /></button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (currentPlaylist) setSelectedPlaylistId(null);
+                          else if (selectedCollection) setSelectedCollection(null);
+                          else if (selectedPlaylistFolder) setSelectedPlaylistFolderId(selectedPlaylistFolder.parentId || null);
+                          else if (selectedPlaylistGroup) setSelectedPlaylistGroupId(null);
+                        }}
+                        aria-label={text(language, 'Назад', 'Go back')}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high"
+                      ><ChevronLeft size={16} /></button>
+                      <strong className="min-w-0 flex-1 truncate text-[11px]">
+                        {currentPlaylist?.name || selectedCollectionGroup?.name || selectedPlaylistFolder?.name || selectedPlaylistGroup?.name}
+                      </strong>
+                    </>
                   )}
-                  <Library size={15} className="shrink-0 text-md3-primary" />
-                  <strong className="min-w-0 flex-1 truncate text-[11px]">
-                    {currentPlaylist?.name || selectedCollectionGroup?.name || selectedPlaylistFolder?.name || selectedPlaylistGroup?.name || text(language, 'Библиотека', 'Library')}
-                  </strong>
-                  <button type="button" onClick={() => togglePanel('queue')} title={text(language, 'Очередь', 'Queue')} className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"><ListMusic size={15} /></button>
-                  <button type="button" onClick={() => setBottomPanel(null)} aria-label={text(language, 'Закрыть', 'Close')} className="rounded-lg p-1.5 text-md3-on-surface-variant hover:bg-md3-surface-container-high"><X size={15} /></button>
+                  <span className="min-w-0 flex-1" />
+                  <span className="flex h-6 min-w-[58px] shrink-0 items-center justify-center rounded-full bg-md3-surface-container-high px-2 text-[9px] font-semibold tabular-nums text-md3-on-surface-variant">{queueTrackCount(queue.length, language)}</span>
+                  <button
+                    type="button"
+                    onClick={onClearQueue}
+                    disabled={queue.length === 0}
+                    title={text(language, 'Очистить очередь', 'Clear queue')}
+                    aria-label={text(language, 'Очистить очередь', 'Clear queue')}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high disabled:opacity-30"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => togglePanel('queue')}
+                    title={text(language, 'Очередь', 'Queue')}
+                    aria-label={text(language, 'Открыть очередь', 'Open queue')}
+                    aria-pressed={false}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high"
+                  >
+                    <ListMusic size={15} />
+                  </button>
                 </header>
-                <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-md3-outline-variant/10 px-2 py-1.5 custom-scrollbar">
+                <nav
+                  ref={libraryTabsNavRef}
+                  onPointerDown={event => {
+                    if (event.pointerType !== 'mouse' || event.button !== 0) return;
+                    libraryTabsDragRef.current = {
+                      pointerId: event.pointerId,
+                      startX: event.clientX,
+                      startScrollLeft: event.currentTarget.scrollLeft,
+                      moved: false,
+                    };
+                  }}
+                  onClickCapture={event => {
+                    if (!suppressLibraryTabClickRef.current) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    suppressLibraryTabClickRef.current = false;
+                    if (suppressLibraryTabClickTimerRef.current) {
+                      clearTimeout(suppressLibraryTabClickTimerRef.current);
+                      suppressLibraryTabClickTimerRef.current = null;
+                    }
+                  }}
+                  onWheel={event => {
+                    const nav = event.currentTarget;
+                    const maxScrollLeft = nav.scrollWidth - nav.clientWidth;
+                    if (maxScrollLeft <= 0) return;
+                    const delta = event.deltaX !== 0 ? event.deltaX : event.deltaY;
+                    if (delta === 0) return;
+                    const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? nav.clientWidth : 1;
+                    event.preventDefault();
+                    nav.scrollLeft = Math.max(0, Math.min(maxScrollLeft, nav.scrollLeft + delta * scale));
+                  }}
+                  className="relative flex shrink-0 cursor-grab items-center gap-1 overflow-x-auto no-scrollbar select-none rounded-full border border-md3-outline-variant/15 bg-md3-surface-container p-1"
+                  style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                >
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute z-0 rounded-full bg-md3-primary transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)]"
+                    style={{
+                      left: libraryTabIndicator.left,
+                      top: libraryTabIndicator.top,
+                      width: libraryTabIndicator.width,
+                      height: libraryTabIndicator.height,
+                      opacity: libraryTabIndicator.opacity,
+                      boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
+                    }}
+                  />
                   {(['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'] as LibraryTab[]).map(tab => {
                     const label = tab === 'tracks' ? text(language, 'Треки', 'Tracks')
                       : tab === 'playlists' ? text(language, 'Плейлисты', 'Playlists')
@@ -706,13 +947,15 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                           : tab === 'artists' ? text(language, 'Артисты', 'Artists')
                             : tab === 'favorites' ? text(language, 'Избранное', 'Favorites')
                               : text(language, 'Жанры', 'Genres');
-                    const active = (currentPlaylist || selectedCollection) ? tab === libraryTab : libraryTab === tab;
+                    const active = libraryTab === tab;
                     return (
                       <button
                         key={tab}
+                        ref={node => { libraryTabRefs.current[tab] = node; }}
                         type="button"
                         onClick={() => { setLibraryTab(tab); setSelectedPlaylistId(null); setSelectedPlaylistFolderId(null); setSelectedPlaylistGroupId(null); setSelectedCollection(null); }}
-                        className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] transition-colors ${active ? 'bg-md3-primary text-md3-on-primary' : 'bg-md3-surface-container-high text-md3-on-surface-variant hover:text-md3-on-surface'}`}
+                        aria-current={active ? 'page' : undefined}
+                        className={`relative z-10 shrink-0 rounded-full px-2.5 py-1 text-[9px] transition-colors duration-200 ${active ? 'font-semibold text-md3-on-primary' : 'text-md3-on-surface-variant hover:bg-md3-surface-container-high/60 hover:text-md3-on-surface'}`}
                       >{label}</button>
                     );
                   })}
@@ -844,9 +1087,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                   )}
                 </div>
               </>
-            )}
-          </div>
-        )}
+            )
+          )}
+        </div>
       </section>
 
       {lyricsMode === 'attached' && (
