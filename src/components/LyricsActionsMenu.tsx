@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { EllipsisVertical } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { AppLanguage } from '../i18n';
@@ -74,6 +75,7 @@ export const LyricsActionsMenu: React.FC<LyricsActionsMenuProps> = ({
       if (event.key !== 'Escape') return;
       event.preventDefault();
       event.stopPropagation();
+      if (event.repeat) return;
       onOpenChange(false);
       triggerRef.current?.focus();
     };
@@ -108,7 +110,7 @@ export const LyricsActionsMenu: React.FC<LyricsActionsMenuProps> = ({
       >
         <EllipsisVertical className="h-4 w-4" />
       </button>
-      {isOpen && position && (
+      {isOpen && position && createPortal(
         <div
           ref={menuRef}
           data-lyrics-actions-menu
@@ -138,7 +140,8 @@ export const LyricsActionsMenu: React.FC<LyricsActionsMenuProps> = ({
               </React.Fragment>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

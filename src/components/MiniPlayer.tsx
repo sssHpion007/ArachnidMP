@@ -238,6 +238,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const [isCompactVolHovered, setIsCompactVolHovered] = useState(false);
   const [queueSelectedIndex, setQueueSelectedIndex] = useState(queueIndex);
   const [libraryTabIndicator, setLibraryTabIndicator] = useState({ left: 0, top: 0, width: 0, height: 0, opacity: 0 });
+  const lastTabSwitchTimeRef = useRef<number>(0);
   const volHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queueSelectedItemRef = useRef<HTMLButtonElement>(null);
   const queueListRef = useRef<HTMLDivElement>(null);
@@ -338,7 +339,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         if (bottomPanel) {
           event.preventDefault();
           event.stopPropagation();
-          setMiniPanel(null);
+          if (!event.repeat) setMiniPanel(null);
         }
         return;
       }
@@ -348,6 +349,10 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       if (event.key === 'Tab' || event.code === 'Tab') {
         event.preventDefault();
         event.stopPropagation();
+        const now = performance.now();
+        // Match regular-player Tab: throttle only OS-generated key repeats, never separate key presses.
+        if (event.repeat && now - lastTabSwitchTimeRef.current < 500) return;
+        lastTabSwitchTimeRef.current = now;
         if (bottomPanel !== 'library') {
           openLibraryPanel();
           return;
@@ -370,6 +375,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         && !event.ctrlKey && !event.metaKey && !event.altKey) {
         event.preventDefault();
         event.stopPropagation();
+        if (event.repeat) return;
         if (bottomPanel !== 'queue') {
           setQueueSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
           setMiniPanel('queue');
@@ -393,6 +399,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       if ((event.key === 'Enter' || event.code === 'Enter') && queue.length > 0) {
         event.preventDefault();
         event.stopPropagation();
+        if (event.repeat) return;
         onPlayQueueTrack(Math.max(0, Math.min(queue.length - 1, queueSelectedIndex)));
       }
     };

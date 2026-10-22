@@ -149,6 +149,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
+        if (e.repeat) return;
         if (isActionsMenuOpen) {
           setIsActionsMenuOpen(false);
         } else if (isEditing) {

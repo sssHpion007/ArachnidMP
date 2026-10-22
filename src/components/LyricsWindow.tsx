@@ -140,7 +140,7 @@ export const LyricsWindow: React.FC = () => {
 
       if (event.code === 'Escape' && !event.ctrlKey && !event.metaKey && !event.altKey) {
         event.preventDefault();
-        sendAction({ type: 'close' });
+        if (!event.repeat) sendAction({ type: 'close' });
         return;
       }
 
@@ -152,6 +152,7 @@ export const LyricsWindow: React.FC = () => {
       if (!supportedCodes.has(event.code) || event.isComposing) return;
 
       event.preventDefault();
+      if (event.repeat) return;
       sendAction({
         type: 'keyboard',
         key: event.key,

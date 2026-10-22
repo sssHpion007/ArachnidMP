@@ -53,7 +53,8 @@ import type { TrackDetailsWindowAction, TrackDetailsWindowPayload } from './util
 import { EQUALIZER_WINDOW_EVENTS } from './utils/equalizerWindowEvents';
 import type { EqualizerWindowAction, EqualizerWindowPayload } from './utils/equalizerWindowEvents';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { LogicalSize, PhysicalSize } from '@tauri-apps/api/dpi';
+import { currentMonitor } from '@tauri-apps/api/window';
+import { LogicalSize, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi';
 import { MiniPlayer } from './components/MiniPlayer';
 import type { MiniLyricsTrack } from './components/MiniLyricsPane';
 import { ArrowLeft, Play, Disc3, Mic2, Tag, Trash2, ListMusic } from 'lucide-react';
@@ -61,6 +62,60 @@ import { ArrowLeft, Play, Disc3, Mic2, Tag, Trash2, ListMusic } from 'lucide-rea
 const MINI_WINDOW_WIDTH = 320;
 const MINI_WINDOW_HEIGHT = 560;
 const MINI_WINDOW_WITH_LYRICS_WIDTH = 620;
+const WINDOW_MODE_FADE_MS = 150;
+const WINDOW_MODE_RESIZE_MS = 220;
+
+const waitForDelay = (duration: number) => new Promise<void>(resolve => window.setTimeout(resolve, duration));
+
+const waitForAnimationFrames = async (count: number) => {
+  for (let frame = 0; frame < count; frame += 1) {
+    await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
+  }
+};
+
+const getCenteredBounds = async (width: number, height: number) => {
+  const monitor = await currentMonitor().catch(() => null);
+  if (!monitor) return null;
+
+  const size = new PhysicalSize(
+    Math.round(width * monitor.scaleFactor),
+    Math.round(height * monitor.scaleFactor),
+  );
+  const workArea = monitor.workArea;
+  const position = new PhysicalPosition(
+    workArea.position.x + Math.max(0, Math.round((workArea.size.width - size.width) / 2)),
+    workArea.position.y + Math.max(0, Math.round((workArea.size.height - size.height) / 2)),
+  );
+  return { size, position };
+};
+
+const animateWindowBounds = async (
+  win: ReturnType<typeof getCurrentWebviewWindow>,
+  targetSize: PhysicalSize,
+  targetPosition: PhysicalPosition,
+  duration = WINDOW_MODE_RESIZE_MS,
+) => {
+  const [startSize, startPosition] = await Promise.all([win.innerSize(), win.outerPosition()]);
+  const startedAt = performance.now();
+  let progress = 0;
+
+  while (progress < 1) {
+    await waitForAnimationFrames(1);
+    progress = Math.min(1, (performance.now() - startedAt) / duration);
+    const eased = progress < 0.5
+      ? 4 * progress * progress * progress
+      : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+    const size = new PhysicalSize(
+      Math.round(startSize.width + (targetSize.width - startSize.width) * eased),
+      Math.round(startSize.height + (targetSize.height - startSize.height) * eased),
+    );
+    const position = new PhysicalPosition(
+      Math.round(startPosition.x + (targetPosition.x - startPosition.x) * eased),
+      Math.round(startPosition.y + (targetPosition.y - startPosition.y) * eased),
+    );
+    await Promise.all([win.setSize(size), win.setPosition(position)]);
+  }
+};
 
 const INITIAL_PLAYLISTS: Playlist[] = [
   {
@@ -188,8 +243,10 @@ export const App: React.FC = () => {
   const [queue, setQueue] = useState<Track[]>([]);
   const [queueIndex, setQueueIndex] = useState<number>(0);
   const [isMiniMode, setIsMiniMode] = useState(false);
+  const [isWindowModeTransitioning, setIsWindowModeTransitioning] = useState(false);
+  const windowModeTransitionRef = useRef(false);
   const [miniLyricsMode, setMiniLyricsMode] = useState<'closed' | 'attached' | 'detached'>('closed');
-  const miniWindowRestoreRef = useRef<{ wasMaximized: boolean; width: number; height: number } | null>(null);
+  const miniWindowRestoreRef = useRef<{ wasMaximized: boolean; width: number; height: number; x: number; y: number } | null>(null);
   const equalizerPopupRef = useRef<Window | null>(null);
   const miniLyricsChannelRef = useRef<BroadcastChannel | null>(null);
   const miniLyricsSeekHandlerRef = useRef<(time: number) => void>(() => {});
@@ -347,54 +404,96 @@ export const App: React.FC = () => {
   }, []);
 
   const enterMiniMode = useCallback(async () => {
-    if (isMiniMode) return;
+    if (isMiniMode || windowModeTransitionRef.current) return;
+    windowModeTransitionRef.current = true;
+    setIsWindowModeTransitioning(true);
+    await waitForDelay(WINDOW_MODE_FADE_MS);
+
     if (isTauri()) {
       try {
         const win = getCurrentWebviewWindow();
         const wasMaximized = await win.isMaximized().catch(() => false);
-        const size = await win.outerSize().catch(() => new PhysicalSize(1280, 820));
-        miniWindowRestoreRef.current = { wasMaximized, width: size.width, height: size.height };
-        if (wasMaximized) await win.unmaximize();
+        const [size, position] = await Promise.all([
+          win.outerSize().catch(() => new PhysicalSize(1280, 820)),
+          win.outerPosition().catch(() => new PhysicalPosition(0, 0)),
+        ]);
+        miniWindowRestoreRef.current = { wasMaximized, width: size.width, height: size.height, x: position.x, y: position.y };
+        if (wasMaximized) {
+          await win.unmaximize();
+          // Restore the maximized bounds before animating, so unmaximizing does not create a visible snap.
+          await Promise.all([
+            win.setSize(new PhysicalSize(size.width, size.height)),
+            win.setPosition(new PhysicalPosition(position.x, position.y)),
+          ]);
+        }
         await win.setMinSize(new LogicalSize(MINI_WINDOW_WIDTH, MINI_WINDOW_HEIGHT));
         await win.setResizable(false);
-        await win.setSize(new LogicalSize(miniLyricsMode === 'attached' ? MINI_WINDOW_WITH_LYRICS_WIDTH : MINI_WINDOW_WIDTH, MINI_WINDOW_HEIGHT));
+
+        const miniWidth = miniLyricsMode === 'attached' ? MINI_WINDOW_WITH_LYRICS_WIDTH : MINI_WINDOW_WIDTH;
+        const targetBounds = await getCenteredBounds(miniWidth, MINI_WINDOW_HEIGHT);
+        if (targetBounds) {
+          await animateWindowBounds(win, targetBounds.size, targetBounds.position);
+        } else {
+          await win.setSize(new LogicalSize(miniWidth, MINI_WINDOW_HEIGHT));
+          await win.center();
+        }
       } catch (error) {
-        console.warn('Unable to resize window for mini-player mode:', error);
+        console.warn('Unable to animate window into mini-player mode:', error);
       }
     }
+
     setIsQueueOpen(false);
     setIsLyricsOpen(false);
     setIsEQOpen(false);
     setIsMiniMode(true);
+    await waitForAnimationFrames(2);
+    setIsWindowModeTransitioning(false);
+    await waitForDelay(WINDOW_MODE_FADE_MS);
+    windowModeTransitionRef.current = false;
   }, [isMiniMode, miniLyricsMode]);
 
   const exitMiniMode = useCallback(async () => {
+    if (windowModeTransitionRef.current) return;
+    windowModeTransitionRef.current = true;
+    setIsWindowModeTransitioning(true);
+    await waitForDelay(WINDOW_MODE_FADE_MS);
+
     if (isTauri()) {
       try {
         const win = getCurrentWebviewWindow();
         const previous = miniWindowRestoreRef.current;
         await win.setMinSize(new LogicalSize(480, 400));
         await win.setResizable(true);
+
         if (previous?.wasMaximized) {
+          const monitor = await currentMonitor().catch(() => null);
+          if (monitor) {
+            await animateWindowBounds(win, monitor.workArea.size, monitor.workArea.position);
+          }
           await win.maximize();
         } else if (previous) {
-          await win.setSize(new PhysicalSize(previous.width, previous.height));
+          await animateWindowBounds(
+            win,
+            new PhysicalSize(previous.width, previous.height),
+            new PhysicalPosition(previous.x, previous.y),
+          );
         }
       } catch (error) {
-        console.warn('Unable to restore standard window size:', error);
+        console.warn('Unable to animate window back to standard mode:', error);
       }
     }
+
     setTrackDetailsTarget(null);
     if (isTauri()) {
       try {
         await invoke('hide_track_details_window');
       } catch (error) {
-        console.warn('Unable to close track details window while leaving mini mode:', error);
+        console.warn('Unable to close the track details window while leaving mini mode:', error);
       }
       try {
         await invoke('hide_equalizer_window');
       } catch (error) {
-        console.warn('Unable to close equalizer window while leaving mini mode:', error);
+        console.warn('Unable to close the equalizer window while leaving mini mode:', error);
       }
     } else {
       if (equalizerPopupRef.current && !equalizerPopupRef.current.closed) {
@@ -405,6 +504,11 @@ export const App: React.FC = () => {
     setIsEQWindowOpen(false);
     setIsEQOpen(false);
     setIsMiniMode(false);
+    miniWindowRestoreRef.current = null;
+    await waitForAnimationFrames(2);
+    setIsWindowModeTransitioning(false);
+    await waitForDelay(WINDOW_MODE_FADE_MS);
+    windowModeTransitionRef.current = false;
   }, []);
 
   const toggleMiniMode = useCallback(() => {
@@ -1917,6 +2021,17 @@ export const App: React.FC = () => {
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const keyboardTarget = e.target as HTMLElement | null;
+      const focusedInput = keyboardTarget?.closest('input') as HTMLInputElement | null;
+      const isTextInput = !!focusedInput && !['range', 'checkbox', 'radio', 'button', 'submit', 'file', 'color'].includes(focusedInput.type);
+      const isTypingTarget = isTextInput || !!keyboardTarget?.closest('textarea, select, [contenteditable="true"]');
+      const repeatableCodes = new Set(['Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
+      if (e.repeat && !repeatableCodes.has(e.code) && (!isTypingTarget || e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
       // 1. Universal Search Hotkey: Ctrl + F (or Cmd + F)
       // Disables native browser search dialog and activates player search bar
       if ((e.code === 'KeyF' || e.key.toLowerCase() === 'f' || e.key.toLowerCase() === 'а') && (e.ctrlKey || e.metaKey)) {
@@ -1931,10 +2046,6 @@ export const App: React.FC = () => {
       }
 
       // F toggles between the standard window and the mini-player.
-      const keyboardTarget = e.target as HTMLElement | null;
-      const focusedInput = keyboardTarget?.closest('input') as HTMLInputElement | null;
-      const isTextInput = !!focusedInput && !['range', 'checkbox', 'radio', 'button', 'submit', 'file', 'color'].includes(focusedInput.type);
-      const isTypingTarget = isTextInput || !!keyboardTarget?.closest('textarea, select, [contenteditable="true"]');
       if ((e.code === 'KeyT' || e.key.toLowerCase() === 't') && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !isTypingTarget) {
         e.preventDefault();
         e.stopPropagation();
@@ -4268,7 +4379,11 @@ export const App: React.FC = () => {
   }, [tracks, selectedTrackIds]);
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-md3-background text-md3-on-background select-none font-sans">
+    <div className="relative flex flex-col h-screen w-screen overflow-hidden bg-md3-background text-md3-on-background select-none font-sans">
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-0 z-[100] bg-md3-background transition-opacity duration-150 ease-in-out ${isWindowModeTransitioning ? 'opacity-100' : 'opacity-0'}`}
+      />
       <input
         ref={fileInputRef}
         type="file"
