@@ -27,7 +27,7 @@ import { LyricsModal } from './components/LyricsModal';
 import { MissingTracksModal } from './components/MissingTracksModal';
 import { audioEngine } from './services/audioEngine';
 import { discordRpc } from './services/discordRpc';
-import { parseAudioFile } from './services/tagEditor';
+import { getAudioFormatFromPath, parseAudioFile } from './services/tagEditor';
 import { 
   DEFAULT_SEED_COLOR, 
   generateM3Palette, 
@@ -929,6 +929,7 @@ export const App: React.FC = () => {
                 ...t,
                 src: t.path && isTauri() ? convertFileSrc(t.path) : t.src,
                 coverArt,
+                format: t.format || getAudioFormatFromPath(t.path || t.localFile?.name || t.src),
               };
             });
             setTracks(hydrated);
@@ -983,6 +984,7 @@ export const App: React.FC = () => {
                         genre: m.genre || undefined,
                         year: m.year || undefined,
                         trackNumber: m.track_number || undefined,
+                        format: m.format || getAudioFormatFromPath(m.path),
                         dateAdded: Date.now(),
                         playCount: 0,
                         isFavorite: false,
@@ -1035,6 +1037,7 @@ export const App: React.FC = () => {
                         artist: t.artist === 'Unknown Artist' || !t.artist ? r.artist : t.artist,
                         album: t.album === 'Unknown Album' || !t.album ? r.album : t.album,
                         coverArt: t.coverArt || refreshedCover || undefined,
+                        format: t.format || r.format || getAudioFormatFromPath(t.path),
                         lyrics: t.lyrics || r.lyrics || undefined,
                         genre: t.genre || r.genre || undefined,
                         year: t.year || r.year || undefined,
@@ -2183,7 +2186,7 @@ export const App: React.FC = () => {
         handleVolumeChange(next);
       // Plain Arrow Down / Up: Navigate through track list
       } else if ((e.code === 'ArrowDown' || e.key === 'ArrowDown') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-        if (isMiniMode) return;
+        if (isMiniMode || isQueueOpen) return;
         const currentList = filteredTracksRef.current;
         if (currentList.length > 0) {
           e.preventDefault();
@@ -2214,7 +2217,7 @@ export const App: React.FC = () => {
           }
         }
       } else if ((e.code === 'ArrowUp' || e.key === 'ArrowUp') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-        if (isMiniMode) return;
+        if (isMiniMode || isQueueOpen) return;
         const currentList = filteredTracksRef.current;
         if (currentList.length > 0) {
           e.preventDefault();
@@ -4217,7 +4220,7 @@ export const App: React.FC = () => {
             comment: r.comment || undefined,
             conductor: r.conductor || undefined,
             lyricist: r.lyricist || undefined,
-            format: r.format || t.format,
+            format: r.format || t.format || getAudioFormatFromPath(t.path),
             fileSize: r.file_size || t.fileSize,
           };
         }));
@@ -4247,7 +4250,7 @@ export const App: React.FC = () => {
             comment: r.comment || undefined,
             conductor: r.conductor || undefined,
             lyricist: r.lyricist || undefined,
-            format: r.format || prev.format,
+            format: r.format || prev.format || getAudioFormatFromPath(prev.path),
             fileSize: r.file_size || prev.fileSize,
           };
         });
@@ -4277,7 +4280,7 @@ export const App: React.FC = () => {
             comment: r.comment || undefined,
             conductor: r.conductor || undefined,
             lyricist: r.lyricist || undefined,
-            format: r.format || t.format,
+            format: r.format || t.format || getAudioFormatFromPath(t.path),
             fileSize: r.file_size || t.fileSize,
           };
         }));

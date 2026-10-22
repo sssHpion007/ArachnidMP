@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { useModalAnimation } from '../utils/useModalAnimation';
 import { Track } from '../types/music';
-import { formatTime } from '../services/tagEditor';
+import { formatTime, getAudioFormatFromPath } from '../services/tagEditor';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { AppLanguage } from '../i18n';
@@ -112,6 +112,9 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
   const formattedSize = activeTrack.fileSize 
     ? `${(activeTrack.fileSize / (1024 * 1024)).toFixed(2)} ${language === 'ru' ? 'МБ' : 'MB'}` 
     : '—';
+  const formattedFormat = activeTrack.format?.trim()
+    || getAudioFormatFromPath(activeTrack.path || activeTrack.localFile?.name || activeTrack.src)
+    || '—';
 
   const formattedDate = activeTrack.dateAdded 
     ? new Date(activeTrack.dateAdded).toLocaleDateString(language === 'ru' ? 'ru-RU' : 'en-US', { 
@@ -225,7 +228,7 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
                   {language === 'ru' ? 'Формат файла' : 'File Format'}
                 </span>
                 <span className="font-bold text-md3-on-surface truncate font-mono">
-                  {track.format || (language === 'ru' ? 'Аудио' : 'Audio')}
+                  {formattedFormat}
                 </span>
               </div>
             </div>

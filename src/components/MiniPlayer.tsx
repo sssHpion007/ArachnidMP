@@ -237,11 +237,15 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const [selectedCollection, setSelectedCollection] = useState<{ type: LibraryCollectionType; name: string } | null>(null);
   const [isCompactVolHovered, setIsCompactVolHovered] = useState(false);
   const [queueSelectedIndex, setQueueSelectedIndex] = useState(queueIndex);
+  const [libraryTrackSelectedIndex, setLibraryTrackSelectedIndex] = useState(0);
   const [libraryTabIndicator, setLibraryTabIndicator] = useState({ left: 0, top: 0, width: 0, height: 0, opacity: 0 });
   const lastTabSwitchTimeRef = useRef<number>(0);
   const volHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queueSelectedItemRef = useRef<HTMLButtonElement>(null);
   const queueListRef = useRef<HTMLDivElement>(null);
+  const libraryListRef = useRef<HTMLDivElement>(null);
+  const libraryTracksRef = useRef<Track[]>([]);
+  const libraryTrackSelectedItemRef = useRef<HTMLButtonElement>(null);
   const libraryTabsNavRef = useRef<HTMLElement>(null);
   const libraryTabsDragRef = useRef<{ pointerId: number; startX: number; startScrollLeft: number; moved: boolean } | null>(null);
   const libraryTabsPreviousCursorRef = useRef<string | null>(null);
@@ -385,6 +389,30 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         return;
       }
 
+      const isArrowDown = event.key === 'ArrowDown' || event.code === 'ArrowDown';
+      const isArrowUp = event.key === 'ArrowUp' || event.code === 'ArrowUp';
+      if (bottomPanel === 'library' && (isArrowDown || isArrowUp)
+        && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+        const listTracks = libraryTracksRef.current;
+        if (listTracks.length === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const direction = isArrowDown ? 1 : -1;
+        setLibraryTrackSelectedIndex(current => Math.max(0, Math.min(listTracks.length - 1, current + direction)));
+        return;
+      }
+
+      if (bottomPanel === 'library' && (event.key === 'Enter' || event.code === 'Enter')) {
+        const listTracks = libraryTracksRef.current;
+        if (listTracks.length === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        const selectedIndex = Math.max(0, Math.min(listTracks.length - 1, libraryTrackSelectedIndex));
+        onPlayTrack(listTracks[selectedIndex], listTracks);
+        return;
+      }
+
       if (bottomPanel !== 'queue') return;
       if ((event.key === 'ArrowDown' || event.code === 'ArrowDown' || event.key === 'ArrowUp' || event.code === 'ArrowUp')
         && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
@@ -405,7 +433,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     };
     window.addEventListener('keydown', handleMiniPlayerKeyboard, true);
     return () => window.removeEventListener('keydown', handleMiniPlayerKeyboard, true);
-  }, [bottomPanel, libraryTab, onPlayQueueTrack, queue.length, queueIndex, queueSelectedIndex]);
+  }, [bottomPanel, libraryTab, libraryTrackSelectedIndex, onPlayQueueTrack, onPlayTrack, queue.length, queueIndex, queueSelectedIndex]);
 
   useEffect(() => {
     setQueueSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
@@ -525,6 +553,29 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     if (libraryTab === 'tracks') return tracks;
     return [];
   }, [currentPlaylist, libraryTab, selectedCollection, selectedCollectionGroup, tracks]);
+  libraryTracksRef.current = libraryTracks;
+
+  useEffect(() => {
+    const currentTrackIndex = currentTrack ? libraryTracks.findIndex(track => track.id === currentTrack.id) : -1;
+    setLibraryTrackSelectedIndex(currentTrackIndex >= 0 ? currentTrackIndex : 0);
+  }, [currentPlaylist?.id, selectedCollection?.name, libraryTab, libraryTracks, currentTrack?.id]);
+
+  useEffect(() => {
+    if (bottomPanel !== 'library') return;
+    const frame = requestAnimationFrame(() => {
+      const list = libraryListRef.current;
+      const selectedItem = libraryTrackSelectedItemRef.current;
+      if (!list || !selectedItem) return;
+      const listRect = list.getBoundingClientRect();
+      const itemRect = selectedItem.getBoundingClientRect();
+      const visibleTop = listRect.top + list.clientTop;
+      const visibleBottom = visibleTop + list.clientHeight;
+      if (itemRect.top < visibleTop) list.scrollBy({ top: itemRect.top - visibleTop, behavior: 'smooth' });
+      else if (itemRect.bottom > visibleBottom) list.scrollBy({ top: itemRect.bottom - visibleBottom, behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [bottomPanel, libraryTrackSelectedIndex, libraryTracks.length]);
+
   const visibleCollections = libraryTab === 'albums' ? albums : libraryTab === 'artists' ? artists : genres;
   const lyricsTrack: MiniLyricsTrack | null = currentTrack ? {
     id: currentTrack.id,
@@ -972,7 +1023,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                     );
                   })}
                 </nav>
-                <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2">
+                <div ref={libraryListRef} className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2">
                   {libraryTab === 'playlists' && !currentPlaylist && !selectedCollection && (
                     <div className="space-y-3">
                       {!selectedPlaylistFolder && !selectedPlaylistGroup && playlistGroups.length > 0 && (
@@ -1085,13 +1136,18 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                   )}
                   {(libraryTab === 'tracks' || libraryTab === 'favorites' || currentPlaylist || selectedCollection) && (
                     <>
-                      {libraryTracks.map(track => (
+                      {libraryTracks.map((track, index) => (
                         <MiniTrackRow
                           key={track.id}
                           track={track}
                           active={track.id === currentTrack?.id}
+                          selected={index === libraryTrackSelectedIndex}
+                          buttonRef={index === libraryTrackSelectedIndex ? libraryTrackSelectedItemRef : undefined}
                           language={language}
-                          onClick={() => onPlayTrack(track, libraryTracks)}
+                          onClick={() => {
+                            setLibraryTrackSelectedIndex(index);
+                            onPlayTrack(track, libraryTracks);
+                          }}
                         />
                       ))}
                       {libraryTracks.length === 0 && <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, libraryTab === 'favorites' ? 'В избранном пока нет треков' : 'В этом списке нет треков', libraryTab === 'favorites' ? 'No favorite tracks yet' : 'No tracks in this list')}</p>}

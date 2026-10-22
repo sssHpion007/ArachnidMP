@@ -37,6 +37,8 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
   const [internalIsCompact, setInternalIsCompact] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth < 780 : false
   );
+  const [selectedIndex, setSelectedIndex] = useState(queueIndex);
+  const selectedRowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleResize = () => {
@@ -78,12 +80,47 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
         e.preventDefault();
         e.stopPropagation();
         onClose();
+        return;
+      }
+
+      const target = e.target as HTMLElement | null;
+      const isEditing = !!target?.closest('input, textarea, select, [contenteditable="true"]');
+      if (isEditing || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (queue.length === 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const direction = e.key === 'ArrowDown' ? 1 : -1;
+        setSelectedIndex(current => Math.max(0, Math.min(queue.length - 1, current + direction)));
+      } else if (e.key === 'Enter' && queue.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!e.repeat) onPlayQueueTrack(Math.max(0, Math.min(queue.length - 1, selectedIndex)));
       }
     };
 
     window.addEventListener('keydown', handleGlobalKeyDown, true);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown, true);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, onPlayQueueTrack, queue.length, selectedIndex]);
+
+  useEffect(() => {
+    setSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
+  }, [queueIndex, queue.length]);
+
+  useEffect(() => {
+    if (!isOpen || queue.length === 0) return;
+    const frameId = requestAnimationFrame(() => {
+      const container = listContainerRef.current;
+      const selectedRow = selectedRowRef.current;
+      if (!container || !selectedRow) return;
+      const containerRect = container.getBoundingClientRect();
+      const rowRect = selectedRow.getBoundingClientRect();
+      if (rowRect.top < containerRect.top) container.scrollBy({ top: rowRect.top - containerRect.top, behavior: 'smooth' });
+      else if (rowRect.bottom > containerRect.bottom) container.scrollBy({ top: rowRect.bottom - containerRect.bottom, behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(frameId);
+  }, [isOpen, selectedIndex, queue.length]);
 
   const handlePointerDown = (e: React.PointerEvent, index: number) => {
     if (e.button !== 0) return;
@@ -296,14 +333,16 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
             return (
               <div
                 key={`${track.id}-${idx}`}
-                ref={isCurrent ? currentTrackRowRef : undefined}
+                ref={idx === selectedIndex ? selectedRowRef : isCurrent ? currentTrackRowRef : undefined}
                 data-queue-row-index={idx}
                 onPointerDown={(e) => handlePointerDown(e, idx)}
                 className={`relative group flex items-center justify-between p-2 rounded-2xl transition-all select-none ${
                   isBeingDragged
                     ? 'opacity-30 bg-md3-primary/10 border-dashed border border-md3-primary/40'
                     : isCurrent
-                    ? 'bg-md3-primary-container text-md3-on-primary-container font-semibold shadow-sm'
+                    ? `bg-md3-primary-container text-md3-on-primary-container font-semibold shadow-sm ${idx === selectedIndex ? 'ring-2 ring-inset ring-md3-primary/70' : ''}`
+                    : idx === selectedIndex
+                    ? 'bg-md3-primary/10 ring-2 ring-inset ring-md3-primary/60 text-md3-on-surface'
                     : 'hover:bg-md3-surface-container-high text-md3-on-surface'
                 }`}
               >
@@ -332,6 +371,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                 <div 
                   onClick={() => {
                     if (hasDraggedRef.current) return;
+                    setSelectedIndex(idx);
                     onPlayQueueTrack(idx);
                   }}
                   className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer pr-2"

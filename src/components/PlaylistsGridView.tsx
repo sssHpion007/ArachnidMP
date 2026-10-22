@@ -149,6 +149,10 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
   const IconComponent = getFolderIconComponent(folder.icon);
 
   const baseColor = getFolderColorHex(folder.color);
+  const dividerStyle = {
+    backgroundColor: baseColor,
+    boxShadow: `0 0 10px ${getFolderColorRgba(folder.color, 0.65)}`,
+  };
   // Play icon shade absorbs the folder color hue and follows the theme direction
   const playIconColor = getThemedPlayIconColor(folder.color, isDarkTheme);
   const coverType = folder.coverType || 'icon';
@@ -239,10 +243,10 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
     >
       {/* Visual Insertion Indicator Bars */}
       {dropPosition === 'before' && (
-        <div className="pointer-events-none absolute -left-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60 animate-pulse" />
+        <div className="pointer-events-none absolute -left-2 top-2 bottom-2 z-30 w-1.5 rounded-full shadow-lg animate-pulse" style={dividerStyle} />
       )}
       {dropPosition === 'after' && (
-        <div className="pointer-events-none absolute -right-2 top-2 bottom-2 z-30 w-1.5 rounded-full bg-md3-primary shadow-lg shadow-md3-primary/60 animate-pulse" />
+        <div className="pointer-events-none absolute -right-2 top-2 bottom-2 z-30 w-1.5 rounded-full shadow-lg animate-pulse" style={dividerStyle} />
       )}
 
       {/* Visual Folder Icon / Playlist Cover / Collage Preview */}
