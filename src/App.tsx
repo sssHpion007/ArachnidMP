@@ -418,21 +418,21 @@ export const App: React.FC = () => {
           win.outerPosition().catch(() => new PhysicalPosition(0, 0)),
         ]);
         miniWindowRestoreRef.current = { wasMaximized, width: size.width, height: size.height, x: position.x, y: position.y };
-        if (wasMaximized) {
-          await win.unmaximize();
-          // Restore the maximized bounds before animating, so unmaximizing does not create a visible snap.
-          await Promise.all([
-            win.setSize(new PhysicalSize(size.width, size.height)),
-            win.setPosition(new PhysicalPosition(position.x, position.y)),
-          ]);
-        }
+        if (wasMaximized) await win.unmaximize();
         await win.setMinSize(new LogicalSize(MINI_WINDOW_WIDTH, MINI_WINDOW_HEIGHT));
         await win.setResizable(false);
 
         const miniWidth = miniLyricsMode === 'attached' ? MINI_WINDOW_WITH_LYRICS_WIDTH : MINI_WINDOW_WIDTH;
         const targetBounds = await getCenteredBounds(miniWidth, MINI_WINDOW_HEIGHT);
         if (targetBounds) {
-          await animateWindowBounds(win, targetBounds.size, targetBounds.position);
+          try {
+            await animateWindowBounds(win, targetBounds.size, targetBounds.position);
+          } catch (error) {
+            console.warn('Mini-player resize animation failed; applying the target bounds directly:', error);
+          }
+          // Always enforce the final dimensions; intermediate animation frames are best-effort.
+          await win.setSize(new LogicalSize(miniWidth, MINI_WINDOW_HEIGHT));
+          await win.center();
         } else {
           await win.setSize(new LogicalSize(miniWidth, MINI_WINDOW_HEIGHT));
           await win.center();
@@ -468,15 +468,26 @@ export const App: React.FC = () => {
         if (previous?.wasMaximized) {
           const monitor = await currentMonitor().catch(() => null);
           if (monitor) {
-            await animateWindowBounds(win, monitor.workArea.size, monitor.workArea.position);
+            try {
+              await animateWindowBounds(win, monitor.workArea.size, monitor.workArea.position);
+            } catch (error) {
+              console.warn('Window restore animation failed; maximizing directly:', error);
+            }
           }
+          // Do not let a failed tween strand the app at mini-player dimensions.
           await win.maximize();
         } else if (previous) {
-          await animateWindowBounds(
-            win,
-            new PhysicalSize(previous.width, previous.height),
-            new PhysicalPosition(previous.x, previous.y),
-          );
+          try {
+            await animateWindowBounds(
+              win,
+              new PhysicalSize(previous.width, previous.height),
+              new PhysicalPosition(previous.x, previous.y),
+            );
+          } catch (error) {
+            console.warn('Window restore animation failed; applying the saved bounds directly:', error);
+          }
+          await win.setSize(new PhysicalSize(previous.width, previous.height));
+          await win.setPosition(new PhysicalPosition(previous.x, previous.y));
         }
       } catch (error) {
         console.warn('Unable to animate window back to standard mode:', error);
