@@ -21,10 +21,36 @@ interface ArtistData {
   searchStr: string;
 }
 
-// Module-level memoization cache to prevent expensive re-grouping when switching tabs
+// Keep a short-lived warm cache for quick tab switches, then release grouped Track
+// references so inactive collection views do not pin an old library snapshot forever.
+const COLLECTION_CACHE_TTL_MS = 60_000;
 let cachedTracksRef: Track[] | null = null;
 let cachedLangRef: string | null = null;
 let cachedArtists: ArtistData[] = [];
+let cachedArtistsTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearCachedArtists() {
+  if (cachedArtistsTimer) clearTimeout(cachedArtistsTimer);
+  cachedArtistsTimer = null;
+  cachedTracksRef = null;
+  cachedLangRef = null;
+  cachedArtists = [];
+}
+
+function cacheArtists(tracks: Track[], language: string, artists: ArtistData[]) {
+  clearCachedArtists();
+  cachedTracksRef = tracks;
+  cachedLangRef = language;
+  cachedArtists = artists;
+  cachedArtistsTimer = setTimeout(() => {
+    if (cachedTracksRef === tracks && cachedLangRef === language) {
+      cachedArtistsTimer = null;
+      cachedTracksRef = null;
+      cachedLangRef = null;
+      cachedArtists = [];
+    }
+  }, COLLECTION_CACHE_TTL_MS);
+}
 
 // Memoized ArtistCard item component for zero-cost re-renders
 const ArtistCard = memo<{
@@ -115,9 +141,7 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
     }
 
     if (tracks.length === 0) {
-      cachedTracksRef = tracks;
-      cachedLangRef = language;
-      cachedArtists = [];
+      cacheArtists(tracks, language, []);
       setArtistCollection({ tracks, language, items: [], isLoading: false });
       return;
     }
@@ -167,9 +191,7 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
       for (const artist of result) artist.albumsCount = artist.albumSet.size;
       result.sort((a, b) => collator.compare(a.name, b.name));
 
-      cachedTracksRef = tracks;
-      cachedLangRef = language;
-      cachedArtists = result;
+      cacheArtists(tracks, language, result);
       setArtistCollection({ tracks, language, items: result, isLoading: false });
     };
 

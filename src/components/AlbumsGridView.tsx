@@ -23,10 +23,36 @@ interface AlbumData {
   searchStr: string;
 }
 
-// Module-level memoization cache to prevent expensive re-grouping when switching tabs
+// Keep a short-lived warm cache for quick tab switches, then release grouped Track
+// references so inactive collection views do not pin an old library snapshot forever.
+const COLLECTION_CACHE_TTL_MS = 60_000;
 let cachedTracksRef: Track[] | null = null;
 let cachedLangRef: string | null = null;
 let cachedAlbums: AlbumData[] = [];
+let cachedAlbumsTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearCachedAlbums() {
+  if (cachedAlbumsTimer) clearTimeout(cachedAlbumsTimer);
+  cachedAlbumsTimer = null;
+  cachedTracksRef = null;
+  cachedLangRef = null;
+  cachedAlbums = [];
+}
+
+function cacheAlbums(tracks: Track[], language: string, albums: AlbumData[]) {
+  clearCachedAlbums();
+  cachedTracksRef = tracks;
+  cachedLangRef = language;
+  cachedAlbums = albums;
+  cachedAlbumsTimer = setTimeout(() => {
+    if (cachedTracksRef === tracks && cachedLangRef === language) {
+      cachedAlbumsTimer = null;
+      cachedTracksRef = null;
+      cachedLangRef = null;
+      cachedAlbums = [];
+    }
+  }, COLLECTION_CACHE_TTL_MS);
+}
 
 // Memoized AlbumCard item component for zero-cost re-renders
 const AlbumCard = memo<{
@@ -127,9 +153,7 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
     }
 
     if (tracks.length === 0) {
-      cachedTracksRef = tracks;
-      cachedLangRef = language;
-      cachedAlbums = [];
+      cacheAlbums(tracks, language, []);
       setAlbumCollection({ tracks, language, items: [], isLoading: false });
       return;
     }
@@ -180,9 +204,7 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
       const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
       const result = Array.from(map.values()).sort((a, b) => collator.compare(a.name, b.name));
 
-      cachedTracksRef = tracks;
-      cachedLangRef = language;
-      cachedAlbums = result;
+      cacheAlbums(tracks, language, result);
       setAlbumCollection({ tracks, language, items: result, isLoading: false });
     };
 

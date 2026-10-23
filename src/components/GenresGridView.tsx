@@ -33,10 +33,36 @@ const GENRE_GRADIENTS = [
   'from-teal-600/30 to-emerald-800/40',
 ];
 
-// Module-level memoization cache to prevent expensive re-grouping when switching tabs
+// Keep a short-lived warm cache for quick tab switches, then release grouped Track
+// references so inactive collection views do not pin an old library snapshot forever.
+const COLLECTION_CACHE_TTL_MS = 60_000;
 let cachedTracksRef: Track[] | null = null;
 let cachedLangRef: string | null = null;
 let cachedGenres: GenreData[] = [];
+let cachedGenresTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearCachedGenres() {
+  if (cachedGenresTimer) clearTimeout(cachedGenresTimer);
+  cachedGenresTimer = null;
+  cachedTracksRef = null;
+  cachedLangRef = null;
+  cachedGenres = [];
+}
+
+function cacheGenres(tracks: Track[], language: string, genres: GenreData[]) {
+  clearCachedGenres();
+  cachedTracksRef = tracks;
+  cachedLangRef = language;
+  cachedGenres = genres;
+  cachedGenresTimer = setTimeout(() => {
+    if (cachedTracksRef === tracks && cachedLangRef === language) {
+      cachedGenresTimer = null;
+      cachedTracksRef = null;
+      cachedLangRef = null;
+      cachedGenres = [];
+    }
+  }, COLLECTION_CACHE_TTL_MS);
+}
 
 // Memoized GenreCard item component for zero-cost re-renders
 const GenreCard = memo<{
@@ -122,9 +148,7 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
     }
 
     if (tracks.length === 0) {
-      cachedTracksRef = tracks;
-      cachedLangRef = language;
-      cachedGenres = [];
+      cacheGenres(tracks, language, []);
       setGenreCollection({ tracks, language, items: [], isLoading: false });
       return;
     }
@@ -181,9 +205,7 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
       }
 
       const result = Array.from(map.values()).sort((a, b) => b.tracks.length - a.tracks.length);
-      cachedTracksRef = tracks;
-      cachedLangRef = language;
-      cachedGenres = result;
+      cacheGenres(tracks, language, result);
       setGenreCollection({ tracks, language, items: result, isLoading: false });
     };
 
