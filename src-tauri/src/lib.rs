@@ -1586,7 +1586,71 @@ fn get_system_accent_color() -> Result<String, String> {
     Ok("#0078d4".to_string())
 }
 
+#[cfg(target_os = "windows")]
+fn set_main_webview_memory_target(app: &tauri::AppHandle, low_memory: bool) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+        ICoreWebView2_19,
+    };
+
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let log_label = window.label().to_string();
+    let callback_label = log_label.clone();
+    let target_level = if low_memory {
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+    } else {
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL
+    };
+
+    if let Err(error) = window.with_webview(move |webview| {
+        use windows_core::Interface;
+
+        let result = unsafe {
+            webview
+                .controller()
+                .CoreWebView2()
+                .and_then(|core| core.cast::<ICoreWebView2_19>())
+                .and_then(|core| core.SetMemoryUsageTargetLevel(target_level))
+        };
+
+        match result {
+            Ok(()) => logger::log(
+                "INFO",
+                "WEBVIEW_MEMORY",
+                &format!(
+                    "window={} target={}",
+                    callback_label,
+                    if low_memory { "low" } else { "normal" }
+                ),
+            ),
+            Err(error) => logger::log(
+                "WARN",
+                "WEBVIEW_MEMORY",
+                &format!(
+                    "window={} target={} failed: {}",
+                    callback_label,
+                    if low_memory { "low" } else { "normal" },
+                    error
+                ),
+            ),
+        }
+    }) {
+        logger::log(
+            "WARN",
+            "WEBVIEW_MEMORY",
+            &format!("window={} unable to schedule memory target: {}", log_label, error),
+        );
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_main_webview_memory_target(_app: &tauri::AppHandle, _low_memory: bool) {}
+
 fn show_main_window(app: &tauri::AppHandle) {
+    set_main_webview_memory_target(app, false);
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
@@ -1774,12 +1838,6 @@ fn minimize_window(window: tauri::Window) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn trim_memory() {
-    #[cfg(target_os = "windows")]
-    windows_process_grouping::trim_working_set();
-}
-
-#[tauri::command]
 fn is_window_maximized(window: tauri::Window) -> Result<bool, String> {
     window.is_maximized().map_err(|error| error.to_string())
 }
@@ -1797,8 +1855,13 @@ fn toggle_maximize_window(window: tauri::Window) -> Result<bool, String> {
 }
 
 #[tauri::command]
-fn close_window(window: tauri::Window, state: State<'_, AppState>) -> Result<(), String> {
+fn close_window(
+    window: tauri::Window,
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     if state.close_to_tray.load(Ordering::Relaxed) {
+        set_main_webview_memory_target(&app_handle, true);
         window.hide().map_err(|error| error.to_string())
     } else {
         clean_exit();
@@ -2029,7 +2092,6 @@ mod windows_process_grouping {
             cbJobObjectInformationLength: u32,
         ) -> i32;
         fn GetCurrentProcess() -> *mut std::ffi::c_void;
-        fn SetProcessWorkingSetSize(hProcess: *mut std::ffi::c_void, dwMinimumWorkingSetSize: usize, dwMaximumWorkingSetSize: usize) -> i32;
         fn CreateToolhelp32Snapshot(dwFlags: u32, th32ProcessID: u32) -> *mut std::ffi::c_void;
         fn Process32FirstW(hSnapshot: *mut std::ffi::c_void, lppe: *mut PROCESSENTRY32W) -> i32;
         fn Process32NextW(hSnapshot: *mut std::ffi::c_void, lppe: *mut PROCESSENTRY32W) -> i32;
@@ -2052,8 +2114,6 @@ mod windows_process_grouping {
     }
 
     const TH32CS_SNAPPROCESS: u32 = 0x00000002;
-    const PROCESS_SET_QUOTA: u32 = 0x0100;
-    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
 
     pub fn set_job_kill_on_close(enabled: bool) -> Result<(), String> {
         unsafe {
@@ -2077,57 +2137,6 @@ mod windows_process_grouping {
                 Err(std::io::Error::last_os_error().to_string())
             } else {
                 Ok(())
-            }
-        }
-    }
-
-    pub fn trim_working_set() {
-        unsafe {
-            // 1. Trim our own main process
-            let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
-
-            // 2. Enumerate and trim all descendant WebView2 processes (browser, GPU, renderer)
-            let my_pid = std::process::id();
-            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-            if !snapshot.is_null() && snapshot as isize != -1 {
-                let mut pids_to_trim = std::collections::HashSet::new();
-                pids_to_trim.insert(my_pid);
-
-                let mut entries = Vec::new();
-                let mut pe: PROCESSENTRY32W = std::mem::zeroed();
-                pe.dw_size = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-
-                if Process32FirstW(snapshot, &mut pe) != 0 {
-                    loop {
-                        entries.push((pe.th32_process_id, pe.th32_parent_process_id));
-                        if Process32NextW(snapshot, &mut pe) == 0 {
-                            break;
-                        }
-                    }
-                }
-                let _ = CloseHandle(snapshot);
-
-                // Multi-pass to collect child and grandchild processes
-                let mut changed = true;
-                while changed {
-                    changed = false;
-                    for &(pid, ppid) in &entries {
-                        if pids_to_trim.contains(&ppid) && !pids_to_trim.contains(&pid) {
-                            pids_to_trim.insert(pid);
-                            changed = true;
-                        }
-                    }
-                }
-
-                for pid in pids_to_trim {
-                    if pid != my_pid {
-                        let h_proc = OpenProcess(PROCESS_SET_QUOTA | PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-                        if !h_proc.is_null() {
-                            let _ = SetProcessWorkingSetSize(h_proc, usize::MAX, usize::MAX);
-                            let _ = CloseHandle(h_proc);
-                        }
-                    }
-                }
             }
         }
     }
@@ -2392,6 +2401,7 @@ pub fn run() {
                     let state = window.app_handle().state::<AppState>();
                     if state.close_to_tray.load(Ordering::Relaxed) {
                         api.prevent_close();
+                        set_main_webview_memory_target(&window.app_handle(), true);
                         let _ = window.hide();
                     } else {
                         clean_exit();
@@ -2500,7 +2510,6 @@ pub fn run() {
             check_file_exists,
             batch_check_files_exist,
             pick_single_audio_file,
-            trim_memory,
             native_play,
             native_pause,
             native_resume,

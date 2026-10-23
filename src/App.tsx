@@ -1237,22 +1237,6 @@ export const App: React.FC = () => {
     });
   }, [startupDataLoaded, startupInterface, enterMiniMode]);
 
-  // Automated background memory optimization (trims cold working set pages in Windows)
-  useEffect(() => {
-    if (!isTauri()) return;
-    const interval = setInterval(() => {
-      invoke('trim_memory').catch(() => {});
-    }, 60000);
-    const handleBlur = () => {
-      invoke('trim_memory').catch(() => {});
-    };
-    window.addEventListener('blur', handleBlur);
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('blur', handleBlur);
-    };
-  }, []);
-
   // Prevent default browser right-click menu
   useEffect(() => {
     const handleGlobalContextMenu = (e: MouseEvent) => {

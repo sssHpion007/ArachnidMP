@@ -2593,10 +2593,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     tabIndex={-1}
                     onMouseDown={event => event.preventDefault()}
                     onClick={() => onSetCloseBehavior?.('exit')}
-                    className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'exit' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
+                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'exit' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
                   >
                     <X className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{language === 'ru' ? 'Закрыть' : 'Quit'}</span>
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'Закрыть' : 'Quit'}</span>
                   </button>
                   <button
                     ref={el => { closeBehaviorRefs.current.tray = el; }}
@@ -2606,10 +2606,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     tabIndex={-1}
                     onMouseDown={event => event.preventDefault()}
                     onClick={() => onSetCloseBehavior?.('tray')}
-                    className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'tray' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
+                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'tray' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
                   >
                     <Radio className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{language === 'ru' ? 'Скрыть в трей' : 'Hide to tray'}</span>
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'В трей' : 'To tray'}</span>
                   </button>
                 </div>
               </section>
@@ -2644,10 +2644,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     tabIndex={-1}
                     onMouseDown={event => event.preventDefault()}
                     onClick={() => onSetStartupInterface?.('full')}
-                    className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'full' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
+                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'full' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
                   >
                     <Monitor className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{language === 'ru' ? 'Полный режим' : 'Full interface'}</span>
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'Полный' : 'Full'}</span>
                   </button>
                   <button
                     ref={el => { startupInterfaceRefs.current.mini = el; }}
@@ -2657,10 +2657,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     tabIndex={-1}
                     onMouseDown={event => event.preventDefault()}
                     onClick={() => onSetStartupInterface?.('mini')}
-                    className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'mini' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
+                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'mini' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
                   >
                     <Music className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{language === 'ru' ? 'Мини-плеер' : 'Mini player'}</span>
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'Мини-плеер' : 'Mini player'}</span>
                   </button>
                 </div>
               </section>
