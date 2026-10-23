@@ -562,6 +562,25 @@ fn library_db_seed_legacy_from_disk(
         return Ok(0);
     }
     let references = storage::load_legacy_track_references()?;
+    let seeded = state.seed_legacy_track_map(&references)?;
+    if !references.is_empty() {
+        logger::log(
+            "INFO",
+            "LIBRARY_MIGRATION",
+            &format!(
+                "legacy catalog retained; seeded {seeded} path/ID references from {} records for playlist continuity",
+                references.len(),
+            ),
+        );
+    }
+    Ok(seeded)
+}
+
+#[tauri::command]
+fn library_db_seed_playlist_track_references(
+    references: Vec<library_db::LegacyTrackReference>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<usize, String> {
     state.seed_legacy_track_map(&references)
 }
 
@@ -626,6 +645,8 @@ async fn scan_library_to_database(
         const BATCH_SIZE: usize = 128;
         let mut batch = Vec::with_capacity(BATCH_SIZE);
         let mut scanned = 0usize;
+        let mut discovered = 0usize;
+        let mut path_results = Vec::new();
 
         let mut flush = |batch: &mut Vec<serde_json::Value>| -> Result<(), String> {
             if batch.is_empty() { return Ok(()); }
@@ -637,22 +658,43 @@ async fn scan_library_to_database(
 
         for path_string in paths {
             let path = Path::new(&path_string);
+            let path_label = path.to_string_lossy().replace([',', '[', ']'], "_");
+            let before = discovered;
             if path.is_dir() {
-                for entry in walkdir::WalkDir::new(path).into_iter().filter_map(Result::ok) {
+                let mut walk_errors = 0usize;
+                for entry in walkdir::WalkDir::new(path) {
+                    let entry = match entry {
+                        Ok(entry) => entry,
+                        Err(_) => { walk_errors += 1; continue; }
+                    };
                     if !entry.path().is_file() { continue; }
                     if let Some(track) = parse_single_file(&entry.path().to_string_lossy()) {
                         batch.push(serde_json::to_value(track).map_err(|error| error.to_string())?);
+                        discovered = discovered.saturating_add(1);
                         if batch.len() >= BATCH_SIZE { flush(&mut batch)?; }
                     }
                 }
+                path_results.push(format!("path={path_label}:directory:tracks={}:walk_errors={walk_errors}", discovered - before));
             } else if path.is_file() {
                 if let Some(track) = parse_single_file(&path_string) {
                     batch.push(serde_json::to_value(track).map_err(|error| error.to_string())?);
+                    discovered = discovered.saturating_add(1);
                     if batch.len() >= BATCH_SIZE { flush(&mut batch)?; }
                 }
+                path_results.push(format!("path={path_label}:file:tracks={}", discovered - before));
+            } else {
+                path_results.push(format!("path={path_label}:missing_or_unreadable"));
             }
         }
         flush(&mut batch)?;
+        logger::log(
+            "INFO",
+            "LIBRARY_SCAN",
+            &format!(
+                "paths={} audio_tracks={} persisted={} results=[{}]",
+                path_results.len(), discovered, scanned, path_results.join(","),
+            ),
+        );
         Ok(scanned)
     })
     .await
@@ -2721,6 +2763,7 @@ pub fn run() {
             library_db_get_by_ids,
             library_db_get_by_paths,
             library_db_seed_legacy_from_disk,
+            library_db_seed_playlist_track_references,
             library_db_upsert_batch,
             library_db_merge_details,
             library_db_merge_summary,

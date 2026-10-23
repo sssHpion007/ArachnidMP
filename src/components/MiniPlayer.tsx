@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
@@ -137,6 +137,7 @@ interface MiniLibraryCardProps {
   accentColor?: string;
   onPlay?: () => void;
   playLabel?: string;
+  onResolveCover?: () => Promise<string | null>;
 }
 
 const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
@@ -148,13 +149,29 @@ const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
   accentColor,
   onPlay,
   playLabel,
-}) => (
+  onResolveCover,
+}) => {
+  const [resolvedCover, setResolvedCover] = useState<string | null>(null);
+  useEffect(() => {
+    if (coverArt || !onResolveCover) {
+      setResolvedCover(null);
+      return;
+    }
+    let active = true;
+    void onResolveCover().then(cover => {
+      if (active) setResolvedCover(cover);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [coverArt, onResolveCover]);
+  const displayedCover = coverArt || resolvedCover;
+
+  return (
   <div
     className="group relative aspect-square min-w-0 overflow-hidden rounded-xl border border-md3-outline-variant/15 bg-md3-surface-container-high transition-transform hover:scale-[1.02]"
     style={accentColor ? { borderColor: accentColor } : undefined}
   >
-    {coverArt ? (
-      <img src={coverArt} alt="" loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" />
+    {displayedCover ? (
+      <img src={displayedCover} alt="" loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" />
     ) : (
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high text-md3-primary/70">
         {icon}
@@ -186,7 +203,8 @@ const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
       </button>
     )}
   </div>
-);
+  );
+};
 
 interface MiniPlayerProps {
   currentTrack: Track | null;
@@ -217,7 +235,9 @@ interface MiniPlayerProps {
   onToggleShuffle: () => void;
   onToggleRepeat: () => void;
   onPlayQueueTrack: (index: number) => void;
-  onPlayTrack: (track: Track, context: Track[]) => void;
+  onPlayTrack: (track: Track, context: Track[], playlistId?: string) => void;
+  onPlayPlaylist: (playlist: Playlist) => void;
+  onResolveTracksByIds: (trackIds: string[]) => Promise<Track[]>;
   onClearQueue: () => void;
   onToggleLyrics: () => void;
   onToggleDiscord: () => void;
@@ -272,6 +292,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   onToggleRepeat,
   onPlayQueueTrack,
   onPlayTrack,
+  onPlayPlaylist,
+  onResolveTracksByIds,
   onClearQueue,
   onToggleLyrics,
   onToggleDiscord,
@@ -292,6 +314,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const [selectedPlaylistFolderId, setSelectedPlaylistFolderId] = useState<string | null>(null);
   const [selectedPlaylistGroupId, setSelectedPlaylistGroupId] = useState<string | null>(null);
   const [selectedCollection, setSelectedCollection] = useState<{ type: LibraryCollectionType; name: string } | null>(null);
+  const [resolvedPlaylistTracks, setResolvedPlaylistTracks] = useState<{ playlistId: string; ids: string[]; tracks: Track[] } | null>(null);
+  const currentPlaylist = playlists.find(playlist => playlist.id === selectedPlaylistId) || null;
   const [isCompactVolHovered, setIsCompactVolHovered] = useState(false);
   const [queueSelectedIndex, setQueueSelectedIndex] = useState(queueIndex);
   const [libraryTrackSelectedIndex, setLibraryTrackSelectedIndex] = useState(0);
@@ -476,7 +500,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         event.stopPropagation();
         if (event.repeat) return;
         const selectedIndex = Math.max(0, Math.min(listTracks.length - 1, libraryTrackSelectedIndex));
-        onPlayTrack(listTracks[selectedIndex], listTracks);
+        onPlayTrack(listTracks[selectedIndex], listTracks, currentPlaylist?.id);
         return;
       }
 
@@ -504,7 +528,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     };
     window.addEventListener('keydown', handleMiniPlayerKeyboard, true);
     return () => window.removeEventListener('keydown', handleMiniPlayerKeyboard, true);
-  }, [bottomPanel, libraryTab, libraryTrackSelectedIndex, onPlayQueueTrack, onPlayTrack, queue.length, queueIndex, queueSelectedIndex]);
+  }, [bottomPanel, libraryTab, libraryTrackSelectedIndex, currentPlaylist?.id, onPlayQueueTrack, onPlayTrack, queue.length, queueIndex, queueSelectedIndex]);
 
   useEffect(() => {
     setQueueSelectedIndex(current => queue.length > 0 ? Math.max(0, Math.min(current, queue.length - 1)) : 0);
@@ -587,7 +611,39 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
 
   const safeDuration = duration > 0 ? duration : (currentTrack?.duration || 0);
   const safeTime = Math.max(0, Math.min(safeDuration || 0, currentTime));
-  const currentPlaylist = playlists.find(playlist => playlist.id === selectedPlaylistId) || null;
+  useEffect(() => {
+    if (!isTauri() || !currentPlaylist) {
+      setResolvedPlaylistTracks(null);
+      return;
+    }
+    const cached = resolvedPlaylistTracks;
+    if (cached?.playlistId === currentPlaylist.id && cached.ids.length === currentPlaylist.trackIds.length
+      && cached.ids.every((id, index) => id === currentPlaylist.trackIds[index])) return;
+    let active = true;
+    const trackIds = [...currentPlaylist.trackIds];
+    void onResolveTracksByIds(trackIds).then(rows => {
+      if (active) setResolvedPlaylistTracks({ playlistId: currentPlaylist.id, ids: trackIds, tracks: rows });
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [currentPlaylist?.id, currentPlaylist?.trackIds, onResolveTracksByIds, resolvedPlaylistTracks]);
+
+  const resolvePlaylistCover = useCallback(async (playlistId: string): Promise<string | null> => {
+    const playlist = playlists.find(item => item.id === playlistId);
+    if (!playlist) return null;
+    if (playlist.coverArt) return playlist.coverArt;
+    if (!isTauri()) return getPlaylistTrackList(playlist).find(track => track.coverArt)?.coverArt || null;
+    const localTrack = getPlaylistTrackList(playlist).find(track => track.coverArt);
+    if (localTrack?.coverArt) return localTrack.coverArt;
+    // Resolve small ordered batches until a real artwork row is found. Cards are
+    // virtualized, so this work only happens for playlists currently on screen.
+    const coverSearchLimit = Math.min(playlist.trackIds.length, 1000);
+    for (let offset = 0; offset < coverSearchLimit; offset += 100) {
+      const rows = await onResolveTracksByIds(playlist.trackIds.slice(offset, offset + 100));
+      const cover = rows.find(track => track.coverArt)?.coverArt;
+      if (cover) return cover;
+    }
+    return null;
+  }, [playlists, tracks, onResolveTracksByIds]);
   const selectedPlaylistFolder = playlistFolders.find(folder => folder.id === selectedPlaylistFolderId) || null;
   const selectedPlaylistGroup = playlistGroups.find(group => group.id === selectedPlaylistGroupId) || null;
   const playlistFoldersInView = playlistFolders
@@ -645,8 +701,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     }));
   };
 
-  const playTrackList = (trackList: Track[]) => {
-    if (trackList.length > 0) onPlayTrack(trackList[0], trackList);
+  const playTrackList = (trackList: Track[], playlistId?: string) => {
+    if (trackList.length > 0) onPlayTrack(trackList[0], trackList, playlistId);
   };
 
   const isCollectionTab = libraryTab === 'albums' || libraryTab === 'artists' || libraryTab === 'genres';
@@ -675,6 +731,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   }, [selectedCollectionGroup, tracks]);
   const libraryTracks = useMemo(() => {
     if (currentPlaylist) {
+      const resolved = resolvedPlaylistTracks;
+      if (resolved?.playlistId === currentPlaylist.id && resolved.ids.length === currentPlaylist.trackIds.length
+        && resolved.ids.every((id, index) => id === currentPlaylist.trackIds[index])) return resolved.tracks;
       const byId = new Map(tracks.map(track => [track.id, track]));
       return currentPlaylist.trackIds.map(id => byId.get(id)).filter((track): track is Track => !!track);
     }
@@ -682,7 +741,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     if (libraryTab === 'favorites') return visibleTracks.filter(track => track.isFavorite);
     if (libraryTab === 'tracks') return visibleTracks;
     return [];
-  }, [currentPlaylist, libraryTab, selectedCollection, selectedCollectionTracks, tracks, visibleTracks]);
+  }, [currentPlaylist, libraryTab, resolvedPlaylistTracks, selectedCollection, selectedCollectionTracks, tracks, visibleTracks]);
   libraryTracksRef.current = libraryTracks;
   const visibleQueueRows = getFixedRowRange(queue, queueScrollTop, queueViewportHeight);
   const visibleLibraryRows = getFixedRowRange(libraryTracks, libraryScrollTop, libraryViewportHeight);
@@ -1260,7 +1319,6 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                                 );
                               }
                               const playlist = entry.item;
-                              const playlistTracks = getPlaylistTrackList(playlist);
                               const cover = playlist.coverArt || tracks.find(track => playlist.trackIds.includes(track.id) && track.coverArt)?.coverArt;
                               const PlaylistIcon = playlist.icon ? getFolderIconComponent(playlist.icon) : ListMusic;
                               return (
@@ -1271,7 +1329,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                                   icon={<PlaylistIcon size={28} />}
                                   accentColor={playlist.color ? getFolderColorHex(playlist.color) : undefined}
                                   onClick={() => setSelectedPlaylistId(playlist.id)}
-                                  onPlay={playlistTracks.length > 0 ? () => playTrackList(playlistTracks) : undefined}
+                                  onPlay={playlist.trackIds.length > 0 ? () => onPlayPlaylist(playlist) : undefined}
+                                  onResolveCover={() => resolvePlaylistCover(playlist.id)}
                                   playLabel={text(language, 'Воспроизвести всё', 'Play all')}
                                 />
                               );
@@ -1331,7 +1390,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                               style={{ position: 'absolute', top: index * MINI_TRACK_ROW_HEIGHT, left: 0, right: 0, height: MINI_TRACK_ROW_HEIGHT }}
                               onClick={() => {
                                 setLibraryTrackSelectedIndex(index);
-                                onPlayTrack(track, libraryTracks);
+                                onPlayTrack(track, libraryTracks, currentPlaylist?.id);
                               }}
                             />
                           );

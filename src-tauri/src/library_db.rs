@@ -586,7 +586,7 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
     transaction.execute(
         "INSERT INTO tracks (id,path,path_key,title,artist,album,genre,year,track_number,track_total,duration,src,cover_art,bitrate,format,file_size,date_added,play_count,is_favorite,is_missing,search_text,details_json)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)
-         ON CONFLICT(id) DO UPDATE SET path=excluded.path,path_key=excluded.path_key,title=excluded.title,artist=excluded.artist,album=excluded.album,genre=excluded.genre,year=excluded.year,track_number=excluded.track_number,track_total=excluded.track_total,duration=excluded.duration,src=excluded.src,cover_art=excluded.cover_art,bitrate=excluded.bitrate,format=excluded.format,file_size=excluded.file_size,date_added=excluded.date_added,play_count=excluded.play_count,is_favorite=excluded.is_favorite,is_missing=excluded.is_missing,search_text=excluded.search_text,details_json=excluded.details_json",
+         ON CONFLICT(id) DO UPDATE SET path=excluded.path,path_key=excluded.path_key,title=excluded.title,artist=excluded.artist,album=excluded.album,genre=excluded.genre,year=excluded.year,track_number=excluded.track_number,track_total=excluded.track_total,duration=excluded.duration,src=excluded.src,cover_art=COALESCE(excluded.cover_art,tracks.cover_art),bitrate=excluded.bitrate,format=excluded.format,file_size=excluded.file_size,date_added=excluded.date_added,play_count=excluded.play_count,is_favorite=excluded.is_favorite,is_missing=excluded.is_missing,search_text=excluded.search_text,details_json=excluded.details_json",
         params![
             id, path, path_key, title, artist, album, genre,
             number(value,"year","year"), number(value,"trackNumber","track_number"), number(value,"trackTotal","track_total"),
@@ -776,6 +776,19 @@ mod tests {
         assert_eq!(details.lyrics.as_deref(), Some("new lyrics"));
         assert_eq!(details.composer.as_deref(), Some("Composer"));
         assert_eq!(details.comment, None);
+    }
+
+    #[test]
+    fn rescan_without_cover_does_not_erase_existing_cover() {
+        let db = LibraryDb::open_in_memory().unwrap();
+        db.upsert_batch(&[json!({
+            "id":"1", "title":"Song", "artist":"Artist", "album":"Album",
+            "coverArt":"config/covers/album.jpg"
+        })]).unwrap();
+        db.upsert_batch(&[json!({
+            "id":"1", "title":"Song", "artist":"Artist", "album":"Album"
+        })]).unwrap();
+        assert_eq!(db.summaries_by_ids(&["1".into()]).unwrap()[0].cover_art.as_deref(), Some("config/covers/album.jpg"));
     }
 
     #[test]

@@ -620,8 +620,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       const count = await onScanLibrary();
       setScanResult(
         language === 'ru'
-          ? count > 0 ? `Добавлено новых треков: ${count}` : 'Новых треков не найдено'
-          : count > 0 ? `Added ${count} new tracks` : 'No new tracks found'
+          ? count > 0 ? `Обработано аудиотреков: ${count}` : 'Аудиотреки не найдены'
+          : count > 0 ? `Processed audio tracks: ${count}` : 'No audio tracks found'
       );
     } catch (e) {
       setScanResult(language === 'ru' ? 'Ошибка при сканировании' : 'Scan error');

@@ -123,7 +123,7 @@ fn extract_cover_filename(cover_val: &str) -> Option<String> {
 }
 
 /// Convert any cover string (asset URL, old absolute path, base64, relative)
-/// to a portable relative path "config/covers/<filename>" suitable for saving in library.json / playlists.
+/// to a portable relative path "config/covers/<filename>" suitable for saving in playlists.
 pub fn to_portable_cover(cover_val: &str, base_dir: &Path) -> Option<String> {
     let trimmed = cover_val.trim();
     if trimmed.is_empty() {
@@ -684,50 +684,9 @@ pub fn save_modular_data(data: &Value) -> Result<bool, String> {
             .map_err(|e| format!("Failed to write settings to {:?}: {}", settings_path, e))?;
     }
 
-    // 2. Save Tracks / Library Cache
-    if let Some(tracks) = data.get("tracks") {
-        let base_dir = get_portable_base_dir();
-        let mut clean_tracks = tracks.clone();
-        if let Some(arr) = clean_tracks.as_array_mut() {
-            let mut seen_ids = std::collections::HashSet::new();
-            let mut seen_paths = std::collections::HashSet::new();
-            let mut deduped: Vec<Value> = Vec::new();
-
-            for mut track in arr.drain(..) {
-                if let Some(cover_val) = track.get("coverArt").and_then(|c| c.as_str()) {
-                    if let Some(portable) = to_portable_cover(cover_val, &base_dir) {
-                        track["coverArt"] = json!(portable);
-                    } else {
-                        track["coverArt"] = json!(null);
-                    }
-                }
-                // Convert tracks inside portable music/ directory to relative portable path
-                if let Some(path_val) = track.get("path").and_then(|p| p.as_str()) {
-                    if let Some(portable_music) = to_portable_music_path(path_val, &base_dir) {
-                        track["path"] = json!(portable_music);
-                    }
-                }
-
-                let id = track.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let path = track.get("path").and_then(|v| v.as_str()).unwrap_or("").replace('\\', "/").to_lowercase();
-
-                let is_dup = (!id.is_empty() && seen_ids.contains(&id)) || (!path.is_empty() && seen_paths.contains(&path));
-                if is_dup {
-                    continue;
-                }
-                if !id.is_empty() { seen_ids.insert(id); }
-                if !path.is_empty() { seen_paths.insert(path); }
-                deduped.push(track);
-            }
-            *arr = deduped;
-        }
-        let library_path = config_dir.join("library.json");
-        let library_json = json!({ "tracks": clean_tracks });
-        let library_str = serde_json::to_string_pretty(&library_json)
-            .map_err(|e| format!("Failed to serialize library: {}", e))?;
-        fs::write(&library_path, library_str)
-            .map_err(|e| format!("Failed to write library to {:?}: {}", library_path, e))?;
-    }
+    // 2. The SQLite database is the only active media catalog. Older library.json
+    // files are deliberately left untouched for one-time ID/path recovery; never
+    // overwrite them with a paginated view or remove them without user consent.
 
     // 3. Save Playlists Hierarchy Tree (folders & groups) only when supplied.
     // This lets settings-only writes avoid touching the playlist files.

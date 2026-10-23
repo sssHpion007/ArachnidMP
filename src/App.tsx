@@ -1045,7 +1045,7 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // Load Portable Data on Startup (strictly from arachnid_data.json next to exe in Tauri)
+  // Load playlist and preference data; SQLite remains the native media catalog.
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -1062,36 +1062,26 @@ export const App: React.FC = () => {
           const validIdMap = new Map<string, string>();
           if (isTauri()) {
             const legacyTracks: any[] = Array.isArray(parsed.tracks) ? parsed.tracks : [];
-            const seenPaths = new Map<string, string>();
-            const seenKeys = new Map<string, string>();
-            const seenIds = new Set<string>();
-
-            for (const track of legacyTracks) {
-              if (!track || typeof track.id !== 'string' || !track.id) continue;
-              const normPath = normalizeTrackPath(track.path);
-              const key = `${(track.title || '').trim().toLowerCase()}|||${(track.artist || '').trim().toLowerCase()}`;
-              if (normPath && seenPaths.has(normPath)) {
-                validIdMap.set(track.id, seenPaths.get(normPath)!);
-                continue;
-              }
-              if (key !== '|||' && key !== 'unknown|||unknown artist' && seenKeys.has(key)) {
-                validIdMap.set(track.id, seenKeys.get(key)!);
-                continue;
-              }
-              if (seenIds.has(track.id)) continue;
-              if (normPath) seenPaths.set(normPath, track.id);
-              if (key !== '|||' && key !== 'unknown|||unknown artist') seenKeys.set(key, track.id);
-              seenIds.add(track.id);
-            }
+            // The native catalog is rebuilt from disk. M3U IDs are connected through
+            // native path references below; never deduplicate playlist IDs by title/artist.
 
             const catalogWasEmpty = await libraryRepository.count() === 0;
             if (catalogWasEmpty) {
               await invoke<number>('library_db_seed_legacy_from_disk');
             }
-            // M3U imports are a small, playlist-scoped set. Persist them before a full scan so
-            // embedded Arachnid IDs are retained when the same files are scanned from folders.
-            if (legacyTracks.length > 0) {
-              await libraryRepository.upsertBatch(legacyTracks as Track[]);
+            // Keep playlist IDs as path references, not catalog rows. The scan below
+            // creates the SQLite catalog from real files while preserving M3U IDs.
+            const playlistReferences = legacyTracks
+              .filter(track => typeof track?.id === 'string' && track.id && typeof track?.path === 'string' && track.path)
+              .map(track => ({
+                id: track.id,
+                path: track.path,
+                isFavorite: Boolean(track.isFavorite),
+                playCount: Number.isFinite(track.playCount) ? track.playCount : 0,
+                dateAdded: Number.isFinite(track.dateAdded) ? track.dateAdded : 0,
+              }));
+            if (playlistReferences.length > 0) {
+              await invoke<number>('library_db_seed_playlist_track_references', { references: playlistReferences });
             }
 
             const loadNativeCatalog = async (): Promise<Track[]> => {
@@ -1108,9 +1098,13 @@ export const App: React.FC = () => {
               return Array.from(new Set([portableMusicPath, ...(Array.isArray(parsed.watchedFolders) ? parsed.watchedFolders : []), ...playlistPaths]));
             };
 
+            const playlistPaths = playlistReferences.map(track => track.path);
             if (catalogWasEmpty) {
               // The first catalog must be populated even if future startup scans are disabled.
               await invoke<number>('scan_library_to_database', { paths: await getScanPaths() });
+            } else if (playlistPaths.length > 0) {
+              // Newly imported M3U files still resolve even when background full scans are off.
+              await invoke<number>('scan_library_to_database', { paths: playlistPaths });
             }
 
             const hydrated = await loadNativeCatalog();
@@ -3177,15 +3171,17 @@ export const App: React.FC = () => {
     }
   };
 
-  const loadFullNativePlaybackContext = async (fallback: Track[]): Promise<Track[]> => {
+  const loadFullNativePlaybackContext = async (fallback: Track[], contextPlaylistId?: string): Promise<Track[]> => {
     if (!isTauri()) return fallback;
     try {
       await libraryWriteQueueRef.current.catch(() => {});
-      const orderedPlaylist = selectedPlaylistId
-        ? playlists.find(item => item.id === selectedPlaylistId)
-        : currentView === 'favorites' && sortBy === 'custom'
-          ? playlists.find(item => item.id === 'pl_favorites')
-          : undefined;
+      const orderedPlaylist = contextPlaylistId !== undefined
+        ? playlists.find(item => item.id === contextPlaylistId)
+        : selectedPlaylistId
+          ? playlists.find(item => item.id === selectedPlaylistId)
+          : currentView === 'favorites' && sortBy === 'custom'
+            ? playlists.find(item => item.id === 'pl_favorites')
+            : undefined;
       let rows: TrackSummary[] = [];
       if (orderedPlaylist) {
         rows = await libraryRepository.byIds(orderedPlaylist.trackIds);
@@ -3219,13 +3215,14 @@ export const App: React.FC = () => {
         } while (offset < total);
       }
       let complete = hydrateNativeSummaryRows(rows);
-      if (orderedPlaylist && searchQuery.trim()) {
-        const query = searchQuery.trim().toLowerCase();
-        complete = complete.filter(item => item.title.toLowerCase().includes(query)
-          || item.artist.toLowerCase().includes(query) || item.album.toLowerCase().includes(query)
-          || Boolean(item.genre?.toLowerCase().includes(query)));
+      // Include freshly imported rows that may not have reached SQLite yet. Rebuild
+      // playlist results from its ID sequence so missing rows never reorder the queue.
+      const byId = new Map(complete.map(item => [item.id, item]));
+      for (const item of fallback) if (!byId.has(item.id)) byId.set(item.id, item);
+      if (orderedPlaylist) {
+        return orderedPlaylist.trackIds.map(id => byId.get(id)).filter((item): item is Track => Boolean(item));
       }
-      if (!selectedPlaylistId && isolatedTrackIds.size > 0) {
+      if (isolatedTrackIds.size > 0) {
         complete = complete.filter(item => !isolatedTrackIds.has(item.id));
       }
       if (sortBy === 'custom') {
@@ -3242,9 +3239,6 @@ export const App: React.FC = () => {
           return sortOrder === 'asc' ? (left > right ? 1 : left < right ? -1 : 0) : (left < right ? 1 : left > right ? -1 : 0);
         });
       }
-      // Include freshly imported rows that may not have reached SQLite yet.
-      const known = new Set(complete.map(item => item.id));
-      for (const item of fallback) if (!known.has(item.id)) complete.push(item);
       return complete;
     } catch (error) {
       console.warn('Unable to load the full playback context from SQLite; using the loaded page:', error);
@@ -3253,7 +3247,7 @@ export const App: React.FC = () => {
   };
 
   // A full view context is materialized only when playback starts; the library itself remains paged.
-  const playTrackWithContext = async (track: Track, contextTracks?: Track[], contextIsComplete = false) => {
+  const playTrackWithContext = async (track: Track, contextTracks?: Track[], contextIsComplete = false, contextPlaylistId?: string) => {
     if (track.isMissing) {
       handleRelocateTrack(track);
       return;
@@ -3261,7 +3255,7 @@ export const App: React.FC = () => {
 
     const list = contextTracks && contextTracks.length > 0 ? contextTracks : [track];
     const detailedTrack = await getTrackWithDetails(track);
-    const completeContext = contextIsComplete ? list : await loadFullNativePlaybackContext(list);
+    const completeContext = contextIsComplete ? list : await loadFullNativePlaybackContext(list, contextPlaylistId);
     const playbackList = completeContext.map(item => toTrackSummary(item.id === detailedTrack.id ? detailedTrack : item));
     setQueue(playbackList);
     const idx = playbackList.findIndex(item => item.id === detailedTrack.id);
@@ -3832,13 +3826,11 @@ export const App: React.FC = () => {
       const portableMusicPath = await invoke<string>('get_portable_music_path');
       const foldersToScan = Array.from(new Set([portableMusicPath, ...watchedFolders]));
       const scanned = await invoke<number>('scan_library_to_database', { paths: foldersToScan });
-      if (scanned > 0) {
-        await loadNativeTracksPage(true);
-      }
+      await loadNativeTracksPage(true);
       return scanned;
     } catch (error) {
       console.warn('Scan library error:', error);
-      return 0;
+      throw error;
     }
   }, [watchedFolders, loadNativeTracksPage]);
 
@@ -4215,8 +4207,8 @@ export const App: React.FC = () => {
     if (plTracks.length > 0) await playTrackWithContext(plTracks[0], plTracks, isTauri());
   };
 
-  const loadNativeTracksByIds = async (trackIds: string[]): Promise<Track[]> =>
-    hydrateNativeSummaryRows(await libraryRepository.byIds(trackIds));
+  const loadNativeTracksByIds = useCallback(async (trackIds: string[]): Promise<Track[]> =>
+    hydrateNativeSummaryRows(await libraryRepository.byIds(trackIds)), []);
 
   const handlePlayNativeGroupByIds = async (trackIds: string[]) => {
     if (trackIds.length === 0) return;
@@ -4704,7 +4696,9 @@ export const App: React.FC = () => {
           onToggleShuffle={handleToggleShuffle}
           onToggleRepeat={handleToggleRepeat}
           onPlayQueueTrack={index => { void playQueueIndex(index); }}
-          onPlayTrack={(track, context) => playTrackWithContext(track, context)}
+          onPlayTrack={(track, context, playlistId) => playTrackWithContext(track, context, false, playlistId)}
+          onPlayPlaylist={handlePlayPlaylist}
+          onResolveTracksByIds={loadNativeTracksByIds}
           onClearQueue={handleClearQueue}
           onToggleLyrics={() => {
             if (miniLyricsMode === 'closed') void attachMiniLyrics();
