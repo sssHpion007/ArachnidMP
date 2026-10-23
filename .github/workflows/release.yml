@@ -148,6 +148,12 @@ jobs:
             Remove-Item $stdoutLog, $stderrLog -Force -ErrorAction SilentlyContinue
           }
 
+      - name: Test SQLite library repository
+        shell: pwsh
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --lib library_db::tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "SQLite library repository tests failed." }
+
       - name: Test native portable updater transaction and rollback safety
         shell: pwsh
         run: |

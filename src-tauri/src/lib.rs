@@ -1,4 +1,5 @@
 mod discord;
+mod library_db;
 mod storage;
 mod player;
 mod logger;
@@ -439,6 +440,118 @@ async fn read_audio_files(paths: Vec<String>) -> Result<Vec<TrackMetadata>, Stri
     })
     .await
     .map_err(|e| format!("Task execution error: {}", e))?
+}
+
+#[tauri::command]
+fn library_db_get_count(
+    search: Option<String>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<u64, String> {
+    state.count(search.as_deref())
+}
+
+#[tauri::command]
+fn library_db_get_page(
+    search: Option<String>,
+    sort_by: String,
+    descending: bool,
+    offset: u64,
+    limit: u32,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<library_db::TrackPage, String> {
+    state.page(search.as_deref(), &sort_by, descending, offset, limit)
+}
+
+#[tauri::command]
+fn library_db_get_details(
+    track_id: String,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<Option<library_db::TrackDetails>, String> {
+    state.details(&track_id)
+}
+
+#[tauri::command]
+fn library_db_get_by_ids(
+    track_ids: Vec<String>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<Vec<library_db::TrackSummary>, String> {
+    state.summaries_by_ids(&track_ids)
+}
+
+#[tauri::command]
+fn library_db_seed_legacy_track_map(
+    tracks: Vec<library_db::LegacyTrackReference>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<usize, String> {
+    state.seed_legacy_track_map(&tracks)
+}
+
+#[tauri::command]
+fn library_db_upsert_batch(
+    tracks: Vec<serde_json::Value>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<usize, String> {
+    state.upsert_batch(&tracks)
+}
+
+#[tauri::command]
+fn library_db_set_favorites(
+    track_ids: Vec<String>,
+    favorite: bool,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<(), String> {
+    state.set_favorites(&track_ids, favorite)
+}
+
+#[tauri::command]
+fn library_db_delete_ids(
+    track_ids: Vec<String>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<(), String> {
+    state.delete_ids(&track_ids)
+}
+
+#[tauri::command]
+async fn scan_library_to_database(
+    paths: Vec<String>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<usize, String> {
+    let database = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        const BATCH_SIZE: usize = 128;
+        let mut batch = Vec::with_capacity(BATCH_SIZE);
+        let mut scanned = 0usize;
+
+        let mut flush = |batch: &mut Vec<serde_json::Value>| -> Result<(), String> {
+            if batch.is_empty() { return Ok(()); }
+            database.upsert_batch(batch)?;
+            scanned = scanned.saturating_add(batch.len());
+            batch.clear();
+            Ok(())
+        };
+
+        for path_string in paths {
+            let path = Path::new(&path_string);
+            if path.is_dir() {
+                for entry in walkdir::WalkDir::new(path).into_iter().filter_map(Result::ok) {
+                    if !entry.path().is_file() { continue; }
+                    if let Some(track) = parse_single_file(&entry.path().to_string_lossy()) {
+                        batch.push(serde_json::to_value(track).map_err(|error| error.to_string())?);
+                        if batch.len() >= BATCH_SIZE { flush(&mut batch)?; }
+                    }
+                }
+            } else if path.is_file() {
+                if let Some(track) = parse_single_file(&path_string) {
+                    batch.push(serde_json::to_value(track).map_err(|error| error.to_string())?);
+                    if batch.len() >= BATCH_SIZE { flush(&mut batch)?; }
+                }
+            }
+        }
+        flush(&mut batch)?;
+        Ok(scanned)
+    })
+    .await
+    .map_err(|error| format!("Library scan task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -2442,6 +2555,13 @@ pub fn run() {
                 tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
             };
 
+            let library_path = storage::get_portable_base_dir()
+                .join("config")
+                .join("library.sqlite3");
+            let library_db = library_db::LibraryDb::open(&library_path)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            app.manage(library_db);
+
             let is_russian = saved_tray_language_is_russian();
             let open_label = if is_russian { "Открыть" } else { "Open" };
             let quit_label = if is_russian { "Выход" } else { "Quit" };
@@ -2494,6 +2614,14 @@ pub fn run() {
             close_to_tray: AtomicBool::new(false),
         })
         .invoke_handler(tauri::generate_handler![
+            library_db_get_count,
+            library_db_get_page,
+            library_db_get_details,
+            library_db_get_by_ids,
+            library_db_seed_legacy_track_map,
+            library_db_upsert_batch,
+            library_db_set_favorites,
+            library_db_delete_ids,
             get_app_version,
             set_close_to_tray,
             set_tray_language,
@@ -2501,6 +2629,7 @@ pub fn run() {
             log_keyboard_probe,
             update_discord_presence,
             read_audio_files,
+            scan_library_to_database,
             read_audio_binary,
             open_file_dialog,
             show_in_folder,
