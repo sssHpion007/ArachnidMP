@@ -27,6 +27,23 @@ mod platform {
     }
 
     #[repr(C)]
+    struct ProcessMemoryCountersEx2 {
+        cb: u32,
+        page_fault_count: u32,
+        peak_working_set_size: usize,
+        working_set_size: usize,
+        quota_peak_paged_pool_usage: usize,
+        quota_paged_pool_usage: usize,
+        quota_peak_non_paged_pool_usage: usize,
+        quota_non_paged_pool_usage: usize,
+        pagefile_usage: usize,
+        peak_pagefile_usage: usize,
+        private_usage: usize,
+        private_working_set_size: usize,
+        shared_commit_usage: u64,
+    }
+
+    #[repr(C)]
     struct ProcessMemoryCountersEx {
         cb: u32,
         page_fault_count: u32,
@@ -54,7 +71,7 @@ mod platform {
     extern "system" {
         fn GetProcessMemoryInfo(
             process: *mut c_void,
-            counters: *mut ProcessMemoryCountersEx,
+            counters: *mut c_void,
             size: u32,
         ) -> i32;
     }
@@ -72,10 +89,13 @@ mod platform {
         inaccessible_count: usize,
         tree_working_set: u64,
         tree_private_bytes: u64,
+        tree_private_working_set: u64,
         app_working_set: u64,
         app_private_bytes: u64,
+        app_private_working_set: u64,
         webview_working_set: u64,
         webview_private_bytes: u64,
+        webview_private_working_set: u64,
         process_details: Vec<ProcessMemorySample>,
     }
 
@@ -85,6 +105,7 @@ mod platform {
         name: String,
         working_set: u64,
         private_bytes: u64,
+        private_working_set: u64,
     }
 
     fn read_processes() -> Result<Vec<ProcessInfo>, String> {
@@ -143,37 +164,58 @@ mod platform {
                     continue;
                 }
 
-                let mut counters: ProcessMemoryCountersEx = std::mem::zeroed();
-                counters.cb = size_of::<ProcessMemoryCountersEx>() as u32;
-                let result = GetProcessMemoryInfo(
+                let mut counters_ex2: ProcessMemoryCountersEx2 = std::mem::zeroed();
+                counters_ex2.cb = size_of::<ProcessMemoryCountersEx2>() as u32;
+                let extended_result = GetProcessMemoryInfo(
                     handle,
-                    &mut counters,
-                    size_of::<ProcessMemoryCountersEx>() as u32,
+                    &mut counters_ex2 as *mut ProcessMemoryCountersEx2 as *mut c_void,
+                    size_of::<ProcessMemoryCountersEx2>() as u32,
                 );
+                let (working_set, private_bytes, private_working_set) = if extended_result != 0 {
+                    (
+                        counters_ex2.working_set_size as u64,
+                        counters_ex2.private_usage as u64,
+                        counters_ex2.private_working_set_size as u64,
+                    )
+                } else {
+                    // Older Windows versions may reject EX2; retain the original
+                    // working-set/private-commit diagnostics as a safe fallback.
+                    let mut counters: ProcessMemoryCountersEx = std::mem::zeroed();
+                    counters.cb = size_of::<ProcessMemoryCountersEx>() as u32;
+                    let fallback_result = GetProcessMemoryInfo(
+                        handle,
+                        &mut counters as *mut ProcessMemoryCountersEx as *mut c_void,
+                        size_of::<ProcessMemoryCountersEx>() as u32,
+                    );
+                    if fallback_result == 0 {
+                        let _ = CloseHandle(handle);
+                        totals.inaccessible_count += 1;
+                        continue;
+                    }
+                    (counters.working_set_size as u64, counters.private_usage as u64, 0)
+                };
                 let _ = CloseHandle(handle);
-                if result == 0 {
-                    totals.inaccessible_count += 1;
-                    continue;
-                }
 
-                let working_set = counters.working_set_size as u64;
-                let private_bytes = counters.private_usage as u64;
                 totals.process_count += 1;
                 totals.tree_working_set += working_set;
                 totals.tree_private_bytes += private_bytes;
+                totals.tree_private_working_set += private_working_set;
                 totals.process_details.push(ProcessMemorySample {
                     process_id: process_info.process_id,
                     parent_process_id: process_info.parent_process_id,
                     name: process_info.name.clone(),
                     working_set,
                     private_bytes,
+                    private_working_set,
                 });
                 if process_info.process_id == root_pid {
-                    totals.app_working_set += counters.working_set_size as u64;
-                    totals.app_private_bytes += counters.private_usage as u64;
+                    totals.app_working_set += working_set;
+                    totals.app_private_bytes += private_bytes;
+                    totals.app_private_working_set += private_working_set;
                 } else if process_info.name.contains("msedgewebview2") || process_info.name.contains("webview2") {
-                    totals.webview_working_set += counters.working_set_size as u64;
-                    totals.webview_private_bytes += counters.private_usage as u64;
+                    totals.webview_working_set += working_set;
+                    totals.webview_private_bytes += private_bytes;
+                    totals.webview_private_working_set += private_working_set;
                 }
             }
         }
@@ -191,27 +233,31 @@ mod platform {
                 let mut totals = collect_memory_totals(root_pid, &processes);
                 totals.process_details.sort_by_key(|process| process.process_id);
                 let process_details = totals.process_details.iter().map(|process| format!(
-                    "{}:{}:parent={}:ws={:.1}:private={:.1}",
+                    "{}:{}:parent={}:ws={:.1}:private={:.1}:private_ws={:.1}",
                     process.process_id,
                     process.name,
                     process.parent_process_id,
                     mb(process.working_set),
                     mb(process.private_bytes),
+                    mb(process.private_working_set),
                 )).collect::<Vec<_>>().join(",");
                 logger::log(
                     "INFO",
                     "MEMORY",
                     &format!(
-                        "scope=app_process_tree processes={}/{} inaccessible={} working_set_mb={:.1} private_bytes_mb={:.1} app_working_set_mb={:.1} app_private_bytes_mb={:.1} webview_working_set_mb={:.1} webview_private_bytes_mb={:.1} members=[{}]",
+                        "scope=app_process_tree processes={}/{} inaccessible={} working_set_mb={:.1} private_bytes_mb={:.1} private_working_set_mb={:.1} app_working_set_mb={:.1} app_private_bytes_mb={:.1} app_private_working_set_mb={:.1} webview_working_set_mb={:.1} webview_private_bytes_mb={:.1} webview_private_working_set_mb={:.1} members=[{}]",
                         totals.process_count,
                         totals.candidate_count,
                         totals.inaccessible_count,
                         mb(totals.tree_working_set),
                         mb(totals.tree_private_bytes),
+                        mb(totals.tree_private_working_set),
                         mb(totals.app_working_set),
                         mb(totals.app_private_bytes),
+                        mb(totals.app_private_working_set),
                         mb(totals.webview_working_set),
                         mb(totals.webview_private_bytes),
+                        mb(totals.webview_private_working_set),
                         process_details,
                     ),
                 );

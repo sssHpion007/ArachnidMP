@@ -41,27 +41,33 @@ if (isTauri()) {
   const rendererPerformance = performance as Performance & {
     memory?: { usedJSHeapSize: number; totalJSHeapSize: number; jsHeapSizeLimit: number };
   };
-  const memory = rendererPerformance.memory;
   let renderer = document.title || 'webview';
   try { renderer = getCurrentWebviewWindow().label; } catch {}
-  if (!memory) {
+  const megabytes = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1);
+  let unavailableWasReported = false;
+  const sample = () => {
+    // Re-read the optional API for every sample; retaining its initial object can
+    // freeze the diagnostic values for the entire lifetime of the WebView.
+    const memory = rendererPerformance.memory;
+    if (!memory) {
+      if (!unavailableWasReported) {
+        unavailableWasReported = true;
+        void invoke('client_log', {
+          level: 'INFO',
+          tag: 'MEMORY_JS_HEAP',
+          message: `renderer=${renderer} performance.memory is unavailable in this WebView2 runtime.`,
+        }).catch(() => {});
+      }
+      return;
+    }
     void invoke('client_log', {
       level: 'INFO',
       tag: 'MEMORY_JS_HEAP',
-      message: `renderer=${renderer} performance.memory is unavailable in this WebView2 runtime.`,
+      message: `renderer=${renderer} used_js_heap_mb=${megabytes(memory.usedJSHeapSize)} total_js_heap_mb=${megabytes(memory.totalJSHeapSize)} js_heap_limit_mb=${megabytes(memory.jsHeapSizeLimit)}`,
     }).catch(() => {});
-  } else {
-    const megabytes = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1);
-    const sample = () => {
-      void invoke('client_log', {
-        level: 'INFO',
-        tag: 'MEMORY_JS_HEAP',
-        message: `renderer=${renderer} used_js_heap_mb=${megabytes(memory.usedJSHeapSize)} total_js_heap_mb=${megabytes(memory.totalJSHeapSize)} js_heap_limit_mb=${megabytes(memory.jsHeapSizeLimit)}`,
-      }).catch(() => {});
-    };
-    sample();
-    window.setInterval(sample, 30_000);
-  }
+  };
+  sample();
+  window.setInterval(sample, 30_000);
 }
 
 const searchParams = new URLSearchParams(window.location.search);

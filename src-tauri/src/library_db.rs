@@ -180,6 +180,13 @@ impl LibraryDb {
         &self, search: Option<&str>, sort_by: &str, descending: bool, offset: u64, limit: u32,
         filter_kind: Option<&str>, filter_value: Option<&str>, favorite_only: bool,
     ) -> Result<TrackPage, String> {
+        self.page_filtered_excluding(search, sort_by, descending, offset, limit, filter_kind, filter_value, favorite_only, &[])
+    }
+
+    pub fn page_filtered_excluding(
+        &self, search: Option<&str>, sort_by: &str, descending: bool, offset: u64, limit: u32,
+        filter_kind: Option<&str>, filter_value: Option<&str>, favorite_only: bool, excluded_ids: &[String],
+    ) -> Result<TrackPage, String> {
         let limit = limit.clamp(1, 500) as u64;
         let search = normalize_search(search.unwrap_or_default());
         let filter_kind = filter_kind.unwrap_or_default();
@@ -192,27 +199,45 @@ impl LibraryDb {
                 OR (?2 = 'genre' AND ((?3 = '' AND (genre IS NULL OR trim(genre) = ''))
                     OR instr('|' || replace(replace(replace(replace(replace(lower(coalesce(genre,'')), ' ', ''), '/', '|'), ';', '|'), ',', '|'), char(92), '|') || '|', '|' || lower(replace(?3, ' ', '')) || '|') > 0)))
             AND (?4 = 0 OR is_favorite = 1)";
+        let exclusion_clause = if excluded_ids.is_empty() {
+            String::new()
+        } else {
+            let placeholders = (5..5 + excluded_ids.len()).map(|index| format!("?{index}"))
+                .collect::<Vec<_>>().join(",");
+            format!(" AND id NOT IN ({placeholders})")
+        };
+        let limit_parameter = 5 + excluded_ids.len();
+        let offset_parameter = limit_parameter + 1;
         let sql = format!(
             "SELECT id,path,title,artist,album,genre,year,track_number,track_total,duration,src,cover_art,bitrate,format,file_size,date_added,play_count,is_favorite,is_missing
-             FROM tracks WHERE {predicate}
-             ORDER BY {column} COLLATE NATURAL_NOCASE {direction}, id {direction} LIMIT ?5 OFFSET ?6"
+             FROM tracks WHERE {predicate}{exclusion_clause}
+             ORDER BY {column} COLLATE NATURAL_NOCASE {direction}, id {direction} LIMIT ?{limit_parameter} OFFSET ?{offset_parameter}"
         );
         let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
-        let total = connection.query_row(
-            &format!("SELECT COUNT(*) FROM tracks WHERE {predicate}"),
-            params![search, filter_kind, filter_value, favorite_only], |row| row.get::<_, i64>(0),
-        ).map_err(|e| e.to_string())?.max(0) as u64;
+        let mut query_values = vec![
+            rusqlite::types::Value::Text(search.clone()),
+            rusqlite::types::Value::Text(filter_kind.to_string()),
+            rusqlite::types::Value::Text(filter_value.clone()),
+            rusqlite::types::Value::Integer(if favorite_only { 1 } else { 0 }),
+        ];
+        query_values.extend(excluded_ids.iter().cloned().map(rusqlite::types::Value::Text));
+        let count = connection.query_row(
+            &format!("SELECT COUNT(*) FROM tracks WHERE {predicate}{exclusion_clause}"),
+            rusqlite::params_from_iter(query_values.iter()), |row| row.get::<_, i64>(0),
+        ).map_err(|e| e.to_string())?;
+        let mut page_values = query_values;
+        page_values.push(rusqlite::types::Value::Integer(limit as i64));
+        page_values.push(rusqlite::types::Value::Integer(offset.min(i64::MAX as u64) as i64));
+        let total = count.max(0) as u64;
         let mut statement = connection.prepare(&sql).map_err(|e| e.to_string())?;
-        let sql_limit = limit as i64;
-        let sql_offset = offset.min(i64::MAX as u64) as i64;
-        let rows = statement.query_map(params![search, filter_kind, filter_value, favorite_only, sql_limit, sql_offset], row_to_summary).map_err(|e| e.to_string())?;
+        let rows = statement.query_map(rusqlite::params_from_iter(page_values.iter()), row_to_summary).map_err(|e| e.to_string())?;
         let mut items = Vec::new();
         for row in rows { items.push(row.map_err(|e| e.to_string())?); }
         Ok(TrackPage { items, offset, total })
     }
 
     pub fn collection_groups(
-        &self, kind: &str, language: &str, search: Option<&str>, excluded_ids: &[String],
+        &self, kind: &str, language: &str, search: Option<&str>, excluded_ids: &[String], include_track_ids: bool,
     ) -> Result<Vec<LibraryCollectionGroup>, String> {
         use std::collections::{HashMap, HashSet};
         let no_album = if language == "ru" { "Без альбома" } else { "No Album" };
@@ -269,7 +294,9 @@ impl LibraryDb {
                     year: if kind == "albums" { track.year } else { None },
                     albums_count: None,
                 });
-                group.track_ids.push(track.id.clone());
+                if include_track_ids {
+                    group.track_ids.push(track.id.clone());
+                }
                 group.track_count += 1;
                 group.total_duration += duration;
                 if group.cover_art.is_none() { group.cover_art = track.cover_art.clone(); }
@@ -690,17 +717,26 @@ mod tests {
             json!({"id":"2","title":"Song 2","artist":"Artist","album":"Album","genre":"Rock","duration":20.0,"path":"/music/2.flac"}),
             json!({"id":"3","title":"Other","artist":"Other Artist","album":"Other Album","genre":"Jazz","duration":30.0,"path":"/music/3.flac"}),
         ]).unwrap();
-        let albums = db.collection_groups("albums", "en", None, &[]).unwrap();
+        let albums = db.collection_groups("albums", "en", None, &[], true).unwrap();
         assert_eq!(albums.len(), 2);
         assert_eq!(albums[0].name, "Album");
         assert_eq!(albums[0].track_ids, vec!["1", "2"]);
         assert_eq!(albums[0].total_duration, 30.0);
-        let genres = db.collection_groups("genres", "en", Some("song 1"), &[]).unwrap();
+        let mini_albums = db.collection_groups("albums", "en", None, &[], false).unwrap();
+        assert_eq!(mini_albums[0].track_count, 2);
+        assert!(mini_albums.iter().all(|group| group.track_ids.is_empty()));
+        let genres = db.collection_groups("genres", "en", Some("song 1"), &[], true).unwrap();
         assert_eq!(genres.len(), 2);
         let rock = genres.iter().find(|group| group.name == "Rock").unwrap();
         let jazz = genres.iter().find(|group| group.name == "Jazz").unwrap();
         assert_eq!(rock.track_ids, vec!["1", "2"]);
         assert_eq!(jazz.track_ids, vec!["3", "1"]);
+        let excluded = vec!["1".to_string()];
+        let remaining = db.page_filtered_excluding(
+            None, "title", false, 0, 10, Some("album"), Some("Album"), false, &excluded,
+        ).unwrap();
+        assert_eq!(remaining.total, 1);
+        assert_eq!(remaining.items.iter().map(|track| track.id.as_str()).collect::<Vec<_>>(), vec!["2"]);
     }
 
     #[test]

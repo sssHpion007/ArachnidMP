@@ -3173,12 +3173,18 @@ export const App: React.FC = () => {
     }
   };
 
-  const loadFullNativePlaybackContext = async (fallback: Track[], contextPlaylistId?: string): Promise<Track[]> => {
+  const loadFullNativePlaybackContext = async (
+    fallback: Track[],
+    contextPlaylistId?: string,
+    collectionFilter?: { kind: LibraryCollectionKind; name: string },
+  ): Promise<Track[]> => {
     if (!isTauri()) return fallback;
     try {
       await libraryWriteQueueRef.current.catch(() => {});
-      const orderedPlaylist = contextPlaylistId !== undefined
-        ? playlists.find(item => item.id === contextPlaylistId)
+      const orderedPlaylist = collectionFilter
+        ? undefined
+        : contextPlaylistId !== undefined
+          ? playlists.find(item => item.id === contextPlaylistId)
         : selectedPlaylistId
           ? playlists.find(item => item.id === selectedPlaylistId)
           : currentView === 'favorites' && sortBy === 'custom'
@@ -3188,11 +3194,15 @@ export const App: React.FC = () => {
       if (orderedPlaylist) {
         rows = await libraryRepository.byIds(orderedPlaylist.trackIds);
       } else {
-        const filterKind = selectedAlbum ? 'album' : selectedArtist ? 'artist' : selectedGenre ? 'genre' : undefined;
+        const miniCollectionFilterKind = collectionFilter?.kind === 'albums' ? 'album'
+          : collectionFilter?.kind === 'artists' ? 'artist'
+            : collectionFilter?.kind === 'genres' ? 'genre' : undefined;
+        const filterKind = miniCollectionFilterKind
+          || (selectedAlbum ? 'album' : selectedArtist ? 'artist' : selectedGenre ? 'genre' : undefined);
         const noAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
         const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
         const noGenreLabel = language === 'ru' ? 'Без жанра' : 'No Genre';
-        let filterValue = selectedAlbum || selectedArtist || selectedGenre || '';
+        let filterValue = collectionFilter?.name ?? (selectedAlbum || selectedArtist || selectedGenre || '');
         if ((filterKind === 'album' && filterValue === noAlbumLabel)
           || (filterKind === 'artist' && filterValue === unknownArtistLabel)
           || (filterKind === 'genre' && filterValue === noGenreLabel)) filterValue = '';
@@ -3201,7 +3211,7 @@ export const App: React.FC = () => {
         let total = 0;
         do {
           const page = await libraryRepository.page({
-            search: searchQuery,
+            search: collectionFilter ? undefined : searchQuery,
             sortBy: sortBy === 'custom' ? 'title' : sortBy,
             descending: sortOrder === 'desc',
             offset,
@@ -3209,6 +3219,7 @@ export const App: React.FC = () => {
             filterKind,
             filterValue,
             favoriteOnly,
+            excludedIds: collectionFilter ? [...isolatedTrackIds] : [],
           });
           rows.push(...page.items);
           total = page.total;
@@ -3249,7 +3260,13 @@ export const App: React.FC = () => {
   };
 
   // A full view context is materialized only when playback starts; the library itself remains paged.
-  const playTrackWithContext = async (track: Track, contextTracks?: Track[], contextIsComplete = false, contextPlaylistId?: string) => {
+  const playTrackWithContext = async (
+    track: Track,
+    contextTracks?: Track[],
+    contextIsComplete = false,
+    contextPlaylistId?: string,
+    collectionFilter?: { kind: LibraryCollectionKind; name: string },
+  ) => {
     if (track.isMissing) {
       handleRelocateTrack(track);
       return;
@@ -3257,7 +3274,9 @@ export const App: React.FC = () => {
 
     const list = contextTracks && contextTracks.length > 0 ? contextTracks : [track];
     const detailedTrack = await getTrackWithDetails(track);
-    const completeContext = contextIsComplete ? list : await loadFullNativePlaybackContext(list, contextPlaylistId);
+    const completeContext = contextIsComplete
+      ? list
+      : await loadFullNativePlaybackContext(list, contextPlaylistId, collectionFilter);
     const playbackList = completeContext.map(item => toTrackSummary(item.id === detailedTrack.id ? detailedTrack : item));
     setQueue(playbackList);
     const idx = playbackList.findIndex(item => item.id === detailedTrack.id);
@@ -4205,6 +4224,41 @@ export const App: React.FC = () => {
   const loadNativeTracksByIds = useCallback(async (trackIds: string[]): Promise<Track[]> =>
     hydrateNativeSummaryRows(await libraryRepository.byIds(trackIds)), []);
 
+  const loadMiniCollectionGroups = useCallback(async (kind: LibraryCollectionKind): Promise<LibraryCollectionGroup[]> => {
+    const groups = await libraryRepository.collectionGroups(kind, language, undefined, [...isolatedTrackIds], false);
+    return groups.map(group => ({
+      ...group,
+      coverArt: group.coverArt && !group.coverArt.startsWith('http') && !group.coverArt.startsWith('data:')
+        ? convertFileSrc(group.coverArt)
+        : group.coverArt,
+    }));
+  }, [language, isolatedTrackIds]);
+
+  const loadMiniCollectionTrackPage = useCallback(async (
+    kind: LibraryCollectionKind,
+    name: string,
+    offset: number,
+    limit: number,
+  ): Promise<{ items: Track[]; total: number }> => {
+    const noAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
+    const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
+    const noGenreLabel = language === 'ru' ? 'Без жанра' : 'No Genre';
+    let filterValue = name;
+    if ((kind === 'albums' && name === noAlbumLabel)
+      || (kind === 'artists' && name === unknownArtistLabel)
+      || (kind === 'genres' && name === noGenreLabel)) filterValue = '';
+    const page = await libraryRepository.page({
+      sortBy: 'title',
+      descending: false,
+      offset,
+      limit,
+      filterKind: kind === 'albums' ? 'album' : kind === 'artists' ? 'artist' : 'genre',
+      filterValue,
+      excludedIds: [...isolatedTrackIds],
+    });
+    return { items: hydrateNativeSummaryRows(page.items), total: page.total };
+  }, [language, isolatedTrackIds]);
+
   const handlePlayNativeGroupByIds = async (trackIds: string[]) => {
     if (trackIds.length === 0) return;
     try {
@@ -4695,6 +4749,11 @@ export const App: React.FC = () => {
           onPlayPlaylist={handlePlayPlaylist}
           onPlayFolder={handlePlayFolder}
           onResolveTracksByIds={loadNativeTracksByIds}
+          onLoadMiniCollectionGroups={isTauri() ? loadMiniCollectionGroups : undefined}
+          onLoadMiniCollectionTrackPage={isTauri() ? loadMiniCollectionTrackPage : undefined}
+          onPlayMiniCollectionTrack={isTauri() ? (track, kind, name) => {
+            void playTrackWithContext(track, [track], false, undefined, { kind, name });
+          } : undefined}
           onClearQueue={handleClearQueue}
           onToggleLyrics={() => {
             if (miniLyricsMode === 'closed') void attachMiniLyrics();

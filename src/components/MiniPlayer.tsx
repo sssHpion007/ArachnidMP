@@ -32,6 +32,7 @@ import { AppLanguage } from '../i18n';
 import { formatTime } from '../services/tagEditor';
 import { MiniLyricsPane, MiniLyricsTrack } from './MiniLyricsPane';
 import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups';
+import type { LibraryCollectionGroup } from '../services/libraryCollectionIndex';
 import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
 import { getFolderTrackIds } from '../services/folderPlayback';
 
@@ -240,6 +241,14 @@ interface MiniPlayerProps {
   onPlayPlaylist: (playlist: Playlist) => void;
   onPlayFolder: (folder: PlaylistFolder) => void;
   onResolveTracksByIds: (trackIds: string[]) => Promise<Track[]>;
+  onLoadMiniCollectionGroups?: (kind: LibraryCollectionType) => Promise<LibraryCollectionGroup[]>;
+  onLoadMiniCollectionTrackPage?: (
+    kind: LibraryCollectionType,
+    name: string,
+    offset: number,
+    limit: number,
+  ) => Promise<{ items: Track[]; total: number }>;
+  onPlayMiniCollectionTrack?: (track: Track, kind: LibraryCollectionType, name: string) => void;
   onClearQueue: () => void;
   onToggleLyrics: () => void;
   onToggleDiscord: () => void;
@@ -297,6 +306,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   onPlayPlaylist,
   onPlayFolder,
   onResolveTracksByIds,
+  onLoadMiniCollectionGroups,
+  onLoadMiniCollectionTrackPage,
+  onPlayMiniCollectionTrack,
   onClearQueue,
   onToggleLyrics,
   onToggleDiscord,
@@ -318,6 +330,20 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const [selectedPlaylistGroupId, setSelectedPlaylistGroupId] = useState<string | null>(null);
   const [selectedCollection, setSelectedCollection] = useState<{ type: LibraryCollectionType; name: string } | null>(null);
   const [resolvedPlaylistTracks, setResolvedPlaylistTracks] = useState<{ playlistId: string; ids: string[]; tracks: Track[] } | null>(null);
+  const [nativeCollectionSnapshot, setNativeCollectionSnapshot] = useState<{
+    key: string;
+    groups: LibraryCollectionGroup[];
+    isLoading: boolean;
+    error: boolean;
+  } | null>(null);
+  const [collectionTrackPage, setCollectionTrackPage] = useState<{
+    key: string;
+    items: Track[];
+    total: number;
+    isLoading: boolean;
+  } | null>(null);
+  const collectionPageRequestRef = useRef<{ key: string; offset: number } | null>(null);
+  const activeCollectionPageKeyRef = useRef<string | null>(null);
   const currentPlaylist = playlists.find(playlist => playlist.id === selectedPlaylistId) || null;
   const [isCompactVolHovered, setIsCompactVolHovered] = useState(false);
   const [queueSelectedIndex, setQueueSelectedIndex] = useState(queueIndex);
@@ -712,12 +738,37 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const activeCollectionType: LibraryCollectionType = selectedCollection?.type
     || (libraryTab === 'artists' ? 'artists' : libraryTab === 'genres' ? 'genres' : 'albums');
   const shouldLoadCollection = bottomPanel === 'library' && isPanelContentRendered && isCollectionTab;
-  const { groups: indexedCollections, isLoading: isCollectionsLoading } = useLibraryCollectionGroups(
+  const nativeCollectionKey = `${activeCollectionType}:${language}`;
+  const useNativeCollectionSource = Boolean(onLoadMiniCollectionGroups);
+  const localCollectionResult = useLibraryCollectionGroups(
     visibleTracks,
     activeCollectionType,
     language,
-    shouldLoadCollection,
+    shouldLoadCollection && !useNativeCollectionSource,
   );
+
+  useEffect(() => {
+    if (!shouldLoadCollection || !onLoadMiniCollectionGroups) return;
+    let active = true;
+    setNativeCollectionSnapshot({ key: nativeCollectionKey, groups: [], isLoading: true, error: false });
+    void onLoadMiniCollectionGroups(activeCollectionType).then(groups => {
+      if (active) setNativeCollectionSnapshot({ key: nativeCollectionKey, groups, isLoading: false, error: false });
+    }).catch(error => {
+      console.warn(`Mini-player failed to load ${activeCollectionType} from the library database:`, error);
+      if (active) setNativeCollectionSnapshot({ key: nativeCollectionKey, groups: [], isLoading: false, error: true });
+    });
+    return () => { active = false; };
+  }, [shouldLoadCollection, onLoadMiniCollectionGroups, nativeCollectionKey, activeCollectionType]);
+
+  const indexedCollections = useNativeCollectionSource
+    ? nativeCollectionSnapshot?.key === nativeCollectionKey ? nativeCollectionSnapshot.groups : []
+    : localCollectionResult.groups;
+  const isCollectionsLoading = useNativeCollectionSource
+    ? shouldLoadCollection && (nativeCollectionSnapshot?.key !== nativeCollectionKey || nativeCollectionSnapshot.isLoading)
+    : localCollectionResult.isLoading;
+  const isCollectionsError = useNativeCollectionSource
+    && nativeCollectionSnapshot?.key === nativeCollectionKey
+    && nativeCollectionSnapshot.error;
   const visibleCollections = useMemo(
     () => [...indexedCollections].sort((a, b) => a.name.localeCompare(b.name)),
     [indexedCollections],
@@ -732,6 +783,73 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       .map(id => tracksById.get(id))
       .filter((track): track is Track => !!track);
   }, [selectedCollectionGroup, tracks]);
+  const selectedCollectionPageKey = selectedCollection ? `${selectedCollection.type}:${selectedCollection.name}` : null;
+
+  useEffect(() => {
+    if (!selectedCollection || !onLoadMiniCollectionTrackPage) {
+      activeCollectionPageKeyRef.current = null;
+      setCollectionTrackPage(null);
+      return;
+    }
+
+    const key = `${selectedCollection.type}:${selectedCollection.name}`;
+    let active = true;
+    activeCollectionPageKeyRef.current = key;
+    collectionPageRequestRef.current = null;
+    setCollectionTrackPage({
+      key,
+      items: [],
+      total: selectedCollectionGroup?.trackCount ?? selectedCollectionGroup?.trackIds.length ?? 0,
+      isLoading: true,
+    });
+    void onLoadMiniCollectionTrackPage(selectedCollection.type, selectedCollection.name, 0, 100).then(page => {
+      if (active && activeCollectionPageKeyRef.current === key) {
+        setCollectionTrackPage({ key, items: page.items, total: page.total, isLoading: false });
+      }
+    }).catch(error => {
+      console.warn(`Mini-player failed to load tracks for ${selectedCollection.name}:`, error);
+      if (active && activeCollectionPageKeyRef.current === key) {
+        setCollectionTrackPage(previous => previous?.key === key ? { ...previous, isLoading: false } : previous);
+      }
+    });
+    return () => {
+      active = false;
+      if (activeCollectionPageKeyRef.current === key) activeCollectionPageKeyRef.current = null;
+    };
+  }, [selectedCollection?.type, selectedCollection?.name, onLoadMiniCollectionTrackPage]);
+
+  const loadMoreCollectionTracks = useCallback(async () => {
+    if (!selectedCollection || !onLoadMiniCollectionTrackPage || !selectedCollectionPageKey) return;
+    const key = selectedCollectionPageKey;
+    const current = collectionTrackPage?.key === key ? collectionTrackPage : null;
+    if (!current || current.isLoading || current.items.length >= current.total) return;
+    const offset = current.items.length;
+    if (collectionPageRequestRef.current?.key === key && collectionPageRequestRef.current.offset === offset) return;
+    collectionPageRequestRef.current = { key, offset };
+    setCollectionTrackPage(previous => previous?.key === key ? { ...previous, isLoading: true } : previous);
+    try {
+      const page = await onLoadMiniCollectionTrackPage(selectedCollection.type, selectedCollection.name, offset, 100);
+      if (activeCollectionPageKeyRef.current !== key) return;
+      setCollectionTrackPage(previous => {
+        if (previous?.key !== key) return previous;
+        const knownIds = new Set(previous.items.map(track => track.id));
+        return {
+          key,
+          items: [...previous.items, ...page.items.filter(track => !knownIds.has(track.id))],
+          total: page.total,
+          isLoading: false,
+        };
+      });
+    } catch (error) {
+      console.warn(`Mini-player failed to load the next page for ${selectedCollection.name}:`, error);
+      setCollectionTrackPage(previous => previous?.key === key ? { ...previous, isLoading: false } : previous);
+    } finally {
+      if (collectionPageRequestRef.current?.key === key && collectionPageRequestRef.current.offset === offset) {
+        collectionPageRequestRef.current = null;
+      }
+    }
+  }, [selectedCollection, selectedCollectionPageKey, collectionTrackPage, onLoadMiniCollectionTrackPage]);
+
   const libraryTracks = useMemo(() => {
     if (currentPlaylist) {
       const resolved = resolvedPlaylistTracks;
@@ -740,11 +858,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       const byId = new Map(tracks.map(track => [track.id, track]));
       return currentPlaylist.trackIds.map(id => byId.get(id)).filter((track): track is Track => !!track);
     }
-    if (selectedCollection) return selectedCollectionTracks;
+    if (selectedCollection) {
+      if (!onLoadMiniCollectionTrackPage) return selectedCollectionTracks;
+      return collectionTrackPage?.key === selectedCollectionPageKey ? collectionTrackPage.items : [];
+    }
     if (libraryTab === 'favorites') return visibleTracks.filter(track => track.isFavorite);
     if (libraryTab === 'tracks') return visibleTracks;
     return [];
-  }, [currentPlaylist, libraryTab, resolvedPlaylistTracks, selectedCollection, selectedCollectionTracks, tracks, visibleTracks]);
+  }, [currentPlaylist, libraryTab, resolvedPlaylistTracks, selectedCollection, selectedCollectionTracks, collectionTrackPage, selectedCollectionPageKey, onLoadMiniCollectionTrackPage, tracks, visibleTracks]);
   libraryTracksRef.current = libraryTracks;
   const visibleQueueRows = getFixedRowRange(queue, queueScrollTop, queueViewportHeight);
   const visibleLibraryRows = getFixedRowRange(libraryTracks, libraryScrollTop, libraryViewportHeight);
@@ -1247,7 +1368,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                 </nav>
                 <div
                   ref={libraryListRef}
-                  onScroll={event => setLibraryScrollTop(event.currentTarget.scrollTop)}
+                  onScroll={event => {
+                    const container = event.currentTarget;
+                    setLibraryScrollTop(container.scrollTop);
+                    if (selectedCollection && onLoadMiniCollectionTrackPage
+                      && container.scrollHeight - (container.scrollTop + container.clientHeight) < 800) {
+                      void loadMoreCollectionTracks();
+                    }
+                  }}
                   className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2"
                 >
                   {libraryTab === 'playlists' && !currentPlaylist && !selectedCollection && (
@@ -1355,6 +1483,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                   {(['albums', 'artists', 'genres'] as LibraryTab[]).includes(libraryTab) && !selectedCollection && (
                     isCollectionsLoading ? (
                       <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Загружаю медиатеку…', 'Loading library…')}</p>
+                    ) : isCollectionsError ? (
+                      <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Не удалось загрузить медиатеку', 'Unable to load the library')}</p>
                     ) : visibleCollections.length > 0 ? (
                       <VirtualizedCollectionGrid
                         items={visibleCollections}
@@ -1371,7 +1501,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
                             <span className="absolute inset-x-2 bottom-2 min-w-0 text-white">
                               <span className="block truncate text-[11px] font-semibold">{group.name}</span>
-                              <span className="block truncate text-[9px] text-white/75">{group.trackIds.length} {text(language, 'треков', 'tracks')}</span>
+                              <span className="block truncate text-[9px] text-white/75">{group.trackCount ?? group.trackIds.length} {text(language, 'треков', 'tracks')}</span>
                             </span>
                           </button>
                         )}
@@ -1395,12 +1525,18 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                               style={{ position: 'absolute', top: index * MINI_TRACK_ROW_HEIGHT, left: 0, right: 0, height: MINI_TRACK_ROW_HEIGHT }}
                               onClick={() => {
                                 setLibraryTrackSelectedIndex(index);
-                                onPlayTrack(track, libraryTracks, currentPlaylist?.id);
+                                if (selectedCollection && onPlayMiniCollectionTrack) {
+                                  onPlayMiniCollectionTrack(track, selectedCollection.type, selectedCollection.name);
+                                } else {
+                                  onPlayTrack(track, libraryTracks, currentPlaylist?.id);
+                                }
                               }}
                             />
                           );
                         })}
                       </div>
+                    ) : selectedCollection && collectionTrackPage?.key === selectedCollectionPageKey && collectionTrackPage.isLoading ? (
+                      <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Загружаю треки…', 'Loading tracks…')}</p>
                     ) : <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, libraryTab === 'favorites' ? 'В избранном пока нет треков' : 'В этом списке нет треков', libraryTab === 'favorites' ? 'No favorite tracks yet' : 'No tracks in this list')}</p>
                   )}
                 </div>

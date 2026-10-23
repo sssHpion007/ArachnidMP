@@ -128,7 +128,6 @@ export interface Translations {
     shortcutsDesc: string;
     logs: string;
     logsDesc: string;
-    saveLogs: string;
     logsFolder: string;
     autoScroll: string;
     about: string;
@@ -344,7 +343,6 @@ export const RU_TRANSLATIONS: Translations = {
     shortcutsDesc: 'Список клавиатурных комбинаций для быстрого управления',
     logs: 'Журнал событий',
     logsDesc: 'Просмотр событий, аудиотрассировки и статистики памяти в реальном времени',
-    saveLogs: 'Сохранить',
     logsFolder: 'Папка',
     autoScroll: 'Автопрокрутка',
     about: 'О программе',
@@ -560,7 +558,6 @@ export const EN_TRANSLATIONS: Translations = {
     shortcutsDesc: 'List of keyboard shortcuts for quick player control',
     logs: 'Event Log',
     logsDesc: 'Real-time event, audio, and memory diagnostics view',
-    saveLogs: 'Save',
     logsFolder: 'Folder',
     autoScroll: 'Auto-scroll',
     about: 'About Arachnid',

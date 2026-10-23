@@ -11,6 +11,7 @@ export interface LibraryPageQuery {
   filterKind?: 'album' | 'artist' | 'genre';
   filterValue?: string;
   favoriteOnly?: boolean;
+  excludedIds?: string[];
 }
 
 const MAX_PAGE_SIZE = 500;
@@ -33,15 +34,23 @@ export const libraryRepository = {
       filterKind: query.filterKind || null,
       filterValue: query.filterValue ?? null,
       favoriteOnly: query.favoriteOnly ?? false,
+      excludedIds: query.excludedIds ?? [],
     });
   },
 
-  async collectionGroups(kind: LibraryCollectionKind, language: string, search?: string, excludedIds: string[] = []): Promise<LibraryCollectionGroup[]> {
+  async collectionGroups(
+    kind: LibraryCollectionKind,
+    language: string,
+    search?: string,
+    excludedIds: string[] = [],
+    includeTrackIds = true,
+  ): Promise<LibraryCollectionGroup[]> {
     return invoke<LibraryCollectionGroup[]>('library_db_get_collection_groups', {
       kind,
       language,
       search: search?.trim() || null,
       excludedIds,
+      includeTrackIds,
     });
   },
 

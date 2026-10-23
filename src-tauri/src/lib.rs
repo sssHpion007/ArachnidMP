@@ -472,11 +472,12 @@ fn library_db_get_page(
     filter_kind: Option<String>,
     filter_value: Option<String>,
     favorite_only: bool,
+    excluded_ids: Vec<String>,
     state: State<'_, library_db::LibraryDb>,
 ) -> Result<library_db::TrackPage, String> {
-    let mut page = state.page_filtered(
+    let mut page = state.page_filtered_excluding(
         search.as_deref(), &sort_by, descending, offset, limit,
-        filter_kind.as_deref(), filter_value.as_deref(), favorite_only,
+        filter_kind.as_deref(), filter_value.as_deref(), favorite_only, &excluded_ids,
     )?;
     let base_dir = storage::get_portable_base_dir();
     for track in &mut page.items {
@@ -495,11 +496,12 @@ async fn library_db_get_collection_groups(
     language: String,
     search: Option<String>,
     excluded_ids: Vec<String>,
+    include_track_ids: bool,
     state: State<'_, library_db::LibraryDb>,
 ) -> Result<Vec<library_db::LibraryCollectionGroup>, String> {
     let database = state.inner().clone();
     let mut groups = tauri::async_runtime::spawn_blocking(move || {
-        database.collection_groups(&kind, &language, search.as_deref(), &excluded_ids)
+        database.collection_groups(&kind, &language, search.as_deref(), &excluded_ids, include_track_ids)
     }).await.map_err(|error| format!("Library grouping task failed: {error}"))??;
     let base_dir = storage::get_portable_base_dir();
     for group in &mut groups {
@@ -2832,7 +2834,6 @@ pub fn run() {
             native_get_state,
             logger::get_recent_logs,
             logger::client_log,
-            logger::save_logs_snapshot,
             logger::open_logs_folder,
             export_playlist_to_m3u8,
             import_playlist_from_m3u8,

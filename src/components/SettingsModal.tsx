@@ -371,7 +371,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Real-time Logs state
   const [logs, setLogs] = useState<string[]>([]);
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
-  const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const logsScrollRef = useRef<HTMLDivElement>(null);
 
   const handleOpenUpdateSettings = () => {
@@ -636,17 +635,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
     setNavDirection('forward');
     setCurrentView('logs');
-  };
-
-  const handleSaveLogsSnapshot = async () => {
-    if (!isTauri()) return;
-    try {
-      const filename = await invoke<string>('save_logs_snapshot');
-      setSaveStatus(filename);
-      setTimeout(() => setSaveStatus(null), 4000);
-    } catch (err) {
-      console.error('Failed to save logs snapshot:', err);
-    }
   };
 
   const handleOpenLogsFolder = async () => {
@@ -1529,23 +1517,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         ) : currentView === 'logs' ? (
           /* Real-Time Logs View */
           <div key="view-logs" className="p-6 space-y-4 flex flex-col flex-1 overflow-hidden anim-view-slide-right">
-            {/* Action Bar: Save button and Folder button */}
+            {/* Session logs are written automatically; retain a direct folder shortcut. */}
             <div className="flex items-center justify-between gap-3 shrink-0">
               <div className="flex items-center gap-2">
-                {/* 1. Кнопка "Сохранить" */}
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={handleSaveLogsSnapshot}
-                  className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-md3-primary text-md3-on-primary hover:bg-md3-primary/90 text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 outline-none focus:outline-none"
-                  title={language === 'ru' ? 'Сохранить лог в файл с текущей датой и временем' : 'Save logs snapshot with current timestamp'}
-                >
-                  <Download className="w-4 h-4 shrink-0" />
-                  <span>{t.settings.saveLogs}</span>
-                </button>
-
-                {/* 2. Кнопка "Папка" */}
                 <button
                   type="button"
                   tabIndex={-1}
@@ -1561,13 +1535,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
               {/* Status and Tools on the right */}
               <div className="flex items-center gap-2">
-                {saveStatus && (
-                  <span className="text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2.5 py-1 rounded-xl animate-in fade-in flex items-center gap-1.5 shadow-xs">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                    <span className="truncate max-w-[200px]">{saveStatus}</span>
-                  </span>
-                )}
-
                 {/* Auto-scroll Toggle */}
                 <button
                   type="button"
