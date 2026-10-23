@@ -243,6 +243,10 @@ export const App: React.FC = () => {
   const [queue, setQueue] = useState<Track[]>([]);
   const [queueIndex, setQueueIndex] = useState<number>(0);
   const [isMiniMode, setIsMiniMode] = useState(false);
+  const [closeBehavior, setCloseBehavior] = useState<'exit' | 'tray'>('exit');
+  const [startupInterface, setStartupInterface] = useState<'full' | 'mini'>('full');
+  const [startupDataLoaded, setStartupDataLoaded] = useState(false);
+  const startupInterfaceAppliedRef = useRef(false);
   const [isWindowModeTransitioning, setIsWindowModeTransitioning] = useState(false);
   const windowModeTransitionRef = useRef(false);
   const [miniLyricsMode, setMiniLyricsMode] = useState<'closed' | 'attached' | 'detached'>('closed');
@@ -1098,11 +1102,23 @@ export const App: React.FC = () => {
           if (typeof parsed.fadeDuration === 'number') setFadeDuration(parsed.fadeDuration);
           if (Array.isArray(parsed.watchedFolders)) setWatchedFolders(parsed.watchedFolders);
           if (typeof parsed.autoScanOnStartup === 'boolean') setAutoScanOnStartup(parsed.autoScanOnStartup);
+          if (parsed.closeBehavior === 'exit' || parsed.closeBehavior === 'tray') {
+            setCloseBehavior(parsed.closeBehavior);
+            if (isTauri()) {
+              await invoke('set_close_to_tray', { enabled: parsed.closeBehavior === 'tray' }).catch(error => {
+                console.warn('Failed to sync close behavior with native window:', error);
+              });
+            }
+          }
+          if (parsed.startupInterface === 'full' || parsed.startupInterface === 'mini') {
+            setStartupInterface(parsed.startupInterface);
+          }
         }
       } catch (err) {
         console.warn('Could not load portable data:', err);
       } finally {
         isLoadedRef.current = true;
+        setStartupDataLoaded(true);
       }
     };
 
@@ -1136,6 +1152,8 @@ export const App: React.FC = () => {
       fadeDuration,
       watchedFolders,
       autoScanOnStartup,
+      closeBehavior,
+      startupInterface,
     };
 
     const jsonString = JSON.stringify(dataToSave);
@@ -1158,25 +1176,37 @@ export const App: React.FC = () => {
     } else {
       localStorage.setItem('arachnid_portable_data', jsonString);
     }
-  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup]);
+  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface]);
 
-  // Safety fallback: reveal window in case TitleBar unmounted or delayed
+  // Reveal the native window only after portable preferences have loaded, so the
+  // selected startup layout is already active when the user sees it.
   useEffect(() => {
-    if (isTauri()) {
-      const timer = setTimeout(async () => {
-        try {
-          const win = getCurrentWebviewWindow();
-          await win.show();
-          await win.setFocus();
-        } catch (_) {
-          try {
-            await invoke('show_window');
-          } catch (_) {}
+    if (!startupDataLoaded || startupInterfaceAppliedRef.current) return;
+    startupInterfaceAppliedRef.current = true;
+
+    const revealWindow = async () => {
+      if (startupInterface === 'mini') {
+        await enterMiniMode();
+      }
+
+      if (isTauri()) {
+        const win = getCurrentWebviewWindow();
+        if (startupInterface === 'full' && !(await win.isMaximized().catch(() => false))) {
+          await win.maximize().catch(() => {});
         }
-      }, 150);
-      return () => clearTimeout(timer);
-    }
-  }, []);
+        await win.show();
+        await win.setFocus();
+      }
+    };
+
+    void revealWindow().catch(error => {
+      console.warn('Could not apply startup interface:', error);
+      if (isTauri()) {
+        const win = getCurrentWebviewWindow();
+        void win.show().then(() => win.setFocus()).catch(() => {});
+      }
+    });
+  }, [startupDataLoaded, startupInterface, enterMiniMode]);
 
   // Automated background memory optimization (trims cold working set pages in Windows)
   useEffect(() => {
@@ -3543,6 +3573,15 @@ export const App: React.FC = () => {
     setAutoScanOnStartup(prev => !prev);
   };
 
+  const handleSetCloseBehavior = (behavior: 'exit' | 'tray') => {
+    setCloseBehavior(behavior);
+    if (isTauri()) {
+      invoke('set_close_to_tray', { enabled: behavior === 'tray' }).catch(error => {
+        console.warn('Failed to update close behavior:', error);
+      });
+    }
+  };
+
   const handleScanLibrary = useCallback(async (): Promise<number> => {
     if (!isTauri()) return 0;
     try {
@@ -4874,6 +4913,10 @@ export const App: React.FC = () => {
         onRemoveWatchedFolder={handleRemoveWatchedFolder}
         autoScanOnStartup={autoScanOnStartup}
         onToggleAutoScanOnStartup={handleToggleAutoScanOnStartup}
+        closeBehavior={closeBehavior}
+        onSetCloseBehavior={handleSetCloseBehavior}
+        startupInterface={startupInterface}
+        onSetStartupInterface={setStartupInterface}
         onScanLibrary={handleScanLibrary}
         tracks={tracks}
         missingTracksCount={missingTracksForModal.length}

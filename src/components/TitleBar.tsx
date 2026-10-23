@@ -17,7 +17,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({ miniMode = false, onRestoreF
     });
   }, []);
 
-  // Check window maximized state, reveal window cleanly and set up resize listener
+  // Track the initial maximized state and keep it in sync with native resizing
   useEffect(() => {
     if (!isTauri()) return;
 
@@ -28,22 +28,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({ miniMode = false, onRestoreF
       try {
         const win = getCurrentWindow();
         const initialMax = await win.isMaximized();
-        if (!initialMax) {
-          try {
-            await win.maximize();
-          } catch (_) {}
-        }
-        if (isMounted) setIsMaximized(true);
-
-        // Reveal window without white flash/box now that it is sized and rendered
-        try {
-          await win.show();
-          await win.setFocus();
-        } catch (_) {
-          try {
-            await invoke('show_window');
-          } catch (_) {}
-        }
+        if (isMounted) setIsMaximized(initialMax);
 
         unlisten = await win.onResized(async () => {
           try {
@@ -55,7 +40,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({ miniMode = false, onRestoreF
         try {
           const max = await invoke<boolean>('is_window_maximized');
           if (isMounted) setIsMaximized(max);
-          await invoke('show_window');
         } catch (_) {}
       }
     };

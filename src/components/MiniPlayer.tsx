@@ -109,28 +109,57 @@ interface MiniLibraryCardProps {
   coverArt?: string;
   icon: React.ReactNode;
   accentColor?: string;
+  onPlay?: () => void;
+  playLabel?: string;
 }
 
-const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({ title, subtitle, onClick, coverArt, icon, accentColor }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className="group relative aspect-[1.18] min-w-0 overflow-hidden rounded-xl border border-md3-outline-variant/15 bg-md3-surface-container-high text-left transition-transform hover:scale-[1.02]"
+const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
+  title,
+  subtitle,
+  onClick,
+  coverArt,
+  icon,
+  accentColor,
+  onPlay,
+  playLabel,
+}) => (
+  <div
+    className="group relative aspect-square min-w-0 overflow-hidden rounded-xl border border-md3-outline-variant/15 bg-md3-surface-container-high transition-transform hover:scale-[1.02]"
     style={accentColor ? { borderColor: accentColor } : undefined}
   >
     {coverArt ? (
-      <img src={coverArt} alt="" className="absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" />
+      <img src={coverArt} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" />
     ) : (
-      <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high text-md3-primary/70">
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high text-md3-primary/70">
         {icon}
       </div>
     )}
-    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
-    <span className="absolute inset-x-2 bottom-2 min-w-0 text-white">
-      <span className="block truncate text-[11px] font-semibold">{title}</span>
-      <span className="block truncate text-[9px] text-white/75">{subtitle}</span>
-    </span>
-  </button>
+    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
+    <button
+      type="button"
+      onClick={onClick}
+      className="absolute inset-0 z-10 rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-md3-primary"
+    >
+      <span className={`absolute bottom-2 left-2 min-w-0 text-white ${onPlay ? 'right-11' : 'right-2'}`}>
+        <span className="block truncate text-[11px] font-semibold">{title}</span>
+        <span className="block truncate text-[9px] text-white/75">{subtitle}</span>
+      </span>
+    </button>
+    {onPlay && (
+      <button
+        type="button"
+        onClick={event => {
+          event.stopPropagation();
+          onPlay();
+        }}
+        aria-label={playLabel}
+        title={playLabel}
+        className="absolute bottom-2 right-2 z-20 flex h-8 w-8 items-center justify-center rounded-full bg-md3-primary text-md3-on-primary shadow-lg transition-transform hover:scale-110 active:scale-95 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+      >
+        <Play size={14} className="ml-0.5 fill-current" />
+      </button>
+    )}
+  </div>
 );
 
 interface MiniPlayerProps {
@@ -580,6 +609,39 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       order: playlist.order ?? (playlistFolders.length + playlists.indexOf(playlist)) * 10,
     })),
   ].sort((a, b) => a.order - b.order);
+  const getPlaylistTrackList = (playlist: Playlist) => {
+    const trackMap = new Map(tracks.map(track => [track.id, track]));
+    return playlist.trackIds.map(id => trackMap.get(id)).filter((track): track is Track => !!track);
+  };
+
+  const getFolderTrackList = (folder: PlaylistFolder) => {
+    const folderIds = new Set<string>([folder.id]);
+    const addDescendants = (parentId: string) => {
+      playlistFolders
+        .filter(candidate => candidate.parentId === parentId)
+        .forEach(child => {
+          if (folderIds.has(child.id)) return;
+          folderIds.add(child.id);
+          addDescendants(child.id);
+        });
+    };
+    addDescendants(folder.id);
+
+    const trackMap = new Map(tracks.map(track => [track.id, track]));
+    const addedTrackIds = new Set<string>();
+    const folderPlaylists = playlists.filter(playlist => playlist.folderId && folderIds.has(playlist.folderId));
+    return folderPlaylists.flatMap(playlist => playlist.trackIds.flatMap(id => {
+      const track = trackMap.get(id);
+      if (!track || addedTrackIds.has(id)) return [];
+      addedTrackIds.add(id);
+      return [track];
+    }));
+  };
+
+  const playTrackList = (trackList: Track[]) => {
+    if (trackList.length > 0) onPlayTrack(trackList[0], trackList);
+  };
+
   const albums = useMemo(() => groupTracks(visibleTracks, track => track.album?.trim() || text(language, 'Без альбома', 'No Album')), [language, visibleTracks]);
   const artists = useMemo(() => groupTracks(visibleTracks, track => track.artist?.trim() || text(language, 'Неизвестный исполнитель', 'Unknown Artist')), [language, visibleTracks]);
   const genres = useMemo(() => groupTracks(visibleTracks, track => {
@@ -1129,6 +1191,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                                 const FolderIcon = getFolderIconComponent(folder.icon);
                                 const folderPlaylists = playlists.filter(playlist => playlist.folderId === folder.id);
                                 const folderSubfolders = playlistFolders.filter(child => child.parentId === folder.id);
+                                const folderTracks = getFolderTrackList(folder);
                                 const cover = folderPlaylists.find(playlist => playlist.coverArt)?.coverArt
                                   || tracks.find(track => folderPlaylists.some(playlist => playlist.trackIds.includes(track.id)) && track.coverArt)?.coverArt;
                                 return (
@@ -1143,10 +1206,13 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                                       setSelectedPlaylistFolderId(folder.id);
                                       setSelectedPlaylistId(null);
                                     }}
+                                    onPlay={folderTracks.length > 0 ? () => playTrackList(folderTracks) : undefined}
+                                    playLabel={text(language, 'Воспроизвести всё', 'Play all')}
                                   />
                                 );
                               }
                               const playlist = entry.item;
+                              const playlistTracks = getPlaylistTrackList(playlist);
                               const cover = playlist.coverArt || tracks.find(track => playlist.trackIds.includes(track.id) && track.coverArt)?.coverArt;
                               const PlaylistIcon = playlist.icon ? getFolderIconComponent(playlist.icon) : ListMusic;
                               return (
@@ -1158,6 +1224,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                                   icon={<PlaylistIcon size={28} />}
                                   accentColor={playlist.color ? getFolderColorHex(playlist.color) : undefined}
                                   onClick={() => setSelectedPlaylistId(playlist.id)}
+                                  onPlay={playlistTracks.length > 0 ? () => playTrackList(playlistTracks) : undefined}
+                                  playLabel={text(language, 'Воспроизвести всё', 'Play all')}
                                 />
                               );
                             })}

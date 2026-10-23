@@ -7,6 +7,7 @@ mod portable_updater;
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 use base64::prelude::*;
 use lofty::config::{ParseOptions, ParsingMode, WriteOptions};
@@ -75,6 +76,12 @@ pub struct DiscordPresenceState {
 pub struct AppState {
     pub discord: discord::DiscordService,
     pub player: player::NativePlayer,
+    pub close_to_tray: AtomicBool,
+}
+
+#[tauri::command]
+fn set_close_to_tray(enabled: bool, state: State<'_, AppState>) {
+    state.close_to_tray.store(enabled, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -1535,6 +1542,14 @@ fn get_system_accent_color() -> Result<String, String> {
     Ok("#0078d4".to_string())
 }
 
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 #[tauri::command]
 fn show_window(window: tauri::Window) -> Result<(), String> {
     window.show().map_err(|e| e.to_string())?;
@@ -1736,9 +1751,12 @@ fn toggle_maximize_window(window: tauri::Window) -> Result<bool, String> {
 }
 
 #[tauri::command]
-fn close_window(app_handle: tauri::AppHandle) -> Result<(), String> {
-    let _ = app_handle;
-    clean_exit();
+fn close_window(window: tauri::Window, state: State<'_, AppState>) -> Result<(), String> {
+    if state.close_to_tray.load(Ordering::Relaxed) {
+        window.hide().map_err(|error| error.to_string())
+    } else {
+        clean_exit();
+    }
 }
 
 fn clean_exit() -> ! {
@@ -2324,13 +2342,59 @@ pub fn run() {
                     api.prevent_close();
                     let _ = window.hide();
                 }
-                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed if window.label() == "main" => {
+                tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
+                    let state = window.app_handle().state::<AppState>();
+                    if state.close_to_tray.load(Ordering::Relaxed) {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    } else {
+                        clean_exit();
+                    }
+                }
+                tauri::WindowEvent::Destroyed if window.label() == "main" => {
                     clean_exit();
                 }
                 _ => {}
             }
         })
         .setup(|app| {
+            use tauri::{
+                menu::{Menu, MenuItem},
+                tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+            };
+
+            let open_item = MenuItem::with_id(app, "open", "Open / Открыть", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit / Выход", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&open_item, &quit_item])?;
+            let tray_icon = app
+                .default_window_icon()
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Default window icon is missing"))?
+                .clone();
+
+            TrayIconBuilder::new()
+                .icon(tray_icon)
+                .tooltip("Arachnid Music Player")
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "open" => show_main_window(app),
+                    "quit" => clean_exit(),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if matches!(
+                        event,
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        }
+                    ) {
+                        show_main_window(&tray.app_handle());
+                    }
+                })
+                .build(app)?;
+
             logger::initialize_session_clock();
             logger::set_app_handle(app.handle().clone());
             logger::log("INFO", "SYSTEM", &format!("Arachnid Music Player v{} started", get_app_version()));
@@ -2344,9 +2408,11 @@ pub fn run() {
         .manage(AppState {
             discord: discord::DiscordService::new(),
             player: player::NativePlayer::new(),
+            close_to_tray: AtomicBool::new(false),
         })
         .invoke_handler(tauri::generate_handler![
             get_app_version,
+            set_close_to_tray,
             update_discord_presence,
             read_audio_files,
             read_audio_binary,
