@@ -1561,6 +1561,7 @@ fn show_window(window: tauri::Window) -> Result<(), String> {
 // main WebView when sharing its WebView2 data directory on Windows.
 #[tauri::command]
 async fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    logger::log("INFO", "LYRICS_WINDOW", "Window open command received");
     const LYRICS_WINDOW_WIDTH: f64 = 440.0;
     const LYRICS_WINDOW_HEIGHT: f64 = 700.0;
     const WINDOW_GAP: i64 = 12;
@@ -1630,6 +1631,7 @@ async fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> 
     lyrics_window
         .set_focus()
         .map_err(|e| format!("Unable to focus lyrics window: {}", e))?;
+    logger::log("INFO", "LYRICS_WINDOW", "Lyrics window shown and focused");
     Ok(())
 }
 
