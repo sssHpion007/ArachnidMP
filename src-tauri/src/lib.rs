@@ -1649,6 +1649,11 @@ fn set_main_webview_memory_target(app: &tauri::AppHandle, low_memory: bool) {
 #[cfg(not(target_os = "windows"))]
 fn set_main_webview_memory_target(_app: &tauri::AppHandle, _low_memory: bool) {}
 
+#[tauri::command]
+fn set_webview_memory_target(app_handle: tauri::AppHandle, low_memory: bool) {
+    set_main_webview_memory_target(&app_handle, low_memory);
+}
+
 fn show_main_window(app: &tauri::AppHandle) {
     set_main_webview_memory_target(app, false);
     if let Some(window) = app.get_webview_window("main") {
@@ -1660,6 +1665,7 @@ fn show_main_window(app: &tauri::AppHandle) {
 
 #[tauri::command]
 fn show_window(window: tauri::Window) -> Result<(), String> {
+    set_main_webview_memory_target(&window.app_handle(), false);
     window.show().map_err(|e| e.to_string())?;
     let _ = window.set_focus();
     Ok(())
@@ -2474,6 +2480,7 @@ pub fn run() {
             get_app_version,
             set_close_to_tray,
             set_tray_language,
+            set_webview_memory_target,
             log_keyboard_probe,
             update_discord_presence,
             read_audio_files,

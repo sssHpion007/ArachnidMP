@@ -452,6 +452,13 @@ export const App: React.FC = () => {
     setIsEQOpen(false);
     setIsMiniMode(true);
     await waitForAnimationFrames(2);
+    if (isTauri()) {
+      try {
+        await invoke('set_webview_memory_target', { lowMemory: true });
+      } catch (error) {
+        console.warn('Unable to lower the WebView memory target in mini-player mode:', error);
+      }
+    }
     setIsWindowModeTransitioning(false);
     await waitForDelay(WINDOW_MODE_FADE_MS);
     windowModeTransitionRef.current = false;
@@ -461,6 +468,13 @@ export const App: React.FC = () => {
     if (windowModeTransitionRef.current) return;
     windowModeTransitionRef.current = true;
     setIsWindowModeTransitioning(true);
+    if (isTauri()) {
+      try {
+        await invoke('set_webview_memory_target', { lowMemory: false });
+      } catch (error) {
+        console.warn('Unable to restore the normal WebView memory target:', error);
+      }
+    }
     await waitForDelay(WINDOW_MODE_FADE_MS);
 
     if (isTauri()) {
