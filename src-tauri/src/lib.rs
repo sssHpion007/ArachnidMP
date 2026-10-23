@@ -3,6 +3,7 @@ mod library_db;
 mod storage;
 mod player;
 mod logger;
+mod memory_diagnostics;
 #[cfg(target_os = "windows")]
 mod portable_updater;
 
@@ -2699,6 +2700,7 @@ pub fn run() {
             logger::initialize_session_clock();
             logger::set_app_handle(app.handle().clone());
             logger::log("INFO", "SYSTEM", &format!("Arachnid Music Player v{} started", get_app_version()));
+            memory_diagnostics::start();
             #[cfg(target_os = "windows")]
             std::thread::spawn(|| {
                 std::thread::sleep(std::time::Duration::from_secs(25));
