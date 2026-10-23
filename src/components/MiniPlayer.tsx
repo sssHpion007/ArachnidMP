@@ -35,6 +35,7 @@ import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups'
 import type { LibraryCollectionGroup } from '../services/libraryCollectionIndex';
 import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
 import { getFolderTrackIds } from '../services/folderPlayback';
+import { logger } from '../services/logger';
 
 type LyricsMode = 'closed' | 'attached' | 'detached';
 type BottomPanel = 'queue' | 'library' | null;
@@ -751,9 +752,13 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     if (!shouldLoadCollection || !onLoadMiniCollectionGroups) return;
     let active = true;
     setNativeCollectionSnapshot({ key: nativeCollectionKey, groups: [], isLoading: true, error: false });
+    logger.info('MINI_COLLECTION', `groups request started: kind=${activeCollectionType}, language=${language}`);
     void onLoadMiniCollectionGroups(activeCollectionType).then(groups => {
+      const groupedTracks = groups.reduce((total, group) => total + (group.trackCount ?? group.trackIds.length), 0);
+      logger.info('MINI_COLLECTION', `groups request completed: kind=${activeCollectionType}, groups=${groups.length}, groupedTracks=${groupedTracks}`);
       if (active) setNativeCollectionSnapshot({ key: nativeCollectionKey, groups, isLoading: false, error: false });
     }).catch(error => {
+      logger.error('MINI_COLLECTION', `groups request failed: kind=${activeCollectionType}, error=${String(error)}`);
       console.warn(`Mini-player failed to load ${activeCollectionType} from the library database:`, error);
       if (active) setNativeCollectionSnapshot({ key: nativeCollectionKey, groups: [], isLoading: false, error: true });
     });
@@ -773,6 +778,18 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     () => [...indexedCollections].sort((a, b) => a.name.localeCompare(b.name)),
     [indexedCollections],
   );
+
+  useEffect(() => {
+    if (!shouldLoadCollection || !isCollectionTab || selectedCollection) return;
+    const frame = requestAnimationFrame(() => {
+      const list = libraryListRef.current;
+      const grid = list?.firstElementChild as HTMLElement | null;
+      const renderedCards = list?.querySelectorAll('button').length ?? 0;
+      logger.info('MINI_COLLECTION', `view rendered: kind=${activeCollectionType}, groups=${visibleCollections.length}, loading=${isCollectionsLoading}, error=${isCollectionsError}, cards=${renderedCards}, list=${Math.round(list?.clientWidth ?? 0)}x${Math.round(list?.clientHeight ?? 0)}, scrollHeight=${list?.scrollHeight ?? 0}, grid=${Math.round(grid?.clientWidth ?? 0)}x${Math.round(grid?.clientHeight ?? 0)}`);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [shouldLoadCollection, isCollectionTab, selectedCollection, activeCollectionType, visibleCollections.length, isCollectionsLoading, isCollectionsError]);
+
   const selectedCollectionGroup = selectedCollection
     ? indexedCollections.find(group => group.name === selectedCollection.name) || null
     : null;
@@ -802,11 +819,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       total: selectedCollectionGroup?.trackCount ?? selectedCollectionGroup?.trackIds.length ?? 0,
       isLoading: true,
     });
+    logger.info('MINI_COLLECTION', `tracks request started: kind=${selectedCollection.type}, offset=0, limit=100`);
     void onLoadMiniCollectionTrackPage(selectedCollection.type, selectedCollection.name, 0, 100).then(page => {
+      logger.info('MINI_COLLECTION', `tracks request completed: kind=${selectedCollection.type}, offset=0, returned=${page.items.length}, total=${page.total}`);
       if (active && activeCollectionPageKeyRef.current === key) {
         setCollectionTrackPage({ key, items: page.items, total: page.total, isLoading: false });
       }
     }).catch(error => {
+      logger.error('MINI_COLLECTION', `tracks request failed: kind=${selectedCollection.type}, error=${String(error)}`);
       console.warn(`Mini-player failed to load tracks for ${selectedCollection.name}:`, error);
       if (active && activeCollectionPageKeyRef.current === key) {
         setCollectionTrackPage(previous => previous?.key === key ? { ...previous, isLoading: false } : previous);
@@ -1359,7 +1379,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                         key={tab}
                         ref={node => { libraryTabRefs.current[tab] = node; }}
                         type="button"
-                        onClick={() => { setLibraryTab(tab); setSelectedPlaylistId(null); setSelectedPlaylistFolderId(null); setSelectedPlaylistGroupId(null); setSelectedCollection(null); }}
+                        onClick={() => {
+                          logger.info('MINI_COLLECTION', `tab selected: tab=${tab}, panel=${bottomPanel ?? 'closed'}`);
+                          setLibraryTab(tab);
+                          setSelectedPlaylistId(null);
+                          setSelectedPlaylistFolderId(null);
+                          setSelectedPlaylistGroupId(null);
+                          setSelectedCollection(null);
+                        }}
                         aria-current={active ? 'page' : undefined}
                         className={`relative z-10 shrink-0 rounded-full px-2.5 py-1 text-[9px] transition-colors duration-200 ${active ? 'font-semibold text-md3-on-primary' : 'text-md3-on-surface-variant hover:bg-md3-surface-container-high/60 hover:text-md3-on-surface'}`}
                       >{label}</button>
