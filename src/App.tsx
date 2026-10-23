@@ -1186,8 +1186,15 @@ export const App: React.FC = () => {
     startupInterfaceAppliedRef.current = true;
 
     const revealWindow = async () => {
+      const logStartup = (message: string) => invoke('client_log', {
+        level: 'INFO',
+        tag: 'WINDOW_STARTUP',
+        message,
+      }).catch(() => {});
+      await logStartup(`Applying ${startupInterface} startup interface.`);
       if (startupInterface === 'mini') {
         await enterMiniMode();
+        await logStartup('Mini interface layout applied.');
       }
 
       if (isTauri()) {
@@ -1195,20 +1202,24 @@ export const App: React.FC = () => {
         if (startupInterface === 'full' && !(await win.isMaximized().catch(() => false))) {
           await win.maximize().catch(() => {});
         }
+        await logStartup('Showing the main window.');
         await win.show();
+        await logStartup('Main window shown; waiting for its native surface to settle.');
         await waitForDelay(120);
         await win.setFocus();
+        await logStartup('Native window focus restored; setting WebView focus.');
         await getCurrentWebview().setFocus();
-        await invoke('client_log', {
-          level: 'INFO',
-          tag: 'WINDOW_STARTUP',
-          message: 'Main window and WebView focus restored after startup layout was applied.',
-        }).catch(() => {});
+        await logStartup('Main window and WebView focus restored after startup layout was applied.');
       }
     };
 
     void revealWindow().catch(error => {
       console.warn('Could not apply startup interface:', error);
+      void invoke('client_log', {
+        level: 'ERROR',
+        tag: 'WINDOW_STARTUP',
+        message: `Could not apply startup interface: ${String(error)}`,
+      }).catch(() => {});
       if (isTauri()) {
         const win = getCurrentWebviewWindow();
         void win.show().then(async () => {
