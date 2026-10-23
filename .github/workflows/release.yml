@@ -87,17 +87,23 @@ jobs:
           using System;
           using System.Runtime.InteropServices;
           public static class NativeWindowFocus {
-            [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+            [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
             [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
           }
           '@
             $shell = New-Object -ComObject WScript.Shell
             $process.Refresh()
             $mainWindow = $process.MainWindowHandle
             if ($mainWindow -eq [IntPtr]::Zero) { throw "The player has no main window handle for Shift+T test." }
-            [void][NativeWindowFocus]::ShowWindowAsync($mainWindow, 9)
-            if (-not [NativeWindowFocus]::SetForegroundWindow($mainWindow)) { throw "Could not bring the player window to foreground for Shift+T." }
+            [void][NativeWindowFocus]::ShowWindow($mainWindow, 9)
+            if (-not $shell.AppActivate($process.Id)) { throw "Could not activate the player process for Shift+T." }
+            [void][NativeWindowFocus]::SetForegroundWindow($mainWindow)
             Start-Sleep -Milliseconds 500
+            $foregroundWindow = [NativeWindowFocus]::GetForegroundWindow()
+            if ($foregroundWindow -ne $mainWindow) {
+              throw "Player window did not retain foreground focus (main=$mainWindow, foreground=$foregroundWindow)."
+            }
             $shell.SendKeys('{ESC}')
             Start-Sleep -Milliseconds 300
             $shell.SendKeys('+T')
