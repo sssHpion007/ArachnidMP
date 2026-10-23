@@ -79,9 +79,44 @@ pub struct AppState {
     pub close_to_tray: AtomicBool,
 }
 
+struct TrayMenuState {
+    open_item: tauri::menu::MenuItem<tauri::Wry>,
+    quit_item: tauri::menu::MenuItem<tauri::Wry>,
+}
+
 #[tauri::command]
 fn set_close_to_tray(enabled: bool, state: State<'_, AppState>) {
     state.close_to_tray.store(enabled, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn set_tray_language(language: String, state: State<'_, TrayMenuState>) -> Result<(), String> {
+    let (open_label, quit_label) = if language == "ru" {
+        ("Открыть", "Выход")
+    } else {
+        ("Open", "Quit")
+    };
+
+    state.open_item.set_text(open_label).map_err(|error| error.to_string())?;
+    state.quit_item.set_text(quit_label).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn saved_tray_language_is_russian() -> bool {
+    let base_dir = storage::get_portable_base_dir();
+    let settings_paths = [
+        base_dir.join("config").join("settings.json"),
+        base_dir.join("arachnid_data.json"),
+    ];
+
+    for path in settings_paths {
+        let Ok(contents) = std::fs::read_to_string(path) else { continue };
+        let Ok(settings) = serde_json::from_str::<serde_json::Value>(&contents) else { continue };
+        if let Some(language) = settings.get("language").and_then(serde_json::Value::as_str) {
+            return language == "ru";
+        }
+    }
+    false
 }
 
 #[tauri::command]
@@ -2374,9 +2409,13 @@ pub fn run() {
                 tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
             };
 
-            let open_item = MenuItem::with_id(app, "open", "Open / Открыть", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "quit", "Quit / Выход", true, None::<&str>)?;
+            let is_russian = saved_tray_language_is_russian();
+            let open_label = if is_russian { "Открыть" } else { "Open" };
+            let quit_label = if is_russian { "Выход" } else { "Quit" };
+            let open_item = MenuItem::with_id(app, "open", open_label, true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", quit_label, true, None::<&str>)?;
             let tray_menu = Menu::with_items(app, &[&open_item, &quit_item])?;
+            app.manage(TrayMenuState { open_item, quit_item });
             let tray_icon = app
                 .default_window_icon()
                 .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Default window icon is missing"))?
@@ -2424,6 +2463,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             set_close_to_tray,
+            set_tray_language,
             log_keyboard_probe,
             update_discord_presence,
             read_audio_files,

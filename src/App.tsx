@@ -1126,6 +1126,13 @@ export const App: React.FC = () => {
     loadData();
   }, []);
 
+  useEffect(() => {
+    if (!isTauri() || !startupDataLoaded) return;
+    invoke('set_tray_language', { language }).catch(error => {
+      console.warn('Failed to update system tray language:', error);
+    });
+  }, [language, startupDataLoaded]);
+
   // Save Portable Data whenever library, playlists, or settings change
   useEffect(() => {
     if (!isLoadedRef.current) return;
