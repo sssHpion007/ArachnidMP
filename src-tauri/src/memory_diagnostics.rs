@@ -226,7 +226,7 @@ mod platform {
         bytes as f64 / (1024.0 * 1024.0)
     }
 
-    fn sample_and_log() {
+    fn sample_and_log(reason: &str) {
         let root_pid = std::process::id();
         match read_processes() {
             Ok(processes) => {
@@ -245,7 +245,8 @@ mod platform {
                     "INFO",
                     "MEMORY",
                     &format!(
-                        "scope=app_process_tree processes={}/{} inaccessible={} working_set_mb={:.1} private_bytes_mb={:.1} private_working_set_mb={:.1} app_working_set_mb={:.1} app_private_bytes_mb={:.1} app_private_working_set_mb={:.1} webview_working_set_mb={:.1} webview_private_bytes_mb={:.1} webview_private_working_set_mb={:.1} members=[{}]",
+                        "reason={} scope=app_process_tree processes={}/{} inaccessible={} working_set_mb={:.1} private_bytes_mb={:.1} private_working_set_mb={:.1} app_working_set_mb={:.1} app_private_bytes_mb={:.1} app_private_working_set_mb={:.1} webview_working_set_mb={:.1} webview_private_bytes_mb={:.1} webview_private_working_set_mb={:.1} members=[{}]",
+                        reason,
                         totals.process_count,
                         totals.candidate_count,
                         totals.inaccessible_count,
@@ -266,13 +267,17 @@ mod platform {
         }
     }
 
+    pub fn sample_now(reason: &str) {
+        sample_and_log(reason);
+    }
+
     pub fn start() {
         let result = thread::Builder::new()
             .name("arachnid-memory-monitor".to_string())
             .spawn(|| {
                 thread::sleep(Duration::from_secs(15));
                 loop {
-                    sample_and_log();
+                    sample_and_log("periodic");
                     thread::sleep(Duration::from_secs(30));
                 }
             });
@@ -285,8 +290,13 @@ mod platform {
 #[cfg(not(target_os = "windows"))]
 mod platform {
     pub fn start() {}
+    pub fn sample_now(_reason: &str) {}
 }
 
 pub fn start() {
     platform::start();
+}
+
+pub fn sample_now(reason: &str) {
+    platform::sample_now(reason);
 }

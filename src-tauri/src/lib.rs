@@ -1928,6 +1928,16 @@ fn set_webview_memory_target(app_handle: tauri::AppHandle, low_memory: bool) {
     set_window_webview_memory_target(&app_handle, "main", low_memory);
 }
 
+#[tauri::command]
+fn sample_memory_diagnostics(reason: String) {
+    let safe_reason = reason.chars()
+        .filter(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+        .take(48)
+        .collect::<String>();
+    let safe_reason = if safe_reason.is_empty() { "manual".to_string() } else { safe_reason };
+    memory_diagnostics::sample_now(&safe_reason);
+}
+
 fn show_main_window(app: &tauri::AppHandle) {
     set_window_webview_memory_target(app, "main", false);
     if let Some(window) = app.get_webview_window("main") {
@@ -2783,6 +2793,7 @@ pub fn run() {
             set_close_to_tray,
             set_tray_language,
             set_webview_memory_target,
+            sample_memory_diagnostics,
             log_keyboard_probe,
             update_discord_presence,
             read_audio_files,
@@ -3204,6 +3215,7 @@ fn native_play(
     repeat_one: Option<bool>,
     fade_out_previous: Option<bool>,
 ) -> Result<(), String> {
+    memory_diagnostics::sample_now("native-play-request");
     state.player.set_app_handle(app);
     state.player.play(
         path,
@@ -3217,11 +3229,13 @@ fn native_play(
 
 #[tauri::command]
 fn native_pause(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    memory_diagnostics::sample_now("native-pause-request");
     state.player.pause()
 }
 
 #[tauri::command]
 fn native_resume(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    memory_diagnostics::sample_now("native-resume-request");
     state.player.resume()
 }
 
@@ -3230,6 +3244,7 @@ fn native_stop(
     state: tauri::State<'_, AppState>,
     fade_out: Option<bool>,
 ) -> Result<(), String> {
+    memory_diagnostics::sample_now("native-stop-request");
     state.player.stop(fade_out.unwrap_or(false))
 }
 

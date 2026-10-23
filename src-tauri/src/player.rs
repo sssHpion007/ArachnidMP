@@ -515,6 +515,9 @@ fn run_player_thread(
     let mut user_target_volume = 1.0f32;
     let mut current_volume = 1.0f32;
     let mut last_emit_instant = Instant::now();
+    let mut diagnostic_time_updates = 0u64;
+    let mut diagnostic_glitch_reports_drained = 0u64;
+    let mut last_diagnostic_log = Instant::now();
     let mut preloaded_next_loop = false;
     let mut active_volume_fade: Option<(Instant, f32, f32, Duration)> = None;
 
@@ -1283,6 +1286,7 @@ fn run_player_thread(
                 }
             } else if last_emit_instant.elapsed().as_millis() >= 250 {
                 last_emit_instant = Instant::now();
+                diagnostic_time_updates += 1;
                 if let Ok(guard) = app_handle.lock() {
                     if let Some(ref handle) = *guard {
                         let _ = handle.emit(
@@ -1299,12 +1303,30 @@ fn run_player_thread(
 
         // Drain sample-level reports but write at most one summary per second to avoid log I/O storms.
         while let Ok(glitch) = glitch_rx.try_recv() {
+            diagnostic_glitch_reports_drained += 1;
             glitch_count += 1;
             glitch_max_delta = glitch_max_delta.max(glitch.delta);
             if first_glitch.is_none() {
                 first_glitch = Some(glitch.clone());
             }
             last_glitch = Some(glitch);
+        }
+
+        if last_diagnostic_log.elapsed() >= Duration::from_secs(30) {
+            logger::log(
+                "INFO",
+                "AUDIO_DIAGNOSTICS",
+                &format!(
+                    "playing={} paused={} time_update_emits={} glitch_reports_drained={}",
+                    is_playing,
+                    is_paused,
+                    diagnostic_time_updates,
+                    diagnostic_glitch_reports_drained,
+                ),
+            );
+            diagnostic_time_updates = 0;
+            diagnostic_glitch_reports_drained = 0;
+            last_diagnostic_log = Instant::now();
         }
 
         if glitch_window_start.elapsed() >= Duration::from_secs(1) {

@@ -459,6 +459,9 @@ export const App: React.FC = () => {
 
   const enterMiniMode = useCallback(async () => {
     if (isMiniMode || windowModeTransitionRef.current) return;
+    if (isTauri()) {
+      await invoke('sample_memory_diagnostics', { reason: 'mode-enter-mini-before' }).catch(() => {});
+    }
     windowModeTransitionRef.current = true;
     setIsWindowModeTransitioning(true);
     await waitForDelay(WINDOW_MODE_FADE_MS);
@@ -511,10 +514,16 @@ export const App: React.FC = () => {
     setIsWindowModeTransitioning(false);
     await waitForDelay(WINDOW_MODE_FADE_MS);
     windowModeTransitionRef.current = false;
+    if (isTauri()) {
+      await invoke('sample_memory_diagnostics', { reason: 'mode-mini-settled' }).catch(() => {});
+    }
   }, [isMiniMode, miniLyricsMode]);
 
   const exitMiniMode = useCallback(async () => {
     if (windowModeTransitionRef.current) return;
+    if (isTauri()) {
+      await invoke('sample_memory_diagnostics', { reason: 'mode-exit-mini-before' }).catch(() => {});
+    }
     windowModeTransitionRef.current = true;
     setIsWindowModeTransitioning(true);
     if (isTauri()) {
@@ -588,6 +597,9 @@ export const App: React.FC = () => {
     setIsWindowModeTransitioning(false);
     await waitForDelay(WINDOW_MODE_FADE_MS);
     windowModeTransitionRef.current = false;
+    if (isTauri()) {
+      await invoke('sample_memory_diagnostics', { reason: 'mode-full-settled' }).catch(() => {});
+    }
   }, []);
 
   const toggleMiniMode = useCallback(() => {
