@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, startTransition } from 'react';
-import { Track, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode, FadeMode, FolderCoverType } from './types/music';
+import { Track, TrackDetails, TrackSummary, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode, FadeMode, FolderCoverType } from './types/music';
 import { TitleBar } from './components/TitleBar';
 import { TopBar, MainViewType } from './components/TopBar';
 import { TrackTable } from './components/TrackTable';
@@ -172,13 +172,22 @@ const isPersistedTrackEqual = (left: Track, right: Track): boolean => {
   const fields: Array<keyof Track> = [
     'path', 'title', 'artist', 'album', 'duration', 'coverArt', 'genre', 'year',
     'trackNumber', 'trackTotal', 'bitrate', 'format', 'fileSize', 'dateAdded',
-    'playCount', 'isFavorite', 'isMissing', 'lyrics', 'isInstrumental', 'composer',
-    'contentGroup', 'comment', 'conductor', 'lyricist',
+    'playCount', 'isFavorite', 'isMissing',
   ];
-  if (fields.some(field => left[field] !== right[field])) return false;
-  if (left.customTags === right.customTags) return true;
-  return JSON.stringify(left.customTags ?? null) === JSON.stringify(right.customTags ?? null);
+  return fields.every(field => left[field] === right[field]);
 };
+
+const hydrateNativeSummaryRows = (rows: TrackSummary[]): Track[] => rows.map(row => {
+  const coverArt = row.coverArt && !row.coverArt.startsWith('http') && !row.coverArt.startsWith('data:')
+    ? convertFileSrc(row.coverArt)
+    : row.coverArt;
+  return {
+    ...row,
+    src: row.path ? convertFileSrc(row.path) : row.src,
+    coverArt,
+    format: row.format || getAudioFormatFromPath(row.path || row.src),
+  };
+});
 
 export const appendUniqueTracks = (existingList: Track[], incoming: Track[]): Track[] => {
   if (!incoming || incoming.length === 0) return existingList;
@@ -205,7 +214,7 @@ export const appendUniqueTracks = (existingList: Track[], incoming: Track[]): Tr
 
 export const App: React.FC = () => {
   // Library & Content State (No dummy stubs)
-  const [tracks, setTracks] = useState<Track[]>([]);
+  const [tracks, setTracks] = useState<TrackSummary[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>(INITIAL_PLAYLISTS);
   const [playlistFolders, setPlaylistFolders] = useState<PlaylistFolder[]>([]);
   const [playlistGroups, setPlaylistGroups] = useState<PlaylistGroup[]>([]);
@@ -985,27 +994,8 @@ export const App: React.FC = () => {
               await libraryRepository.upsertBatch(legacyTracks as Track[]);
             }
 
-            const loadNativeCatalog = async (): Promise<Track[]> => {
-              const total = await libraryRepository.count();
-              const result: Track[] = [];
-              const pageSize = 500;
-              for (let offset = 0; offset < total; offset += pageSize) {
-                const page = await libraryRepository.page({ sortBy: 'title', descending: false, offset, limit: pageSize });
-                if (page.items.length === 0) break;
-                for (const row of page.items) {
-                  const coverArt = row.coverArt && !row.coverArt.startsWith('http') && !row.coverArt.startsWith('data:')
-                    ? convertFileSrc(row.coverArt)
-                    : row.coverArt;
-                  result.push({
-                    ...row,
-                    src: row.path ? convertFileSrc(row.path) : row.src,
-                    coverArt,
-                    format: row.format || getAudioFormatFromPath(row.path || row.src),
-                  });
-                }
-              }
-              return result;
-            };
+            const loadNativeCatalog = async (): Promise<Track[]> =>
+              hydrateNativeSummaryRows(await libraryRepository.allSummaries());
 
             const existingCount = await libraryRepository.count();
             const getScanPaths = async (): Promise<string[]> => {
@@ -2765,33 +2755,9 @@ export const App: React.FC = () => {
         try {
           const res = await invoke<{ name: string; paths: string[] }>('parse_m3u8_file', { path: plPath });
           if (res && res.paths.length > 0) {
-            const raw = await invoke<any[]>('read_audio_files', { paths: res.paths });
-            if (raw && raw.length > 0) {
-              const newPlTracks: Track[] = raw.map(t => ({
-                id: t.id,
-                path: t.path,
-                title: t.title,
-                artist: t.artist,
-                album: t.album,
-                duration: t.duration_seconds || 0,
-                src: convertFileSrc(t.path),
-                coverArt: t.cover_art ? convertFileSrc(t.cover_art) : undefined,
-                genre: t.genre || undefined,
-                year: t.year || undefined,
-                trackNumber: t.track_number || undefined,
-                trackTotal: t.track_total || undefined,
-                format: t.format,
-                fileSize: t.file_size,
-                lyrics: t.lyrics || undefined,
-                composer: t.composer || undefined,
-                contentGroup: t.content_group || undefined,
-                comment: t.comment || undefined,
-                conductor: t.conductor || undefined,
-                lyricist: t.lyricist || undefined,
-                dateAdded: Date.now(),
-                playCount: 0,
-                isFavorite: false,
-              }));
+            await invoke<number>('scan_library_to_database', { paths: res.paths });
+            const newPlTracks = hydrateNativeSummaryRows(await libraryRepository.byPaths(res.paths));
+            if (newPlTracks.length > 0) {
               const existingMap = new Map(tracksRef.current.map(t => [normalizeTrackPath(t.path), t.id]));
               const plTrackIds: string[] = [];
               const tracksToAdd: Track[] = [];
@@ -2826,42 +2792,11 @@ export const App: React.FC = () => {
       if (audioPaths.length === 0) return;
 
       try {
-        const rawTracks = await invoke<any[]>('read_audio_files', { paths: audioPaths });
-        if (!rawTracks || rawTracks.length === 0) return;
-
-        const newTracks: Track[] = rawTracks.map(t => {
-          let coverArt = t.cover_art || undefined;
-          if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
-            coverArt = convertFileSrc(coverArt);
-          }
-          return {
-            id: t.id,
-            path: t.path,
-            title: t.title,
-            artist: t.artist,
-            album: t.album,
-            duration: t.duration_seconds || 0,
-            src: convertFileSrc(t.path),
-            coverArt,
-            genre: t.genre || undefined,
-            year: t.year || undefined,
-            trackNumber: t.track_number || undefined,
-            trackTotal: t.track_total || undefined,
-            format: t.format,
-            fileSize: t.file_size,
-            lyrics: t.lyrics || undefined,
-            composer: t.composer || undefined,
-            contentGroup: t.content_group || undefined,
-            comment: t.comment || undefined,
-            conductor: t.conductor || undefined,
-            lyricist: t.lyricist || undefined,
-            dateAdded: Date.now(),
-            playCount: 0,
-            isFavorite: false,
-          };
-        });
-
-        processImportedTracks(newTracks);
+        await invoke<number>('scan_library_to_database', { paths: audioPaths });
+        const scannedRows = await libraryRepository.byPaths(audioPaths);
+        if (scannedRows.length > 0) {
+          processImportedTracks(hydrateNativeSummaryRows(scannedRows));
+        }
       } catch (err) {
         console.warn('Error reading Tauri dropped files:', err);
       }
@@ -2921,29 +2856,11 @@ export const App: React.FC = () => {
   const handleOpenFiles = async () => {
     if (isTauri()) {
       try {
-        const rawTracks = await invoke<any[]>('open_file_dialog');
-        if (rawTracks && rawTracks.length > 0) {
-          const newTracks: Track[] = rawTracks.map(t => ({
-            id: t.id,
-            path: t.path,
-            title: t.title,
-            artist: t.artist,
-            album: t.album,
-            duration: t.duration_seconds || 0,
-            src: convertFileSrc(t.path),
-            coverArt: t.cover_art || undefined,
-            genre: t.genre || undefined,
-            year: t.year || undefined,
-            trackNumber: t.track_number || undefined,
-            format: t.format,
-            fileSize: t.file_size,
-            lyrics: t.lyrics || undefined,
-            dateAdded: Date.now(),
-            playCount: 0,
-            isFavorite: false,
-          }));
-
-          processImportedTracks(newTracks);
+        const paths = await invoke<string[]>('open_file_dialog');
+        if (paths.length > 0) {
+          await invoke<number>('scan_library_to_database', { paths });
+          const rows = await libraryRepository.byPaths(paths);
+          processImportedTracks(hydrateNativeSummaryRows(rows));
         }
       } catch (err) {
         console.warn('Native open file dialog error:', err);
@@ -3570,24 +3487,9 @@ export const App: React.FC = () => {
       try {
         const res = await invoke<{ name: string; paths: string[] } | null>('import_playlist_from_m3u8');
         if (res && res.paths.length > 0) {
-          const metaList = await invoke<any[]>('read_audio_files', { paths: res.paths });
-          if (metaList && metaList.length > 0) {
-            const addedTracks: Track[] = metaList.map(m => ({
-              id: m.id || `t_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-              path: m.path,
-              title: m.title || 'Unknown',
-              artist: m.artist || 'Unknown Artist',
-              album: m.album || 'Unknown Album',
-              duration: m.duration_seconds || 0,
-              src: convertFileSrc(m.path),
-              coverArt: m.cover_art ? convertFileSrc(m.cover_art) : undefined,
-              genre: m.genre || undefined,
-              year: m.year || undefined,
-              trackNumber: m.track_number || undefined,
-              dateAdded: Date.now(),
-              playCount: 0,
-              isFavorite: false,
-            }));
+          await invoke<number>('scan_library_to_database', { paths: res.paths });
+          const addedTracks = hydrateNativeSummaryRows(await libraryRepository.byPaths(res.paths));
+          if (addedTracks.length > 0) {
 
             const existingMap = new Map<string, string>(tracks.map(t => [normalizeTrackPath(t.path), t.id]));
             const newTrackIds: string[] = [];
@@ -3686,77 +3588,17 @@ export const App: React.FC = () => {
     if (!isTauri()) return 0;
     try {
       const portableMusicPath = await invoke<string>('get_portable_music_path');
-      const foldersToScan = [portableMusicPath, ...watchedFolders];
-      const raw = await invoke<any[]>('read_audio_files', { paths: foldersToScan });
-      if (!raw || raw.length === 0) return 0;
-
-      const currentTrackMap = new Map(tracksRef.current.map(t => [normalizeTrackPath(t.path), t]));
-      const currentPaths = new Set(tracksRef.current.map(t => normalizeTrackPath(t.path)).filter(Boolean));
-      const currentKeys = new Set(tracksRef.current.map(t => `${t.title.trim().toLowerCase()}|||${t.artist.trim().toLowerCase()}`));
-      const newFound: Track[] = [];
-      const updatedCoversMap = new Map<string, string>();
-
-      for (const m of raw) {
-        const norm = normalizeTrackPath(m.path);
-        let coverArt = m.cover_art || undefined;
-        if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
-          coverArt = convertFileSrc(coverArt);
-        }
-
-        const existingTrack = norm ? currentTrackMap.get(norm) : undefined;
-        if (existingTrack) {
-          if (!existingTrack.coverArt && coverArt) {
-            updatedCoversMap.set(existingTrack.id, coverArt);
-          }
-          continue;
-        }
-
-        const key = `${(m.title || '').trim().toLowerCase()}|||${(m.artist || '').trim().toLowerCase()}`;
-        if (key !== '|||' && key !== 'unknown|||unknown artist' && currentKeys.has(key)) {
-          continue;
-        }
-
-        if (norm) currentPaths.add(norm);
-        if (key !== '|||' && key !== 'unknown|||unknown artist') currentKeys.add(key);
-
-        const newT: Track = {
-          id: m.id || `track_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          path: m.path,
-          title: m.title || 'Unknown',
-          artist: m.artist || 'Unknown Artist',
-          album: m.album || 'Unknown Album',
-          duration: m.duration_seconds || 0,
-          src: convertFileSrc(m.path),
-          coverArt,
-          genre: m.genre || undefined,
-          year: m.year || undefined,
-          trackNumber: m.track_number || undefined,
-          dateAdded: Date.now(),
-          playCount: 0,
-          isFavorite: false,
-        };
-        newFound.push(newT);
+      const foldersToScan = Array.from(new Set([portableMusicPath, ...watchedFolders]));
+      const scanned = await invoke<number>('scan_library_to_database', { paths: foldersToScan });
+      if (scanned > 0) {
+        const refreshed = hydrateNativeSummaryRows(await libraryRepository.allSummaries());
+        setTracks(refreshed);
+        tracksRef.current = refreshed;
+        previousTracksForDbRef.current = refreshed;
       }
-
-      if (updatedCoversMap.size > 0 || newFound.length > 0) {
-        setTracks(prev => {
-          let updated = prev;
-          if (updatedCoversMap.size > 0) {
-            updated = updated.map(t => {
-              const newCover = updatedCoversMap.get(t.id);
-              return newCover ? { ...t, coverArt: newCover } : t;
-            });
-          }
-          if (newFound.length > 0) {
-            updated = appendUniqueTracks(updated, newFound);
-          }
-          return updated;
-        });
-      }
-
-      return newFound.length + updatedCoversMap.size;
-    } catch (err) {
-      console.warn('Scan library error:', err);
+      return scanned;
+    } catch (error) {
+      console.warn('Scan library error:', error);
       return 0;
     }
   }, [watchedFolders]);
@@ -4217,16 +4059,25 @@ export const App: React.FC = () => {
           year: updates.year !== undefined ? updates.year : t.year,
           trackNumber: updates.trackNumber !== undefined ? updates.trackNumber : t.trackNumber,
           trackTotal: updates.trackTotal !== undefined ? updates.trackTotal : t.trackTotal,
-          composer: updates.composer !== undefined ? updates.composer : t.composer,
-          contentGroup: updates.contentGroup !== undefined ? updates.contentGroup : t.contentGroup,
-          comment: updates.comment !== undefined ? updates.comment : t.comment,
-          conductor: updates.conductor !== undefined ? updates.conductor : t.conductor,
-          lyricist: updates.lyricist !== undefined ? updates.lyricist : t.lyricist,
           coverArt: updates.coverArt !== undefined ? (updates.coverArt || undefined) : t.coverArt,
         };
       }
       return t;
     }));
+
+    const detailsPatch: Partial<TrackDetails> = {};
+    if (updates.composer !== undefined) detailsPatch.composer = updates.composer;
+    if (updates.contentGroup !== undefined) detailsPatch.contentGroup = updates.contentGroup;
+    if (updates.comment !== undefined) detailsPatch.comment = updates.comment;
+    if (updates.conductor !== undefined) detailsPatch.conductor = updates.conductor;
+    if (updates.lyricist !== undefined) detailsPatch.lyricist = updates.lyricist;
+    if (isTauri() && Object.keys(detailsPatch).length > 0) {
+      await libraryRepository.mergeDetails(Array.from(targetIds), detailsPatch).catch(error => {
+        console.warn('Failed to save track details to SQLite:', error);
+      });
+    } else if (!isTauri() && Object.keys(detailsPatch).length > 0) {
+      setTracks(prev => prev.map(track => targetIds.has(track.id) ? { ...track, ...detailsPatch } : track));
+    }
 
     if (currentTrack && targetIds.has(currentTrack.id)) {
       setCurrentTrack(prev => prev ? {
@@ -4288,17 +4139,18 @@ export const App: React.FC = () => {
   };
 
   const handleSaveLyrics = async (trackId: string, lyrics: string, isInstrumental: boolean, lyricist?: string) => {
-    setTracks(prev => prev.map(t => {
-      if (t.id === trackId) {
-        return { 
-          ...t, 
-          lyrics, 
-          isInstrumental,
-          lyricist: lyricist !== undefined ? lyricist : t.lyricist
-        };
-      }
-      return t;
-    }));
+    const detailsPatch: Partial<TrackDetails> = {
+      lyrics: isInstrumental ? '' : lyrics,
+      isInstrumental,
+    };
+    if (lyricist !== undefined) detailsPatch.lyricist = lyricist;
+    if (isTauri()) {
+      await libraryRepository.mergeDetails([trackId], detailsPatch).catch(error => {
+        console.warn('Failed to save lyrics to SQLite:', error);
+      });
+    } else {
+      setTracks(prev => prev.map(track => track.id === trackId ? { ...track, ...detailsPatch } : track));
+    }
     if (currentTrack?.id === trackId) {
       setCurrentTrack(prev => prev ? { 
         ...prev, 
@@ -4332,6 +4184,7 @@ export const App: React.FC = () => {
       const paths = targetTracks.map(t => t.path as string);
       const reloaded = await invoke<any[]>('read_audio_files', { paths });
       if (reloaded && reloaded.length > 0) {
+        await libraryRepository.upsertBatch(reloaded as Track[]);
         const reloadedMap = new Map<string, any>(reloaded.map(r => [normalizeTrackPath(r.path), r]));
 
         setTracks(prev => prev.map(t => {
@@ -4353,12 +4206,6 @@ export const App: React.FC = () => {
             year: r.year || undefined,
             trackNumber: r.track_number || undefined,
             trackTotal: r.track_total || undefined,
-            lyrics: r.lyrics || undefined,
-            composer: r.composer || undefined,
-            contentGroup: r.content_group || undefined,
-            comment: r.comment || undefined,
-            conductor: r.conductor || undefined,
-            lyricist: r.lyricist || undefined,
             format: r.format || t.format || getAudioFormatFromPath(t.path),
             fileSize: r.file_size || t.fileSize,
           };
@@ -4413,12 +4260,6 @@ export const App: React.FC = () => {
             year: r.year || undefined,
             trackNumber: r.track_number || undefined,
             trackTotal: r.track_total || undefined,
-            lyrics: r.lyrics || undefined,
-            composer: r.composer || undefined,
-            contentGroup: r.content_group || undefined,
-            comment: r.comment || undefined,
-            conductor: r.conductor || undefined,
-            lyricist: r.lyricist || undefined,
             format: r.format || t.format || getAudioFormatFromPath(t.path),
             fileSize: r.file_size || t.fileSize,
           };

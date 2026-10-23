@@ -188,6 +188,21 @@ impl LibraryDb {
         raw.map(|json| serde_json::from_str(&json).map_err(|e| format!("Decode track details: {e}"))).transpose()
     }
 
+    pub fn summaries_by_paths(&self, paths: &[String]) -> Result<Vec<TrackSummary>, String> {
+        let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let mut result = Vec::with_capacity(paths.len());
+        let mut statement = connection.prepare(
+            "SELECT id,path,title,artist,album,genre,year,track_number,track_total,duration,src,cover_art,bitrate,format,file_size,date_added,play_count,is_favorite,is_missing FROM tracks WHERE path_key=?1"
+        ).map_err(|e| e.to_string())?;
+        for path in paths {
+            let path_key = normalize_path(path);
+            if let Some(item) = statement.query_row([path_key], row_to_summary).optional().map_err(|e| e.to_string())? {
+                result.push(item);
+            }
+        }
+        Ok(result)
+    }
+
     pub fn summaries_by_ids(&self, ids: &[String]) -> Result<Vec<TrackSummary>, String> {
         let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
         let mut result = Vec::with_capacity(ids.len());
@@ -231,6 +246,23 @@ impl LibraryDb {
         }
         transaction.commit().map_err(|e| e.to_string())?;
         Ok(changed)
+    }
+
+    pub fn merge_details(&self, ids: &[String], patch: &Value) -> Result<(), String> {
+        let patch = patch.as_object().ok_or("Track details patch must be a JSON object")?;
+        let mut connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let transaction = connection.transaction().map_err(|e| e.to_string())?;
+        for id in ids {
+            let current: Option<String> = transaction.query_row(
+                "SELECT details_json FROM tracks WHERE id=?1", [id], |row| row.get(0)
+            ).optional().map_err(|e| e.to_string())?;
+            let Some(current) = current else { continue };
+            let mut details: Map<String, Value> = serde_json::from_str(&current).unwrap_or_default();
+            for (key, value) in patch { details.insert(key.clone(), value.clone()); }
+            let encoded = serde_json::to_string(&details).map_err(|e| e.to_string())?;
+            transaction.execute("UPDATE tracks SET details_json=?1 WHERE id=?2", params![encoded, id]).map_err(|e| e.to_string())?;
+        }
+        transaction.commit().map_err(|e| e.to_string())
     }
 
     pub fn set_favorites(&self, ids: &[String], favorite: bool) -> Result<(), String> {
@@ -370,12 +402,13 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
             details.insert(normalized.to_string(), item.clone());
         }
     }
-    let details_json = if details.is_empty() {
-        transaction.query_row("SELECT details_json FROM tracks WHERE id=?1", [id], |row| row.get::<_, String>(0))
-            .optional().map_err(|e| e.to_string())?.unwrap_or_else(|| "{}".to_string())
-    } else {
-        serde_json::to_string(&Value::Object(details)).map_err(|e| e.to_string())?
-    };
+    let current_details = transaction.query_row("SELECT details_json FROM tracks WHERE id=?1", [id], |row| row.get::<_, String>(0))
+        .optional().map_err(|e| e.to_string())?;
+    let mut merged_details: Map<String, Value> = current_details
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default();
+    for (key, detail) in details { merged_details.insert(key, detail); }
+    let details_json = serde_json::to_string(&Value::Object(merged_details)).map_err(|e| e.to_string())?;
     let mut search_parts = vec![title.clone(), artist.clone(), album.clone()];
     if let Some(g) = &genre { search_parts.push(g.clone()); }
     if let Some(p) = &path { search_parts.push(p.clone()); }
@@ -462,6 +495,26 @@ mod tests {
         assert!(page.items[0].is_favorite);
         assert_eq!(page.items[0].play_count, 9);
         assert_eq!(page.items[0].date_added, 123);
+    }
+
+    #[test]
+    fn detail_patch_merges_without_dropping_unmodified_fields() {
+        let db = database();
+        db.upsert_batch(&[json!({"id":"1","title":"Song","artist":"Artist","album":"Album","lyrics":"old lyrics","composer":"Composer"})]).unwrap();
+        db.merge_details(&["1".into()], &json!({"lyrics":"new lyrics","comment":null})).unwrap();
+        let details = db.details("1").unwrap().unwrap();
+        assert_eq!(details.lyrics.as_deref(), Some("new lyrics"));
+        assert_eq!(details.composer.as_deref(), Some("Composer"));
+        assert_eq!(details.comment, None);
+    }
+
+    #[test]
+    fn custom_tags_are_preserved_across_metadata_upsert() {
+        let db = database();
+        db.upsert_batch(&[json!({"id":"1","title":"Song","artist":"Artist","album":"Album","customTags":{"MOOD":"calm"}})]).unwrap();
+        db.upsert_batch(&[json!({"id":"1","title":"Updated","artist":"Artist","album":"Album","lyrics":null,"composer":null})]).unwrap();
+        assert_eq!(db.page(None, "title", false, 0, 10).unwrap().items[0].title, "Updated");
+        assert_eq!(db.details("1").unwrap().unwrap().custom_tags, Some(json!({"MOOD":"calm"})));
     }
 
     #[test]

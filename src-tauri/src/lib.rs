@@ -491,6 +491,23 @@ fn library_db_get_details(
 }
 
 #[tauri::command]
+fn library_db_get_by_paths(
+    paths: Vec<String>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<Vec<library_db::TrackSummary>, String> {
+    let mut tracks = state.summaries_by_paths(&paths)?;
+    let base_dir = storage::get_portable_base_dir();
+    for track in &mut tracks {
+        if let Some(cover) = track.cover_art.as_deref() {
+            if !cover.starts_with("http") && !cover.starts_with("data:") {
+                track.cover_art = storage::to_absolute_cover(cover, &base_dir);
+            }
+        }
+    }
+    Ok(tracks)
+}
+
+#[tauri::command]
 fn library_db_get_by_ids(
     track_ids: Vec<String>,
     state: State<'_, library_db::LibraryDb>,
@@ -524,6 +541,15 @@ fn library_db_upsert_batch(
     state: State<'_, library_db::LibraryDb>,
 ) -> Result<usize, String> {
     state.upsert_batch(&tracks)
+}
+
+#[tauri::command]
+fn library_db_merge_details(
+    track_ids: Vec<String>,
+    details: serde_json::Value,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<(), String> {
+    state.merge_details(&track_ids, &details)
 }
 
 #[tauri::command]
@@ -611,20 +637,14 @@ fn update_discord_presence(presence: DiscordPresenceState, state: State<'_, AppS
 }
 
 #[tauri::command]
-async fn open_file_dialog() -> Result<Vec<TrackMetadata>, String> {
+fn open_file_dialog() -> Result<Vec<String>, String> {
     let files = rfd::FileDialog::new()
         .add_filter("Audio Files (*.mp3;*.flac;*.wav;*.ogg;*.m4a;*.opus;*.aac;*.wma)", &["mp3", "flac", "wav", "ogg", "m4a", "opus", "aac", "wma"])
         .pick_files();
 
-    if let Some(paths) = files {
-        let string_paths: Vec<String> = paths
-            .into_iter()
-            .map(|p| p.to_string_lossy().to_string())
-            .collect();
-        read_audio_files(string_paths).await
-    } else {
-        Ok(vec![])
-    }
+    Ok(files.unwrap_or_default().into_iter()
+        .map(|path| path.to_string_lossy().to_string())
+        .collect())
 }
 
 #[tauri::command]
@@ -2650,8 +2670,10 @@ pub fn run() {
             library_db_get_page,
             library_db_get_details,
             library_db_get_by_ids,
+            library_db_get_by_paths,
             library_db_seed_legacy_from_disk,
             library_db_upsert_batch,
+            library_db_merge_details,
             library_db_set_favorites,
             library_db_delete_ids,
             get_app_version,

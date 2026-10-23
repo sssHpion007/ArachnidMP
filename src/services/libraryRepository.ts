@@ -29,8 +29,27 @@ export const libraryRepository = {
     });
   },
 
+  async allSummaries(pageSize = MAX_PAGE_SIZE): Promise<TrackSummary[]> {
+    const rows: TrackSummary[] = [];
+    const total = await this.count();
+    for (let offset = 0; offset < total; offset += pageSize) {
+      const page = await this.page({ sortBy: 'title', descending: false, offset, limit: pageSize });
+      if (page.items.length === 0) break;
+      rows.push(...page.items);
+    }
+    return rows;
+  },
+
   async details(trackId: string): Promise<TrackDetails | null> {
     return invoke<TrackDetails | null>('library_db_get_details', { trackId });
+  },
+
+  async byPaths(paths: string[]): Promise<TrackSummary[]> {
+    const rows: TrackSummary[] = [];
+    for (let start = 0; start < paths.length; start += 500) {
+      rows.push(...await invoke<TrackSummary[]>('library_db_get_by_paths', { paths: paths.slice(start, start + 500) }));
+    }
+    return rows;
   },
 
   async byIds(trackIds: string[]): Promise<TrackSummary[]> {
@@ -45,6 +64,11 @@ export const libraryRepository = {
       upserted += await invoke<number>('library_db_upsert_batch', { tracks: batch });
     }
     return upserted;
+  },
+
+  async mergeDetails(trackIds: string[], details: Partial<TrackDetails>): Promise<void> {
+    if (trackIds.length === 0 || Object.keys(details).length === 0) return;
+    await invoke('library_db_merge_details', { trackIds, details });
   },
 
   async setFavorites(trackIds: string[], favorite: boolean): Promise<void> {
