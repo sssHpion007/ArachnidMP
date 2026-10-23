@@ -2069,6 +2069,13 @@ export const App: React.FC = () => {
       const focusedInput = keyboardTarget?.closest('input') as HTMLInputElement | null;
       const isTextInput = !!focusedInput && !['range', 'checkbox', 'radio', 'button', 'submit', 'file', 'color'].includes(focusedInput.type);
       const isTypingTarget = isTextInput || !!keyboardTarget?.closest('textarea, select, [contenteditable="true"]');
+      if (e.shiftKey && (e.code === 'KeyT' || e.key.toLowerCase() === 't') && isTauri()) {
+        void invoke('log_keyboard_probe', {
+          target: keyboardTarget?.tagName || 'none',
+          typingTarget: isTypingTarget,
+          focusedId: (document.activeElement as HTMLElement | null)?.id || '',
+        }).catch(() => {});
+      }
       const repeatableCodes = new Set(['Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
       if (e.repeat && !repeatableCodes.has(e.code) && (!isTypingTarget || e.ctrlKey || e.metaKey)) {
         e.preventDefault();

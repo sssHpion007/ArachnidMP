@@ -85,6 +85,15 @@ fn set_close_to_tray(enabled: bool, state: State<'_, AppState>) {
 }
 
 #[tauri::command]
+fn log_keyboard_probe(target: String, typing_target: bool, focused_id: String) {
+    logger::log(
+        "INFO",
+        "KEYBOARD_PROBE",
+        &format!("target={} typing_target={} focused_id={}", target, typing_target, focused_id),
+    );
+}
+
+#[tauri::command]
 fn save_portable_data(data: String) -> Result<bool, String> {
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(&data) {
         storage::save_modular_data(&val)
@@ -2415,6 +2424,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             set_close_to_tray,
+            log_keyboard_probe,
             update_discord_presence,
             read_audio_files,
             read_audio_binary,
