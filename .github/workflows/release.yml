@@ -90,6 +90,7 @@ jobs:
             [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
             [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
             [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+            [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extraInfo);
           }
           '@
             $shell = New-Object -ComObject WScript.Shell
@@ -104,9 +105,13 @@ jobs:
             if ($foregroundWindow -ne $mainWindow) {
               throw "Player window did not retain foreground focus (main=$mainWindow, foreground=$foregroundWindow)."
             }
-            $shell.SendKeys('{ESC}')
+            [NativeWindowFocus]::keybd_event(0x1B, 0, 0, [UIntPtr]::Zero)
+            [NativeWindowFocus]::keybd_event(0x1B, 0, 0x0002, [UIntPtr]::Zero)
             Start-Sleep -Milliseconds 300
-            $shell.SendKeys('+T')
+            [NativeWindowFocus]::keybd_event(0x10, 0, 0, [UIntPtr]::Zero)
+            [NativeWindowFocus]::keybd_event(0x54, 0, 0, [UIntPtr]::Zero)
+            [NativeWindowFocus]::keybd_event(0x54, 0, 0x0002, [UIntPtr]::Zero)
+            [NativeWindowFocus]::keybd_event(0x10, 0, 0x0002, [UIntPtr]::Zero)
             $deadline = [DateTime]::UtcNow.AddSeconds(10)
             $lyricsWindowFound = $false
             while ([DateTime]::UtcNow -lt $deadline) {
