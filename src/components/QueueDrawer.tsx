@@ -5,6 +5,10 @@ import { formatTime } from '../services/tagEditor';
 import { AppLanguage } from '../i18n';
 import { useDrawerAnimation } from '../utils/useModalAnimation';
 
+const QUEUE_ROW_HEIGHT = 60;
+const QUEUE_ROW_CONTENT_HEIGHT = 56;
+const QUEUE_OVERSCAN = 6;
+
 interface QueueDrawerProps {
   isOpen: boolean;
   onClose: () => void;
@@ -38,7 +42,8 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
     typeof window !== 'undefined' ? window.innerWidth < 780 : false
   );
   const [selectedIndex, setSelectedIndex] = useState(queueIndex);
-  const selectedRowRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
   const pendingSelectionScrollRef = useRef<number | null>(null);
   const wasOpenRef = useRef(false);
 
@@ -51,6 +56,14 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
   }, []);
 
   const compactMode = isCompact !== undefined ? isCompact : internalIsCompact;
+  const totalListHeight = queue.length * QUEUE_ROW_HEIGHT;
+  const firstVisibleIndex = Math.max(0, Math.floor(scrollTop / QUEUE_ROW_HEIGHT) - QUEUE_OVERSCAN);
+  const lastVisibleIndex = Math.min(
+    queue.length,
+    Math.ceil((scrollTop + viewportHeight) / QUEUE_ROW_HEIGHT) + QUEUE_OVERSCAN,
+  );
+  const visibleQueueRows = queue.slice(firstVisibleIndex, lastVisibleIndex);
+
   const [dragState, setDragState] = useState<{
     index: number;
     startX: number;
@@ -64,7 +77,6 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
   const dropTargetRef = useRef<typeof dropTarget>(null);
   const hasDraggedRef = useRef<boolean>(false);
   const listContainerRef = useRef<HTMLDivElement>(null);
-  const currentTrackRowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     dragStateRef.current = dragState;
@@ -120,6 +132,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
     if (!wasOpenRef.current) {
       wasOpenRef.current = true;
       pendingSelectionScrollRef.current = null;
+      setScrollTop(0);
       setSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
       return;
     }
@@ -132,12 +145,15 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
     pendingSelectionScrollRef.current = null;
     const frameId = requestAnimationFrame(() => {
       const container = listContainerRef.current;
-      const selectedRow = selectedRowRef.current;
-      if (!container || !selectedRow) return;
-      const containerRect = container.getBoundingClientRect();
-      const rowRect = selectedRow.getBoundingClientRect();
-      if (rowRect.top < containerRect.top) container.scrollBy({ top: rowRect.top - containerRect.top, behavior: 'smooth' });
-      else if (rowRect.bottom > containerRect.bottom) container.scrollBy({ top: rowRect.bottom - containerRect.bottom, behavior: 'smooth' });
+      if (!container) return;
+      const rowTop = selectedIndex * QUEUE_ROW_HEIGHT;
+      const rowBottom = rowTop + QUEUE_ROW_CONTENT_HEIGHT;
+      const viewportTop = container.scrollTop;
+      const viewportBottom = viewportTop + container.clientHeight;
+      if (rowTop < viewportTop) container.scrollTo({ top: rowTop, behavior: 'smooth' });
+      else if (rowBottom > viewportBottom) {
+        container.scrollTo({ top: rowBottom - container.clientHeight, behavior: 'smooth' });
+      }
     });
     return () => cancelAnimationFrame(frameId);
   }, [isOpen, selectedIndex]);
@@ -270,21 +286,37 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
 
   const { isRendered, drawerClass } = useDrawerAnimation(isOpen, 180);
 
-  // Scroll only when the drawer opens. While it is open, let the user browse
-  // without jumping the list every time a different track becomes active.
+  useEffect(() => {
+    if (!isRendered) {
+      setViewportHeight(0);
+      return;
+    }
+    const container = listContainerRef.current;
+    if (!container) return;
+
+    const updateViewportHeight = () => setViewportHeight(container.clientHeight);
+    updateViewportHeight();
+    const observer = new ResizeObserver(updateViewportHeight);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [isRendered]);
+
+  // Keep the active queue item in view when the drawer opens without mounting
+  // every row just to locate its DOM element.
   useEffect(() => {
     if (!isOpen || !isRendered || queue.length === 0) return;
 
     const frameId = requestAnimationFrame(() => {
       const container = listContainerRef.current;
-      const currentRow = currentTrackRowRef.current;
-      if (!container || !currentRow) return;
-
-      const containerRect = container.getBoundingClientRect();
-      const rowRect = currentRow.getBoundingClientRect();
-      const rowTop = rowRect.top - containerRect.top + container.scrollTop;
-      const centeredScrollTop = rowTop - (container.clientHeight - currentRow.offsetHeight) / 2;
-      container.scrollTo({ top: Math.max(0, centeredScrollTop), behavior: 'auto' });
+      if (!container) return;
+      const currentIndex = Math.max(0, Math.min(queueIndex, queue.length - 1));
+      const rowTop = currentIndex * QUEUE_ROW_HEIGHT;
+      const centeredScrollTop = rowTop - (container.clientHeight - QUEUE_ROW_CONTENT_HEIGHT) / 2;
+      const maxScrollTop = Math.max(0, totalListHeight - container.clientHeight);
+      container.scrollTo({
+        top: Math.max(0, Math.min(maxScrollTop, centeredScrollTop)),
+        behavior: 'auto',
+      });
     });
 
     return () => cancelAnimationFrame(frameId);
@@ -293,7 +325,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
   if (!isRendered) return null;
 
   return (
-    <aside 
+    <aside
       style={{ bottom: compactMode ? '196px' : '96px' }}
       className={`fixed top-7 right-0 w-full sm:w-80 lg:w-96 bg-md3-surface-container shadow-2xl border-l border-md3-outline-variant/30 z-40 flex flex-col select-none ${drawerClass}`}
     >
@@ -304,7 +336,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
             {language === 'ru' ? 'Очередь' : 'Queue'}
           </h2>
           <p className="text-xs text-md3-on-surface-variant">
-            {queue.length} {language === 'ru' 
+            {queue.length} {language === 'ru'
               ? (queue.length === 1 ? 'трек' : queue.length < 5 ? 'трека' : 'треков')
               : (queue.length === 1 ? 'track' : 'tracks')
             }
@@ -337,131 +369,155 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
       </div>
 
       {/* Queue items list */}
-      <div ref={listContainerRef} className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+      <div
+        ref={listContainerRef}
+        onScroll={event => setScrollTop(event.currentTarget.scrollTop)}
+        className="flex-1 overflow-y-auto p-2 custom-scrollbar"
+      >
         {queue.length === 0 ? (
           <div className="h-48 flex flex-col items-center justify-center text-center text-md3-on-surface-variant text-sm p-4">
             <Music className="w-8 h-8 opacity-40 mb-2" />
             <span>{language === 'ru' ? 'Очередь воспроизведения пуста' : 'Playback queue is empty'}</span>
           </div>
         ) : (
-          queue.map((track, idx) => {
-            const isCurrent = idx === queueIndex;
-            const isBeingDragged = dragState?.isDragging && dragState.index === idx;
-            const isDropAbove = dropTarget?.index === idx && dropTarget.position === 'above';
-            const isDropBelow = dropTarget?.index === idx && dropTarget.position === 'below';
+          <div
+            role="list"
+            aria-label={language === 'ru' ? 'Очередь воспроизведения' : 'Playback queue'}
+            className="relative w-full"
+            style={{ height: totalListHeight }}
+          >
+            {visibleQueueRows.map((track, relativeIndex) => {
+              const idx = firstVisibleIndex + relativeIndex;
+              const isCurrent = idx === queueIndex;
+              const isBeingDragged = dragState?.isDragging && dragState.index === idx;
+              const isDropAbove = dropTarget?.index === idx && dropTarget.position === 'above';
+              const isDropBelow = dropTarget?.index === idx && dropTarget.position === 'below';
 
-            return (
-              <div
-                key={`${track.id}-${idx}`}
-                ref={node => {
-                  if (idx === selectedIndex) selectedRowRef.current = node;
-                  if (isCurrent) currentTrackRowRef.current = node;
-                }}
-                data-queue-row-index={idx}
-                onPointerDown={(e) => handlePointerDown(e, idx)}
-                className={`relative group flex items-center justify-between p-2 rounded-2xl transition-all select-none ${
-                  isBeingDragged
-                    ? 'opacity-30 bg-md3-primary/10 border-dashed border border-md3-primary/40'
-                    : isCurrent
-                    ? `bg-md3-primary-container text-md3-on-primary-container font-semibold shadow-sm ${idx === selectedIndex ? 'ring-2 ring-inset ring-md3-primary/70' : ''}`
-                    : idx === selectedIndex
-                    ? 'bg-md3-primary/10 ring-2 ring-inset ring-md3-primary/60 text-md3-on-surface'
-                    : 'hover:bg-md3-surface-container-high text-md3-on-surface'
-                }`}
-              >
-                {/* Drop Indicator Lines */}
-                {isDropAbove && (
-                  <div className="absolute top-0 left-2 right-2 h-0.5 bg-md3-primary rounded-full z-20 pointer-events-none shadow-[0_0_8px_rgba(var(--primary-rgb),0.8)] flex items-center justify-between">
-                    <div className="w-1.5 h-1.5 rounded-full bg-md3-primary -ml-1 ring-2 ring-md3-surface-container" />
-                    <div className="w-1.5 h-1.5 rounded-full bg-md3-primary -mr-1 ring-2 ring-md3-surface-container" />
-                  </div>
-                )}
-                {isDropBelow && (
-                  <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-md3-primary rounded-full z-20 pointer-events-none shadow-[0_0_8px_rgba(var(--primary-rgb),0.8)] flex items-center justify-between">
-                    <div className="w-1.5 h-1.5 rounded-full bg-md3-primary -ml-1 ring-2 ring-md3-surface-container" />
-                    <div className="w-1.5 h-1.5 rounded-full bg-md3-primary -mr-1 ring-2 ring-md3-surface-container" />
-                  </div>
-                )}
-
-                {/* Drag handle */}
-                <div 
-                  className="cursor-grab active:cursor-grabbing text-md3-on-surface-variant/40 hover:text-md3-on-surface-variant p-1 mr-1 shrink-0 rounded transition-colors"
-                  title="Перетащите для изменения порядка"
-                >
-                  <GripVertical className="w-3.5 h-3.5" />
-                </div>
-
-                <div 
-                  onClick={() => {
-                    if (hasDraggedRef.current) return;
-                    setSelectedIndex(idx);
-                    onPlayQueueTrack(idx);
+              return (
+                <div
+                  key={`${track.id}-${idx}`}
+                  role="listitem"
+                  aria-posinset={idx + 1}
+                  aria-setsize={queue.length}
+                  data-queue-row-index={idx}
+                  onPointerDown={(e) => handlePointerDown(e, idx)}
+                  style={{
+                    position: 'absolute',
+                    top: idx * QUEUE_ROW_HEIGHT,
+                    left: 0,
+                    right: 0,
+                    height: QUEUE_ROW_CONTENT_HEIGHT,
                   }}
-                  className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer pr-2"
+                  className={`group flex items-center justify-between p-2 rounded-2xl transition-all select-none ${
+                    isBeingDragged
+                      ? 'opacity-30 bg-md3-primary/10 border-dashed border border-md3-primary/40'
+                      : isCurrent
+                      ? `bg-md3-primary-container text-md3-on-primary-container font-semibold shadow-sm ${idx === selectedIndex ? 'ring-2 ring-inset ring-md3-primary/70' : ''}`
+                      : idx === selectedIndex
+                      ? 'bg-md3-primary/10 ring-2 ring-inset ring-md3-primary/60 text-md3-on-surface'
+                      : 'hover:bg-md3-surface-container-high text-md3-on-surface'
+                  }`}
                 >
-                  <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-md3-surface-container-highest shadow-sm relative">
-                    {track.coverArt ? (
-                      <img src={track.coverArt} alt={track.title} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-md3-primary/60 bg-md3-primary/10">
-                        <Music className="w-4 h-4" />
-                      </div>
-                    )}
+                  {/* Drop Indicator Lines */}
+                  {isDropAbove && (
+                    <div className="absolute top-0 left-2 right-2 h-0.5 bg-md3-primary rounded-full z-20 pointer-events-none shadow-[0_0_8px_rgba(var(--primary-rgb),0.8)] flex items-center justify-between">
+                      <div className="w-1.5 h-1.5 rounded-full bg-md3-primary -ml-1 ring-2 ring-md3-surface-container" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-md3-primary -mr-1 ring-2 ring-md3-surface-container" />
+                    </div>
+                  )}
+                  {isDropBelow && (
+                    <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-md3-primary rounded-full z-20 pointer-events-none shadow-[0_0_8px_rgba(var(--primary-rgb),0.8)] flex items-center justify-between">
+                      <div className="w-1.5 h-1.5 rounded-full bg-md3-primary -ml-1 ring-2 ring-md3-surface-container" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-md3-primary -mr-1 ring-2 ring-md3-surface-container" />
+                    </div>
+                  )}
+
+                  {/* Drag handle */}
+                  <div
+                    className="cursor-grab active:cursor-grabbing text-md3-on-surface-variant/40 hover:text-md3-on-surface-variant p-1 mr-1 shrink-0 rounded transition-colors"
+                    title="Перетащите для изменения порядка"
+                  >
+                    <GripVertical className="w-3.5 h-3.5" />
                   </div>
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <p className={`text-xs font-bold truncate ${
-                        track.isMissing 
-                          ? 'text-amber-500/90 dark:text-amber-400/90' 
-                          : isCurrent 
-                          ? 'text-md3-on-primary-container' 
-                          : 'text-md3-on-surface'
-                      }`}>
-                        {track.title}
-                      </p>
-                      {track.isMissing && (
-                        <span title="Файл не найден">
-                          <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" />
-                        </span>
+                  <div
+                    onClick={() => {
+                      if (hasDraggedRef.current) return;
+                      setSelectedIndex(idx);
+                      onPlayQueueTrack(idx);
+                    }}
+                    className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer pr-2"
+                  >
+                    <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-md3-surface-container-highest shadow-sm relative">
+                      {track.coverArt ? (
+                        <img
+                          src={track.coverArt}
+                          alt={track.title}
+                          loading="lazy"
+                          decoding="async"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-md3-primary/60 bg-md3-primary/10">
+                          <Music className="w-4 h-4" />
+                        </div>
                       )}
                     </div>
-                    <p className="text-[11px] text-md3-on-surface-variant truncate">
-                      {track.artist}
-                    </p>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <p className={`text-xs font-bold truncate ${
+                          track.isMissing
+                            ? 'text-amber-500/90 dark:text-amber-400/90'
+                            : isCurrent
+                            ? 'text-md3-on-primary-container'
+                            : 'text-md3-on-surface'
+                        }`}>
+                          {track.title}
+                        </p>
+                        {track.isMissing && (
+                          <span title="Файл не найден">
+                            <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" />
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-md3-on-surface-variant truncate">
+                        {track.artist}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {idx > 0 && (
+                      <button
+                        onClick={() => onMoveQueueTrack(idx, idx - 1)}
+                        className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
+                        title="Переместить выше"
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {idx < queue.length - 1 && (
+                      <button
+                        onClick={() => onMoveQueueTrack(idx, idx + 1)}
+                        className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
+                        title="Переместить ниже"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => onRemoveFromQueue(idx)}
+                      className="p-1 rounded-full text-md3-on-surface-variant hover:text-red-400 cursor-pointer"
+                      title="Удалить из очереди"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
-
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {idx > 0 && (
-                    <button
-                      onClick={() => onMoveQueueTrack(idx, idx - 1)}
-                      className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
-                      title="Переместить выше"
-                    >
-                      <ArrowUp className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                  {idx < queue.length - 1 && (
-                    <button
-                      onClick={() => onMoveQueueTrack(idx, idx + 1)}
-                      className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface cursor-pointer"
-                      title="Переместить ниже"
-                    >
-                      <ArrowDown className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                  <button
-                    onClick={() => onRemoveFromQueue(idx)}
-                    className="p-1 rounded-full text-md3-on-surface-variant hover:text-red-400 cursor-pointer"
-                    title="Удалить из очереди"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            );
-          })
+              );
+            })}
+          </div>
         )}
       </div>
 
