@@ -32,6 +32,7 @@ import { AppLanguage } from '../i18n';
 import { formatTime } from '../services/tagEditor';
 import { MiniLyricsPane, MiniLyricsTrack } from './MiniLyricsPane';
 import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups';
+import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
 
 type LyricsMode = 'closed' | 'attached' | 'detached';
 type BottomPanel = 'queue' | 'library' | null;
@@ -41,19 +42,63 @@ type MiniPlaylistEntry =
   | { type: 'folder'; item: PlaylistFolder; order: number }
   | { type: 'playlist'; item: Playlist; order: number };
 
+const MINI_TRACK_ROW_HEIGHT = 56;
+const MINI_TRACK_OVERSCAN = 6;
+
+type FixedRowRange<T> = { items: T[]; startIndex: number; totalHeight: number };
+
+const getFixedRowRange = <T,>(items: T[], scrollTop: number, viewportHeight: number): FixedRowRange<T> => {
+  const startIndex = Math.max(0, Math.floor(scrollTop / MINI_TRACK_ROW_HEIGHT) - MINI_TRACK_OVERSCAN);
+  const endIndex = Math.min(
+    items.length,
+    Math.ceil((scrollTop + viewportHeight) / MINI_TRACK_ROW_HEIGHT) + MINI_TRACK_OVERSCAN,
+  );
+  return {
+    items: items.slice(startIndex, endIndex),
+    startIndex,
+    totalHeight: items.length * MINI_TRACK_ROW_HEIGHT,
+  };
+};
+
+const scrollFixedRowIntoView = (
+  container: HTMLDivElement | null,
+  index: number,
+  align: 'nearest' | 'center' = 'nearest',
+  behavior: ScrollBehavior = 'auto',
+) => {
+  if (!container || index < 0) return;
+  const rowTop = index * MINI_TRACK_ROW_HEIGHT;
+  const rowBottom = rowTop + MINI_TRACK_ROW_HEIGHT;
+  let targetTop = container.scrollTop;
+  if (align === 'center') {
+    targetTop = rowTop - (container.clientHeight - MINI_TRACK_ROW_HEIGHT) / 2;
+  } else if (rowTop < container.scrollTop) {
+    targetTop = rowTop;
+  } else if (rowBottom > container.scrollTop + container.clientHeight) {
+    targetTop = rowBottom - container.clientHeight;
+  }
+  const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+  container.scrollTo({ top: Math.max(0, Math.min(maxScrollTop, targetTop)), behavior });
+};
+
 interface MiniTrackRowProps {
   track: Track;
   active?: boolean;
   selected?: boolean;
   language: AppLanguage;
-  buttonRef?: React.Ref<HTMLButtonElement>;
+  index?: number;
+  totalCount?: number;
+  style?: React.CSSProperties;
   onClick: () => void;
 }
 
-const MiniTrackRow: React.FC<MiniTrackRowProps> = ({ track, active = false, selected = false, language, buttonRef, onClick }) => (
+const MiniTrackRow: React.FC<MiniTrackRowProps> = ({ track, active = false, selected = false, language, index, totalCount, style, onClick }) => (
   <button
-    ref={buttonRef}
     type="button"
+    role={index !== undefined ? 'listitem' : undefined}
+    aria-posinset={index !== undefined ? index + 1 : undefined}
+    aria-setsize={totalCount}
+    style={style}
     aria-current={active ? 'true' : undefined}
     aria-selected={selected ? true : undefined}
     onClick={onClick}
@@ -67,7 +112,7 @@ const MiniTrackRow: React.FC<MiniTrackRowProps> = ({ track, active = false, sele
   >
     <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-md3-surface-container-highest shadow-sm">
       {track.coverArt ? (
-        <img src={track.coverArt} alt="" className="h-full w-full object-cover" />
+        <img src={track.coverArt} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
       ) : (
         <span className="flex h-full w-full items-center justify-center bg-md3-primary/10 text-md3-primary/70"><Music2 size={16} /></span>
       )}
@@ -109,7 +154,7 @@ const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
     style={accentColor ? { borderColor: accentColor } : undefined}
   >
     {coverArt ? (
-      <img src={coverArt} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" />
+      <img src={coverArt} alt="" loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" />
     ) : (
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high text-md3-primary/70">
         {icon}
@@ -251,14 +296,16 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const [queueSelectedIndex, setQueueSelectedIndex] = useState(queueIndex);
   const [libraryTrackSelectedIndex, setLibraryTrackSelectedIndex] = useState(0);
   const [libraryTabIndicator, setLibraryTabIndicator] = useState({ left: 0, top: 0, width: 0, height: 0, opacity: 0 });
+  const [queueScrollTop, setQueueScrollTop] = useState(0);
+  const [queueViewportHeight, setQueueViewportHeight] = useState(0);
+  const [libraryScrollTop, setLibraryScrollTop] = useState(0);
+  const [libraryViewportHeight, setLibraryViewportHeight] = useState(0);
   const lastTabSwitchTimeRef = useRef<number>(0);
   const volHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const queueSelectedItemRef = useRef<HTMLButtonElement>(null);
   const queueListRef = useRef<HTMLDivElement>(null);
   const queuePendingScrollIndexRef = useRef<number | null>(null);
   const libraryListRef = useRef<HTMLDivElement>(null);
   const libraryTracksRef = useRef<Track[]>([]);
-  const libraryTrackSelectedItemRef = useRef<HTMLButtonElement>(null);
   const libraryPendingScrollIndexRef = useRef<number | null>(null);
   const libraryTabsNavRef = useRef<HTMLElement>(null);
   const libraryTabsDragRef = useRef<{ pointerId: number; startX: number; startScrollLeft: number; moved: boolean } | null>(null);
@@ -278,6 +325,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     if (panel !== null) {
       setRenderedPanel(panel);
       setIsPanelContentRendered(true);
+      if (panel === 'queue') setQueueScrollTop(0);
+      if (panel === 'library') setLibraryScrollTop(0);
     }
     setBottomPanel(panel);
   };
@@ -462,19 +511,23 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   }, [queue.length]);
 
   useEffect(() => {
+    const list = queueListRef.current;
+    if (!isPanelContentRendered || renderedPanel !== 'queue' || !list) return;
+    const measure = () => setQueueViewportHeight(list.clientHeight);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [isPanelContentRendered, renderedPanel]);
+
+  useEffect(() => {
     if (bottomPanel !== 'queue') {
       queuePendingScrollIndexRef.current = null;
       return;
     }
     const frame = requestAnimationFrame(() => {
-      const list = queueListRef.current;
-      const selectedItem = queueSelectedItemRef.current;
-      if (!list || !selectedItem) return;
-      const listRect = list.getBoundingClientRect();
-      const itemRect = selectedItem.getBoundingClientRect();
-      const rowTop = itemRect.top - listRect.top + list.scrollTop;
-      const centeredScrollTop = rowTop - (list.clientHeight - selectedItem.offsetHeight) / 2;
-      list.scrollTo({ top: Math.max(0, centeredScrollTop), behavior: 'auto' });
+      scrollFixedRowIntoView(queueListRef.current, queueIndex, 'center');
     });
     return () => cancelAnimationFrame(frame);
   }, [bottomPanel]);
@@ -483,15 +536,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     if (bottomPanel !== 'queue' || queuePendingScrollIndexRef.current !== queueSelectedIndex) return;
     queuePendingScrollIndexRef.current = null;
     const frame = requestAnimationFrame(() => {
-      const list = queueListRef.current;
-      const selectedItem = queueSelectedItemRef.current;
-      if (!list || !selectedItem) return;
-      const listRect = list.getBoundingClientRect();
-      const itemRect = selectedItem.getBoundingClientRect();
-      const visibleTop = listRect.top + list.clientTop;
-      const visibleBottom = visibleTop + list.clientHeight;
-      if (itemRect.top < visibleTop) list.scrollBy({ top: itemRect.top - visibleTop, behavior: 'smooth' });
-      else if (itemRect.bottom > visibleBottom) list.scrollBy({ top: itemRect.bottom - visibleBottom, behavior: 'smooth' });
+      scrollFixedRowIntoView(queueListRef.current, queueSelectedIndex, 'nearest', 'smooth');
     });
     return () => cancelAnimationFrame(frame);
   }, [bottomPanel, queueSelectedIndex, queue.length]);
@@ -540,25 +585,6 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     };
   }, [bottomPanel, libraryTab]);
 
-  useEffect(() => {
-    if (bottomPanel !== 'queue') return;
-    const frame = requestAnimationFrame(() => {
-      const list = queueListRef.current;
-      const selectedItem = queueSelectedItemRef.current;
-      if (!list || !selectedItem) return;
-
-      const listRect = list.getBoundingClientRect();
-      const itemRect = selectedItem.getBoundingClientRect();
-      const visibleTop = listRect.top + list.clientTop;
-      const visibleBottom = visibleTop + list.clientHeight;
-      if (itemRect.top < visibleTop) {
-        list.scrollBy({ top: itemRect.top - visibleTop, behavior: 'smooth' });
-      } else if (itemRect.bottom > visibleBottom) {
-        list.scrollBy({ top: itemRect.bottom - visibleBottom, behavior: 'smooth' });
-      }
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [bottomPanel, queueSelectedIndex, queue.length]);
   const safeDuration = duration > 0 ? duration : (currentTrack?.duration || 0);
   const safeTime = Math.max(0, Math.min(safeDuration || 0, currentTime));
   const currentPlaylist = playlists.find(playlist => playlist.id === selectedPlaylistId) || null;
@@ -658,11 +684,24 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     return [];
   }, [currentPlaylist, libraryTab, selectedCollection, selectedCollectionTracks, tracks, visibleTracks]);
   libraryTracksRef.current = libraryTracks;
+  const visibleQueueRows = getFixedRowRange(queue, queueScrollTop, queueViewportHeight);
+  const visibleLibraryRows = getFixedRowRange(libraryTracks, libraryScrollTop, libraryViewportHeight);
 
   useEffect(() => {
     const currentTrackIndex = currentTrack ? libraryTracks.findIndex(track => track.id === currentTrack.id) : -1;
     setLibraryTrackSelectedIndex(currentTrackIndex >= 0 ? currentTrackIndex : 0);
   }, [currentPlaylist?.id, selectedCollection?.name, libraryTab, libraryTracks, currentTrack?.id]);
+
+  useEffect(() => {
+    const list = libraryListRef.current;
+    if (!isPanelContentRendered || renderedPanel !== 'library' || !list) return;
+    const measure = () => setLibraryViewportHeight(list.clientHeight);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [isPanelContentRendered, renderedPanel]);
 
   useEffect(() => {
     if (bottomPanel !== 'library') {
@@ -671,6 +710,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     }
     libraryPendingScrollIndexRef.current = null;
     const frame = requestAnimationFrame(() => {
+      setLibraryScrollTop(0);
       libraryListRef.current?.scrollTo({ top: 0, behavior: 'auto' });
     });
     return () => cancelAnimationFrame(frame);
@@ -680,15 +720,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     if (bottomPanel !== 'library' || libraryPendingScrollIndexRef.current !== libraryTrackSelectedIndex) return;
     libraryPendingScrollIndexRef.current = null;
     const frame = requestAnimationFrame(() => {
-      const list = libraryListRef.current;
-      const selectedItem = libraryTrackSelectedItemRef.current;
-      if (!list || !selectedItem) return;
-      const listRect = list.getBoundingClientRect();
-      const itemRect = selectedItem.getBoundingClientRect();
-      const visibleTop = listRect.top + list.clientTop;
-      const visibleBottom = visibleTop + list.clientHeight;
-      if (itemRect.top < visibleTop) list.scrollBy({ top: itemRect.top - visibleTop, behavior: 'smooth' });
-      else if (itemRect.bottom > visibleBottom) list.scrollBy({ top: itemRect.bottom - visibleBottom, behavior: 'smooth' });
+      scrollFixedRowIntoView(libraryListRef.current, libraryTrackSelectedIndex, 'nearest', 'smooth');
     });
     return () => cancelAnimationFrame(frame);
   }, [bottomPanel, libraryTrackSelectedIndex, libraryTracks.length]);
@@ -1005,19 +1037,31 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                     <ListMusic size={15} />
                   </button>
                 </header>
-                <div ref={queueListRef} className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2">
-                  {queue.map((track, index) => (
-                    <MiniTrackRow
-                      key={`${track.id}-${index}`}
-                      track={track}
-                      active={index === queueIndex}
-                      selected={index === queueSelectedIndex}
-                      language={language}
-                      buttonRef={index === queueSelectedIndex ? queueSelectedItemRef : undefined}
-                      onClick={() => onPlayQueueTrack(index)}
-                    />
-                  ))}
-                  {queue.length === 0 && <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Очередь пуста', 'Queue is empty')}</p>}
+                <div
+                  ref={queueListRef}
+                  onScroll={event => setQueueScrollTop(event.currentTarget.scrollTop)}
+                  className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2"
+                >
+                  {queue.length > 0 ? (
+                    <div role="list" style={{ position: 'relative', height: visibleQueueRows.totalHeight }}>
+                      {visibleQueueRows.items.map((track, offset) => {
+                        const index = visibleQueueRows.startIndex + offset;
+                        return (
+                          <MiniTrackRow
+                            key={`${track.id}-${index}`}
+                            track={track}
+                            active={index === queueIndex}
+                            selected={index === queueSelectedIndex}
+                            language={language}
+                            index={index}
+                            totalCount={queue.length}
+                            style={{ position: 'absolute', top: index * MINI_TRACK_ROW_HEIGHT, left: 0, right: 0, height: MINI_TRACK_ROW_HEIGHT }}
+                            onClick={() => onPlayQueueTrack(index)}
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Очередь пуста', 'Queue is empty')}</p>}
                 </div>
               </>
             ) : (
@@ -1139,7 +1183,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                     );
                   })}
                 </nav>
-                <div ref={libraryListRef} className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2">
+                <div
+                  ref={libraryListRef}
+                  onScroll={event => setLibraryScrollTop(event.currentTarget.scrollTop)}
+                  className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2"
+                >
                   {libraryTab === 'playlists' && !currentPlaylist && !selectedCollection && (
                     <div className="space-y-3">
                       {!selectedPlaylistFolder && !selectedPlaylistGroup && playlistGroups.length > 0 && (
@@ -1147,14 +1195,17 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                           <h3 className="px-1 text-[9px] font-bold uppercase tracking-wider text-md3-on-surface-variant/75">
                             {text(language, 'Группы', 'Groups')}
                           </h3>
-                          <div className="grid grid-cols-2 gap-2">
-                            {playlistGroups.map(group => {
+                          <VirtualizedCollectionGrid
+                            items={playlistGroups}
+                            scrollContainerRef={libraryListRef}
+                            resetKey={`playlists:${selectedPlaylistFolderId ?? ''}:${selectedPlaylistGroupId ?? ''}`}
+                            className="grid grid-cols-2 gap-2"
+                            renderItem={group => {
                               const itemCount = playlistFolders.filter(folder => !folder.parentId && folder.groupId === group.id).length
                                 + playlists.filter(playlist => !playlist.folderId && playlist.groupId === group.id).length;
                               const color = group.color ? getFolderColorHex(group.color) : undefined;
                               return (
                                 <MiniLibraryCard
-                                  key={group.id}
                                   title={group.name}
                                   subtitle={`${itemCount} ${text(language, 'элементов', 'items')}${group.isIsolated ? ` · ${text(language, 'изолированная', 'isolated')}` : ''}`}
                                   icon={<Layers size={28} />}
@@ -1166,8 +1217,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                                   }}
                                 />
                               );
-                            })}
-                          </div>
+                            }}
+                          />
                         </section>
                       )}
 
@@ -1178,8 +1229,12 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                               {text(language, 'Папки и плейлисты', 'Folders and playlists')}
                             </h3>
                           )}
-                          <div className="grid grid-cols-2 gap-2">
-                            {playlistEntriesInView.map(entry => {
+                          <VirtualizedCollectionGrid
+                            items={playlistEntriesInView}
+                            scrollContainerRef={libraryListRef}
+                            resetKey={`playlists:${selectedPlaylistFolderId ?? ''}:${selectedPlaylistGroupId ?? ''}`}
+                            className="grid grid-cols-2 gap-2"
+                            renderItem={entry => {
                               if (entry.type === 'folder') {
                                 const folder = entry.item;
                                 const FolderIcon = getFolderIconComponent(folder.icon);
@@ -1190,7 +1245,6 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                                   || tracks.find(track => folderPlaylists.some(playlist => playlist.trackIds.includes(track.id)) && track.coverArt)?.coverArt;
                                 return (
                                   <MiniLibraryCard
-                                    key={`folder-${folder.id}`}
                                     title={folder.name}
                                     subtitle={`${folderPlaylists.length + folderSubfolders.length} ${text(language, 'элементов', 'items')}`}
                                     coverArt={folder.coverType && folder.coverType !== 'icon' ? cover : undefined}
@@ -1211,7 +1265,6 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                               const PlaylistIcon = playlist.icon ? getFolderIconComponent(playlist.icon) : ListMusic;
                               return (
                                 <MiniLibraryCard
-                                  key={`playlist-${playlist.id}`}
                                   title={playlist.name}
                                   subtitle={`${playlist.trackIds.length} ${text(language, 'треков', 'tracks')}`}
                                   coverArt={cover}
@@ -1222,8 +1275,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                                   playLabel={text(language, 'Воспроизвести всё', 'Play all')}
                                 />
                               );
-                            })}
-                          </div>
+                            }}
+                          />
                         </section>
                       )}
 
@@ -1239,43 +1292,52 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                     isCollectionsLoading ? (
                       <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Загружаю медиатеку…', 'Loading library…')}</p>
                     ) : visibleCollections.length > 0 ? (
-                      <div className="grid grid-cols-2 gap-2">
-                        {visibleCollections.map(group => (
+                      <VirtualizedCollectionGrid
+                        items={visibleCollections}
+                        scrollContainerRef={libraryListRef}
+                        resetKey={`collections:${libraryTab}:${selectedCollection?.name ?? ''}`}
+                        className="grid grid-cols-2 gap-2"
+                        renderItem={group => (
                           <button
-                            key={group.name}
                             type="button"
                             onClick={() => setSelectedCollection({ type: libraryTab as LibraryCollectionType, name: group.name })}
                             className="group relative aspect-[1.18] min-w-0 overflow-hidden rounded-xl bg-md3-surface-container-high text-left"
                           >
-                            {group.coverArt ? <img src={group.coverArt} alt="" className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high"><Disc3 size={28} className="text-md3-primary/65" /></div>}
+                            {group.coverArt ? <img src={group.coverArt} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high"><Disc3 size={28} className="text-md3-primary/65" /></div>}
                             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
                             <span className="absolute inset-x-2 bottom-2 min-w-0 text-white">
                               <span className="block truncate text-[11px] font-semibold">{group.name}</span>
                               <span className="block truncate text-[9px] text-white/75">{group.trackIds.length} {text(language, 'треков', 'tracks')}</span>
                             </span>
                           </button>
-                        ))}
-                      </div>
+                        )}
+                      />
                     ) : <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Ничего не найдено', 'Nothing here yet')}</p>
                   )}
                   {(libraryTab === 'tracks' || libraryTab === 'favorites' || currentPlaylist || selectedCollection) && (
-                    <>
-                      {libraryTracks.map((track, index) => (
-                        <MiniTrackRow
-                          key={track.id}
-                          track={track}
-                          active={track.id === currentTrack?.id}
-                          selected={index === libraryTrackSelectedIndex}
-                          buttonRef={index === libraryTrackSelectedIndex ? libraryTrackSelectedItemRef : undefined}
-                          language={language}
-                          onClick={() => {
-                            setLibraryTrackSelectedIndex(index);
-                            onPlayTrack(track, libraryTracks);
-                          }}
-                        />
-                      ))}
-                      {libraryTracks.length === 0 && <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, libraryTab === 'favorites' ? 'В избранном пока нет треков' : 'В этом списке нет треков', libraryTab === 'favorites' ? 'No favorite tracks yet' : 'No tracks in this list')}</p>}
-                    </>
+                    libraryTracks.length > 0 ? (
+                      <div role="list" style={{ position: 'relative', height: visibleLibraryRows.totalHeight }}>
+                        {visibleLibraryRows.items.map((track, offset) => {
+                          const index = visibleLibraryRows.startIndex + offset;
+                          return (
+                            <MiniTrackRow
+                              key={track.id}
+                              track={track}
+                              active={track.id === currentTrack?.id}
+                              selected={index === libraryTrackSelectedIndex}
+                              language={language}
+                              index={index}
+                              totalCount={libraryTracks.length}
+                              style={{ position: 'absolute', top: index * MINI_TRACK_ROW_HEIGHT, left: 0, right: 0, height: MINI_TRACK_ROW_HEIGHT }}
+                              onClick={() => {
+                                setLibraryTrackSelectedIndex(index);
+                                onPlayTrack(track, libraryTracks);
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    ) : <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, libraryTab === 'favorites' ? 'В избранном пока нет треков' : 'В этом списке нет треков', libraryTab === 'favorites' ? 'No favorite tracks yet' : 'No tracks in this list')}</p>
                   )}
                 </div>
               </>

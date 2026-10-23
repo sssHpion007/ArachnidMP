@@ -1,9 +1,10 @@
-import React, { useMemo, useState, useEffect, memo } from 'react';
+import React, { useMemo, useRef, memo } from 'react';
 import { Tag, Play, Music2, Clock } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage } from '../i18n';
 import { CollectionGridLoading } from './CollectionGridLoading';
+import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
 import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups';
 import { matchesLibraryCollectionSearch, type LibraryCollectionGroup } from '../services/libraryCollectionIndex';
 
@@ -98,6 +99,7 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
   databaseGroups,
   onPlayGenreByIds,
 }) => {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const { groups: indexedGenres, isLoading: isIndexingLibrary } = useLibraryCollectionGroups(tracks, 'genres', language, !databaseGroups);
   const allGenres = databaseGroups ?? indexedGenres;
   const isIndexing = !databaseGroups && isIndexingLibrary;
@@ -122,22 +124,6 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
     const tracksById = new Map(tracks.map(track => [track.id, track]));
     onPlayGenre(trackIds.map(id => tracksById.get(id)).filter((track): track is Track => !!track));
   };
-
-  // Progressive card rendering for instant initial paint & zero dropped frames
-  const [renderedCount, setRenderedCount] = useState(24);
-
-  useEffect(() => {
-    setRenderedCount(24);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    if (renderedCount < genres.length) {
-      const handle = requestAnimationFrame(() => {
-        setRenderedCount((prev) => Math.min(prev + 24, genres.length));
-      });
-      return () => cancelAnimationFrame(handle);
-    }
-  }, [renderedCount, genres.length]);
 
   if (isIndexing) {
     return (
@@ -186,10 +172,8 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
     );
   }
 
-  const visibleGenres = renderedCount >= genres.length ? genres : genres.slice(0, renderedCount);
-
   return (
-    <div className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
+    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-md3-on-surface">
@@ -201,18 +185,21 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
-        {visibleGenres.map((genre, idx) => (
+      <VirtualizedCollectionGrid
+        items={genres}
+        scrollContainerRef={scrollContainerRef}
+        resetKey={searchQuery}
+        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5"
+        renderItem={(genre, index) => (
           <GenreCard
-            key={genre.name}
             genre={genre}
-            index={idx}
+            index={index}
             language={language}
             onSelectGenre={onSelectGenre}
             onPlayGenre={playGenreByIds}
           />
-        ))}
-      </div>
+        )}
+      />
     </div>
   );
 };

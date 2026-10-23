@@ -1,9 +1,10 @@
-import React, { useMemo, useState, useEffect, memo } from 'react';
+import React, { useMemo, useRef, memo } from 'react';
 import { Disc3, Play, Clock, Music2 } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage } from '../i18n';
 import { CollectionGridLoading } from './CollectionGridLoading';
+import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
 import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups';
 import { matchesLibraryCollectionSearch, type LibraryCollectionGroup } from '../services/libraryCollectionIndex';
 
@@ -102,6 +103,7 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
   databaseGroups,
   onPlayAlbumByIds,
 }) => {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const { groups: indexedAlbums, isLoading: isIndexingLibrary } = useLibraryCollectionGroups(tracks, 'albums', language, !databaseGroups);
   const allAlbums = databaseGroups ?? indexedAlbums;
   const isIndexing = !databaseGroups && isIndexingLibrary;
@@ -127,22 +129,6 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
     const tracksById = new Map(tracks.map(track => [track.id, track]));
     onPlayAlbum(trackIds.map(id => tracksById.get(id)).filter((track): track is Track => !!track));
   };
-
-  // Progressive card rendering for instant initial paint & zero dropped frames
-  const [renderedCount, setRenderedCount] = useState(24);
-
-  useEffect(() => {
-    setRenderedCount(24);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    if (renderedCount < albums.length) {
-      const handle = requestAnimationFrame(() => {
-        setRenderedCount((prev) => Math.min(prev + 24, albums.length));
-      });
-      return () => cancelAnimationFrame(handle);
-    }
-  }, [renderedCount, albums.length]);
 
   if (isIndexing) {
     return (
@@ -191,10 +177,8 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
     );
   }
 
-  const visibleAlbums = renderedCount >= albums.length ? albums : albums.slice(0, renderedCount);
-
   return (
-    <div className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
+    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-md3-on-surface">
@@ -206,18 +190,21 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-5">
-        {visibleAlbums.map((album, index) => (
+      <VirtualizedCollectionGrid
+        items={albums}
+        scrollContainerRef={scrollContainerRef}
+        resetKey={searchQuery}
+        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-5"
+        renderItem={(album, index) => (
           <AlbumCard
-            key={album.name}
             album={album}
             index={index}
             language={language}
             onSelectAlbum={onSelectAlbum}
             onPlayAlbum={playAlbumByIds}
           />
-        ))}
-      </div>
+        )}
+      />
     </div>
   );
 };
