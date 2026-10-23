@@ -657,7 +657,7 @@ fn migrate_legacy_data(base_dir: &Path) {
     }
 }
 
-/// Save data into modular files across config/ and playlists/
+/// Save only the domains present in `data` into their modular files across config/ and playlists/
 pub fn save_modular_data(data: &Value) -> Result<bool, String> {
     let base_dir = get_portable_base_dir();
     init_storage_structure(&base_dir);
@@ -667,18 +667,22 @@ pub fn save_modular_data(data: &Value) -> Result<bool, String> {
 
     // 1. Save Settings
     let mut settings = json!({});
+    let mut has_settings = false;
     if let Some(obj) = data.as_object() {
         for (k, v) in obj {
             if k != "tracks" && k != "playlists" && k != "playlistFolders" && k != "playlistGroups" {
                 settings[k] = v.clone();
+                has_settings = true;
             }
         }
     }
-    let settings_path = config_dir.join("settings.json");
-    let settings_str = serde_json::to_string_pretty(&settings)
-        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-    fs::write(&settings_path, settings_str)
-        .map_err(|e| format!("Failed to write settings to {:?}: {}", settings_path, e))?;
+    if has_settings {
+        let settings_path = config_dir.join("settings.json");
+        let settings_str = serde_json::to_string_pretty(&settings)
+            .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+        fs::write(&settings_path, settings_str)
+            .map_err(|e| format!("Failed to write settings to {:?}: {}", settings_path, e))?;
+    }
 
     // 2. Save Tracks / Library Cache
     if let Some(tracks) = data.get("tracks") {
@@ -725,18 +729,21 @@ pub fn save_modular_data(data: &Value) -> Result<bool, String> {
             .map_err(|e| format!("Failed to write library to {:?}: {}", library_path, e))?;
     }
 
-    // 3. Save Playlists Hierarchy Tree (folders & groups)
-    let folders = data.get("playlistFolders").cloned().unwrap_or(json!([]));
-    let groups = data.get("playlistGroups").cloned().unwrap_or(json!([]));
-    let tree_json = json!({
-        "playlistFolders": folders,
-        "playlistGroups": groups,
-    });
-    let tree_path = playlists_dir.join("tree.json");
-    let tree_str = serde_json::to_string_pretty(&tree_json)
-        .map_err(|e| format!("Failed to serialize playlists tree: {}", e))?;
-    fs::write(&tree_path, tree_str)
-        .map_err(|e| format!("Failed to write playlists tree to {:?}: {}", tree_path, e))?;
+    // 3. Save Playlists Hierarchy Tree (folders & groups) only when supplied.
+    // This lets settings-only writes avoid touching the playlist files.
+    if data.get("playlistFolders").is_some() || data.get("playlistGroups").is_some() {
+        let folders = data.get("playlistFolders").cloned().unwrap_or(json!([]));
+        let groups = data.get("playlistGroups").cloned().unwrap_or(json!([]));
+        let tree_json = json!({
+            "playlistFolders": folders,
+            "playlistGroups": groups,
+        });
+        let tree_path = playlists_dir.join("tree.json");
+        let tree_str = serde_json::to_string_pretty(&tree_json)
+            .map_err(|e| format!("Failed to serialize playlists tree: {}", e))?;
+        fs::write(&tree_path, tree_str)
+            .map_err(|e| format!("Failed to write playlists tree to {:?}: {}", tree_path, e))?;
+    }
 
     // 4. Save Individual Playlists in M3U8 format
     if let Some(playlists_array) = data.get("playlists").and_then(|p| p.as_array()) {

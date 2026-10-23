@@ -4,6 +4,7 @@ import type { AppLanguage } from '../i18n';
 export const LYRICS_WINDOW_EVENTS = {
   ready: 'lyrics-window-ready',
   state: 'lyrics-window-state',
+  progress: 'lyrics-window-progress',
   action: 'lyrics-window-action',
 } as const;
 
@@ -13,6 +14,12 @@ export interface LyricsWindowPayload {
   isPlaying: boolean;
   language: AppLanguage;
   isMiniMode: boolean;
+}
+
+export interface LyricsWindowProgress {
+  trackId: string | null;
+  currentTime: number;
+  isPlaying: boolean;
 }
 
 export type LyricsWindowAction =

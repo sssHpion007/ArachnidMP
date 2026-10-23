@@ -138,6 +138,16 @@ fn save_portable_data(data: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
+fn save_portable_settings(data: String) -> Result<bool, String> {
+    let value = serde_json::from_str::<serde_json::Value>(&data)
+        .map_err(|_| "Invalid settings JSON data format".to_string())?;
+    if !value.is_object() {
+        return Err("Settings data must be a JSON object".to_string());
+    }
+    storage::save_modular_data(&value)
+}
+
+#[tauri::command]
 fn load_portable_data() -> Result<Option<String>, String> {
     storage::load_modular_data()
 }
@@ -1587,14 +1597,14 @@ fn get_system_accent_color() -> Result<String, String> {
 }
 
 #[cfg(target_os = "windows")]
-fn set_main_webview_memory_target(app: &tauri::AppHandle, low_memory: bool) {
+fn set_window_webview_memory_target(app: &tauri::AppHandle, window_label: &str, low_memory: bool) {
     use webview2_com::Microsoft::Web::WebView2::Win32::{
         COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
         COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
         ICoreWebView2_19,
     };
 
-    let Some(window) = app.get_webview_window("main") else {
+    let Some(window) = app.get_webview_window(window_label) else {
         return;
     };
     let log_label = window.label().to_string();
@@ -1647,15 +1657,15 @@ fn set_main_webview_memory_target(app: &tauri::AppHandle, low_memory: bool) {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn set_main_webview_memory_target(_app: &tauri::AppHandle, _low_memory: bool) {}
+fn set_window_webview_memory_target(_app: &tauri::AppHandle, _window_label: &str, _low_memory: bool) {}
 
 #[tauri::command]
 fn set_webview_memory_target(app_handle: tauri::AppHandle, low_memory: bool) {
-    set_main_webview_memory_target(&app_handle, low_memory);
+    set_window_webview_memory_target(&app_handle, "main", low_memory);
 }
 
 fn show_main_window(app: &tauri::AppHandle) {
-    set_main_webview_memory_target(app, false);
+    set_window_webview_memory_target(app, "main", false);
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
@@ -1665,7 +1675,7 @@ fn show_main_window(app: &tauri::AppHandle) {
 
 #[tauri::command]
 fn show_window(window: tauri::Window) -> Result<(), String> {
-    set_main_webview_memory_target(&window.app_handle(), false);
+    set_window_webview_memory_target(&window.app_handle(), window.label(), false);
     window.show().map_err(|e| e.to_string())?;
     let _ = window.set_focus();
     Ok(())
@@ -1738,6 +1748,7 @@ async fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> 
         }
     }
 
+    set_window_webview_memory_target(&app_handle, "lyrics", false);
     let _ = lyrics_window.unminimize();
     lyrics_window
         .show()
@@ -1772,6 +1783,7 @@ async fn show_track_details_window(app_handle: tauri::AppHandle) -> Result<(), S
         .map_err(|e| format!("Unable to create track details window: {}", e))?,
     };
 
+    set_window_webview_memory_target(&app_handle, "track-details", false);
     let _ = details_window.unminimize();
     details_window
         .show()
@@ -1786,6 +1798,7 @@ async fn show_track_details_window(app_handle: tauri::AppHandle) -> Result<(), S
 fn hide_track_details_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("track-details") {
         window.hide().map_err(|e| format!("Unable to hide track details window: {}", e))?;
+        set_window_webview_memory_target(&app_handle, "track-details", true);
     }
     Ok(())
 }
@@ -1811,6 +1824,7 @@ async fn show_equalizer_window(app_handle: tauri::AppHandle) -> Result<(), Strin
         .map_err(|e| format!("Unable to create equalizer window: {}", e))?,
     };
 
+    set_window_webview_memory_target(&app_handle, "equalizer", false);
     let _ = equalizer_window.unminimize();
     equalizer_window
         .show()
@@ -1825,6 +1839,7 @@ async fn show_equalizer_window(app_handle: tauri::AppHandle) -> Result<(), Strin
 fn hide_equalizer_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("equalizer") {
         window.hide().map_err(|e| format!("Unable to hide equalizer window: {}", e))?;
+        set_window_webview_memory_target(&app_handle, "equalizer", true);
     }
     Ok(())
 }
@@ -1833,6 +1848,7 @@ fn hide_equalizer_window(app_handle: tauri::AppHandle) -> Result<(), String> {
 fn hide_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("lyrics") {
         window.hide().map_err(|e| format!("Unable to hide lyrics window: {}", e))?;
+        set_window_webview_memory_target(&app_handle, "lyrics", true);
     }
     Ok(())
 }
@@ -1867,7 +1883,7 @@ fn close_window(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     if state.close_to_tray.load(Ordering::Relaxed) {
-        set_main_webview_memory_target(&app_handle, true);
+        set_window_webview_memory_target(&app_handle, window.label(), true);
         window.hide().map_err(|error| error.to_string())
     } else {
         clean_exit();
@@ -2402,12 +2418,13 @@ pub fn run() {
                 tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "lyrics" => {
                     api.prevent_close();
                     let _ = window.hide();
+                    set_window_webview_memory_target(&window.app_handle(), window.label(), true);
                 }
                 tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
                     let state = window.app_handle().state::<AppState>();
                     if state.close_to_tray.load(Ordering::Relaxed) {
                         api.prevent_close();
-                        set_main_webview_memory_target(&window.app_handle(), true);
+                        set_window_webview_memory_target(&window.app_handle(), window.label(), true);
                         let _ = window.hide();
                     } else {
                         clean_exit();
@@ -2493,6 +2510,7 @@ pub fn run() {
             batch_save_track_file_tags,
             batch_update_tags,
             save_portable_data,
+            save_portable_settings,
             load_portable_data,
             get_system_accent_color,
             minimize_window,

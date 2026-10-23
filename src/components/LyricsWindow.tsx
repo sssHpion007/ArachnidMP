@@ -4,7 +4,7 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { isTauri } from '@tauri-apps/api/core';
 import { MiniLyricsPane } from './MiniLyricsPane';
 import { LYRICS_WINDOW_EVENTS } from '../utils/lyricsWindowEvents';
-import type { LyricsWindowAction, LyricsWindowPayload } from '../utils/lyricsWindowEvents';
+import type { LyricsWindowAction, LyricsWindowPayload, LyricsWindowProgress } from '../utils/lyricsWindowEvents';
 
 const CHANNEL_NAME = 'arachnid-mini-player-lyrics';
 const EMPTY_STATE: LyricsWindowPayload = {
@@ -23,6 +23,7 @@ export const LyricsWindow: React.FC = () => {
     if (isTauri()) {
       let disposed = false;
       let unlistenState: (() => void) | undefined;
+      let unlistenProgress: (() => void) | undefined;
       let unlistenClose: (() => void) | undefined;
       let readyTimer: ReturnType<typeof setInterval> | undefined;
       let hasReceivedState = false;
@@ -56,6 +57,18 @@ export const LyricsWindow: React.FC = () => {
         }, 500);
       }).catch(error => console.error('Unable to listen for lyrics state:', error));
 
+      void listen<LyricsWindowProgress>(LYRICS_WINDOW_EVENTS.progress, event => {
+        const progress = event.payload;
+        setState(previous => {
+          if ((previous.track?.id ?? null) !== progress.trackId) return previous;
+          if (previous.currentTime === progress.currentTime && previous.isPlaying === progress.isPlaying) return previous;
+          return { ...previous, currentTime: progress.currentTime, isPlaying: progress.isPlaying };
+        });
+      }).then(unlisten => {
+        if (disposed) unlisten();
+        else unlistenProgress = unlisten;
+      }).catch(error => console.error('Unable to listen for lyrics progress:', error));
+
       void lyricsWindow.onCloseRequested(event => {
         event.preventDefault();
         void emitTo('main', LYRICS_WINDOW_EVENTS.action, { type: 'close' } satisfies LyricsWindowAction);
@@ -68,6 +81,7 @@ export const LyricsWindow: React.FC = () => {
         disposed = true;
         if (readyTimer) clearInterval(readyTimer);
         unlistenState?.();
+        unlistenProgress?.();
         unlistenClose?.();
       };
     }
@@ -81,6 +95,13 @@ export const LyricsWindow: React.FC = () => {
       if (event.data?.type === 'state') {
         hasReceivedState = true;
         setState(event.data.payload as LyricsWindowPayload);
+      } else if (event.data?.type === 'progress') {
+        const progress = event.data.payload as LyricsWindowProgress;
+        setState(previous => {
+          if ((previous.track?.id ?? null) !== progress.trackId) return previous;
+          if (previous.currentTime === progress.currentTime && previous.isPlaying === progress.isPlaying) return previous;
+          return { ...previous, currentTime: progress.currentTime, isPlaying: progress.isPlaying };
+        });
       }
     };
     sendReady();

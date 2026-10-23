@@ -47,7 +47,7 @@ import { getFolderIconComponent } from './theme/folderIcons';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { LYRICS_WINDOW_EVENTS } from './utils/lyricsWindowEvents';
-import type { LyricsWindowAction, LyricsWindowPayload } from './utils/lyricsWindowEvents';
+import type { LyricsWindowAction, LyricsWindowPayload, LyricsWindowProgress } from './utils/lyricsWindowEvents';
 import { TRACK_DETAILS_WINDOW_EVENTS } from './utils/trackDetailsWindowEvents';
 import type { TrackDetailsWindowAction, TrackDetailsWindowPayload } from './utils/trackDetailsWindowEvents';
 import { EQUALIZER_WINDOW_EVENTS } from './utils/equalizerWindowEvents';
@@ -818,7 +818,20 @@ export const App: React.FC = () => {
     } else {
       miniLyricsChannelRef.current?.postMessage({ type: 'state', payload: miniLyricsPayloadRef.current });
     }
-  }, [currentTrack, currentTime, isPlaying, language, isMiniMode, miniLyricsMode]);
+  }, [currentTrack, language, isMiniMode, miniLyricsMode]);
+
+  useEffect(() => {
+    const progress: LyricsWindowProgress = {
+      trackId: currentTrack?.id ?? null,
+      currentTime,
+      isPlaying,
+    };
+    if (isTauri()) {
+      void emitTo('lyrics', LYRICS_WINDOW_EVENTS.progress, progress).catch(() => {});
+    } else {
+      miniLyricsChannelRef.current?.postMessage({ type: 'progress', payload: progress });
+    }
+  }, [currentTrack?.id, currentTime, isPlaying]);
 
   useEffect(() => {
     languageRef.current = language;
@@ -1147,11 +1160,64 @@ export const App: React.FC = () => {
     });
   }, [language, startupDataLoaded]);
 
-  // Save Portable Data whenever library, playlists, or settings change
+  // Persist artwork display preferences separately so settings-only changes do not serialize the library.
   useEffect(() => {
     if (!isLoadedRef.current) return;
+    try {
+      localStorage.setItem('arachnid_theme_cache', JSON.stringify({
+        themeMode,
+        seedColor,
+        secondarySeedColor,
+        appTheme,
+        language,
+        colorSchemeMode,
+      }));
+    } catch (_) {}
+  }, [themeMode, seedColor, secondarySeedColor, appTheme, language, colorSchemeMode]);
 
-    const dataToSave = {
+  // The desktop library/playlists payload is written only when that domain changes.
+  useEffect(() => {
+    if (!isTauri() || !isLoadedRef.current) return;
+    const dataToSave = JSON.stringify({ tracks, playlists, playlistFolders, playlistGroups });
+    invoke('save_portable_data', { data: dataToSave }).catch(error => {
+      console.warn('Failed to save library and playlists:', error);
+    });
+  }, [tracks, playlists, playlistFolders, playlistGroups, startupDataLoaded]);
+
+  // Settings have a separate file and command, avoiding a stringify/copy of all tracks on preference changes.
+  useEffect(() => {
+    if (!isTauri() || !isLoadedRef.current) return;
+    const settings = {
+      themeMode,
+      seedColor,
+      secondarySeedColor,
+      appTheme,
+      language,
+      discordEnabled,
+      showDiscordButton,
+      discordShowPlayIcon,
+      discordShowPauseIcon,
+      discordStatusMode,
+      discordCustomClientId,
+      visibleTabs,
+      colorSchemeMode,
+      isDynamicColor: colorSchemeMode === 'dynamic',
+      fadeMode,
+      fadeDuration,
+      watchedFolders,
+      autoScanOnStartup,
+      closeBehavior,
+      startupInterface,
+    };
+    invoke('save_portable_settings', { data: JSON.stringify(settings) }).catch(error => {
+      console.warn('Failed to save settings:', error);
+    });
+  }, [themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface, startupDataLoaded]);
+
+  // Browser-only fallback retains its existing single localStorage document format.
+  useEffect(() => {
+    if (isTauri() || !isLoadedRef.current) return;
+    const dataToSave = JSON.stringify({
       tracks,
       playlists,
       playlistFolders,
@@ -1176,27 +1242,11 @@ export const App: React.FC = () => {
       autoScanOnStartup,
       closeBehavior,
       startupInterface,
-    };
-
-    const jsonString = JSON.stringify(dataToSave);
-
+    });
     try {
-      localStorage.setItem('arachnid_theme_cache', JSON.stringify({
-        themeMode,
-        seedColor,
-        secondarySeedColor,
-        appTheme,
-        language,
-        colorSchemeMode,
-      }));
-    } catch (_) {}
-
-    if (isTauri()) {
-      invoke('save_portable_data', { data: jsonString }).catch((e) => {
-        console.warn('Failed to save to portable folder:', e);
-      });
-    } else {
-      localStorage.setItem('arachnid_portable_data', jsonString);
+      localStorage.setItem('arachnid_portable_data', dataToSave);
+    } catch (error) {
+      console.warn('Failed to save browser library data:', error);
     }
   }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface]);
 
