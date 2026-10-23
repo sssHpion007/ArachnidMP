@@ -780,7 +780,7 @@ mod tests {
 
     #[test]
     fn rescan_without_cover_does_not_erase_existing_cover() {
-        let db = LibraryDb::open_in_memory().unwrap();
+        let db = database();
         db.upsert_batch(&[json!({
             "id":"1", "title":"Song", "artist":"Artist", "album":"Album",
             "coverArt":"config/covers/album.jpg"
