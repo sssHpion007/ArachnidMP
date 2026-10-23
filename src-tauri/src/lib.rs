@@ -130,12 +130,23 @@ fn log_keyboard_probe(target: String, typing_target: bool, focused_id: String) {
 }
 
 #[tauri::command]
-fn save_portable_data(data: String) -> Result<bool, String> {
-    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&data) {
-        storage::save_modular_data(&val)
-    } else {
-        Err("Invalid JSON data format".to_string())
+fn save_portable_data(data: String, state: State<'_, library_db::LibraryDb>) -> Result<bool, String> {
+    let mut value = serde_json::from_str::<serde_json::Value>(&data)
+        .map_err(|_| "Invalid JSON data format".to_string())?;
+    let mut referenced_ids = Vec::new();
+    if let Some(playlists) = value.get("playlists").and_then(serde_json::Value::as_array) {
+        let mut unique_ids = std::collections::HashSet::new();
+        for id in playlists.iter()
+            .filter_map(|playlist| playlist.get("trackIds").and_then(serde_json::Value::as_array))
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+        {
+            if unique_ids.insert(id.to_string()) { referenced_ids.push(id.to_string()); }
+        }
     }
+    let references = state.summaries_by_ids(&referenced_ids)?;
+    value["playlistTrackReferences"] = serde_json::to_value(references).map_err(|e| e.to_string())?;
+    storage::save_modular_data(&value)
 }
 
 #[tauri::command]
@@ -459,7 +470,16 @@ fn library_db_get_page(
     limit: u32,
     state: State<'_, library_db::LibraryDb>,
 ) -> Result<library_db::TrackPage, String> {
-    state.page(search.as_deref(), &sort_by, descending, offset, limit)
+    let mut page = state.page(search.as_deref(), &sort_by, descending, offset, limit)?;
+    let base_dir = storage::get_portable_base_dir();
+    for track in &mut page.items {
+        if let Some(cover) = track.cover_art.as_deref() {
+            if !cover.starts_with("http") && !cover.starts_with("data:") {
+                track.cover_art = storage::to_absolute_cover(cover, &base_dir);
+            }
+        }
+    }
+    Ok(page)
 }
 
 #[tauri::command]
@@ -475,15 +495,27 @@ fn library_db_get_by_ids(
     track_ids: Vec<String>,
     state: State<'_, library_db::LibraryDb>,
 ) -> Result<Vec<library_db::TrackSummary>, String> {
-    state.summaries_by_ids(&track_ids)
+    let mut tracks = state.summaries_by_ids(&track_ids)?;
+    let base_dir = storage::get_portable_base_dir();
+    for track in &mut tracks {
+        if let Some(cover) = track.cover_art.as_deref() {
+            if !cover.starts_with("http") && !cover.starts_with("data:") {
+                track.cover_art = storage::to_absolute_cover(cover, &base_dir);
+            }
+        }
+    }
+    Ok(tracks)
 }
 
 #[tauri::command]
-fn library_db_seed_legacy_track_map(
-    tracks: Vec<library_db::LegacyTrackReference>,
+fn library_db_seed_legacy_from_disk(
     state: State<'_, library_db::LibraryDb>,
 ) -> Result<usize, String> {
-    state.seed_legacy_track_map(&tracks)
+    if state.count(None)? > 0 {
+        return Ok(0);
+    }
+    let references = storage::load_legacy_track_references()?;
+    state.seed_legacy_track_map(&references)
 }
 
 #[tauri::command]
@@ -2618,7 +2650,7 @@ pub fn run() {
             library_db_get_page,
             library_db_get_details,
             library_db_get_by_ids,
-            library_db_seed_legacy_track_map,
+            library_db_seed_legacy_from_disk,
             library_db_upsert_batch,
             library_db_set_favorites,
             library_db_delete_ids,

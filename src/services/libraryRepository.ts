@@ -11,14 +11,6 @@ export interface LibraryPageQuery {
 
 const MAX_PAGE_SIZE = 500;
 
-export interface LegacyTrackReference {
-  id: string;
-  path: string;
-  isFavorite?: boolean;
-  playCount?: number;
-  dateAdded?: number;
-}
-
 /** Typed boundary for native catalog access. Keep calls bounded; never request the whole DB by default. */
 export const libraryRepository = {
   async count(search?: string): Promise<number> {
@@ -46,14 +38,13 @@ export const libraryRepository = {
     return invoke<TrackSummary[]>('library_db_get_by_ids', { trackIds });
   },
 
-  async seedLegacyTrackMap(tracks: LegacyTrackReference[]): Promise<number> {
-    if (tracks.length === 0) return 0;
-    return invoke<number>('library_db_seed_legacy_track_map', { tracks });
-  },
-
-  async upsertBatch(tracks: Track[] | TrackSummary[]): Promise<number> {
-    if (tracks.length === 0) return 0;
-    return invoke<number>('library_db_upsert_batch', { tracks });
+  async upsertBatch(tracks: Track[]): Promise<number> {
+    let upserted = 0;
+    for (let start = 0; start < tracks.length; start += 128) {
+      const batch = tracks.slice(start, start + 128).map(({ localFile: _localFile, ...track }) => track);
+      upserted += await invoke<number>('library_db_upsert_batch', { tracks: batch });
+    }
+    return upserted;
   },
 
   async setFavorites(trackIds: string[], favorite: boolean): Promise<void> {
@@ -62,8 +53,9 @@ export const libraryRepository = {
   },
 
   async delete(trackIds: string[]): Promise<void> {
-    if (trackIds.length === 0) return;
-    await invoke('library_db_delete_ids', { trackIds });
+    for (let start = 0; start < trackIds.length; start += 500) {
+      await invoke('library_db_delete_ids', { trackIds: trackIds.slice(start, start + 500) });
+    }
   },
 };
 

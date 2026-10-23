@@ -26,6 +26,7 @@ import { TrackDetailsModal } from './components/TrackDetailsModal';
 import { LyricsModal } from './components/LyricsModal';
 import { MissingTracksModal } from './components/MissingTracksModal';
 import { audioEngine } from './services/audioEngine';
+import { hydrateTrackDetails, libraryRepository } from './services/libraryRepository';
 import { discordRpc } from './services/discordRpc';
 import { getAudioFormatFromPath, parseAudioFile } from './services/tagEditor';
 import { 
@@ -165,6 +166,18 @@ const initialThemeCache = getStoredThemeCache();
 export const normalizeTrackPath = (p?: string | null): string => {
   if (!p) return '';
   return p.trim().replace(/\\/g, '/').toLowerCase();
+};
+
+const isPersistedTrackEqual = (left: Track, right: Track): boolean => {
+  const fields: Array<keyof Track> = [
+    'path', 'title', 'artist', 'album', 'duration', 'coverArt', 'genre', 'year',
+    'trackNumber', 'trackTotal', 'bitrate', 'format', 'fileSize', 'dateAdded',
+    'playCount', 'isFavorite', 'isMissing', 'lyrics', 'isInstrumental', 'composer',
+    'contentGroup', 'comment', 'conductor', 'lyricist',
+  ];
+  if (fields.some(field => left[field] !== right[field])) return false;
+  if (left.customTags === right.customTags) return true;
+  return JSON.stringify(left.customTags ?? null) === JSON.stringify(right.customTags ?? null);
 };
 
 export const appendUniqueTracks = (existingList: Track[], incoming: Track[]): Track[] => {
@@ -352,6 +365,8 @@ export const App: React.FC = () => {
   const isLoadedRef = useRef<boolean>(false);
   const selectedPlaylistIdRef = useRef<string | null>(null);
   const tracksRef = useRef<Track[]>(tracks);
+  const previousTracksForDbRef = useRef<Track[]>([]);
+  const libraryWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
   const currentTrackRef = useRef<Track | null>(currentTrack);
   const languageRef = useRef<AppLanguage>(language);
   const discordEnabledRef = useRef<boolean>(discordEnabled);
@@ -568,15 +583,29 @@ export const App: React.FC = () => {
     setMiniLyricsMode('closed');
   }, [isMiniMode, resizeMiniWindow]);
 
+  const getTrackWithDetails = useCallback(async (track: Track): Promise<Track> => {
+    if (!isTauri()) return track;
+    try {
+      return await hydrateTrackDetails(track);
+    } catch (error) {
+      console.warn('Unable to load track details from SQLite:', error);
+      return track;
+    }
+  }, []);
+
+  const openTrackDetails = useCallback(async (track: Track) => {
+    setTrackDetailsTarget(await getTrackWithDetails(track));
+  }, [getTrackWithDetails]);
+
   const openMiniTrackDetails = useCallback(async (track: Track) => {
-    setTrackDetailsTarget(track);
+    setTrackDetailsTarget(await getTrackWithDetails(track));
     if (!isTauri()) return;
     try {
       await invoke('show_track_details_window');
     } catch (error) {
       console.error('Unable to open the separate track details window:', error);
     }
-  }, []);
+  }, [getTrackWithDetails]);
 
   const openMiniEqualizer = useCallback(async () => {
     setIsEQOpen(false);
@@ -914,7 +943,7 @@ export const App: React.FC = () => {
         let rawJson: string | null = null;
         if (isTauri()) {
           const res = await invoke<string | null>('load_portable_data');
-          if (res) rawJson = res;
+          rawJson = res || '{}';
         } else {
           rawJson = localStorage.getItem('arachnid_portable_data');
         }
@@ -922,164 +951,118 @@ export const App: React.FC = () => {
         if (rawJson) {
           const parsed = JSON.parse(rawJson);
           const validIdMap = new Map<string, string>();
-          if (parsed.tracks && Array.isArray(parsed.tracks)) {
-            // Deduplicate tracks from stored cache and build remapping
+          if (isTauri()) {
+            const legacyTracks: any[] = Array.isArray(parsed.tracks) ? parsed.tracks : [];
+            const seenPaths = new Map<string, string>();
+            const seenKeys = new Map<string, string>();
+            const seenIds = new Set<string>();
+
+            for (const track of legacyTracks) {
+              if (!track || typeof track.id !== 'string' || !track.id) continue;
+              const normPath = normalizeTrackPath(track.path);
+              const key = `${(track.title || '').trim().toLowerCase()}|||${(track.artist || '').trim().toLowerCase()}`;
+              if (normPath && seenPaths.has(normPath)) {
+                validIdMap.set(track.id, seenPaths.get(normPath)!);
+                continue;
+              }
+              if (key !== '|||' && key !== 'unknown|||unknown artist' && seenKeys.has(key)) {
+                validIdMap.set(track.id, seenKeys.get(key)!);
+                continue;
+              }
+              if (seenIds.has(track.id)) continue;
+              if (normPath) seenPaths.set(normPath, track.id);
+              if (key !== '|||' && key !== 'unknown|||unknown artist') seenKeys.set(key, track.id);
+              seenIds.add(track.id);
+            }
+
+            const catalogWasEmpty = await libraryRepository.count() === 0;
+            if (catalogWasEmpty) {
+              await invoke<number>('library_db_seed_legacy_from_disk');
+            }
+            // M3U imports are a small, playlist-scoped set. Persist them before a full scan so
+            // embedded Arachnid IDs are retained when the same files are scanned from folders.
+            if (legacyTracks.length > 0) {
+              await libraryRepository.upsertBatch(legacyTracks as Track[]);
+            }
+
+            const loadNativeCatalog = async (): Promise<Track[]> => {
+              const total = await libraryRepository.count();
+              const result: Track[] = [];
+              const pageSize = 500;
+              for (let offset = 0; offset < total; offset += pageSize) {
+                const page = await libraryRepository.page({ sortBy: 'title', descending: false, offset, limit: pageSize });
+                if (page.items.length === 0) break;
+                for (const row of page.items) {
+                  const coverArt = row.coverArt && !row.coverArt.startsWith('http') && !row.coverArt.startsWith('data:')
+                    ? convertFileSrc(row.coverArt)
+                    : row.coverArt;
+                  result.push({
+                    ...row,
+                    src: row.path ? convertFileSrc(row.path) : row.src,
+                    coverArt,
+                    format: row.format || getAudioFormatFromPath(row.path || row.src),
+                  });
+                }
+              }
+              return result;
+            };
+
+            const existingCount = await libraryRepository.count();
+            const getScanPaths = async (): Promise<string[]> => {
+              const portableMusicPath = await invoke<string>('get_portable_music_path');
+              const playlistPaths = legacyTracks.map((track: any) => track.path).filter((path: unknown): path is string => typeof path === 'string' && path.length > 0);
+              return Array.from(new Set([portableMusicPath, ...(Array.isArray(parsed.watchedFolders) ? parsed.watchedFolders : []), ...playlistPaths]));
+            };
+
+            if (catalogWasEmpty) {
+              // The first catalog must be populated even if future startup scans are disabled.
+              await invoke<number>('scan_library_to_database', { paths: await getScanPaths() });
+            }
+
+            const hydrated = await loadNativeCatalog();
+            setTracks(hydrated);
+            tracksRef.current = hydrated;
+            previousTracksForDbRef.current = hydrated;
+            verifyTracksExistence(hydrated, true);
+
+            if (existingCount > 0 && parsed.autoScanOnStartup !== false) {
+              window.setTimeout(async () => {
+                try {
+                  await invoke<number>('scan_library_to_database', { paths: await getScanPaths() });
+                  const refreshed = await loadNativeCatalog();
+                  setTracks(refreshed);
+                  tracksRef.current = refreshed;
+                  previousTracksForDbRef.current = refreshed;
+                } catch (error) {
+                  console.warn('Startup library scan error:', error);
+                }
+              }, 600);
+            }
+          } else if (parsed.tracks && Array.isArray(parsed.tracks)) {
+            // Browser fallback retains its existing local-storage schema and hydration behavior.
             const seenPaths = new Map<string, string>();
             const seenKeys = new Map<string, string>();
             const seenIds = new Set<string>();
             const cleanTracks: Track[] = [];
-
-            for (const t of parsed.tracks) {
-              const normPath = normalizeTrackPath(t.path);
-              const key = `${(t.title || '').trim().toLowerCase()}|||${(t.artist || '').trim().toLowerCase()}`;
-
+            for (const track of parsed.tracks) {
+              const normPath = normalizeTrackPath(track.path);
+              const key = `${(track.title || '').trim().toLowerCase()}|||${(track.artist || '').trim().toLowerCase()}`;
               if (normPath && seenPaths.has(normPath)) {
-                validIdMap.set(t.id, seenPaths.get(normPath)!);
+                validIdMap.set(track.id, seenPaths.get(normPath)!);
                 continue;
               }
               if (key !== '|||' && key !== 'unknown|||unknown artist' && seenKeys.has(key)) {
-                validIdMap.set(t.id, seenKeys.get(key)!);
+                validIdMap.set(track.id, seenKeys.get(key)!);
                 continue;
               }
-              if (seenIds.has(t.id)) {
-                continue;
-              }
-
-              if (normPath) seenPaths.set(normPath, t.id);
-              if (key !== '|||' && key !== 'unknown|||unknown artist') seenKeys.set(key, t.id);
-              seenIds.add(t.id);
-              cleanTracks.push(t);
+              if (seenIds.has(track.id)) continue;
+              if (normPath) seenPaths.set(normPath, track.id);
+              if (key !== '|||' && key !== 'unknown|||unknown artist') seenKeys.set(key, track.id);
+              seenIds.add(track.id);
+              cleanTracks.push(track);
             }
-
-            // Re-convert native paths and cover paths to fresh asset URLs
-            const hydrated = cleanTracks.map((t: Track) => {
-              let coverArt = t.coverArt;
-              if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
-                coverArt = convertFileSrc(coverArt);
-              }
-              return {
-                ...t,
-                src: t.path && isTauri() ? convertFileSrc(t.path) : t.src,
-                coverArt,
-                format: t.format || getAudioFormatFromPath(t.path || t.localFile?.name || t.src),
-              };
-            });
-            setTracks(hydrated);
-            tracksRef.current = hydrated;
-            verifyTracksExistence(hydrated, true);
-
-            // Auto-scan portable music/ folder and watchedFolders on startup if enabled
-            if (isTauri() && parsed.autoScanOnStartup !== false) {
-              setTimeout(async () => {
-                try {
-                  const portableMusicPath = await invoke<string>('get_portable_music_path');
-                  const foldersToScan = [portableMusicPath, ...(parsed.watchedFolders || [])];
-                  const raw = await invoke<any[]>('read_audio_files', { paths: foldersToScan });
-                  if (raw && raw.length > 0) {
-                    const currentTrackMap = new Map(tracksRef.current.map(t => [normalizeTrackPath(t.path), t]));
-                    const currentPaths = new Set(tracksRef.current.map(t => normalizeTrackPath(t.path)).filter(Boolean));
-                    const currentKeys = new Set(tracksRef.current.map(t => `${t.title.trim().toLowerCase()}|||${t.artist.trim().toLowerCase()}`));
-                    const newFound: Track[] = [];
-                    const updatedCoversMap = new Map<string, string>();
-
-                    for (const m of raw) {
-                      const normPath = normalizeTrackPath(m.path);
-                      let coverArt = m.cover_art || undefined;
-                      if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
-                        coverArt = convertFileSrc(coverArt);
-                      }
-
-                      const existingTrack = normPath ? currentTrackMap.get(normPath) : undefined;
-                      if (existingTrack) {
-                        if (!existingTrack.coverArt && coverArt) {
-                          updatedCoversMap.set(existingTrack.id, coverArt);
-                        }
-                        continue;
-                      }
-
-                      const key = `${(m.title || '').trim().toLowerCase()}|||${(m.artist || '').trim().toLowerCase()}`;
-                      if (key !== '|||' && key !== 'unknown|||unknown artist' && currentKeys.has(key)) {
-                        continue;
-                      }
-                      if (normPath) currentPaths.add(normPath);
-                      if (key !== '|||' && key !== 'unknown|||unknown artist') currentKeys.add(key);
-
-                      const newT: Track = {
-                        id: m.id || `track_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-                        path: m.path,
-                        title: m.title || 'Unknown',
-                        artist: m.artist || 'Unknown Artist',
-                        album: m.album || 'Unknown Album',
-                        duration: m.duration_seconds || 0,
-                        src: convertFileSrc(m.path),
-                        coverArt,
-                        genre: m.genre || undefined,
-                        year: m.year || undefined,
-                        trackNumber: m.track_number || undefined,
-                        format: m.format || getAudioFormatFromPath(m.path),
-                        dateAdded: Date.now(),
-                        playCount: 0,
-                        isFavorite: false,
-                      };
-                      newFound.push(newT);
-                    }
-                    if (updatedCoversMap.size > 0 || newFound.length > 0) {
-                      setTracks(prev => {
-                        let updated = prev;
-                        if (updatedCoversMap.size > 0) {
-                          updated = updated.map(t => {
-                            const newCover = updatedCoversMap.get(t.id);
-                            return newCover ? { ...t, coverArt: newCover } : t;
-                          });
-                        }
-                        if (newFound.length > 0) {
-                          updated = appendUniqueTracks(updated, newFound);
-                        }
-                        return updated;
-                      });
-                    }
-                  }
-                } catch (e) {
-                  console.warn('Startup library scan error:', e);
-                }
-              }, 600);
-            }
-
-            // Auto-refresh metadata in background only for tracks missing essential tags (Unknown title/artist or missing cover)
-            if (isTauri()) {
-              const pathsToRefresh = hydrated
-                .filter(t => t.path && (!t.coverArt || t.title === 'Unknown' || t.artist === 'Unknown Artist'))
-                .slice(0, 500)
-                .map(t => t.path as string);
-              if (pathsToRefresh.length > 0) {
-                invoke<any[]>('read_audio_files', { paths: pathsToRefresh }).then(refreshed => {
-                  if (refreshed && refreshed.length > 0) {
-                    const refreshedMap = new Map<string, any>(refreshed.map(r => [normalizeTrackPath(r.path), r]));
-                    setTracks(prev => prev.map(t => {
-                      if (!t.path) return t;
-                      const r = refreshedMap.get(normalizeTrackPath(t.path));
-                      if (!r) return t;
-                      let refreshedCover = r.cover_art;
-                      if (refreshedCover && !refreshedCover.startsWith('http') && !refreshedCover.startsWith('data:') && isTauri()) {
-                        refreshedCover = convertFileSrc(refreshedCover);
-                      }
-                      return {
-                        ...t,
-                        title: t.title === 'Unknown' || !t.title ? r.title : t.title,
-                        artist: t.artist === 'Unknown Artist' || !t.artist ? r.artist : t.artist,
-                        album: t.album === 'Unknown Album' || !t.album ? r.album : t.album,
-                        coverArt: t.coverArt || refreshedCover || undefined,
-                        format: t.format || r.format || getAudioFormatFromPath(t.path),
-                        lyrics: t.lyrics || r.lyrics || undefined,
-                        genre: t.genre || r.genre || undefined,
-                        year: t.year || r.year || undefined,
-                        trackNumber: t.trackNumber || r.track_number || undefined,
-                      };
-                    }));
-                  }
-                }).catch(err => console.warn('Background tag refresh error:', err));
-              }
-            }
+            setTracks(cleanTracks);
+            tracksRef.current = cleanTracks;
           }
           if (parsed.playlists && Array.isArray(parsed.playlists) && parsed.playlists.length > 0) {
             setPlaylists(parsed.playlists.map((p: Playlist) => {
@@ -1175,14 +1158,67 @@ export const App: React.FC = () => {
     } catch (_) {}
   }, [themeMode, seedColor, secondarySeedColor, appTheme, language, colorSchemeMode]);
 
-  // The desktop library/playlists payload is written only when that domain changes.
+  // Persist only changed track rows to SQLite. Unchanged row objects are reused by state updates,
+  // so one favorite/tag/metadata edit never serializes the full catalog.
+  useEffect(() => {
+    if (!isTauri() || !startupDataLoaded) return;
+    const previous = previousTracksForDbRef.current;
+    if (previous === tracks) return;
+    const previousById = new Map(previous.map(track => [track.id, track]));
+    const currentIds = new Set<string>();
+    const upserts: Track[] = [];
+    for (const track of tracks) {
+      currentIds.add(track.id);
+      const prior = previousById.get(track.id);
+      if (!prior || !isPersistedTrackEqual(prior, track)) upserts.push(track);
+    }
+    const removedIds = previous.filter(track => !currentIds.has(track.id)).map(track => track.id);
+    previousTracksForDbRef.current = tracks;
+    if (upserts.length === 0 && removedIds.length === 0) return;
+
+    const write = libraryWriteQueueRef.current.catch(() => {}).then(async () => {
+      if (upserts.length > 0) await libraryRepository.upsertBatch(upserts);
+      if (removedIds.length > 0) await libraryRepository.delete(removedIds);
+    });
+    libraryWriteQueueRef.current = write.catch(error => {
+      console.warn('Failed to persist library changes to SQLite:', error);
+    });
+  }, [tracks, startupDataLoaded]);
+
+  // Synchronize only changed rows to SQLite; playlist state stores IDs and remains in its own files.
+  useEffect(() => {
+    if (!isTauri() || !startupDataLoaded) return;
+    const previous = previousTracksForDbRef.current;
+    if (previous === tracks) return;
+    const previousById = new Map(previous.map(track => [track.id, track]));
+    const currentIds = new Set<string>();
+    const upserts: Track[] = [];
+    for (const track of tracks) {
+      currentIds.add(track.id);
+      const prior = previousById.get(track.id);
+      if (!prior || !isPersistedTrackEqual(prior, track)) upserts.push(track);
+    }
+    const removedIds = previous.filter(track => !currentIds.has(track.id)).map(track => track.id);
+    previousTracksForDbRef.current = tracks;
+    if (upserts.length === 0 && removedIds.length === 0) return;
+
+    const write = libraryWriteQueueRef.current.catch(() => {}).then(async () => {
+      if (upserts.length > 0) await libraryRepository.upsertBatch(upserts);
+      if (removedIds.length > 0) await libraryRepository.delete(removedIds);
+    });
+    libraryWriteQueueRef.current = write.catch(error => {
+      console.warn('Failed to persist library changes to SQLite:', error);
+    });
+  }, [tracks, startupDataLoaded]);
+
+  // Desktop playlist/settings persistence deliberately excludes the track catalog.
   useEffect(() => {
     if (!isTauri() || !isLoadedRef.current) return;
-    const dataToSave = JSON.stringify({ tracks, playlists, playlistFolders, playlistGroups });
-    invoke('save_portable_data', { data: dataToSave }).catch(error => {
-      console.warn('Failed to save library and playlists:', error);
+    const dataToSave = JSON.stringify({ playlists, playlistFolders, playlistGroups });
+    void libraryWriteQueueRef.current.then(() => invoke('save_portable_data', { data: dataToSave })).catch(error => {
+      console.warn('Failed to save playlists:', error);
     });
-  }, [tracks, playlists, playlistFolders, playlistGroups, startupDataLoaded]);
+  }, [playlists, playlistFolders, playlistGroups, startupDataLoaded]);
 
   // Settings have a separate file and command, avoiding a stringify/copy of all tracks on preference changes.
   useEffect(() => {
@@ -3066,12 +3102,14 @@ export const App: React.FC = () => {
       handleRelocateTrack(track);
       return;
     }
+    const detailedTrack = await getTrackWithDetails(track);
+    setQueue(prev => prev.map((item, itemIndex) => itemIndex === index ? detailedTrack : item));
     setQueueIndex(index);
-    setCurrentTrack(track);
+    setCurrentTrack(detailedTrack);
     setCurrentTime(0);
-    setDuration(track.duration || 0);
+    setDuration(detailedTrack.duration || 0);
     try {
-      await audioEngine.playTrack(track.src, true, true, track.duration, track.path, fadeOutPrevious);
+      await audioEngine.playTrack(detailedTrack.src, true, true, detailedTrack.duration, detailedTrack.path, fadeOutPrevious);
       setIsPlaying(true);
     } catch (e) {
       console.warn('Queue playback start error:', e);
@@ -3095,16 +3133,18 @@ export const App: React.FC = () => {
     }
 
     const list = contextTracks && contextTracks.length > 0 ? contextTracks : [track];
-    setQueue(list);
-    const idx = list.findIndex(t => t.id === track.id);
+    const detailedTrack = await getTrackWithDetails(track);
+    const playbackList = list.map(item => item.id === detailedTrack.id ? detailedTrack : item);
+    setQueue(playbackList);
+    const idx = playbackList.findIndex(item => item.id === detailedTrack.id);
     const targetIdx = idx !== -1 ? idx : 0;
     setQueueIndex(targetIdx);
 
-    setCurrentTrack(track);
+    setCurrentTrack(detailedTrack);
     setCurrentTime(0);
-    setDuration(track.duration || 0);
+    setDuration(detailedTrack.duration || 0);
     try {
-      await audioEngine.playTrack(track.src, true, true, track.duration, track.path);
+      await audioEngine.playTrack(detailedTrack.src, true, true, detailedTrack.duration, detailedTrack.path);
       setIsPlaying(true);
     } catch (e) {
       console.warn('Playback start error:', e);
@@ -4867,7 +4907,7 @@ export const App: React.FC = () => {
         discordEnabled={discordEnabled}
         onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
         showDiscordButton={showDiscordButton}
-        onOpenTrackDetails={(t) => setTrackDetailsTarget(t)}
+        onOpenTrackDetails={openTrackDetails}
         onOpenLyrics={() => {
           if (currentTrack) setIsLyricsOpen(true);
         }}
@@ -5041,7 +5081,7 @@ export const App: React.FC = () => {
           onCreatePlaylistWithTracks={(trackIds) => handleCreatePlaylist(null, null, trackIds)}
           onRemoveTracks={handleRequestRemoveTracks}
           onDeleteFromDisk={handleRequestDeleteFromDisk}
-          onOpenTrackDetails={(t) => setTrackDetailsTarget(t)}
+          onOpenTrackDetails={openTrackDetails}
           onRelocateTrack={handleRelocateTrack}
           onReloadTracks={handleReloadTracks}
         />

@@ -380,7 +380,11 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
     if let Some(g) = &genre { search_parts.push(g.clone()); }
     if let Some(p) = &path { search_parts.push(p.clone()); }
     let search_text = search_parts.join("\n").to_lowercase();
-    let src = string(value, "src", "src", path.as_deref().unwrap_or_default());
+    let src = path.clone().unwrap_or_else(|| string(value, "src", "src", ""));
+    let raw_cover = optional_string(value, "coverArt", "cover_art");
+    let cover_art = raw_cover.map(|cover| {
+        crate::storage::to_portable_cover(&cover, &crate::storage::get_portable_base_dir()).unwrap_or(cover)
+    });
     transaction.execute(
         "INSERT INTO tracks (id,path,path_key,title,artist,album,genre,year,track_number,track_total,duration,src,cover_art,bitrate,format,file_size,date_added,play_count,is_favorite,is_missing,search_text,details_json)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)
@@ -389,7 +393,7 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
             id, path, path_key, title, artist, album, genre,
             number(value,"year","year"), number(value,"trackNumber","track_number"), number(value,"trackTotal","track_total"),
             value.get("duration").and_then(Value::as_f64).or_else(|| value.get("duration_seconds").and_then(Value::as_f64)).unwrap_or(0.0),
-            src, optional_string(value,"coverArt","cover_art"), number(value,"bitrate","bitrate"), optional_string(value,"format","format"),
+            src, cover_art, number(value,"bitrate","bitrate"), optional_string(value,"format","format"),
             number(value,"fileSize","file_size"), date_added, play_count, is_favorite, is_missing, search_text, details_json
         ],
     ).map_err(|e| format!("Save track {id}: {e}"))?;

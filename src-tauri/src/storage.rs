@@ -670,7 +670,7 @@ pub fn save_modular_data(data: &Value) -> Result<bool, String> {
     let mut has_settings = false;
     if let Some(obj) = data.as_object() {
         for (k, v) in obj {
-            if k != "tracks" && k != "playlists" && k != "playlistFolders" && k != "playlistGroups" {
+            if k != "tracks" && k != "playlists" && k != "playlistFolders" && k != "playlistGroups" && k != "playlistTrackReferences" {
                 settings[k] = v.clone();
                 has_settings = true;
             }
@@ -752,7 +752,7 @@ pub fn save_modular_data(data: &Value) -> Result<bool, String> {
 
         // Build track lookup map: id -> (path, artist, title, duration)
         let mut track_map: std::collections::HashMap<String, (Option<String>, String, String, i64)> = std::collections::HashMap::new();
-        if let Some(tracks_arr) = data.get("tracks").and_then(|t| t.as_array()) {
+        if let Some(tracks_arr) = data.get("playlistTrackReferences").or_else(|| data.get("tracks")).and_then(|t| t.as_array()) {
             for t in tracks_arr {
                 if let Some(tid) = t.get("id").and_then(|i| i.as_str()) {
                     let p = t.get("path").and_then(|x| x.as_str()).map(|s| s.to_string());
@@ -843,54 +843,9 @@ pub fn load_modular_data() -> Result<Option<String>, String> {
         }
     }
 
-    // 2. Read Library / Tracks
-    if library_path.is_file() {
-        if let Ok(content) = fs::read_to_string(&library_path) {
-            if let Ok(val) = serde_json::from_str::<Value>(&content) {
-                if let Some(tracks) = val.get("tracks") {
-                    let mut tracks_val = tracks.clone();
-                    if let Some(arr) = tracks_val.as_array_mut() {
-                        let mut seen_ids = std::collections::HashSet::new();
-                        let mut seen_paths = std::collections::HashSet::new();
-                        let mut deduped: Vec<Value> = Vec::new();
-
-                        for mut track in arr.drain(..) {
-                            if let Some(cover_val) = track.get("coverArt").and_then(|c| c.as_str()) {
-                                if let Some(abs_path) = to_absolute_cover(cover_val, &base_dir) {
-                                    track["coverArt"] = json!(abs_path);
-                                } else {
-                                    track["coverArt"] = json!(null);
-                                }
-                            }
-                            // Reconstruct absolute music path if saved as relative "music/..."
-                            if let Some(path_val) = track.get("path").and_then(|p| p.as_str()) {
-                                if let Some(abs_str) = to_absolute_music_path(path_val, &base_dir) {
-                                    track["path"] = json!(abs_str);
-                                    track["src"] = json!(abs_str);
-                                }
-                            }
-
-                            let id = track.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let path = track.get("path").and_then(|v| v.as_str()).unwrap_or("").replace('\\', "/").to_lowercase();
-
-                            let is_dup = (!id.is_empty() && seen_ids.contains(&id)) || (!path.is_empty() && seen_paths.contains(&path));
-                            if is_dup {
-                                continue;
-                            }
-                            if !id.is_empty() { seen_ids.insert(id); }
-                            if !path.is_empty() { seen_paths.insert(path); }
-                            deduped.push(track);
-                        }
-                        *arr = deduped;
-                    }
-                    combined["tracks"] = tracks_val;
-                }
-            }
-        }
-    }
-    if combined.get("tracks").is_none() {
-        combined["tracks"] = json!([]);
-    }
+    // 2. Track rows are loaded from SQLite by bounded native queries. Only tracks
+    // referenced by external M3U playlists are materialized below.
+    combined["tracks"] = json!([]);
 
     // 3. Read Playlists Hierarchy Tree
     if tree_path.is_file() {
@@ -1339,4 +1294,44 @@ pub fn parse_m3u8_playlist(
         "icon": icon,
         "order": order.unwrap_or(0),
     }))
+}
+
+
+/// Read only the minimal path/ID/user-state projection needed to reconnect playlists
+/// during the one-time SQLite catalog rebuild. No legacy Track objects cross the WebView.
+pub fn load_legacy_track_references() -> Result<Vec<crate::library_db::LegacyTrackReference>, String> {
+    let base_dir = get_portable_base_dir();
+    let candidates = [
+        base_dir.join("config").join("library.json"),
+        base_dir.join("arachnid_data.json.bak"),
+        base_dir.join("arachnid_data.json"),
+    ];
+    let Some(path) = candidates.iter().find(|path| path.is_file()) else {
+        return Ok(Vec::new());
+    };
+    let content = fs::read_to_string(path).map_err(|error| format!("Read legacy library index: {error}"))?;
+    let value: Value = serde_json::from_str(&content).map_err(|error| format!("Parse legacy library index: {error}"))?;
+    let Some(tracks) = value.get("tracks").and_then(Value::as_array) else {
+        return Ok(Vec::new());
+    };
+    let mut references = Vec::with_capacity(tracks.len());
+    for track in tracks {
+        let (Some(id), Some(raw_path)) = (
+            track.get("id").and_then(Value::as_str),
+            track.get("path").and_then(Value::as_str),
+        ) else { continue };
+        if id.is_empty() || raw_path.trim().is_empty() { continue; }
+        let resolved_path = to_absolute_music_path(raw_path, &base_dir).unwrap_or_else(|| {
+            let path = Path::new(raw_path);
+            if path.is_absolute() { path.to_path_buf() } else { base_dir.join(path) }
+        });
+        references.push(crate::library_db::LegacyTrackReference {
+            id: id.to_string(),
+            path: resolved_path.to_string_lossy().to_string(),
+            is_favorite: track.get("isFavorite").and_then(Value::as_bool).unwrap_or(false),
+            play_count: track.get("playCount").and_then(Value::as_u64).unwrap_or(0),
+            date_added: track.get("dateAdded").and_then(Value::as_i64).unwrap_or(0),
+        });
+    }
+    Ok(references)
 }
