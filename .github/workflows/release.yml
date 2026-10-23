@@ -90,6 +90,10 @@ jobs:
             [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
             [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
             [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+            [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+            [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+            [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
             [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extraInfo);
           }
           '@
@@ -105,8 +109,13 @@ jobs:
             if ($foregroundWindow -ne $mainWindow) {
               throw "Player window did not retain foreground focus (main=$mainWindow, foreground=$foregroundWindow)."
             }
-            [NativeWindowFocus]::keybd_event(0x1B, 0, 0, [UIntPtr]::Zero)
-            [NativeWindowFocus]::keybd_event(0x1B, 0, 0x0002, [UIntPtr]::Zero)
+            $windowRect = [NativeWindowFocus+RECT]::new()
+            if (-not [NativeWindowFocus]::GetWindowRect($mainWindow, [ref]$windowRect)) { throw "Could not read the player window bounds." }
+            $clickX = [int](($windowRect.Left + $windowRect.Right) / 2)
+            $clickY = [int](($windowRect.Top + $windowRect.Bottom) / 2)
+            [void][NativeWindowFocus]::SetCursorPos($clickX, $clickY)
+            [NativeWindowFocus]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+            [NativeWindowFocus]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
             Start-Sleep -Milliseconds 300
             [NativeWindowFocus]::keybd_event(0x10, 0, 0, [UIntPtr]::Zero)
             [NativeWindowFocus]::keybd_event(0x54, 0, 0, [UIntPtr]::Zero)
