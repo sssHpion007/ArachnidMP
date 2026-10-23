@@ -1222,7 +1222,7 @@ export const App: React.FC = () => {
       }).catch(() => {});
       if (isTauri()) {
         const win = getCurrentWebviewWindow();
-        void win.show().then(async () => {
+        void invoke('show_window').then(async () => {
           await win.setFocus();
           await getCurrentWebview().setFocus();
         }).catch(() => {});
