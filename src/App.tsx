@@ -53,6 +53,7 @@ import type { TrackDetailsWindowAction, TrackDetailsWindowPayload } from './util
 import { EQUALIZER_WINDOW_EVENTS } from './utils/equalizerWindowEvents';
 import type { EqualizerWindowAction, EqualizerWindowPayload } from './utils/equalizerWindowEvents';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { currentMonitor } from '@tauri-apps/api/window';
 import { LogicalSize, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi';
 import { MiniPlayer } from './components/MiniPlayer';
@@ -1196,6 +1197,7 @@ export const App: React.FC = () => {
         }
         await win.show();
         await win.setFocus();
+        await getCurrentWebview().setFocus();
       }
     };
 
@@ -1203,7 +1205,10 @@ export const App: React.FC = () => {
       console.warn('Could not apply startup interface:', error);
       if (isTauri()) {
         const win = getCurrentWebviewWindow();
-        void win.show().then(() => win.setFocus()).catch(() => {});
+        void win.show().then(async () => {
+          await win.setFocus();
+          await getCurrentWebview().setFocus();
+        }).catch(() => {});
       }
     });
   }, [startupDataLoaded, startupInterface, enterMiniMode]);

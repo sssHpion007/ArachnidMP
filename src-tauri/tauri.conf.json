@@ -21,6 +21,7 @@
         "minHeight": 400,
         "maximized": true,
         "visible": false,
+        "focus": false,
         "decorations": false,
         "transparent": false,
         "backgroundColor": "#141218",
