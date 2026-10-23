@@ -83,8 +83,20 @@ jobs:
             }
             Write-Host "arachnid.exe remained running for 15 seconds."
 
+            Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class NativeWindowFocus {
+            [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+          }
+          '@
             $shell = New-Object -ComObject WScript.Shell
-            if (-not $shell.AppActivate($process.Id)) { throw "Could not focus the player to test Shift+T." }
+            $process.Refresh()
+            $mainWindow = $process.MainWindowHandle
+            if ($mainWindow -eq [IntPtr]::Zero) { throw "The player has no main window handle for Shift+T test." }
+            [void][NativeWindowFocus]::ShowWindowAsync($mainWindow, 9)
+            if (-not [NativeWindowFocus]::SetForegroundWindow($mainWindow)) { throw "Could not bring the player window to foreground for Shift+T." }
             Start-Sleep -Milliseconds 500
             $shell.SendKeys('{ESC}')
             Start-Sleep -Milliseconds 300
