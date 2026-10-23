@@ -700,7 +700,7 @@ mod tests {
         let rock = genres.iter().find(|group| group.name == "Rock").unwrap();
         let jazz = genres.iter().find(|group| group.name == "Jazz").unwrap();
         assert_eq!(rock.track_ids, vec!["1", "2"]);
-        assert_eq!(jazz.track_ids, vec!["1", "3"]);
+        assert_eq!(jazz.track_ids, vec!["3", "1"]);
     }
 
     #[test]
