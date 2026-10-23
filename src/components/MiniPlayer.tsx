@@ -33,6 +33,7 @@ import { formatTime } from '../services/tagEditor';
 import { MiniLyricsPane, MiniLyricsTrack } from './MiniLyricsPane';
 import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups';
 import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
+import { getFolderTrackIds } from '../services/folderPlayback';
 
 type LyricsMode = 'closed' | 'attached' | 'detached';
 type BottomPanel = 'queue' | 'library' | null;
@@ -237,6 +238,7 @@ interface MiniPlayerProps {
   onPlayQueueTrack: (index: number) => void;
   onPlayTrack: (track: Track, context: Track[], playlistId?: string) => void;
   onPlayPlaylist: (playlist: Playlist) => void;
+  onPlayFolder: (folder: PlaylistFolder) => void;
   onResolveTracksByIds: (trackIds: string[]) => Promise<Track[]>;
   onClearQueue: () => void;
   onToggleLyrics: () => void;
@@ -293,6 +295,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   onPlayQueueTrack,
   onPlayTrack,
   onPlayPlaylist,
+  onPlayFolder,
   onResolveTracksByIds,
   onClearQueue,
   onToggleLyrics,
@@ -644,6 +647,20 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     }
     return null;
   }, [playlists, tracks, onResolveTracksByIds]);
+  const resolveFolderCover = useCallback(async (folderId: string): Promise<string | null> => {
+    const folder = playlistFolders.find(item => item.id === folderId);
+    if (!folder || folder.coverType === 'icon') return null;
+    const trackIds = getFolderTrackIds(folder, playlistFolders, playlists);
+    const localCover = getFolderTrackList(folder).find(track => track.coverArt)?.coverArt;
+    if (localCover || !isTauri()) return localCover || null;
+    const coverSearchLimit = Math.min(trackIds.length, 1000);
+    for (let offset = 0; offset < coverSearchLimit; offset += 100) {
+      const rows = await onResolveTracksByIds(trackIds.slice(offset, offset + 100));
+      const cover = rows.find(track => track.coverArt)?.coverArt;
+      if (cover) return cover;
+    }
+    return null;
+  }, [playlistFolders, playlists, tracks, onResolveTracksByIds]);
   const selectedPlaylistFolder = playlistFolders.find(folder => folder.id === selectedPlaylistFolderId) || null;
   const selectedPlaylistGroup = playlistGroups.find(group => group.id === selectedPlaylistGroupId) || null;
   const playlistFoldersInView = playlistFolders
@@ -677,28 +694,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     return playlist.trackIds.map(id => trackMap.get(id)).filter((track): track is Track => !!track);
   };
 
-  const getFolderTrackList = (folder: PlaylistFolder) => {
-    const folderIds = new Set<string>([folder.id]);
-    const addDescendants = (parentId: string) => {
-      playlistFolders
-        .filter(candidate => candidate.parentId === parentId)
-        .forEach(child => {
-          if (folderIds.has(child.id)) return;
-          folderIds.add(child.id);
-          addDescendants(child.id);
-        });
-    };
-    addDescendants(folder.id);
-
+  const getFolderTrackList = (
+    folder: PlaylistFolder,
+    trackIds = getFolderTrackIds(folder, playlistFolders, playlists),
+  ) => {
     const trackMap = new Map(tracks.map(track => [track.id, track]));
-    const addedTrackIds = new Set<string>();
-    const folderPlaylists = playlists.filter(playlist => playlist.folderId && folderIds.has(playlist.folderId));
-    return folderPlaylists.flatMap(playlist => playlist.trackIds.flatMap(id => {
-      const track = trackMap.get(id);
-      if (!track || addedTrackIds.has(id)) return [];
-      addedTrackIds.add(id);
-      return [track];
-    }));
+    return trackIds
+      .map(id => trackMap.get(id))
+      .filter((track): track is Track => Boolean(track));
   };
 
   const playTrackList = (trackList: Track[], playlistId?: string) => {
@@ -1299,21 +1302,23 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                                 const FolderIcon = getFolderIconComponent(folder.icon);
                                 const folderPlaylists = playlists.filter(playlist => playlist.folderId === folder.id);
                                 const folderSubfolders = playlistFolders.filter(child => child.parentId === folder.id);
-                                const folderTracks = getFolderTrackList(folder);
+                                const folderTrackIds = getFolderTrackIds(folder, playlistFolders, playlists);
+                                const folderTracks = getFolderTrackList(folder, folderTrackIds);
                                 const cover = folderPlaylists.find(playlist => playlist.coverArt)?.coverArt
-                                  || tracks.find(track => folderPlaylists.some(playlist => playlist.trackIds.includes(track.id)) && track.coverArt)?.coverArt;
+                                  || folderTracks.find(track => track.coverArt)?.coverArt;
                                 return (
                                   <MiniLibraryCard
                                     title={folder.name}
                                     subtitle={`${folderPlaylists.length + folderSubfolders.length} ${text(language, 'элементов', 'items')}`}
                                     coverArt={folder.coverType && folder.coverType !== 'icon' ? cover : undefined}
+                                    onResolveCover={folder.coverType && folder.coverType !== 'icon' ? () => resolveFolderCover(folder.id) : undefined}
                                     icon={<FolderIcon size={28} />}
                                     accentColor={folder.color ? getFolderColorHex(folder.color) : undefined}
                                     onClick={() => {
                                       setSelectedPlaylistFolderId(folder.id);
                                       setSelectedPlaylistId(null);
                                     }}
-                                    onPlay={folderTracks.length > 0 ? () => playTrackList(folderTracks) : undefined}
+                                    onPlay={folderTrackIds.length > 0 ? () => onPlayFolder(folder) : undefined}
                                     playLabel={text(language, 'Воспроизвести всё', 'Play all')}
                                   />
                                 );

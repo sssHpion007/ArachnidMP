@@ -46,6 +46,8 @@ import { CustomThemeInfo, ThemeContent } from './types/theme';
 import { AppLanguage, detectSystemLanguage } from './i18n';
 import { isNewerVersion, CURRENT_APP_VERSION } from './utils/version';
 import { getFolderIconComponent } from './theme/folderIcons';
+import { getFolderTrackIds } from './services/folderPlayback';
+import { buildLibraryScanPathPlan } from './services/libraryScanPaths';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { LYRICS_WINDOW_EVENTS } from './utils/lyricsWindowEvents';
@@ -1092,19 +1094,19 @@ export const App: React.FC = () => {
             };
 
             const existingCount = await libraryRepository.count();
-            const getScanPaths = async (): Promise<string[]> => {
+            const getScanPathPlan = async () => {
               const portableMusicPath = await invoke<string>('get_portable_music_path');
-              const playlistPaths = legacyTracks.map((track: any) => track.path).filter((path: unknown): path is string => typeof path === 'string' && path.length > 0);
-              return Array.from(new Set([portableMusicPath, ...(Array.isArray(parsed.watchedFolders) ? parsed.watchedFolders : []), ...playlistPaths]));
+              const scanRoots = [portableMusicPath, ...(Array.isArray(parsed.watchedFolders) ? parsed.watchedFolders : [])];
+              return buildLibraryScanPathPlan(scanRoots, playlistReferences.map(track => track.path));
             };
-
-            const playlistPaths = playlistReferences.map(track => track.path);
+            const getScanPaths = async (): Promise<string[]> => (await getScanPathPlan()).scanPaths;
+            const initialScanPathPlan = await getScanPathPlan();
             if (catalogWasEmpty) {
               // The first catalog must be populated even if future startup scans are disabled.
-              await invoke<number>('scan_library_to_database', { paths: await getScanPaths() });
-            } else if (playlistPaths.length > 0) {
-              // Newly imported M3U files still resolve even when background full scans are off.
-              await invoke<number>('scan_library_to_database', { paths: playlistPaths });
+              await invoke<number>('scan_library_to_database', { paths: initialScanPathPlan.scanPaths });
+            } else if (parsed.autoScanOnStartup === false && initialScanPathPlan.uncoveredPlaylistPaths.length > 0) {
+              // Index M3U files outside watched roots when automatic startup scans are disabled.
+              await invoke<number>('scan_library_to_database', { paths: initialScanPathPlan.uncoveredPlaylistPaths });
             }
 
             const hydrated = await loadNativeCatalog();
@@ -4138,15 +4140,8 @@ export const App: React.FC = () => {
     setPlaylistFolders(prev => prev.map(f => f.id === folderId ? { ...f, groupId, parentId: null } : f));
   };
 
-  const getFolderAllTrackIds = (folder: PlaylistFolder): string[] => {
-    const getSubfolderIds = (folderId: string): string[] => {
-      const directChildren = playlistFolders.filter(item => item.parentId === folderId).map(item => item.id);
-      return [folderId, ...directChildren.flatMap(getSubfolderIds)];
-    };
-    const targetFolderIds = new Set(getSubfolderIds(folder.id));
-    const folderPlaylists = playlists.filter(item => item.folderId && targetFolderIds.has(item.folderId));
-    return [...new Set(folderPlaylists.flatMap(item => item.trackIds))];
-  };
+  const getFolderAllTrackIds = (folder: PlaylistFolder): string[] =>
+    getFolderTrackIds(folder, playlistFolders, playlists);
 
   const getFolderAllTracks = (folder: PlaylistFolder): Track[] => {
     const trackMap = new Map<string, Track>(tracks.map(track => [track.id, track]));
@@ -4698,6 +4693,7 @@ export const App: React.FC = () => {
           onPlayQueueTrack={index => { void playQueueIndex(index); }}
           onPlayTrack={(track, context, playlistId) => playTrackWithContext(track, context, false, playlistId)}
           onPlayPlaylist={handlePlayPlaylist}
+          onPlayFolder={handlePlayFolder}
           onResolveTracksByIds={loadNativeTracksByIds}
           onClearQueue={handleClearQueue}
           onToggleLyrics={() => {

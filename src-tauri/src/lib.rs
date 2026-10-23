@@ -646,7 +646,11 @@ async fn scan_library_to_database(
         let mut batch = Vec::with_capacity(BATCH_SIZE);
         let mut scanned = 0usize;
         let mut discovered = 0usize;
-        let mut path_results = Vec::new();
+        let mut directory_results = Vec::new();
+        let mut individual_file_paths = 0usize;
+        let mut individual_file_tracks = 0usize;
+        let mut missing_paths = 0usize;
+        let total_paths = paths.len();
 
         let mut flush = |batch: &mut Vec<serde_json::Value>| -> Result<(), String> {
             if batch.is_empty() { return Ok(()); }
@@ -658,9 +662,9 @@ async fn scan_library_to_database(
 
         for path_string in paths {
             let path = Path::new(&path_string);
-            let path_label = path.to_string_lossy().replace([',', '[', ']'], "_");
             let before = discovered;
             if path.is_dir() {
+                let path_label = path.to_string_lossy().replace([',', '[', ']'], "_");
                 let mut walk_errors = 0usize;
                 for entry in walkdir::WalkDir::new(path) {
                     let entry = match entry {
@@ -674,16 +678,19 @@ async fn scan_library_to_database(
                         if batch.len() >= BATCH_SIZE { flush(&mut batch)?; }
                     }
                 }
-                path_results.push(format!("path={path_label}:directory:tracks={}:walk_errors={walk_errors}", discovered - before));
+                if directory_results.len() < 8 {
+                    directory_results.push(format!("path={path_label}:tracks={}:walk_errors={walk_errors}", discovered - before));
+                }
             } else if path.is_file() {
+                individual_file_paths = individual_file_paths.saturating_add(1);
                 if let Some(track) = parse_single_file(&path_string) {
                     batch.push(serde_json::to_value(track).map_err(|error| error.to_string())?);
                     discovered = discovered.saturating_add(1);
+                    individual_file_tracks = individual_file_tracks.saturating_add(1);
                     if batch.len() >= BATCH_SIZE { flush(&mut batch)?; }
                 }
-                path_results.push(format!("path={path_label}:file:tracks={}", discovered - before));
             } else {
-                path_results.push(format!("path={path_label}:missing_or_unreadable"));
+                missing_paths = missing_paths.saturating_add(1);
             }
         }
         flush(&mut batch)?;
@@ -691,8 +698,9 @@ async fn scan_library_to_database(
             "INFO",
             "LIBRARY_SCAN",
             &format!(
-                "paths={} audio_tracks={} persisted={} results=[{}]",
-                path_results.len(), discovered, scanned, path_results.join(","),
+                "paths={} audio_tracks={} persisted={} directories=[{}] individual_file_paths={} individual_file_tracks={} missing_paths={}",
+                total_paths, discovered, scanned, directory_results.join(","),
+                individual_file_paths, individual_file_tracks, missing_paths,
             ),
         );
         Ok(scanned)
