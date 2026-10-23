@@ -1185,32 +1185,6 @@ export const App: React.FC = () => {
     });
   }, [tracks, startupDataLoaded]);
 
-  // Synchronize only changed rows to SQLite; playlist state stores IDs and remains in its own files.
-  useEffect(() => {
-    if (!isTauri() || !startupDataLoaded) return;
-    const previous = previousTracksForDbRef.current;
-    if (previous === tracks) return;
-    const previousById = new Map(previous.map(track => [track.id, track]));
-    const currentIds = new Set<string>();
-    const upserts: Track[] = [];
-    for (const track of tracks) {
-      currentIds.add(track.id);
-      const prior = previousById.get(track.id);
-      if (!prior || !isPersistedTrackEqual(prior, track)) upserts.push(track);
-    }
-    const removedIds = previous.filter(track => !currentIds.has(track.id)).map(track => track.id);
-    previousTracksForDbRef.current = tracks;
-    if (upserts.length === 0 && removedIds.length === 0) return;
-
-    const write = libraryWriteQueueRef.current.catch(() => {}).then(async () => {
-      if (upserts.length > 0) await libraryRepository.upsertBatch(upserts);
-      if (removedIds.length > 0) await libraryRepository.delete(removedIds);
-    });
-    libraryWriteQueueRef.current = write.catch(error => {
-      console.warn('Failed to persist library changes to SQLite:', error);
-    });
-  }, [tracks, startupDataLoaded]);
-
   // Desktop playlist/settings persistence deliberately excludes the track catalog.
   useEffect(() => {
     if (!isTauri() || !isLoadedRef.current) return;

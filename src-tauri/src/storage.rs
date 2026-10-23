@@ -1323,11 +1323,11 @@ pub fn load_legacy_track_references() -> Result<Vec<crate::library_db::LegacyTra
         if id.is_empty() || raw_path.trim().is_empty() { continue; }
         let resolved_path = to_absolute_music_path(raw_path, &base_dir).unwrap_or_else(|| {
             let path = Path::new(raw_path);
-            if path.is_absolute() { path.to_path_buf() } else { base_dir.join(path) }
+            if path.is_absolute() { raw_path.to_string() } else { base_dir.join(path).to_string_lossy().to_string() }
         });
         references.push(crate::library_db::LegacyTrackReference {
             id: id.to_string(),
-            path: resolved_path.to_string_lossy().to_string(),
+            path: resolved_path,
             is_favorite: track.get("isFavorite").and_then(Value::as_bool).unwrap_or(false),
             play_count: track.get("playCount").and_then(Value::as_u64).unwrap_or(0),
             date_added: track.get("dateAdded").and_then(Value::as_i64).unwrap_or(0),
