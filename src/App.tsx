@@ -27,6 +27,7 @@ import { LyricsModal } from './components/LyricsModal';
 import { MissingTracksModal } from './components/MissingTracksModal';
 import { audioEngine } from './services/audioEngine';
 import { hydrateTrackDetails, libraryRepository } from './services/libraryRepository';
+import type { LibraryCollectionGroup, LibraryCollectionKind } from './services/libraryCollectionIndex';
 import { discordRpc } from './services/discordRpc';
 import { getAudioFormatFromPath, parseAudioFile } from './services/tagEditor';
 import { 
@@ -189,6 +190,22 @@ const hydrateNativeSummaryRows = (rows: TrackSummary[]): Track[] => rows.map(row
   };
 });
 
+const toTrackSummary = (track: Track): TrackSummary => {
+  const {
+    lyrics: _lyrics,
+    isInstrumental: _isInstrumental,
+    localFile: _localFile,
+    composer: _composer,
+    contentGroup: _contentGroup,
+    comment: _comment,
+    conductor: _conductor,
+    lyricist: _lyricist,
+    customTags: _customTags,
+    ...summary
+  } = track;
+  return summary;
+};
+
 export const appendUniqueTracks = (existingList: Track[], incoming: Track[]): Track[] => {
   if (!incoming || incoming.length === 0) return existingList;
   const existingPaths = new Set(existingList.map(t => normalizeTrackPath(t.path)).filter(Boolean));
@@ -215,6 +232,12 @@ export const appendUniqueTracks = (existingList: Track[], incoming: Track[]): Tr
 export const App: React.FC = () => {
   // Library & Content State (No dummy stubs)
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
+  const [nativeTrackTotal, setNativeTrackTotal] = useState(0);
+  const [nativePageLoading, setNativePageLoading] = useState(false);
+  const [databaseCollectionGroups, setDatabaseCollectionGroups] = useState<LibraryCollectionGroup[] | null>(null);
+  const nativePageOffsetRef = useRef(0);
+  const nativePageGenerationRef = useRef(0);
+  const nativePageLoadingRef = useRef(false);
   const [playlists, setPlaylists] = useState<Playlist[]>(INITIAL_PLAYLISTS);
   const [playlistFolders, setPlaylistFolders] = useState<PlaylistFolder[]>([]);
   const [playlistGroups, setPlaylistGroups] = useState<PlaylistGroup[]>([]);
@@ -891,6 +914,83 @@ export const App: React.FC = () => {
     tracksRef.current = tracks;
   }, [tracks]);
 
+  const loadNativeTracksPage = useCallback(async (reset = false) => {
+    if (!isTauri() || !startupDataLoaded) return;
+    if (nativePageLoadingRef.current && !reset) return;
+
+    const generation = reset ? ++nativePageGenerationRef.current : nativePageGenerationRef.current;
+    const offset = reset ? 0 : nativePageOffsetRef.current;
+    nativePageLoadingRef.current = true;
+    setNativePageLoading(true);
+    if (reset) {
+      nativePageOffsetRef.current = 0;
+      setTracks([]);
+      tracksRef.current = [];
+    }
+
+    try {
+      const playlist = selectedPlaylistId
+        ? playlists.find(item => item.id === selectedPlaylistId)
+        : currentView === 'favorites' && sortBy === 'custom'
+          ? playlists.find(item => item.id === 'pl_favorites')
+          : undefined;
+      let incoming: TrackSummary[];
+      let total: number;
+      if (playlist) {
+        const pageIds = playlist.trackIds.slice(offset, offset + 300);
+        incoming = await libraryRepository.byIdsPage(playlist.trackIds, offset, 300);
+        total = playlist.trackIds.length;
+        // byIds preserves request order but can omit IDs removed from the native database.
+        if (pageIds.length === 0) total = offset;
+      } else {
+        const filterKind = selectedAlbum ? 'album' : selectedArtist ? 'artist' : selectedGenre ? 'genre' : undefined;
+        const noAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
+        const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
+        const noGenreLabel = language === 'ru' ? 'Без жанра' : 'No Genre';
+        let filterValue = selectedAlbum || selectedArtist || selectedGenre || '';
+        if ((filterKind === 'album' && filterValue === noAlbumLabel)
+          || (filterKind === 'artist' && filterValue === unknownArtistLabel)
+          || (filterKind === 'genre' && filterValue === noGenreLabel)) filterValue = '';
+        const page = await libraryRepository.page({
+          search: searchQuery,
+          sortBy: sortBy === 'custom' ? 'title' : sortBy,
+          descending: sortOrder === 'desc',
+          offset,
+          limit: 300,
+          filterKind,
+          filterValue,
+          favoriteOnly: currentView === 'favorites',
+        });
+        incoming = page.items;
+        total = page.total;
+      }
+      if (generation !== nativePageGenerationRef.current) return;
+      const hydrated = hydrateNativeSummaryRows(incoming);
+      const knownIds = new Set(tracksRef.current.map(item => item.id));
+      const merged = reset
+        ? hydrated
+        : [...tracksRef.current, ...hydrated.filter(item => !knownIds.has(item.id))];
+      tracksRef.current = merged;
+      previousTracksForDbRef.current = merged;
+      setTracks(merged);
+      setNativeTrackTotal(total);
+      nativePageOffsetRef.current = offset + 300;
+    } catch (error) {
+      console.warn('Unable to load a SQLite library page:', error);
+    } finally {
+      if (generation === nativePageGenerationRef.current) {
+        nativePageLoadingRef.current = false;
+        setNativePageLoading(false);
+      }
+    }
+  }, [startupDataLoaded, selectedPlaylistId, currentView, sortBy, sortOrder, playlists, selectedAlbum, selectedArtist, selectedGenre, language, searchQuery]);
+
+  useEffect(() => {
+    if (!isTauri() || !startupDataLoaded) return;
+    void loadNativeTracksPage(true);
+  }, [loadNativeTracksPage]);
+
+
   useEffect(() => {
     currentTrackRef.current = currentTrack;
   }, [currentTrack]);
@@ -994,8 +1094,12 @@ export const App: React.FC = () => {
               await libraryRepository.upsertBatch(legacyTracks as Track[]);
             }
 
-            const loadNativeCatalog = async (): Promise<Track[]> =>
-              hydrateNativeSummaryRows(await libraryRepository.allSummaries());
+            const loadNativeCatalog = async (): Promise<Track[]> => {
+              const page = await libraryRepository.page({ sortBy: 'title', descending: false, offset: 0, limit: 300 });
+              setNativeTrackTotal(page.total);
+              nativePageOffsetRef.current = page.items.length;
+              return hydrateNativeSummaryRows(page.items);
+            };
 
             const existingCount = await libraryRepository.count();
             const getScanPaths = async (): Promise<string[]> => {
@@ -1155,20 +1259,18 @@ export const App: React.FC = () => {
     const previous = previousTracksForDbRef.current;
     if (previous === tracks) return;
     const previousById = new Map(previous.map(track => [track.id, track]));
-    const currentIds = new Set<string>();
     const upserts: Track[] = [];
     for (const track of tracks) {
-      currentIds.add(track.id);
       const prior = previousById.get(track.id);
       if (!prior || !isPersistedTrackEqual(prior, track)) upserts.push(track);
     }
-    const removedIds = previous.filter(track => !currentIds.has(track.id)).map(track => track.id);
+    // A paged or filtered React collection is only a window into SQLite. Its missing rows
+    // are not deletions; explicit delete actions issue bounded repository deletes instead.
     previousTracksForDbRef.current = tracks;
-    if (upserts.length === 0 && removedIds.length === 0) return;
+    if (upserts.length === 0) return;
 
     const write = libraryWriteQueueRef.current.catch(() => {}).then(async () => {
-      if (upserts.length > 0) await libraryRepository.upsertBatch(upserts);
-      if (removedIds.length > 0) await libraryRepository.delete(removedIds);
+      await libraryRepository.upsertBatch(upserts);
     });
     libraryWriteQueueRef.current = write.catch(error => {
       console.warn('Failed to persist library changes to SQLite:', error);
@@ -1895,6 +1997,44 @@ export const App: React.FC = () => {
     return tracks.filter(t => !isolatedTrackIds.has(t.id));
   }, [tracks, isolatedTrackIds]);
 
+  useEffect(() => {
+    const kind: LibraryCollectionKind | null = currentView === 'albums'
+      ? 'albums'
+      : currentView === 'artists'
+        ? 'artists'
+        : currentView === 'genres'
+          ? 'genres'
+          : null;
+    if (!isTauri() || !startupDataLoaded || !kind) {
+      setDatabaseCollectionGroups(null);
+      return;
+    }
+    if (selectedAlbum || selectedArtist || selectedGenre) {
+      setDatabaseCollectionGroups(previous => previous?.map(group => ({
+        ...group,
+        trackCount: group.trackCount ?? group.trackIds.length,
+        trackIds: [],
+      })) ?? null);
+      return;
+    }
+    let active = true;
+    setDatabaseCollectionGroups(null);
+    void libraryRepository.collectionGroups(kind, language, searchQuery, [...isolatedTrackIds]).then(groups => {
+      if (!active) return;
+      setDatabaseCollectionGroups(groups.map(group => ({
+        ...group,
+        coverArt: group.coverArt && !group.coverArt.startsWith('http') && !group.coverArt.startsWith('data:')
+          ? convertFileSrc(group.coverArt)
+          : group.coverArt,
+      })));
+    }).catch(error => {
+      console.warn(`Failed to load ${kind} from SQLite:`, error);
+      if (active) setDatabaseCollectionGroups([]);
+    });
+    return () => { active = false; };
+  }, [currentView, startupDataLoaded, selectedAlbum, selectedArtist, selectedGenre, language, searchQuery, isolatedTrackIds]);
+
+
   // Filtered and Sorted Tracks
   const filteredTracks = useMemo(() => {
     let result = [...tracks];
@@ -2033,14 +2173,16 @@ export const App: React.FC = () => {
     if (selectedAlbum) {
       const unknownAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
       const albumTracks = nonIsolatedTracks.filter(t => (t.album?.trim() || unknownAlbumLabel) === selectedAlbum);
-      const firstCover = albumTracks.find(t => t.coverArt)?.coverArt;
-      const artist = albumTracks[0]?.artist?.trim() || (language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist');
-      const totalDur = albumTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
+      const albumGroup = databaseCollectionGroups?.find(group => group.name === selectedAlbum);
+      const firstCover = albumGroup?.coverArt || albumTracks.find(t => t.coverArt)?.coverArt;
+      const artist = albumGroup?.artist || albumTracks[0]?.artist?.trim() || (language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist');
+      const trackCount = albumGroup?.trackCount ?? albumGroup?.trackIds.length ?? albumTracks.length;
+      const totalDur = albumGroup?.totalDuration ?? albumTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
       const durText = formatDurationText(totalDur);
       return {
         type: 'album' as const,
         title: selectedAlbum,
-        subtitle: `${artist} • ${albumTracks.length} ${language === 'ru' ? 'трек(ов)' : 'tracks'}${durText ? ` • ${durText}` : ''}`,
+        subtitle: `${artist} • ${trackCount} ${language === 'ru' ? 'трек(ов)' : 'tracks'}${durText ? ` • ${durText}` : ''}`,
         coverArt: firstCover,
         icon: <Disc3 className="w-8 h-8" />,
       };
@@ -2048,13 +2190,15 @@ export const App: React.FC = () => {
     if (selectedArtist) {
       const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
       const artistTracks = nonIsolatedTracks.filter(t => (t.artist?.trim() || unknownArtistLabel) === selectedArtist);
-      const firstCover = artistTracks.find(t => t.coverArt)?.coverArt;
-      const totalDur = artistTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
+      const artistGroup = databaseCollectionGroups?.find(group => group.name === selectedArtist);
+      const firstCover = artistGroup?.coverArt || artistTracks.find(t => t.coverArt)?.coverArt;
+      const trackCount = artistGroup?.trackCount ?? artistGroup?.trackIds.length ?? artistTracks.length;
+      const totalDur = artistGroup?.totalDuration ?? artistTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
       const durText = formatDurationText(totalDur);
       return {
         type: 'artist' as const,
         title: selectedArtist,
-        subtitle: `${artistTracks.length} ${language === 'ru' ? 'трек(ов)' : 'tracks'}${durText ? ` • ${durText}` : ''}`,
+        subtitle: `${trackCount} ${language === 'ru' ? 'трек(ов)' : 'tracks'}${durText ? ` • ${durText}` : ''}`,
         coverArt: firstCover,
         icon: <Mic2 className="w-8 h-8" />,
       };
@@ -2066,19 +2210,21 @@ export const App: React.FC = () => {
         const list = t.genre.split(/[,/;\\]+/).map(g => g.trim()).filter(Boolean);
         return list.length > 0 ? list.includes(selectedGenre) : selectedGenre === unknownGenreLabel;
       });
-      const firstCover = genreTracks.find(t => t.coverArt)?.coverArt;
-      const totalDur = genreTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
+      const genreGroup = databaseCollectionGroups?.find(group => group.name === selectedGenre);
+      const firstCover = genreGroup?.coverArt || genreTracks.find(t => t.coverArt)?.coverArt;
+      const trackCount = genreGroup?.trackCount ?? genreGroup?.trackIds.length ?? genreTracks.length;
+      const totalDur = genreGroup?.totalDuration ?? genreTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
       const durText = formatDurationText(totalDur);
       return {
         type: 'genre' as const,
         title: selectedGenre,
-        subtitle: `${genreTracks.length} ${language === 'ru' ? 'трек(ов)' : 'tracks'}${durText ? ` • ${durText}` : ''}`,
+        subtitle: `${trackCount} ${language === 'ru' ? 'трек(ов)' : 'tracks'}${durText ? ` • ${durText}` : ''}`,
         coverArt: firstCover,
         icon: <Tag className="w-8 h-8" />,
       };
     }
     return null;
-  }, [selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, playlists, tracks, nonIsolatedTracks, language]);
+  }, [selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, playlists, tracks, nonIsolatedTracks, language, databaseCollectionGroups]);
 
   const searchPlaceholder = useMemo(() => {
     if (currentDetail) {
@@ -2469,7 +2615,17 @@ export const App: React.FC = () => {
         handlePrev();
       } else if (e.code === 'KeyA' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        setSelectedTrackIds(new Set(filteredTracks.map(t => t.id)));
+        if (isTauri()) {
+          void loadFullNativePlaybackContext(filteredTracksRef.current).then(all => {
+            const ids = new Set(all.map(track => track.id));
+            selectedTrackIdsRef.current = ids;
+            setSelectedTrackIds(ids);
+          });
+        } else {
+          const ids = new Set(filteredTracks.map(track => track.id));
+          selectedTrackIdsRef.current = ids;
+          setSelectedTrackIds(ids);
+        }
       } else if (e.code === 'Delete' || e.key === 'Delete') {
         const anyModalOpen = isSettingsOpen || isEQOpen || isLyricsOpen || isQueueOpen || isBatchTagEditorOpen ||
           isCreatePlaylistOpen || isCreateFolderOpen || isCreateGroupOpen || renameItemTarget ||
@@ -2690,13 +2846,13 @@ export const App: React.FC = () => {
       });
       setQueue(prev => prev.map(t => {
         const updates = updatedMap.get(t.id);
-        return updates ? { ...t, ...updates } : t;
+        return updates ? toTrackSummary({ ...t, ...updates }) : t;
       }));
     }
 
     if (toAdd.length > 0) {
       setTracks(prev => appendUniqueTracks(prev, toAdd));
-      setQueue(prev => [...prev, ...toAdd]);
+      setQueue(prev => [...prev, ...toAdd.map(toTrackSummary)]);
     }
 
     // If currently viewing a specific playlist, immediately add all tracks (new & existing) into it!
@@ -2726,6 +2882,12 @@ export const App: React.FC = () => {
     if (!currentTrack || tracksRef.current.length === 0) {
       const first = toAdd[0] || newTracks[0];
       if (first) playTrackWithContext(first, newTracks);
+    }
+
+    if (isTauri() && newTracks.some(track => Boolean(track.path))) {
+      void libraryWriteQueueRef.current.catch(() => {}).then(() => {
+        if (startupDataLoaded) void loadNativeTracksPage(true);
+      });
     }
   };
 
@@ -2994,7 +3156,7 @@ export const App: React.FC = () => {
       return;
     }
     const detailedTrack = await getTrackWithDetails(track);
-    setQueue(prev => prev.map((item, itemIndex) => itemIndex === index ? detailedTrack : item));
+    setQueue(prev => prev.map((item, itemIndex) => itemIndex === index ? toTrackSummary(detailedTrack) : item));
     setQueueIndex(index);
     setCurrentTrack(detailedTrack);
     setCurrentTime(0);
@@ -3015,9 +3177,83 @@ export const App: React.FC = () => {
     }
   };
 
-  // Starts playback of a track with context: populates the playback queue with all tracks from that view/playlist
-  // in their exact displayed order, and sets the active queue index to the clicked track.
-  const playTrackWithContext = async (track: Track, contextTracks?: Track[]) => {
+  const loadFullNativePlaybackContext = async (fallback: Track[]): Promise<Track[]> => {
+    if (!isTauri()) return fallback;
+    try {
+      await libraryWriteQueueRef.current.catch(() => {});
+      const orderedPlaylist = selectedPlaylistId
+        ? playlists.find(item => item.id === selectedPlaylistId)
+        : currentView === 'favorites' && sortBy === 'custom'
+          ? playlists.find(item => item.id === 'pl_favorites')
+          : undefined;
+      let rows: TrackSummary[] = [];
+      if (orderedPlaylist) {
+        rows = await libraryRepository.byIds(orderedPlaylist.trackIds);
+      } else {
+        const filterKind = selectedAlbum ? 'album' : selectedArtist ? 'artist' : selectedGenre ? 'genre' : undefined;
+        const noAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
+        const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
+        const noGenreLabel = language === 'ru' ? 'Без жанра' : 'No Genre';
+        let filterValue = selectedAlbum || selectedArtist || selectedGenre || '';
+        if ((filterKind === 'album' && filterValue === noAlbumLabel)
+          || (filterKind === 'artist' && filterValue === unknownArtistLabel)
+          || (filterKind === 'genre' && filterValue === noGenreLabel)) filterValue = '';
+        const favoriteOnly = currentView === 'favorites';
+        let offset = 0;
+        let total = 0;
+        do {
+          const page = await libraryRepository.page({
+            search: searchQuery,
+            sortBy: sortBy === 'custom' ? 'title' : sortBy,
+            descending: sortOrder === 'desc',
+            offset,
+            limit: 500,
+            filterKind,
+            filterValue,
+            favoriteOnly,
+          });
+          rows.push(...page.items);
+          total = page.total;
+          offset += page.items.length;
+          if (page.items.length === 0) break;
+        } while (offset < total);
+      }
+      let complete = hydrateNativeSummaryRows(rows);
+      if (orderedPlaylist && searchQuery.trim()) {
+        const query = searchQuery.trim().toLowerCase();
+        complete = complete.filter(item => item.title.toLowerCase().includes(query)
+          || item.artist.toLowerCase().includes(query) || item.album.toLowerCase().includes(query)
+          || Boolean(item.genre?.toLowerCase().includes(query)));
+      }
+      if (!selectedPlaylistId && isolatedTrackIds.size > 0) {
+        complete = complete.filter(item => !isolatedTrackIds.has(item.id));
+      }
+      if (sortBy === 'custom') {
+        if (sortOrder === 'desc') complete.reverse();
+      } else {
+        const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+        complete.sort((a, b) => {
+          const left = a[sortBy as keyof Track] ?? '';
+          const right = b[sortBy as keyof Track] ?? '';
+          if (typeof left === 'string' && typeof right === 'string') {
+            const result = collator.compare(left, right);
+            return sortOrder === 'asc' ? result : -result;
+          }
+          return sortOrder === 'asc' ? (left > right ? 1 : left < right ? -1 : 0) : (left < right ? 1 : left > right ? -1 : 0);
+        });
+      }
+      // Include freshly imported rows that may not have reached SQLite yet.
+      const known = new Set(complete.map(item => item.id));
+      for (const item of fallback) if (!known.has(item.id)) complete.push(item);
+      return complete;
+    } catch (error) {
+      console.warn('Unable to load the full playback context from SQLite; using the loaded page:', error);
+      return fallback;
+    }
+  };
+
+  // A full view context is materialized only when playback starts; the library itself remains paged.
+  const playTrackWithContext = async (track: Track, contextTracks?: Track[], contextIsComplete = false) => {
     if (track.isMissing) {
       handleRelocateTrack(track);
       return;
@@ -3025,7 +3261,8 @@ export const App: React.FC = () => {
 
     const list = contextTracks && contextTracks.length > 0 ? contextTracks : [track];
     const detailedTrack = await getTrackWithDetails(track);
-    const playbackList = list.map(item => item.id === detailedTrack.id ? detailedTrack : item);
+    const completeContext = contextIsComplete ? list : await loadFullNativePlaybackContext(list);
+    const playbackList = completeContext.map(item => toTrackSummary(item.id === detailedTrack.id ? detailedTrack : item));
     setQueue(playbackList);
     const idx = playbackList.findIndex(item => item.id === detailedTrack.id);
     const targetIdx = idx !== -1 ? idx : 0;
@@ -3309,28 +3546,31 @@ export const App: React.FC = () => {
 
   const handleToggleFavorite = (trackId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    setTracks(prev => prev.map(t => {
-      if (t.id === trackId) {
-        const updated = { ...t, isFavorite: !t.isFavorite };
-        setPlaylists(pls => pls.map(p => {
-          if (p.id === 'pl_favorites') {
-            return {
-              ...p,
-              trackIds: updated.isFavorite ? [...p.trackIds, trackId] : p.trackIds.filter(id => id !== trackId),
-            };
-          }
-          return p;
-        }));
-        return updated;
-      }
-      return t;
+    const knownTrack = tracksRef.current.find(track => track.id === trackId)
+      || queue.find(track => track.id === trackId)
+      || (currentTrack?.id === trackId ? currentTrack : undefined);
+    const nextFavorite = !(knownTrack?.isFavorite ?? false);
+    setTracks(prev => prev.map(track => track.id === trackId ? { ...track, isFavorite: nextFavorite } : track));
+    setQueue(prev => prev.map(track => track.id === trackId ? { ...track, isFavorite: nextFavorite } : track));
+    setCurrentTrack(prev => prev?.id === trackId ? { ...prev, isFavorite: nextFavorite } : prev);
+    setPlaylists(prev => prev.map(playlist => {
+      if (playlist.id !== 'pl_favorites') return playlist;
+      const trackIds = nextFavorite
+        ? [...new Set([...playlist.trackIds, trackId])]
+        : playlist.trackIds.filter(id => id !== trackId);
+      return { ...playlist, trackIds };
     }));
+    if (isTauri()) void libraryRepository.setFavorites([trackId], nextFavorite)
+      .catch(error => console.warn('Failed to update track favorite state in SQLite:', error));
   };
 
   const handleAddTracksToFavorites = (trackIds: string[]) => {
     if (!trackIds || trackIds.length === 0) return;
     const idSet = new Set(trackIds);
     setTracks(prev => prev.map(t => idSet.has(t.id) ? { ...t, isFavorite: true } : t));
+    setQueue(prev => prev.map(t => idSet.has(t.id) ? { ...t, isFavorite: true } : t));
+    if (isTauri()) void libraryRepository.setFavorites(trackIds, true)
+      .catch(error => console.warn('Failed to add tracks to SQLite favorites:', error));
     // Also sync with the system favorites playlist
     setPlaylists(prev => prev.map(p => {
       if (p.id === 'pl_favorites') {
@@ -3360,16 +3600,18 @@ export const App: React.FC = () => {
     });
   };
 
-  const handlePlaySelected = () => {
-    const selected = tracks.filter(t => selectedTrackIds.has(t.id));
-    if (selected.length > 0) {
-      playTrackWithContext(selected[0], selected);
-    }
+  const handlePlaySelected = async () => {
+    const selected = isTauri()
+      ? await loadNativeTracksByIds([...selectedTrackIds])
+      : tracks.filter(track => selectedTrackIds.has(track.id));
+    if (selected.length > 0) await playTrackWithContext(selected[0], selected, isTauri());
   };
 
-  const handleAddSelectedToQueue = () => {
-    const selected = tracks.filter(t => selectedTrackIds.has(t.id));
-    setQueue(prev => [...prev, ...selected]);
+  const handleAddSelectedToQueue = async () => {
+    const selected = isTauri()
+      ? await loadNativeTracksByIds([...selectedTrackIds])
+      : tracks.filter(track => selectedTrackIds.has(track.id));
+    setQueue(prev => [...prev, ...selected.map(toTrackSummary)]);
     setSelectedTrackIds(new Set());
   };
 
@@ -3445,9 +3687,9 @@ export const App: React.FC = () => {
 
   // Export a playlist to standard M3U8 file
   const handleExportPlaylistM3U8 = async (playlist: Playlist) => {
-    const plTracks = playlist.trackIds
-      .map(id => tracks.find(t => t.id === id))
-      .filter((t): t is Track => !!t);
+    const plTracks = isTauri()
+      ? hydrateNativeSummaryRows(await libraryRepository.byIds(playlist.trackIds))
+      : playlist.trackIds.map(id => tracks.find(track => track.id === id)).filter((track): track is Track => !!track);
 
     if (isTauri()) {
       try {
@@ -3591,17 +3833,14 @@ export const App: React.FC = () => {
       const foldersToScan = Array.from(new Set([portableMusicPath, ...watchedFolders]));
       const scanned = await invoke<number>('scan_library_to_database', { paths: foldersToScan });
       if (scanned > 0) {
-        const refreshed = hydrateNativeSummaryRows(await libraryRepository.allSummaries());
-        setTracks(refreshed);
-        tracksRef.current = refreshed;
-        previousTracksForDbRef.current = refreshed;
+        await loadNativeTracksPage(true);
       }
       return scanned;
     } catch (error) {
       console.warn('Scan library error:', error);
       return 0;
     }
-  }, [watchedFolders]);
+  }, [watchedFolders, loadNativeTracksPage]);
 
   // Missing tracks relocation and cleanup
   const handleRelocateMissingInFolder = async (): Promise<{ total: number; found: number } | null> => {
@@ -3695,6 +3934,10 @@ export const App: React.FC = () => {
 
   const handleClearMissingTracks = () => {
     const missingIds = new Set(missingTracksForModal.map(t => t.id));
+    if (isTauri()) {
+      void libraryRepository.delete([...missingIds]).then(() => loadNativeTracksPage(true))
+        .catch(error => console.warn('Failed to delete missing tracks from SQLite:', error));
+    }
     setTracks(prev => prev.filter(t => !missingIds.has(t.id)));
     setPlaylists(prev => prev.map(p => ({
       ...p,
@@ -3714,6 +3957,8 @@ export const App: React.FC = () => {
 
   const handleReorderPlaylistTracks = (reorderedTrackIds: string[]) => {
     if (!selectedPlaylistId) return;
+    const selectedPlaylist = playlists.find(playlist => playlist.id === selectedPlaylistId);
+    if (selectedPlaylist && reorderedTrackIds.length !== selectedPlaylist.trackIds.length) return;
     setPlaylists(prev => prev.map(p => {
       if (p.id === selectedPlaylistId) {
         return { ...p, trackIds: reorderedTrackIds };
@@ -3725,6 +3970,8 @@ export const App: React.FC = () => {
   };
 
   const handleReorderFavoriteTracks = (reorderedTrackIds: string[]) => {
+    const favoritesPlaylist = playlists.find(playlist => playlist.id === 'pl_favorites');
+    if (favoritesPlaylist && reorderedTrackIds.length !== favoritesPlaylist.trackIds.length) return;
     setPlaylists(prev => prev.map(p => {
       if (p.id === 'pl_favorites') {
         return { ...p, trackIds: reorderedTrackIds };
@@ -3899,31 +4146,19 @@ export const App: React.FC = () => {
     setPlaylistFolders(prev => prev.map(f => f.id === folderId ? { ...f, groupId, parentId: null } : f));
   };
 
-  const getFolderAllTracks = (folder: PlaylistFolder): Track[] => {
-    const getSubfolderIds = (fid: string): string[] => {
-      const directChildren = playlistFolders.filter(f => f.parentId === fid).map(f => f.id);
-      let all = [fid];
-      for (const childId of directChildren) {
-        all = [...all, ...getSubfolderIds(childId)];
-      }
-      return all;
+  const getFolderAllTrackIds = (folder: PlaylistFolder): string[] => {
+    const getSubfolderIds = (folderId: string): string[] => {
+      const directChildren = playlistFolders.filter(item => item.parentId === folderId).map(item => item.id);
+      return [folderId, ...directChildren.flatMap(getSubfolderIds)];
     };
     const targetFolderIds = new Set(getSubfolderIds(folder.id));
-    const folderPlaylists = playlists.filter(p => p.folderId && targetFolderIds.has(p.folderId));
-    const trackMap = new Map<string, Track>(tracks.map(t => [t.id, t]));
-    const result: Track[] = [];
-    const addedIds = new Set<string>();
+    const folderPlaylists = playlists.filter(item => item.folderId && targetFolderIds.has(item.folderId));
+    return [...new Set(folderPlaylists.flatMap(item => item.trackIds))];
+  };
 
-    for (const pl of folderPlaylists) {
-      for (const tid of pl.trackIds) {
-        if (!addedIds.has(tid)) {
-          addedIds.add(tid);
-          const t = trackMap.get(tid);
-          if (t) result.push(t);
-        }
-      }
-    }
-    return result;
+  const getFolderAllTracks = (folder: PlaylistFolder): Track[] => {
+    const trackMap = new Map<string, Track>(tracks.map(track => [track.id, track]));
+    return getFolderAllTrackIds(folder).map(id => trackMap.get(id)).filter((track): track is Track => Boolean(track));
   };
 
   const getOrderedPlaylistTracks = (playlist: Playlist): Track[] => {
@@ -3936,18 +4171,18 @@ export const App: React.FC = () => {
     return result;
   };
 
-  const handlePlayFolder = (folder: PlaylistFolder) => {
-    const folderTracks = getFolderAllTracks(folder);
-    if (folderTracks.length > 0) {
-      playTrackWithContext(folderTracks[0], folderTracks);
-    }
+  const handlePlayFolder = async (folder: PlaylistFolder) => {
+    const folderTracks = isTauri()
+      ? await loadNativeTracksByIds(getFolderAllTrackIds(folder))
+      : getFolderAllTracks(folder);
+    if (folderTracks.length > 0) await playTrackWithContext(folderTracks[0], folderTracks, isTauri());
   };
 
-  const handleAddFolderToQueue = (folder: PlaylistFolder) => {
-    const folderTracks = getFolderAllTracks(folder);
-    if (folderTracks.length > 0) {
-      setQueue(prev => [...prev, ...folderTracks]);
-    }
+  const handleAddFolderToQueue = async (folder: PlaylistFolder) => {
+    const folderTracks = isTauri()
+      ? await loadNativeTracksByIds(getFolderAllTrackIds(folder))
+      : getFolderAllTracks(folder);
+    setQueue(prev => [...prev, ...folderTracks.map(toTrackSummary)]);
   };
 
   const handleRenameItem = (newName: string, newDescription?: string, newCoverType?: FolderCoverType) => {
@@ -3973,10 +4208,23 @@ export const App: React.FC = () => {
     setRenameItemTarget(null);
   };
 
-  const handlePlayPlaylist = (playlist: Playlist) => {
-    const plTracks = getOrderedPlaylistTracks(playlist);
-    if (plTracks.length > 0) {
-      playTrackWithContext(plTracks[0], plTracks);
+  const handlePlayPlaylist = async (playlist: Playlist) => {
+    const plTracks = isTauri()
+      ? await loadNativeTracksByIds(playlist.trackIds)
+      : getOrderedPlaylistTracks(playlist);
+    if (plTracks.length > 0) await playTrackWithContext(plTracks[0], plTracks, isTauri());
+  };
+
+  const loadNativeTracksByIds = async (trackIds: string[]): Promise<Track[]> =>
+    hydrateNativeSummaryRows(await libraryRepository.byIds(trackIds));
+
+  const handlePlayNativeGroupByIds = async (trackIds: string[]) => {
+    if (trackIds.length === 0) return;
+    try {
+      const groupTracks = await loadNativeTracksByIds(trackIds);
+      if (groupTracks.length > 0) await playTrackWithContext(groupTracks[0], groupTracks, true);
+    } catch (error) {
+      console.warn('Unable to load tracks for playback:', error);
     }
   };
 
@@ -3995,9 +4243,11 @@ export const App: React.FC = () => {
     playTrackWithContext(genreTracks[0], genreTracks);
   };
 
-  const handleAddPlaylistToQueue = (playlist: Playlist) => {
-    const plTracks = getOrderedPlaylistTracks(playlist);
-    setQueue(prev => [...prev, ...plTracks]);
+  const handleAddPlaylistToQueue = async (playlist: Playlist) => {
+    const plTracks = isTauri()
+      ? await loadNativeTracksByIds(playlist.trackIds)
+      : getOrderedPlaylistTracks(playlist);
+    setQueue(prev => [...prev, ...plTracks.map(toTrackSummary)]);
   };
 
   const handleRenamePlaylist = (playlist: Playlist) => {
@@ -4046,7 +4296,11 @@ export const App: React.FC = () => {
     lyricist?: string;
     coverArt?: string | null;
   }, targetTracks?: Track[]) => {
-    const targetIds = new Set(targetTracks && targetTracks.length > 0 ? targetTracks.map(t => t.id) : Array.from(selectedTrackIds));
+    const targetIds = new Set(
+      targetTracks && targetTracks.length > 0
+        ? (selectedTrackIds.size > targetTracks.length ? [...selectedTrackIds] : targetTracks.map(track => track.id))
+        : Array.from(selectedTrackIds),
+    );
 
     setTracks(prev => prev.map(t => {
       if (targetIds.has(t.id)) {
@@ -4064,6 +4318,21 @@ export const App: React.FC = () => {
       }
       return t;
     }));
+
+    if (isTauri()) {
+      const summaryPatch: Omit<Partial<TrackSummary>, 'genre' | 'coverArt'> & { genre?: string | null; coverArt?: string | null } = {};
+      if (updates.title !== undefined) summaryPatch.title = updates.title;
+      if (updates.artist !== undefined) summaryPatch.artist = updates.artist;
+      if (updates.album !== undefined) summaryPatch.album = updates.album;
+      if (updates.genre !== undefined) summaryPatch.genre = updates.genre || null;
+      if (updates.year !== undefined) summaryPatch.year = updates.year;
+      if (updates.trackNumber !== undefined) summaryPatch.trackNumber = updates.trackNumber;
+      if (updates.trackTotal !== undefined) summaryPatch.trackTotal = updates.trackTotal;
+      if (updates.coverArt !== undefined) summaryPatch.coverArt = updates.coverArt || null;
+      await libraryRepository.mergeSummary([...targetIds], summaryPatch).catch(error => {
+        console.warn('Failed to update track summaries in SQLite:', error);
+      });
+    }
 
     const detailsPatch: Partial<TrackDetails> = {};
     if (updates.composer !== undefined) detailsPatch.composer = updates.composer;
@@ -4100,15 +4369,16 @@ export const App: React.FC = () => {
 
     // Persist tags and cover art to audio files on disk if running in Tauri
     if (isTauri()) {
-      const sourceTracks = targetTracks && targetTracks.length > 0
-        ? targetTracks
-        : tracks.filter(t => targetIds.has(t.id));
-      const paths = sourceTracks
-        .filter(t => !t.isMissing)
-        .map(t => t.path)
-        .filter((p): p is string => Boolean(p));
-      if (paths.length > 0) {
-        try {
+      const ids = [...targetIds];
+      try {
+        for (let start = 0; start < ids.length; start += 128) {
+          const idBatch = ids.slice(start, start + 128);
+          const sourceTracks = targetTracks && targetIds.size <= targetTracks.length
+            ? targetTracks.filter(track => idBatch.includes(track.id))
+            : hydrateNativeSummaryRows(await libraryRepository.byIds(idBatch));
+          const paths = sourceTracks.filter(track => !track.isMissing)
+            .map(track => track.path).filter((path): path is string => Boolean(path));
+          if (paths.length === 0) continue;
           await invoke('batch_save_track_file_tags', {
             paths,
             updates: {
@@ -4125,16 +4395,17 @@ export const App: React.FC = () => {
               conductor: updates.conductor,
               lyricist: updates.lyricist,
               cover_art: updates.coverArt !== undefined ? (updates.coverArt || '') : undefined,
-            }
+            },
           });
-        } catch (e) {
-          console.error('Failed to save tags to files:', e);
-          const errStr = String(e);
-          if (!errStr.includes('File not found')) {
-            alert(language === 'ru' ? `Ошибка сохранения тегов в файл: ${e}` : `Failed to save tags to file: ${e}`);
-          }
+        }
+      } catch (error) {
+        console.error('Failed to save tags to files:', error);
+        const errorText = String(error);
+        if (!errorText.includes('File not found')) {
+          alert(language === 'ru' ? `Ошибка сохранения тегов в файл: ${error}` : `Failed to save tags to file: ${error}`);
         }
       }
+      await loadNativeTracksPage(true);
     }
   };
 
@@ -4291,6 +4562,10 @@ export const App: React.FC = () => {
         return p;
       }));
     } else {
+      if (isTauri()) {
+        void libraryRepository.delete(trackIds).then(() => loadNativeTracksPage(true))
+          .catch(error => console.warn('Failed to delete tracks from SQLite:', error));
+      }
       setTracks(prev => prev.filter(t => !idSet.has(t.id)));
       setQueue(prev => prev.filter(t => !idSet.has(t.id)));
       setPlaylists(prev => prev.map(p => ({
@@ -4346,6 +4621,10 @@ export const App: React.FC = () => {
     }
 
     // Remove from tracks (library)
+    if (isTauri()) {
+      await libraryRepository.delete(targetIds).catch(error => console.warn('Failed to delete tracks from SQLite:', error));
+      await loadNativeTracksPage(true);
+    }
     const idSet = new Set(targetIds);
     setTracks(prev => prev.filter(t => !idSet.has(t.id)));
 
@@ -4458,7 +4737,7 @@ export const App: React.FC = () => {
         onSelectView={handleSelectView}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        totalTracksCount={nonIsolatedTracks.length}
+        totalTracksCount={isTauri() ? nativeTrackTotal : nonIsolatedTracks.length}
         searchPlaceholder={searchPlaceholder}
         onOpenFiles={handleOpenFiles}
         themeMode={themeMode}
@@ -4570,10 +4849,14 @@ export const App: React.FC = () => {
               onDropInternalTracks={selectedPlaylistId ? (tIds) => handleDropTracksToPlaylist(selectedPlaylistId, tIds) : undefined}
               onAddTracksToFavorites={handleAddTracksToFavorites}
               currentView={currentView}
-              isReorderable={Boolean(selectedPlaylistId) && !searchQuery.trim()}
+              isReorderable={Boolean(selectedPlaylistId) && !searchQuery.trim() && (!isTauri() || nativePageOffsetRef.current >= nativeTrackTotal)}
               onReorderTracks={selectedPlaylistId ? handleReorderPlaylistTracks : undefined}
               onRelocateTrack={handleRelocateTrack}
               language={language}
+              onLoadMore={() => { void loadNativeTracksPage(false); }}
+              hasMoreTracks={isTauri() && nativePageOffsetRef.current < nativeTrackTotal}
+              isLoadingMoreTracks={nativePageLoading}
+              resetScrollKey={`${currentView}:${selectedPlaylistId ?? ''}:${selectedAlbum ?? ''}:${selectedArtist ?? ''}:${selectedGenre ?? ''}:${searchQuery}:${sortBy}:${sortOrder}`}
             />
           </div>
         ) : currentView === 'playlists' ? (
@@ -4640,6 +4923,8 @@ export const App: React.FC = () => {
               setSelectedAlbum(alb);
             }}
             onPlayAlbum={handlePlayAlbum}
+            databaseGroups={isTauri() ? databaseCollectionGroups ?? undefined : undefined}
+            onPlayAlbumByIds={isTauri() ? handlePlayNativeGroupByIds : undefined}
           />
         ) : currentView === 'artists' ? (
           <ArtistsGridView
@@ -4651,6 +4936,8 @@ export const App: React.FC = () => {
               setSelectedArtist(art);
             }}
             onPlayArtist={handlePlayArtist}
+            databaseGroups={isTauri() ? databaseCollectionGroups ?? undefined : undefined}
+            onPlayArtistByIds={isTauri() ? handlePlayNativeGroupByIds : undefined}
           />
         ) : currentView === 'genres' ? (
           <GenresGridView
@@ -4662,6 +4949,8 @@ export const App: React.FC = () => {
               setSelectedGenre(gen);
             }}
             onPlayGenre={handlePlayGenre}
+            databaseGroups={isTauri() ? databaseCollectionGroups ?? undefined : undefined}
+            onPlayGenreByIds={isTauri() ? handlePlayNativeGroupByIds : undefined}
           />
         ) : (
           /* 'tracks' and 'favorites' */
@@ -4686,10 +4975,14 @@ export const App: React.FC = () => {
             sortOrder={sortOrder}
             onSortChange={handleSortChange}
             onDropFiles={importFiles}
-            isReorderable={currentView === 'favorites' && !searchQuery.trim()}
+            isReorderable={currentView === 'favorites' && !searchQuery.trim() && (!isTauri() || nativePageOffsetRef.current >= nativeTrackTotal)}
             onReorderTracks={currentView === 'favorites' ? handleReorderFavoriteTracks : undefined}
             onRelocateTrack={handleRelocateTrack}
             language={language}
+            onLoadMore={() => { void loadNativeTracksPage(false); }}
+            hasMoreTracks={isTauri() && nativePageOffsetRef.current < nativeTrackTotal}
+            isLoadingMoreTracks={nativePageLoading}
+            resetScrollKey={`${currentView}:${selectedPlaylistId ?? ''}:${selectedAlbum ?? ''}:${selectedArtist ?? ''}:${selectedGenre ?? ''}:${searchQuery}:${sortBy}:${sortOrder}`}
           />
         )}
       </main>
@@ -4786,6 +5079,7 @@ export const App: React.FC = () => {
         isOpen={isBatchTagEditorOpen}
         onClose={() => setIsBatchTagEditorOpen(false)}
         selectedTracks={selectedTracksList}
+        selectedTrackCount={selectedTrackIds.size || selectedTracksList.length}
         language={language}
         onSaveTags={handleSaveBatchTags}
       />
@@ -4877,7 +5171,7 @@ export const App: React.FC = () => {
           language={language}
           onClose={() => setContextMenu(null)}
           onPlay={(t) => playTrackWithContext(t, filteredTracks)}
-          onAddToQueue={(t) => setQueue(prev => [...prev, ...t])}
+          onAddToQueue={(t) => setQueue(prev => [...prev, ...t.map(toTrackSummary)])}
           onPlayNext={(t) => {
             setQueue(prev => {
               const copy = [...prev];

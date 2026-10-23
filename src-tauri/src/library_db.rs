@@ -66,6 +66,19 @@ pub struct TrackPage {
     pub total: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryCollectionGroup {
+    pub name: String,
+    pub track_ids: Vec<String>,
+    pub track_count: usize,
+    pub cover_art: Option<String>,
+    pub total_duration: f64,
+    pub artist: Option<String>,
+    pub year: Option<u32>,
+    pub albums_count: Option<usize>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LegacyTrackReference {
@@ -142,6 +155,7 @@ impl LibraryDb {
                 date_added INTEGER NOT NULL DEFAULT 0
              );"
         ).map_err(|e| format!("Initialize library database: {e}"))?;
+        migrate_search_index(&connection)?;
         Ok(Self { connection: Arc::new(Mutex::new(connection)), path })
     }
 
@@ -159,27 +173,125 @@ impl LibraryDb {
     }
 
     pub fn page(&self, search: Option<&str>, sort_by: &str, descending: bool, offset: u64, limit: u32) -> Result<TrackPage, String> {
+        self.page_filtered(search, sort_by, descending, offset, limit, None, None, false)
+    }
+
+    pub fn page_filtered(
+        &self, search: Option<&str>, sort_by: &str, descending: bool, offset: u64, limit: u32,
+        filter_kind: Option<&str>, filter_value: Option<&str>, favorite_only: bool,
+    ) -> Result<TrackPage, String> {
         let limit = limit.clamp(1, 500) as u64;
         let search = normalize_search(search.unwrap_or_default());
+        let filter_kind = filter_kind.unwrap_or_default();
+        let filter_value = filter_value.unwrap_or_default().trim().to_string();
         let column = sort_column(sort_by);
         let direction = if descending { "DESC" } else { "ASC" };
+        let predicate = "(?1 = '' OR instr(search_text, ?1) > 0)
+            AND (?2 = '' OR (?2 = 'album' AND trim(album) = ?3)
+                OR (?2 = 'artist' AND trim(artist) = ?3)
+                OR (?2 = 'genre' AND ((?3 = '' AND (genre IS NULL OR trim(genre) = ''))
+                    OR instr('|' || replace(replace(replace(replace(replace(lower(coalesce(genre,'')), ' ', ''), '/', '|'), ';', '|'), ',', '|'), char(92), '|') || '|', '|' || lower(replace(?3, ' ', '')) || '|') > 0)))
+            AND (?4 = 0 OR is_favorite = 1)";
         let sql = format!(
             "SELECT id,path,title,artist,album,genre,year,track_number,track_total,duration,src,cover_art,bitrate,format,file_size,date_added,play_count,is_favorite,is_missing
-             FROM tracks WHERE (?1 = '' OR instr(search_text, ?1) > 0)
-             ORDER BY {column} COLLATE NATURAL_NOCASE {direction}, id {direction} LIMIT ?2 OFFSET ?3"
+             FROM tracks WHERE {predicate}
+             ORDER BY {column} COLLATE NATURAL_NOCASE {direction}, id {direction} LIMIT ?5 OFFSET ?6"
         );
         let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
         let total = connection.query_row(
-            "SELECT COUNT(*) FROM tracks WHERE (?1 = '' OR instr(search_text, ?1) > 0)",
-            [&search], |row| row.get::<_, i64>(0),
+            &format!("SELECT COUNT(*) FROM tracks WHERE {predicate}"),
+            params![search, filter_kind, filter_value, favorite_only], |row| row.get::<_, i64>(0),
         ).map_err(|e| e.to_string())?.max(0) as u64;
         let mut statement = connection.prepare(&sql).map_err(|e| e.to_string())?;
         let sql_limit = limit as i64;
         let sql_offset = offset.min(i64::MAX as u64) as i64;
-        let rows = statement.query_map(params![search, sql_limit, sql_offset], row_to_summary).map_err(|e| e.to_string())?;
+        let rows = statement.query_map(params![search, filter_kind, filter_value, favorite_only, sql_limit, sql_offset], row_to_summary).map_err(|e| e.to_string())?;
         let mut items = Vec::new();
         for row in rows { items.push(row.map_err(|e| e.to_string())?); }
         Ok(TrackPage { items, offset, total })
+    }
+
+    pub fn collection_groups(
+        &self, kind: &str, language: &str, search: Option<&str>, excluded_ids: &[String],
+    ) -> Result<Vec<LibraryCollectionGroup>, String> {
+        use std::collections::{HashMap, HashSet};
+        let no_album = if language == "ru" { "Без альбома" } else { "No Album" };
+        let unknown_artist = if language == "ru" { "Неизвестный исполнитель" } else { "Unknown Artist" };
+        let no_genre = if language == "ru" { "Без жанра" } else { "No Genre" };
+        if !matches!(kind, "albums" | "artists" | "genres") {
+            return Err(format!("Unknown library collection kind: {kind}"));
+        }
+        let query = normalize_search(search.unwrap_or_default());
+        let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let mut statement = connection.prepare(
+            "SELECT id,path,title,artist,album,genre,year,track_number,track_total,duration,src,cover_art,bitrate,format,file_size,date_added,play_count,is_favorite,is_missing,search_text
+             FROM tracks ORDER BY title COLLATE NATURAL_NOCASE, id"
+        ).map_err(|e| e.to_string())?;
+        let rows = statement.query_map([], |row| {
+            let summary = row_to_summary(row)?;
+            let search_text: String = row.get(19)?;
+            Ok((summary, search_text))
+        }).map_err(|e| e.to_string())?;
+        let excluded_ids: HashSet<&str> = excluded_ids.iter().map(String::as_str).collect();
+        let mut groups: HashMap<String, LibraryCollectionGroup> = HashMap::new();
+        let mut artist_albums: HashMap<String, HashSet<String>> = HashMap::new();
+        let mut matched = HashSet::new();
+        for row in rows {
+            let (track, search_text) = row.map_err(|e| e.to_string())?;
+            if excluded_ids.contains(track.id.as_str()) { continue; }
+            let matches = query.is_empty() || search_text.contains(&query);
+            let duration = if track.duration.is_finite() { track.duration.max(0.0) } else { 0.0 };
+            let mut names = Vec::new();
+            match kind {
+                "albums" => {
+                    let name = track.album.trim();
+                    names.push(if name.is_empty() { no_album.to_string() } else { name.to_string() });
+                }
+                "artists" => {
+                    let name = track.artist.trim();
+                    names.push(if name.is_empty() { unknown_artist.to_string() } else { name.to_string() });
+                }
+                _ => {
+                    let genres: HashSet<String> = track.genre.as_deref().unwrap_or("")
+                        .split(|character| matches!(character, ',' | '/' | ';' | '\\'))
+                        .map(str::trim).filter(|genre| !genre.is_empty()).map(str::to_string).collect();
+                    if genres.is_empty() { names.push(no_genre.to_string()); }
+                    else { names.extend(genres); }
+                }
+            }
+            for name in names {
+                let group = groups.entry(name.clone()).or_insert_with(|| LibraryCollectionGroup {
+                    name: name.clone(), track_ids: Vec::new(), track_count: 0, cover_art: track.cover_art.clone(), total_duration: 0.0,
+                    artist: if kind == "albums" {
+                        let artist = track.artist.trim();
+                        Some(if artist.is_empty() { unknown_artist.to_string() } else { artist.to_string() })
+                    } else { None },
+                    year: if kind == "albums" { track.year } else { None },
+                    albums_count: None,
+                });
+                group.track_ids.push(track.id.clone());
+                group.track_count += 1;
+                group.total_duration += duration;
+                if group.cover_art.is_none() { group.cover_art = track.cover_art.clone(); }
+                if kind == "albums" && group.year.is_none() { group.year = track.year; }
+                if kind == "artists" {
+                    let album = if track.album.trim().is_empty() { "Unknown" } else { track.album.trim() };
+                    let albums = artist_albums.entry(name.clone()).or_default();
+                    albums.insert(album.to_string());
+                    group.albums_count = Some(albums.len());
+                }
+                if matches { matched.insert(name); }
+            }
+        }
+        let mut result: Vec<_> = groups.into_values()
+            .filter(|group| query.is_empty() || group.name.to_lowercase().contains(&query) || matched.contains(&group.name))
+            .collect();
+        if kind == "genres" {
+            result.sort_by(|left, right| right.track_ids.len().cmp(&left.track_ids.len()).then_with(|| natural_compare(&left.name, &right.name)));
+        } else {
+            result.sort_by(|left, right| natural_compare(&left.name, &right.name));
+        }
+        Ok(result)
     }
 
     pub fn details(&self, id: &str) -> Result<Option<TrackDetails>, String> {
@@ -263,6 +375,60 @@ impl LibraryDb {
             transaction.execute("UPDATE tracks SET details_json=?1 WHERE id=?2", params![encoded, id]).map_err(|e| e.to_string())?;
         }
         transaction.commit().map_err(|e| e.to_string())
+    }
+
+    pub fn merge_summary(&self, ids: &[String], patch: &Value) -> Result<usize, String> {
+        let patch = patch.as_object().ok_or("Track summary patch must be a JSON object")?;
+        let mut connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let transaction = connection.transaction().map_err(|e| e.to_string())?;
+        let mut changed = 0usize;
+        for id in ids {
+            let current = transaction.query_row(
+                "SELECT title,artist,album,genre,year,track_number,track_total,cover_art FROM tracks WHERE id=?1",
+                [id],
+                |row| Ok((
+                    row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?, row.get::<_, Option<i64>>(4)?,
+                    row.get::<_, Option<i64>>(5)?, row.get::<_, Option<i64>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                )),
+            ).optional().map_err(|e| e.to_string())?;
+            let Some((current_title, current_artist, current_album, current_genre, current_year, current_number, current_total, current_cover)) = current else { continue };
+            let title = patch.get("title").and_then(Value::as_str).map(str::to_string).unwrap_or(current_title);
+            let artist = patch.get("artist").and_then(Value::as_str).map(str::to_string).unwrap_or(current_artist);
+            let album = patch.get("album").and_then(Value::as_str).map(str::to_string).unwrap_or(current_album);
+            let genre = match patch.get("genre") {
+                Some(Value::Null) => None,
+                Some(Value::String(value)) if value.is_empty() => None,
+                Some(Value::String(value)) => Some(value.clone()),
+                _ => current_genre,
+            };
+            let numeric = |camel: &str, current: Option<i64>| -> Option<i64> {
+                match patch.get(camel) {
+                    Some(Value::Null) => None,
+                    Some(value) => value.as_i64().or_else(|| value.as_u64().and_then(|n| i64::try_from(n).ok())),
+                    None => current,
+                }
+            };
+            let year = numeric("year", current_year);
+            let track_number = numeric("trackNumber", current_number);
+            let track_total = numeric("trackTotal", current_total);
+            let cover_art = match patch.get("coverArt") {
+                Some(Value::Null) => None,
+                Some(Value::String(value)) if value.is_empty() => None,
+                Some(Value::String(value)) => Some(value.clone()),
+                _ => current_cover,
+            };
+            let mut search_parts = vec![title.clone(), artist.clone(), album.clone()];
+            if let Some(genre) = &genre { search_parts.push(genre.clone()); }
+            let search_text = search_parts.join("\n").to_lowercase();
+            changed += transaction.execute(
+                "UPDATE tracks SET title=?1,artist=?2,album=?3,genre=?4,year=?5,track_number=?6,track_total=?7,cover_art=?8,search_text=?9 WHERE id=?10",
+                params![title, artist, album, genre, year, track_number, track_total, cover_art, search_text, id],
+            ).map_err(|e| e.to_string())?;
+        }
+        transaction.commit().map_err(|e| e.to_string())?;
+        Ok(changed)
     }
 
     pub fn set_favorites(&self, ids: &[String], favorite: bool) -> Result<(), String> {
@@ -392,7 +558,7 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
     let genre = optional_string(value, "genre", "genre");
     let mut details = Map::new();
     for key in DETAIL_KEYS {
-        if let Some(item) = value.get(*key) {
+        if let Some(item) = value.get(*key).filter(|item| !item.is_null()) {
             let normalized = match *key {
                 "is_instrumental" => "isInstrumental",
                 "content_group" => "contentGroup",
@@ -411,7 +577,6 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
     let details_json = serde_json::to_string(&Value::Object(merged_details)).map_err(|e| e.to_string())?;
     let mut search_parts = vec![title.clone(), artist.clone(), album.clone()];
     if let Some(g) = &genre { search_parts.push(g.clone()); }
-    if let Some(p) = &path { search_parts.push(p.clone()); }
     let search_text = search_parts.join("\n").to_lowercase();
     let src = path.clone().unwrap_or_else(|| string(value, "src", "src", ""));
     let raw_cover = optional_string(value, "coverArt", "cover_art");
@@ -434,6 +599,40 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
         transaction.execute("DELETE FROM legacy_path_map WHERE path_key=?1", [path_key]).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+fn migrate_search_index(connection: &Connection) -> Result<(), String> {
+    let version = connection.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+        .map_err(|error| format!("Read library database version: {error}"))?;
+    if version >= 1 { return Ok(()); }
+
+    // Rebuild the Unicode-aware substring index in bounded batches. This also removes
+    // legacy path text so native search exactly matches the previous title/artist/album/genre filter.
+    let mut last_rowid = 0i64;
+    loop {
+        let batch: Vec<(i64, String, String, String, Option<String>)> = {
+            let mut statement = connection.prepare(
+                "SELECT rowid,title,artist,album,genre FROM tracks WHERE rowid>?1 ORDER BY rowid LIMIT 500"
+            ).map_err(|error| format!("Prepare library search migration: {error}"))?;
+            let rows = statement.query_map([last_rowid], |row| Ok((
+                row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?,
+            ))).map_err(|error| format!("Read library search migration batch: {error}"))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|error| format!("Decode library search migration batch: {error}"))?
+        };
+        if batch.is_empty() { break; }
+        let mut update = connection.prepare("UPDATE tracks SET search_text=?1 WHERE rowid=?2")
+            .map_err(|error| format!("Prepare library search index update: {error}"))?;
+        for (rowid, title, artist, album, genre) in batch {
+            let mut fields = vec![title, artist, album];
+            if let Some(genre) = genre { fields.push(genre); }
+            update.execute(params![fields.join("\n").to_lowercase(), rowid])
+                .map_err(|error| format!("Update library search index: {error}"))?;
+            last_rowid = rowid;
+        }
+    }
+    connection.pragma_update(None, "user_version", 1i64)
+        .map_err(|error| format!("Save library database version: {error}"))
 }
 
 fn row_to_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<TrackSummary> {
@@ -484,6 +683,64 @@ mod tests {
     }
 
     #[test]
+    fn collection_groups_are_built_from_the_native_catalog_without_track_details() {
+        let db = database();
+        db.upsert_batch(&[
+            json!({"id":"1","title":"Song 1","artist":"Artist","album":"Album","genre":"Rock; Jazz","duration":10.0,"path":"/music/1.flac"}),
+            json!({"id":"2","title":"Song 2","artist":"Artist","album":"Album","genre":"Rock","duration":20.0,"path":"/music/2.flac"}),
+            json!({"id":"3","title":"Other","artist":"Other Artist","album":"Other Album","genre":"Jazz","duration":30.0,"path":"/music/3.flac"}),
+        ]).unwrap();
+        let albums = db.collection_groups("albums", "en", None, &[]).unwrap();
+        assert_eq!(albums.len(), 2);
+        assert_eq!(albums[0].name, "Album");
+        assert_eq!(albums[0].track_ids, vec!["1", "2"]);
+        assert_eq!(albums[0].total_duration, 30.0);
+        let genres = db.collection_groups("genres", "en", Some("song 1"), &[]).unwrap();
+        assert_eq!(genres.len(), 2);
+        let rock = genres.iter().find(|group| group.name == "Rock").unwrap();
+        let jazz = genres.iter().find(|group| group.name == "Jazz").unwrap();
+        assert_eq!(rock.track_ids, vec!["1", "2"]);
+        assert_eq!(jazz.track_ids, vec!["1"]);
+    }
+
+    #[test]
+    fn database_pages_keep_natural_text_and_numeric_sort_order() {
+        let db = database();
+        db.upsert_batch(&[
+            json!({"id":"10","title":"Track 10","artist":"B","album":"Album","duration":10.0}),
+            json!({"id":"2","title":"Track 2","artist":"A","album":"Album","duration":2.0}),
+        ]).unwrap();
+        let ascending = db.page(None, "title", false, 0, 10).unwrap();
+        assert_eq!(ascending.items.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(), vec!["2", "10"]);
+        let descending = db.page(None, "title", true, 0, 10).unwrap();
+        assert_eq!(descending.items.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(), vec!["10", "2"]);
+        let duration = db.page(None, "duration", false, 0, 10).unwrap();
+        assert_eq!(duration.items[0].id, "2");
+    }
+
+    #[test]
+    fn filtered_pages_support_exact_genre_tokens_and_favorites() {
+        let db = database();
+        db.upsert_batch(&[
+            json!({"id":"1","title":"Rock track","artist":"A","album":"One","genre":"Classic Rock; Jazz","isFavorite":true}),
+            json!({"id":"2","title":"Other","artist":"A","album":"One","genre":"Hard Rock","isFavorite":true}),
+            json!({"id":"3","title":"Rock track","artist":"A","album":"Two","genre":"Classic Rock","isFavorite":false}),
+        ]).unwrap();
+        let page = db.page_filtered(Some("rock track"), "title", false, 0, 10, Some("genre"), Some("Classic Rock"), true).unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items[0].id, "1");
+    }
+
+    #[test]
+    fn search_matches_only_the_fields_used_by_the_existing_ui_filter() {
+        let db = database();
+        db.upsert_batch(&[json!({"id":"1","title":"Песня","artist":"Ёж","album":"Альбом","genre":"Rock","path":"/private/needle.flac"})]).unwrap();
+        assert_eq!(db.count(Some("песн")).unwrap(), 1);
+        assert_eq!(db.count(Some("ёж")).unwrap(), 1);
+        assert_eq!(db.count(Some("needle" )).unwrap(), 0);
+    }
+
+    #[test]
     fn rescanning_same_path_preserves_track_id_for_playlist_references() {
         let db = database();
         db.upsert_batch(&[json!({"id":"old-id","title":"Old","artist":"A","album":"B","path":"C:\\Music\\song.mp3","isFavorite":true,"playCount":9,"dateAdded":123})]).unwrap();
@@ -495,6 +752,19 @@ mod tests {
         assert!(page.items[0].is_favorite);
         assert_eq!(page.items[0].play_count, 9);
         assert_eq!(page.items[0].date_added, 123);
+    }
+
+    #[test]
+    fn summary_patch_updates_searchable_columns_without_losing_user_state() {
+        let db = database();
+        db.upsert_batch(&[json!({"id":"1","title":"Old","artist":"Artist","album":"Album","genre":"Rock","isFavorite":true,"playCount":3})]).unwrap();
+        db.merge_summary(&["1".into()], &json!({"title":"New Title","genre":"Jazz"})).unwrap();
+        assert_eq!(db.count(Some("old")).unwrap(), 0);
+        assert_eq!(db.count(Some("new title")).unwrap(), 1);
+        let track = db.page(Some("jazz"), "title", false, 0, 10).unwrap().items.remove(0);
+        assert!(track.is_favorite);
+        assert_eq!(track.play_count, 3);
+        assert_eq!(track.genre.as_deref(), Some("Jazz"));
     }
 
     #[test]
@@ -511,10 +781,12 @@ mod tests {
     #[test]
     fn custom_tags_are_preserved_across_metadata_upsert() {
         let db = database();
-        db.upsert_batch(&[json!({"id":"1","title":"Song","artist":"Artist","album":"Album","customTags":{"MOOD":"calm"}})]).unwrap();
+        db.upsert_batch(&[json!({"id":"1","title":"Song","artist":"Artist","album":"Album","lyrics":"saved lyrics","customTags":{"MOOD":"calm"}})]).unwrap();
         db.upsert_batch(&[json!({"id":"1","title":"Updated","artist":"Artist","album":"Album","lyrics":null,"composer":null})]).unwrap();
         assert_eq!(db.page(None, "title", false, 0, 10).unwrap().items[0].title, "Updated");
-        assert_eq!(db.details("1").unwrap().unwrap().custom_tags, Some(json!({"MOOD":"calm"})));
+        let details = db.details("1").unwrap().unwrap();
+        assert_eq!(details.lyrics.as_deref(), Some("saved lyrics"));
+        assert_eq!(details.custom_tags, Some(json!({"MOOD":"calm"})));
     }
 
     #[test]

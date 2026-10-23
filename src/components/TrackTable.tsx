@@ -43,6 +43,10 @@ interface TrackTableProps {
   onReorderTracks?: (reorderedTrackIds: string[]) => void;
   onRelocateTrack?: (track: Track) => void;
   language?: AppLanguage;
+  onLoadMore?: () => void;
+  hasMoreTracks?: boolean;
+  isLoadingMoreTracks?: boolean;
+  resetScrollKey?: string;
 }
 
 interface TrackDragState {
@@ -89,6 +93,10 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   onReorderTracks,
   onRelocateTrack,
   language = 'ru',
+  onLoadMore,
+  hasMoreTracks = false,
+  isLoadingMoreTracks = false,
+  resetScrollKey = '',
 }) => {
   const [hoveredTrackId, setHoveredTrackId] = useState<string | null>(null);
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -131,6 +139,24 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(600);
   const rafIdRef = useRef<number | null>(null);
+  const previousTrackWindowRef = useRef<{ firstId: string | null; length: number }>({ firstId: null, length: 0 });
+  const previousResetScrollKeyRef = useRef(resetScrollKey);
+
+  useEffect(() => {
+    const firstId = tracks[0]?.id ?? null;
+    const previous = previousTrackWindowRef.current;
+    const queryChanged = previousResetScrollKeyRef.current !== resetScrollKey;
+    if (queryChanged || (previous.firstId && firstId && previous.firstId !== firstId)) {
+      if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+      setScrollTop(0);
+    }
+    if (tracks.length === 0 && previous.length > 0) {
+      if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+      setScrollTop(0);
+    }
+    previousTrackWindowRef.current = { firstId, length: tracks.length };
+    previousResetScrollKeyRef.current = resetScrollKey;
+  }, [tracks, resetScrollKey]);
 
   useEffect(() => {
     const el = scrollContainerRef.current;
@@ -155,6 +181,11 @@ export const TrackTable: React.FC<TrackTableProps> = ({
       setScrollTop(currentScrollTop);
       rafIdRef.current = null;
     });
+    const container = e.currentTarget;
+    if (onLoadMore && hasMoreTracks && !isLoadingMoreTracks
+      && container.scrollTop + container.clientHeight >= container.scrollHeight - 900) {
+      onLoadMore();
+    }
   };
 
   useEffect(() => {

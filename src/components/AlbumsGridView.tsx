@@ -13,6 +13,8 @@ interface AlbumsGridViewProps {
   language?: AppLanguage;
   onSelectAlbum: (albumName: string) => void;
   onPlayAlbum: (tracks: Track[]) => void;
+  databaseGroups?: LibraryCollectionGroup[];
+  onPlayAlbumByIds?: (trackIds: string[]) => void;
 }
 
 type AlbumData = LibraryCollectionGroup;
@@ -97,8 +99,12 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
   language = 'ru',
   onSelectAlbum,
   onPlayAlbum,
+  databaseGroups,
+  onPlayAlbumByIds,
 }) => {
-  const { groups: allAlbums, isLoading: isIndexing } = useLibraryCollectionGroups(tracks, 'albums', language);
+  const { groups: indexedAlbums, isLoading: isIndexingLibrary } = useLibraryCollectionGroups(tracks, 'albums', language, !databaseGroups);
+  const allAlbums = databaseGroups ?? indexedAlbums;
+  const isIndexing = !databaseGroups && isIndexingLibrary;
   const hasSearch = Boolean(searchQuery.trim());
   const tracksByIdForSearch = useMemo(
     () => hasSearch ? new Map(tracks.map(track => [track.id, track])) : null,
@@ -107,12 +113,17 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
 
   // Search the compact shared index against library metadata only when a query exists.
   const albums = useMemo(() => {
+    if (databaseGroups) return allAlbums;
     const q = searchQuery.toLowerCase().trim();
     if (!q) return allAlbums;
     return allAlbums.filter(album => matchesLibraryCollectionSearch('albums', album, q, tracksByIdForSearch!));
-  }, [allAlbums, searchQuery, tracksByIdForSearch]);
+  }, [allAlbums, searchQuery, tracksByIdForSearch, databaseGroups]);
 
   const playAlbumByIds = (trackIds: string[]) => {
+    if (onPlayAlbumByIds) {
+      onPlayAlbumByIds(trackIds);
+      return;
+    }
     const tracksById = new Map(tracks.map(track => [track.id, track]));
     onPlayAlbum(trackIds.map(id => tracksById.get(id)).filter((track): track is Track => !!track));
   };

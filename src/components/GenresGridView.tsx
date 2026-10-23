@@ -13,6 +13,8 @@ interface GenresGridViewProps {
   language?: AppLanguage;
   onSelectGenre: (genreName: string) => void;
   onPlayGenre: (tracks: Track[]) => void;
+  databaseGroups?: LibraryCollectionGroup[];
+  onPlayGenreByIds?: (trackIds: string[]) => void;
 }
 
 type GenreData = LibraryCollectionGroup;
@@ -93,8 +95,12 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
   language = 'ru',
   onSelectGenre,
   onPlayGenre,
+  databaseGroups,
+  onPlayGenreByIds,
 }) => {
-  const { groups: allGenres, isLoading: isIndexing } = useLibraryCollectionGroups(tracks, 'genres', language);
+  const { groups: indexedGenres, isLoading: isIndexingLibrary } = useLibraryCollectionGroups(tracks, 'genres', language, !databaseGroups);
+  const allGenres = databaseGroups ?? indexedGenres;
+  const isIndexing = !databaseGroups && isIndexingLibrary;
   const hasSearch = Boolean(searchQuery.trim());
   const tracksByIdForSearch = useMemo(
     () => hasSearch ? new Map(tracks.map(track => [track.id, track])) : null,
@@ -102,12 +108,17 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
   );
 
   const genres = useMemo(() => {
+    if (databaseGroups) return allGenres;
     const q = searchQuery.toLowerCase().trim();
     if (!q) return allGenres;
     return allGenres.filter(genre => matchesLibraryCollectionSearch('genres', genre, q, tracksByIdForSearch!));
-  }, [allGenres, searchQuery, tracksByIdForSearch]);
+  }, [allGenres, searchQuery, tracksByIdForSearch, databaseGroups]);
 
   const playGenreByIds = (trackIds: string[]) => {
+    if (onPlayGenreByIds) {
+      onPlayGenreByIds(trackIds);
+      return;
+    }
     const tracksById = new Map(tracks.map(track => [track.id, track]));
     onPlayGenre(trackIds.map(id => tracksById.get(id)).filter((track): track is Track => !!track));
   };

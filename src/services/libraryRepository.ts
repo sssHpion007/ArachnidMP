@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { Track, TrackDetails, TrackPage, TrackSummary } from '../types/music';
+import type { LibraryCollectionGroup, LibraryCollectionKind } from './libraryCollectionIndex';
 
 export interface LibraryPageQuery {
   search?: string;
@@ -7,6 +8,9 @@ export interface LibraryPageQuery {
   descending: boolean;
   offset: number;
   limit: number;
+  filterKind?: 'album' | 'artist' | 'genre';
+  filterValue?: string;
+  favoriteOnly?: boolean;
 }
 
 const MAX_PAGE_SIZE = 500;
@@ -26,18 +30,19 @@ export const libraryRepository = {
       descending: query.descending,
       offset,
       limit,
+      filterKind: query.filterKind || null,
+      filterValue: query.filterValue ?? null,
+      favoriteOnly: query.favoriteOnly ?? false,
     });
   },
 
-  async allSummaries(pageSize = MAX_PAGE_SIZE): Promise<TrackSummary[]> {
-    const rows: TrackSummary[] = [];
-    const total = await this.count();
-    for (let offset = 0; offset < total; offset += pageSize) {
-      const page = await this.page({ sortBy: 'title', descending: false, offset, limit: pageSize });
-      if (page.items.length === 0) break;
-      rows.push(...page.items);
-    }
-    return rows;
+  async collectionGroups(kind: LibraryCollectionKind, language: string, search?: string, excludedIds: string[] = []): Promise<LibraryCollectionGroup[]> {
+    return invoke<LibraryCollectionGroup[]>('library_db_get_collection_groups', {
+      kind,
+      language,
+      search: search?.trim() || null,
+      excludedIds,
+    });
   },
 
   async details(trackId: string): Promise<TrackDetails | null> {
@@ -54,7 +59,16 @@ export const libraryRepository = {
 
   async byIds(trackIds: string[]): Promise<TrackSummary[]> {
     if (trackIds.length === 0) return [];
-    return invoke<TrackSummary[]>('library_db_get_by_ids', { trackIds });
+    const rows: TrackSummary[] = [];
+    for (let start = 0; start < trackIds.length; start += 500) {
+      rows.push(...await invoke<TrackSummary[]>('library_db_get_by_ids', { trackIds: trackIds.slice(start, start + 500) }));
+    }
+    return rows;
+  },
+
+  async byIdsPage(trackIds: string[], offset: number, limit = 500): Promise<TrackSummary[]> {
+    const selectedIds = trackIds.slice(offset, offset + Math.min(500, limit));
+    return this.byIds(selectedIds);
   },
 
   async upsertBatch(tracks: Track[]): Promise<number> {
@@ -66,14 +80,30 @@ export const libraryRepository = {
     return upserted;
   },
 
+  async mergeSummary(
+    trackIds: string[],
+    patch: Omit<Partial<TrackSummary>, 'genre' | 'coverArt'> & { genre?: string | null; coverArt?: string | null },
+  ): Promise<void> {
+    if (trackIds.length === 0 || Object.keys(patch).length === 0) return;
+    for (let start = 0; start < trackIds.length; start += 500) {
+      await invoke('library_db_merge_summary', {
+        trackIds: trackIds.slice(start, start + 500),
+        patch,
+      });
+    }
+  },
+
   async mergeDetails(trackIds: string[], details: Partial<TrackDetails>): Promise<void> {
-    if (trackIds.length === 0 || Object.keys(details).length === 0) return;
-    await invoke('library_db_merge_details', { trackIds, details });
+    if (Object.keys(details).length === 0) return;
+    for (let start = 0; start < trackIds.length; start += 500) {
+      await invoke('library_db_merge_details', { trackIds: trackIds.slice(start, start + 500), details });
+    }
   },
 
   async setFavorites(trackIds: string[], favorite: boolean): Promise<void> {
-    if (trackIds.length === 0) return;
-    await invoke('library_db_set_favorites', { trackIds, favorite });
+    for (let start = 0; start < trackIds.length; start += 500) {
+      await invoke('library_db_set_favorites', { trackIds: trackIds.slice(start, start + 500), favorite });
+    }
   },
 
   async delete(trackIds: string[]): Promise<void> {

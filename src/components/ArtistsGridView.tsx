@@ -12,6 +12,8 @@ interface ArtistsGridViewProps {
   language?: AppLanguage;
   onSelectArtist: (artistName: string) => void;
   onPlayArtist: (tracks: Track[]) => void;
+  databaseGroups?: LibraryCollectionGroup[];
+  onPlayArtistByIds?: (trackIds: string[]) => void;
 }
 
 type ArtistData = LibraryCollectionGroup;
@@ -86,8 +88,12 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
   language = 'ru',
   onSelectArtist,
   onPlayArtist,
+  databaseGroups,
+  onPlayArtistByIds,
 }) => {
-  const { groups: allArtists, isLoading: isIndexing } = useLibraryCollectionGroups(tracks, 'artists', language);
+  const { groups: indexedArtists, isLoading: isIndexingLibrary } = useLibraryCollectionGroups(tracks, 'artists', language, !databaseGroups);
+  const allArtists = databaseGroups ?? indexedArtists;
+  const isIndexing = !databaseGroups && isIndexingLibrary;
   const hasSearch = Boolean(searchQuery.trim());
   const tracksByIdForSearch = useMemo(
     () => hasSearch ? new Map(tracks.map(track => [track.id, track])) : null,
@@ -97,12 +103,17 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
   // Search only resolves track metadata while a query is active; the shared cache
   // itself contains compact IDs and never duplicates full Track records.
   const artists = useMemo(() => {
+    if (databaseGroups) return allArtists;
     const q = searchQuery.toLowerCase().trim();
     if (!q) return allArtists;
     return allArtists.filter(artist => matchesLibraryCollectionSearch('artists', artist, q, tracksByIdForSearch!));
-  }, [allArtists, searchQuery, tracksByIdForSearch]);
+  }, [allArtists, searchQuery, tracksByIdForSearch, databaseGroups]);
 
   const playArtistByIds = (trackIds: string[]) => {
+    if (onPlayArtistByIds) {
+      onPlayArtistByIds(trackIds);
+      return;
+    }
     const tracksById = new Map(tracks.map(track => [track.id, track]));
     onPlayArtist(trackIds.map(id => tracksById.get(id)).filter((track): track is Track => !!track));
   };

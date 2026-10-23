@@ -468,9 +468,15 @@ fn library_db_get_page(
     descending: bool,
     offset: u64,
     limit: u32,
+    filter_kind: Option<String>,
+    filter_value: Option<String>,
+    favorite_only: bool,
     state: State<'_, library_db::LibraryDb>,
 ) -> Result<library_db::TrackPage, String> {
-    let mut page = state.page(search.as_deref(), &sort_by, descending, offset, limit)?;
+    let mut page = state.page_filtered(
+        search.as_deref(), &sort_by, descending, offset, limit,
+        filter_kind.as_deref(), filter_value.as_deref(), favorite_only,
+    )?;
     let base_dir = storage::get_portable_base_dir();
     for track in &mut page.items {
         if let Some(cover) = track.cover_art.as_deref() {
@@ -480,6 +486,29 @@ fn library_db_get_page(
         }
     }
     Ok(page)
+}
+
+#[tauri::command]
+async fn library_db_get_collection_groups(
+    kind: String,
+    language: String,
+    search: Option<String>,
+    excluded_ids: Vec<String>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<Vec<library_db::LibraryCollectionGroup>, String> {
+    let database = state.inner().clone();
+    let mut groups = tauri::async_runtime::spawn_blocking(move || {
+        database.collection_groups(&kind, &language, search.as_deref(), &excluded_ids)
+    }).await.map_err(|error| format!("Library grouping task failed: {error}"))??;
+    let base_dir = storage::get_portable_base_dir();
+    for group in &mut groups {
+        if let Some(cover) = group.cover_art.as_deref() {
+            if !cover.starts_with("http") && !cover.starts_with("data:") {
+                group.cover_art = storage::to_absolute_cover(cover, &base_dir);
+            }
+        }
+    }
+    Ok(groups)
 }
 
 #[tauri::command]
@@ -550,6 +579,23 @@ fn library_db_merge_details(
     state: State<'_, library_db::LibraryDb>,
 ) -> Result<(), String> {
     state.merge_details(&track_ids, &details)
+}
+
+#[tauri::command]
+fn library_db_merge_summary(
+    track_ids: Vec<String>,
+    mut patch: serde_json::Value,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<usize, String> {
+    let cover = patch.get("coverArt").and_then(serde_json::Value::as_str).map(str::to_string);
+    if let Some(cover) = cover.as_deref() {
+        if cover.is_empty() {
+            patch["coverArt"] = serde_json::Value::Null;
+        } else if let Some(portable) = storage::to_portable_cover(cover, &storage::get_portable_base_dir()) {
+            patch["coverArt"] = serde_json::Value::String(portable);
+        }
+    }
+    state.merge_summary(&track_ids, &patch)
 }
 
 #[tauri::command]
@@ -2668,12 +2714,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             library_db_get_count,
             library_db_get_page,
+            library_db_get_collection_groups,
             library_db_get_details,
             library_db_get_by_ids,
             library_db_get_by_paths,
             library_db_seed_legacy_from_disk,
             library_db_upsert_batch,
             library_db_merge_details,
+            library_db_merge_summary,
             library_db_set_favorites,
             library_db_delete_ids,
             get_app_version,

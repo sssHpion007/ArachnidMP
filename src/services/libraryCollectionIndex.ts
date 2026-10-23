@@ -10,6 +10,7 @@ export type LibraryCollectionKind = 'albums' | 'artists' | 'genres';
 export interface LibraryCollectionGroup {
   name: string;
   trackIds: string[];
+  trackCount?: number;
   coverArt?: string;
   totalDuration: number;
   artist?: string;
