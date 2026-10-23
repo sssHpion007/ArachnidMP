@@ -1863,14 +1863,16 @@ export const App: React.FC = () => {
       }
 
       if (selectedAlbum) {
-        result = result.filter(t => (t.album ? t.album.trim() : 'Без альбома') === selectedAlbum);
+        const noAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
+        result = result.filter(t => (t.album?.trim() || noAlbumLabel) === selectedAlbum);
       } else if (selectedArtist) {
-        result = result.filter(t => (t.artist ? t.artist.trim() : 'Неизвестный исполнитель') === selectedArtist);
+        const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
+        result = result.filter(t => (t.artist?.trim() || unknownArtistLabel) === selectedArtist);
       } else if (selectedGenre) {
+        const noGenreLabel = language === 'ru' ? 'Без жанра' : 'No Genre';
         result = result.filter(t => {
-          if (!t.genre) return selectedGenre === 'Без жанра';
-          const list = t.genre.split(/[,/;\\]+/).map(g => g.trim()).filter(Boolean);
-          return list.length > 0 ? list.includes(selectedGenre) : selectedGenre === 'Без жанра';
+          const list = t.genre?.split(/[,/;\\]+/).map(g => g.trim()).filter(Boolean) || [];
+          return list.length > 0 ? list.includes(selectedGenre) : selectedGenre === noGenreLabel;
         });
       } else if (currentView === 'favorites') {
         const plFav = playlists.find(p => p.id === 'pl_favorites');
@@ -1920,7 +1922,7 @@ export const App: React.FC = () => {
     }
 
     return result;
-  }, [tracks, selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, currentView, searchQuery, sortBy, sortOrder, playlists, isolatedTrackIds]);
+  }, [tracks, selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, currentView, searchQuery, sortBy, sortOrder, playlists, isolatedTrackIds, language]);
 
   useEffect(() => {
     filteredTracksRef.current = filteredTracks;
@@ -1980,9 +1982,9 @@ export const App: React.FC = () => {
     }
     if (selectedAlbum) {
       const unknownAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
-      const albumTracks = nonIsolatedTracks.filter(t => (t.album ? t.album.trim() : unknownAlbumLabel) === selectedAlbum);
+      const albumTracks = nonIsolatedTracks.filter(t => (t.album?.trim() || unknownAlbumLabel) === selectedAlbum);
       const firstCover = albumTracks.find(t => t.coverArt)?.coverArt;
-      const artist = albumTracks[0]?.artist || (language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist');
+      const artist = albumTracks[0]?.artist?.trim() || (language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist');
       const totalDur = albumTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
       const durText = formatDurationText(totalDur);
       return {
@@ -1995,7 +1997,7 @@ export const App: React.FC = () => {
     }
     if (selectedArtist) {
       const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
-      const artistTracks = nonIsolatedTracks.filter(t => (t.artist ? t.artist.trim() : unknownArtistLabel) === selectedArtist);
+      const artistTracks = nonIsolatedTracks.filter(t => (t.artist?.trim() || unknownArtistLabel) === selectedArtist);
       const firstCover = artistTracks.find(t => t.coverArt)?.coverArt;
       const totalDur = artistTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
       const durText = formatDurationText(totalDur);

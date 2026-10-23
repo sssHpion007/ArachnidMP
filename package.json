@@ -1,11 +1,12 @@
 {
   "name": "arachnid",
   "private": true,
-  "version": "0.4.102",
+  "version": "0.4.103",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
+    "test:library-index": "node --experimental-strip-types tests/library-collection-index.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

@@ -31,34 +31,15 @@ import { getFolderColorHex, getFolderIconComponent } from '../theme/folderIcons'
 import { AppLanguage } from '../i18n';
 import { formatTime } from '../services/tagEditor';
 import { MiniLyricsPane, MiniLyricsTrack } from './MiniLyricsPane';
+import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups';
 
 type LyricsMode = 'closed' | 'attached' | 'detached';
 type BottomPanel = 'queue' | 'library' | null;
 type LibraryTab = 'tracks' | 'playlists' | 'albums' | 'artists' | 'favorites' | 'genres';
 type LibraryCollectionType = 'albums' | 'artists' | 'genres';
-interface MiniLibraryCollection { name: string; tracks: Track[]; coverArt?: string; }
 type MiniPlaylistEntry =
   | { type: 'folder'; item: PlaylistFolder; order: number }
   | { type: 'playlist'; item: Playlist; order: number };
-
-const groupTracks = (tracks: Track[], getNames: (track: Track) => string | string[] | undefined) => {
-  const groups = new Map<string, Track[]>();
-  tracks.forEach(track => {
-    const names = getNames(track);
-    (Array.isArray(names) ? names : [names]).forEach(value => {
-      const name = value?.trim();
-      if (!name) return;
-      const group = groups.get(name);
-      if (group) group.push(track);
-      else groups.set(name, [track]);
-    });
-  });
-  return [...groups.entries()].map(([name, groupedTracks]): MiniLibraryCollection => ({
-    name,
-    tracks: groupedTracks,
-    coverArt: groupedTracks.find(track => track.coverArt)?.coverArt,
-  })).sort((a, b) => a.name.localeCompare(b.name));
-};
 
 interface MiniTrackRowProps {
   track: Track;
@@ -642,26 +623,40 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     if (trackList.length > 0) onPlayTrack(trackList[0], trackList);
   };
 
-  const albums = useMemo(() => groupTracks(visibleTracks, track => track.album?.trim() || text(language, 'Без альбома', 'No Album')), [language, visibleTracks]);
-  const artists = useMemo(() => groupTracks(visibleTracks, track => track.artist?.trim() || text(language, 'Неизвестный исполнитель', 'Unknown Artist')), [language, visibleTracks]);
-  const genres = useMemo(() => groupTracks(visibleTracks, track => {
-    const values = track.genre?.split(/[,/;\\]+/).map(genre => genre.trim()).filter(Boolean);
-    return values?.length ? [...new Set(values)] : text(language, 'Без жанра', 'No Genre');
-  }), [language, visibleTracks]);
+  const isCollectionTab = libraryTab === 'albums' || libraryTab === 'artists' || libraryTab === 'genres';
+  const activeCollectionType: LibraryCollectionType = selectedCollection?.type
+    || (libraryTab === 'artists' ? 'artists' : libraryTab === 'genres' ? 'genres' : 'albums');
+  const shouldLoadCollection = bottomPanel === 'library' && isPanelContentRendered && isCollectionTab;
+  const { groups: indexedCollections, isLoading: isCollectionsLoading } = useLibraryCollectionGroups(
+    visibleTracks,
+    activeCollectionType,
+    language,
+    shouldLoadCollection,
+  );
+  const visibleCollections = useMemo(
+    () => [...indexedCollections].sort((a, b) => a.name.localeCompare(b.name)),
+    [indexedCollections],
+  );
   const selectedCollectionGroup = selectedCollection
-    ? (selectedCollection.type === 'albums' ? albums : selectedCollection.type === 'artists' ? artists : genres)
-      .find(group => group.name === selectedCollection.name) || null
+    ? indexedCollections.find(group => group.name === selectedCollection.name) || null
     : null;
+  const selectedCollectionTracks = useMemo(() => {
+    if (!selectedCollectionGroup) return [];
+    const tracksById = new Map(tracks.map(track => [track.id, track]));
+    return selectedCollectionGroup.trackIds
+      .map(id => tracksById.get(id))
+      .filter((track): track is Track => !!track);
+  }, [selectedCollectionGroup, tracks]);
   const libraryTracks = useMemo(() => {
     if (currentPlaylist) {
       const byId = new Map(tracks.map(track => [track.id, track]));
       return currentPlaylist.trackIds.map(id => byId.get(id)).filter((track): track is Track => !!track);
     }
-    if (selectedCollection) return selectedCollectionGroup?.tracks || [];
+    if (selectedCollection) return selectedCollectionTracks;
     if (libraryTab === 'favorites') return visibleTracks.filter(track => track.isFavorite);
     if (libraryTab === 'tracks') return visibleTracks;
     return [];
-  }, [currentPlaylist, libraryTab, selectedCollection, selectedCollectionGroup, tracks, visibleTracks]);
+  }, [currentPlaylist, libraryTab, selectedCollection, selectedCollectionTracks, tracks, visibleTracks]);
   libraryTracksRef.current = libraryTracks;
 
   useEffect(() => {
@@ -698,7 +693,6 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     return () => cancelAnimationFrame(frame);
   }, [bottomPanel, libraryTrackSelectedIndex, libraryTracks.length]);
 
-  const visibleCollections = libraryTab === 'albums' ? albums : libraryTab === 'artists' ? artists : genres;
   const lyricsTrack: MiniLyricsTrack | null = currentTrack ? {
     id: currentTrack.id,
     title: currentTrack.title,
@@ -1242,7 +1236,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                     </div>
                   )}
                   {(['albums', 'artists', 'genres'] as LibraryTab[]).includes(libraryTab) && !selectedCollection && (
-                    visibleCollections.length > 0 ? (
+                    isCollectionsLoading ? (
+                      <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Загружаю медиатеку…', 'Loading library…')}</p>
+                    ) : visibleCollections.length > 0 ? (
                       <div className="grid grid-cols-2 gap-2">
                         {visibleCollections.map(group => (
                           <button
@@ -1255,7 +1251,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
                             <span className="absolute inset-x-2 bottom-2 min-w-0 text-white">
                               <span className="block truncate text-[11px] font-semibold">{group.name}</span>
-                              <span className="block truncate text-[9px] text-white/75">{group.tracks.length} {text(language, 'треков', 'tracks')}</span>
+                              <span className="block truncate text-[9px] text-white/75">{group.trackIds.length} {text(language, 'треков', 'tracks')}</span>
                             </span>
                           </button>
                         ))}
