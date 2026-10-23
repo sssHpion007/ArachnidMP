@@ -1196,8 +1196,14 @@ export const App: React.FC = () => {
           await win.maximize().catch(() => {});
         }
         await win.show();
+        await waitForDelay(120);
         await win.setFocus();
         await getCurrentWebview().setFocus();
+        await invoke('client_log', {
+          level: 'INFO',
+          tag: 'WINDOW_STARTUP',
+          message: 'Main window and WebView focus restored after startup layout was applied.',
+        }).catch(() => {});
       }
     };
 
