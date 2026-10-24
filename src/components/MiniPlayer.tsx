@@ -34,6 +34,8 @@ import { MiniLyricsPane, MiniLyricsTrack } from './MiniLyricsPane';
 import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups';
 import type { LibraryCollectionGroup } from '../services/libraryCollectionIndex';
 import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
+import { FadeInImage } from './FadeInImage';
+import { CrossfadeImage } from './CrossfadeImage';
 import { getFolderTrackIds } from '../services/folderPlayback';
 import { logger } from '../services/logger';
 
@@ -174,7 +176,7 @@ const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
     style={accentColor ? { borderColor: accentColor } : undefined}
   >
     {displayedCover ? (
-      <img src={displayedCover} alt="" loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" />
+      <FadeInImage src={displayedCover} alt="" loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" />
     ) : (
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high text-md3-primary/70">
         {icon}
@@ -226,6 +228,7 @@ interface MiniPlayerProps {
   playlistFolders: PlaylistFolder[];
   playlistGroups: PlaylistGroup[];
   language: AppLanguage;
+  isLibraryDataLoading?: boolean;
   lyricsMode: LyricsMode;
   discordEnabled: boolean;
   showDiscordButton: boolean;
@@ -291,6 +294,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   playlistFolders,
   playlistGroups,
   language,
+  isLibraryDataLoading = false,
   lyricsMode,
   discordEnabled,
   showDiscordButton,
@@ -779,7 +783,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     : localCollectionResult.groups;
   const isCollectionsLoading = shouldLoadCollection
     && indexedCollections.length === 0
-    && (localCollectionResult.isLoading
+    && (isLibraryDataLoading
+      || localCollectionResult.isLoading
       || (useNativeCollectionSource && (!nativeCollectionRequest || nativeCollectionRequest.isLoading)));
   const isCollectionsError = useNativeCollectionSource
     && Boolean(nativeCollectionRequest?.error)
@@ -1029,13 +1034,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
               ? text(language, 'Нажмите, чтобы закрыть панель', 'Click to close the panel')
               : text(language, 'Перетащить окно мини-плеера', 'Drag the mini-player window')}
             title={bottomPanel ? text(language, 'Нажмите, чтобы закрыть панель', 'Click to close the panel') : undefined}
-            className={`mx-auto flex aspect-square w-full max-w-[280px] shrink-0 items-center justify-center overflow-hidden rounded-[24px] bg-md3-surface-container-high shadow-xl ${bottomPanel ? 'cursor-pointer' : ''}`}
+            className={`relative mx-auto flex aspect-square w-full max-w-[280px] shrink-0 items-center justify-center overflow-hidden rounded-[24px] bg-md3-surface-container-high shadow-xl ${bottomPanel ? 'cursor-pointer' : ''}`}
           >
-            {currentTrack?.coverArt ? (
-              <img src={currentTrack.coverArt} alt={currentTrack.title} draggable={false} className="h-full w-full select-none object-cover" />
-            ) : (
-              <Disc3 className="h-24 w-24 text-md3-primary/40" strokeWidth={1.25} />
-            )}
+            <Disc3 className="h-24 w-24 text-md3-primary/40" strokeWidth={1.25} />
+            <CrossfadeImage
+              src={currentTrack?.coverArt}
+              alt={currentTrack?.title || ''}
+              className="absolute inset-0 h-full w-full select-none object-cover"
+            />
           </div>
 
           <div className="flex w-full min-w-0 items-center gap-1">
@@ -1600,8 +1606,13 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                           );
                         })}
                       </div>
-                    ) : selectedCollection && collectionTrackPage?.key === selectedCollectionPageKey && collectionTrackPage.isLoading ? (
+                    ) : selectedCollection && onLoadMiniCollectionTrackPage
+                      && (!collectionTrackPage || collectionTrackPage.key !== selectedCollectionPageKey || collectionTrackPage.isLoading) ? (
                       <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Загружаю треки…', 'Loading tracks…')}</p>
+                    ) : selectedCollection && collectionTrackPage?.key === selectedCollectionPageKey && collectionTrackPage.error ? (
+                      <p role="alert" className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Не удалось загрузить треки коллекции', 'Unable to load collection tracks')}</p>
+                    ) : isLibraryDataLoading && (libraryTab === 'tracks' || libraryTab === 'favorites') ? (
+                      <p role="status" aria-live="polite" className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Загружаю медиатеку…', 'Loading library…')}</p>
                     ) : <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, libraryTab === 'favorites' ? 'В избранном пока нет треков' : 'В этом списке нет треков', libraryTab === 'favorites' ? 'No favorite tracks yet' : 'No tracks in this list')}</p>
                   )}
                 </div>

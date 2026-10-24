@@ -15,6 +15,8 @@ interface AlbumsGridViewProps {
   onSelectAlbum: (albumName: string) => void;
   onPlayAlbum: (tracks: Track[]) => void;
   databaseGroups?: LibraryCollectionGroup[];
+  isLoadingGroups?: boolean;
+  hasGroupLoadError?: boolean;
   onPlayAlbumByIds?: (trackIds: string[]) => void;
 }
 
@@ -101,12 +103,14 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
   onSelectAlbum,
   onPlayAlbum,
   databaseGroups,
+  isLoadingGroups = false,
+  hasGroupLoadError = false,
   onPlayAlbumByIds,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const { groups: indexedAlbums, isLoading: isIndexingLibrary } = useLibraryCollectionGroups(tracks, 'albums', language, !databaseGroups);
   const allAlbums = databaseGroups ?? indexedAlbums;
-  const isIndexing = !databaseGroups && isIndexingLibrary;
+  const isIndexing = isLoadingGroups || (!databaseGroups && isIndexingLibrary);
   const hasSearch = Boolean(searchQuery.trim());
   const tracksByIdForSearch = useMemo(
     () => hasSearch ? new Map(tracks.map(track => [track.id, track])) : null,
@@ -138,6 +142,14 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
         columnsClassName="grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7"
         language={language}
       />
+    );
+  }
+
+  if (hasGroupLoadError && allAlbums.length === 0) {
+    return (
+      <div role="alert" className="flex-1 flex items-center justify-center p-8 text-center text-sm text-md3-on-surface-variant">
+        {language === 'ru' ? 'Не удалось загрузить коллекцию. Попробуйте открыть вкладку ещё раз.' : 'Unable to load this collection. Try opening the tab again.'}
+      </div>
     );
   }
 

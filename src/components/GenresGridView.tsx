@@ -15,6 +15,8 @@ interface GenresGridViewProps {
   onSelectGenre: (genreName: string) => void;
   onPlayGenre: (tracks: Track[]) => void;
   databaseGroups?: LibraryCollectionGroup[];
+  isLoadingGroups?: boolean;
+  hasGroupLoadError?: boolean;
   onPlayGenreByIds?: (trackIds: string[]) => void;
 }
 
@@ -97,12 +99,14 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
   onSelectGenre,
   onPlayGenre,
   databaseGroups,
+  isLoadingGroups = false,
+  hasGroupLoadError = false,
   onPlayGenreByIds,
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const { groups: indexedGenres, isLoading: isIndexingLibrary } = useLibraryCollectionGroups(tracks, 'genres', language, !databaseGroups);
   const allGenres = databaseGroups ?? indexedGenres;
-  const isIndexing = !databaseGroups && isIndexingLibrary;
+  const isIndexing = isLoadingGroups || (!databaseGroups && isIndexingLibrary);
   const hasSearch = Boolean(searchQuery.trim());
   const tracksByIdForSearch = useMemo(
     () => hasSearch ? new Map(tracks.map(track => [track.id, track])) : null,
@@ -133,6 +137,14 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
         columnsClassName="grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
         language={language}
       />
+    );
+  }
+
+  if (hasGroupLoadError && allGenres.length === 0) {
+    return (
+      <div role="alert" className="flex-1 flex items-center justify-center p-8 text-center text-sm text-md3-on-surface-variant">
+        {language === 'ru' ? 'Не удалось загрузить коллекцию. Попробуйте открыть вкладку ещё раз.' : 'Unable to load this collection. Try opening the tab again.'}
+      </div>
     );
   }
 

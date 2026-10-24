@@ -237,6 +237,13 @@ export const App: React.FC = () => {
   const [nativeTrackTotal, setNativeTrackTotal] = useState(0);
   const [nativePageLoading, setNativePageLoading] = useState(false);
   const [databaseCollectionGroups, setDatabaseCollectionGroups] = useState<LibraryCollectionGroup[] | null>(null);
+  const [databaseCollectionGroupsError, setDatabaseCollectionGroupsError] = useState(false);
+  const [databaseCollectionGroupsKey, setDatabaseCollectionGroupsKey] = useState<{
+    kind: LibraryCollectionKind;
+    language: string;
+    searchQuery: string;
+    isolatedTrackIds: Set<string>;
+  } | null>(null);
   const nativePageOffsetRef = useRef(0);
   const nativePageGenerationRef = useRef(0);
   const nativePageLoadingRef = useRef(false);
@@ -2005,16 +2012,26 @@ export const App: React.FC = () => {
     return tracks.filter(t => !isolatedTrackIds.has(t.id));
   }, [tracks, isolatedTrackIds]);
 
+  const currentCollectionKind: LibraryCollectionKind | null = currentView === 'albums'
+    ? 'albums'
+    : currentView === 'artists'
+      ? 'artists'
+      : currentView === 'genres'
+        ? 'genres'
+        : null;
+  const currentCollectionQueryMatches = Boolean(currentCollectionKind && databaseCollectionGroupsKey
+    && databaseCollectionGroupsKey.kind === currentCollectionKind
+    && databaseCollectionGroupsKey.language === language
+    && databaseCollectionGroupsKey.searchQuery === searchQuery
+    && databaseCollectionGroupsKey.isolatedTrackIds === isolatedTrackIds);
+  const currentCollectionQueryFailed = currentCollectionQueryMatches && databaseCollectionGroupsError;
+
   useEffect(() => {
-    const kind: LibraryCollectionKind | null = currentView === 'albums'
-      ? 'albums'
-      : currentView === 'artists'
-        ? 'artists'
-        : currentView === 'genres'
-          ? 'genres'
-          : null;
+    const kind = currentCollectionKind;
     if (!isTauri() || !startupDataLoaded || !kind) {
       setDatabaseCollectionGroups(null);
+      setDatabaseCollectionGroupsError(false);
+      setDatabaseCollectionGroupsKey(null);
       return;
     }
     if (selectedAlbum || selectedArtist || selectedGenre) {
@@ -2023,10 +2040,14 @@ export const App: React.FC = () => {
         trackCount: group.trackCount ?? group.trackIds.length,
         trackIds: [],
       })) ?? null);
+      setDatabaseCollectionGroupsError(false);
+      setDatabaseCollectionGroupsKey(null);
       return;
     }
     let active = true;
     setDatabaseCollectionGroups(null);
+    setDatabaseCollectionGroupsError(false);
+    setDatabaseCollectionGroupsKey(null);
     void libraryRepository.collectionGroups(kind, language, searchQuery, [...isolatedTrackIds]).then(groups => {
       if (!active) return;
       setDatabaseCollectionGroups(groups.map(group => ({
@@ -2035,12 +2056,18 @@ export const App: React.FC = () => {
           ? convertFileSrc(group.coverArt)
           : group.coverArt,
       })));
+      setDatabaseCollectionGroupsError(false);
+      setDatabaseCollectionGroupsKey({ kind, language, searchQuery, isolatedTrackIds });
     }).catch(error => {
       console.warn(`Failed to load ${kind} from SQLite:`, error);
-      if (active) setDatabaseCollectionGroups([]);
+      if (active) {
+        setDatabaseCollectionGroups(null);
+        setDatabaseCollectionGroupsError(true);
+        setDatabaseCollectionGroupsKey({ kind, language, searchQuery, isolatedTrackIds });
+      }
     });
     return () => { active = false; };
-  }, [currentView, startupDataLoaded, selectedAlbum, selectedArtist, selectedGenre, language, searchQuery, isolatedTrackIds]);
+  }, [currentCollectionKind, startupDataLoaded, selectedAlbum, selectedArtist, selectedGenre, language, searchQuery, isolatedTrackIds]);
 
 
   // Filtered and Sorted Tracks
@@ -4745,6 +4772,7 @@ export const App: React.FC = () => {
           playlistFolders={playlistFolders}
           playlistGroups={playlistGroups}
           language={language}
+          isLibraryDataLoading={!startupDataLoaded || (isTauri() && nativePageLoading)}
           lyricsMode={miniLyricsMode}
           discordEnabled={discordEnabled}
           showDiscordButton={showDiscordButton}
@@ -4917,6 +4945,7 @@ export const App: React.FC = () => {
               onLoadMore={() => { void loadNativeTracksPage(false); }}
               hasMoreTracks={isTauri() && nativePageOffsetRef.current < nativeTrackTotal}
               isLoadingMoreTracks={nativePageLoading}
+              isLoading={!startupDataLoaded || (isTauri() && nativePageLoading)}
               resetScrollKey={`${currentView}:${selectedPlaylistId ?? ''}:${selectedAlbum ?? ''}:${selectedArtist ?? ''}:${selectedGenre ?? ''}:${searchQuery}:${sortBy}:${sortOrder}`}
             />
           </div>
@@ -4984,7 +5013,9 @@ export const App: React.FC = () => {
               setSelectedAlbum(alb);
             }}
             onPlayAlbum={handlePlayAlbum}
-            databaseGroups={isTauri() ? databaseCollectionGroups ?? undefined : undefined}
+            databaseGroups={isTauri() && currentCollectionQueryMatches ? databaseCollectionGroups ?? undefined : undefined}
+            isLoadingGroups={!startupDataLoaded || (isTauri() && !currentCollectionQueryMatches && !currentCollectionQueryFailed)}
+            hasGroupLoadError={isTauri() && currentCollectionQueryFailed}
             onPlayAlbumByIds={isTauri() ? handlePlayNativeGroupByIds : undefined}
           />
         ) : currentView === 'artists' ? (
@@ -4997,7 +5028,9 @@ export const App: React.FC = () => {
               setSelectedArtist(art);
             }}
             onPlayArtist={handlePlayArtist}
-            databaseGroups={isTauri() ? databaseCollectionGroups ?? undefined : undefined}
+            databaseGroups={isTauri() && currentCollectionQueryMatches ? databaseCollectionGroups ?? undefined : undefined}
+            isLoadingGroups={!startupDataLoaded || (isTauri() && !currentCollectionQueryMatches && !currentCollectionQueryFailed)}
+            hasGroupLoadError={isTauri() && currentCollectionQueryFailed}
             onPlayArtistByIds={isTauri() ? handlePlayNativeGroupByIds : undefined}
           />
         ) : currentView === 'genres' ? (
@@ -5010,7 +5043,9 @@ export const App: React.FC = () => {
               setSelectedGenre(gen);
             }}
             onPlayGenre={handlePlayGenre}
-            databaseGroups={isTauri() ? databaseCollectionGroups ?? undefined : undefined}
+            databaseGroups={isTauri() && currentCollectionQueryMatches ? databaseCollectionGroups ?? undefined : undefined}
+            isLoadingGroups={!startupDataLoaded || (isTauri() && !currentCollectionQueryMatches && !currentCollectionQueryFailed)}
+            hasGroupLoadError={isTauri() && currentCollectionQueryFailed}
             onPlayGenreByIds={isTauri() ? handlePlayNativeGroupByIds : undefined}
           />
         ) : (
@@ -5043,6 +5078,7 @@ export const App: React.FC = () => {
             onLoadMore={() => { void loadNativeTracksPage(false); }}
             hasMoreTracks={isTauri() && nativePageOffsetRef.current < nativeTrackTotal}
             isLoadingMoreTracks={nativePageLoading}
+            isLoading={!startupDataLoaded || (isTauri() && nativePageLoading)}
             resetScrollKey={`${currentView}:${selectedPlaylistId ?? ''}:${selectedAlbum ?? ''}:${selectedArtist ?? ''}:${selectedGenre ?? ''}:${searchQuery}:${sortBy}:${sortOrder}`}
           />
         )}
