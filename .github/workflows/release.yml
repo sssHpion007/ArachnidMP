@@ -5,6 +5,7 @@ on:
     branches:
       - 'arena/da9dc431-arachnidmp'
       - 'arena/034a5a55-arachnidmp'
+      - 'arena/cd6430e2-arachnidmp'
     tags:
       - 'v*'
   workflow_dispatch:
@@ -82,12 +83,44 @@ jobs:
             }
             Write-Host "arachnid.exe remained running for 15 seconds."
 
+            Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class NativeWindowFocus {
+            [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+            [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+            [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+            [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+            [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extraInfo);
+          }
+          '@
             $shell = New-Object -ComObject WScript.Shell
-            if (-not $shell.AppActivate($process.Id)) { throw "Could not focus the player to test Shift+T." }
+            $process.Refresh()
+            $mainWindow = $process.MainWindowHandle
+            if ($mainWindow -eq [IntPtr]::Zero) { throw "The player has no main window handle for Shift+T test." }
+            [void][NativeWindowFocus]::ShowWindow($mainWindow, 9)
+            if (-not $shell.AppActivate($process.Id)) { throw "Could not activate the player process for Shift+T." }
+            [void][NativeWindowFocus]::SetForegroundWindow($mainWindow)
             Start-Sleep -Milliseconds 500
-            $shell.SendKeys('{ESC}')
+            $foregroundWindow = [NativeWindowFocus]::GetForegroundWindow()
+            if ($foregroundWindow -ne $mainWindow) {
+              throw "Player window did not retain foreground focus (main=$mainWindow, foreground=$foregroundWindow)."
+            }
+            $windowRect = [NativeWindowFocus+RECT]::new()
+            if (-not [NativeWindowFocus]::GetWindowRect($mainWindow, [ref]$windowRect)) { throw "Could not read the player window bounds." }
+            $clickX = [int](($windowRect.Left + $windowRect.Right) / 2)
+            $clickY = [int](($windowRect.Top + $windowRect.Bottom) / 2)
+            [void][NativeWindowFocus]::SetCursorPos($clickX, $clickY)
+            [NativeWindowFocus]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+            [NativeWindowFocus]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
             Start-Sleep -Milliseconds 300
-            $shell.SendKeys('+T')
+            [NativeWindowFocus]::keybd_event(0x10, 0, 0, [UIntPtr]::Zero)
+            [NativeWindowFocus]::keybd_event(0x54, 0, 0, [UIntPtr]::Zero)
+            [NativeWindowFocus]::keybd_event(0x54, 0, 0x0002, [UIntPtr]::Zero)
+            [NativeWindowFocus]::keybd_event(0x10, 0, 0x0002, [UIntPtr]::Zero)
             $deadline = [DateTime]::UtcNow.AddSeconds(10)
             $lyricsWindowFound = $false
             while ([DateTime]::UtcNow -lt $deadline) {
@@ -113,6 +146,23 @@ jobs:
               Stop-Process -Id $process.Id -Force
             }
             Remove-Item $stdoutLog, $stderrLog -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Test SQLite library repository
+        shell: pwsh
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --lib library_db::tests -- --nocapture 2>&1 | Tee-Object -Variable testOutput
+          $testExitCode = $LASTEXITCODE
+          if ($testExitCode -ne 0) {
+            $tail = $testOutput | Select-Object -Last 120
+            "### SQLite library test failure diagnostics" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            '```text' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            $tail | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            $diagnostic = ($tail -join ' ') -replace '%', '%25' -replace "`r", ' ' -replace "`n", ' '
+            if ($diagnostic.Length -gt 9000) { $diagnostic = $diagnostic.Substring($diagnostic.Length - 9000) }
+            Write-Output "::error title=SQLite library tests failed::$diagnostic"
+            throw "SQLite library repository tests failed with exit code $testExitCode."
           }
 
       - name: Test native portable updater transaction and rollback safety
@@ -179,14 +229,14 @@ jobs:
           }
 
       - name: Resolve release tag for the requested branch release
-        if: github.ref == 'refs/heads/arena/034a5a55-arachnidmp' && contains(github.event.head_commit.message, '[publish-release]')
+        if: (github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && contains(github.event.head_commit.message, '[publish-release]')
         shell: bash
         run: |
           version=$(node -p "require('./package.json').version")
           echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
 
       - name: Upload Windows test build
-        if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp' || (github.ref == 'refs/heads/arena/034a5a55-arachnidmp' && !contains(github.event.head_commit.message, '[publish-release]')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag == 'test-build')
+        if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp' || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && !contains(github.event.head_commit.message, '[publish-release]')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag == 'test-build')
         uses: actions/upload-artifact@v4
         with:
           name: Arachnid-Windows-Test-${{ github.run_number }}-${{ github.sha }}
@@ -195,7 +245,7 @@ jobs:
           retention-days: 14
 
       - name: Prepare Portable Artifacts
-        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != 'test-build') || (github.ref == 'refs/heads/arena/034a5a55-arachnidmp' && contains(github.event.head_commit.message, '[publish-release]'))
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != 'test-build') || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && contains(github.event.head_commit.message, '[publish-release]'))
         shell: pwsh
         run: |
           if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') {
@@ -213,7 +263,7 @@ jobs:
 
       - name: Publish GitHub Release
         shell: bash
-        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != 'test-build') || (github.ref == 'refs/heads/arena/034a5a55-arachnidmp' && contains(github.event.head_commit.message, '[publish-release]'))
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != 'test-build') || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && contains(github.event.head_commit.message, '[publish-release]'))
         run: |
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Invalid release tag '$RELEASE_TAG'. Expected vMAJOR.MINOR.PATCH." >&2

@@ -1,12 +1,15 @@
 mod discord;
+mod library_db;
 mod storage;
 mod player;
 mod logger;
+mod memory_diagnostics;
 #[cfg(target_os = "windows")]
 mod portable_updater;
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 use base64::prelude::*;
 use lofty::config::{ParseOptions, ParsingMode, WriteOptions};
@@ -75,15 +78,86 @@ pub struct DiscordPresenceState {
 pub struct AppState {
     pub discord: discord::DiscordService,
     pub player: player::NativePlayer,
+    pub close_to_tray: AtomicBool,
+}
+
+struct TrayMenuState {
+    open_item: tauri::menu::MenuItem<tauri::Wry>,
+    quit_item: tauri::menu::MenuItem<tauri::Wry>,
 }
 
 #[tauri::command]
-fn save_portable_data(data: String) -> Result<bool, String> {
-    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&data) {
-        storage::save_modular_data(&val)
+fn set_close_to_tray(enabled: bool, state: State<'_, AppState>) {
+    state.close_to_tray.store(enabled, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn set_tray_language(language: String, state: State<'_, TrayMenuState>) -> Result<(), String> {
+    let (open_label, quit_label) = if language == "ru" {
+        ("Открыть", "Выход")
     } else {
-        Err("Invalid JSON data format".to_string())
+        ("Open", "Quit")
+    };
+
+    state.open_item.set_text(open_label).map_err(|error| error.to_string())?;
+    state.quit_item.set_text(quit_label).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn saved_tray_language_is_russian() -> bool {
+    let base_dir = storage::get_portable_base_dir();
+    let settings_paths = [
+        base_dir.join("config").join("settings.json"),
+        base_dir.join("arachnid_data.json"),
+    ];
+
+    for path in settings_paths {
+        let Ok(contents) = std::fs::read_to_string(path) else { continue };
+        let Ok(settings) = serde_json::from_str::<serde_json::Value>(&contents) else { continue };
+        if let Some(language) = settings.get("language").and_then(serde_json::Value::as_str) {
+            return language == "ru";
+        }
     }
+    false
+}
+
+#[tauri::command]
+fn log_keyboard_probe(target: String, typing_target: bool, focused_id: String) {
+    logger::log(
+        "INFO",
+        "KEYBOARD_PROBE",
+        &format!("target={} typing_target={} focused_id={}", target, typing_target, focused_id),
+    );
+}
+
+#[tauri::command]
+fn save_portable_data(data: String, state: State<'_, library_db::LibraryDb>) -> Result<bool, String> {
+    let mut value = serde_json::from_str::<serde_json::Value>(&data)
+        .map_err(|_| "Invalid JSON data format".to_string())?;
+    let mut referenced_ids = Vec::new();
+    if let Some(playlists) = value.get("playlists").and_then(serde_json::Value::as_array) {
+        let mut unique_ids = std::collections::HashSet::new();
+        for id in playlists.iter()
+            .filter_map(|playlist| playlist.get("trackIds").and_then(serde_json::Value::as_array))
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+        {
+            if unique_ids.insert(id.to_string()) { referenced_ids.push(id.to_string()); }
+        }
+    }
+    let references = state.summaries_by_ids(&referenced_ids)?;
+    value["playlistTrackReferences"] = serde_json::to_value(references).map_err(|e| e.to_string())?;
+    storage::save_modular_data(&value)
+}
+
+#[tauri::command]
+fn save_portable_settings(data: String) -> Result<bool, String> {
+    let value = serde_json::from_str::<serde_json::Value>(&data)
+        .map_err(|_| "Invalid settings JSON data format".to_string())?;
+    if !value.is_object() {
+        return Err("Settings data must be a JSON object".to_string());
+    }
+    storage::save_modular_data(&value)
 }
 
 #[tauri::command]
@@ -381,6 +455,263 @@ async fn read_audio_files(paths: Vec<String>) -> Result<Vec<TrackMetadata>, Stri
 }
 
 #[tauri::command]
+fn library_db_get_count(
+    search: Option<String>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<u64, String> {
+    state.count(search.as_deref())
+}
+
+#[tauri::command]
+fn library_db_get_page(
+    search: Option<String>,
+    sort_by: String,
+    descending: bool,
+    offset: u64,
+    limit: u32,
+    filter_kind: Option<String>,
+    filter_value: Option<String>,
+    favorite_only: bool,
+    excluded_ids: Vec<String>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<library_db::TrackPage, String> {
+    let mut page = state.page_filtered_excluding(
+        search.as_deref(), &sort_by, descending, offset, limit,
+        filter_kind.as_deref(), filter_value.as_deref(), favorite_only, &excluded_ids,
+    )?;
+    let base_dir = storage::get_portable_base_dir();
+    for track in &mut page.items {
+        if let Some(cover) = track.cover_art.as_deref() {
+            if !cover.starts_with("http") && !cover.starts_with("data:") {
+                track.cover_art = storage::to_absolute_cover(cover, &base_dir);
+            }
+        }
+    }
+    Ok(page)
+}
+
+#[tauri::command]
+async fn library_db_get_collection_groups(
+    kind: String,
+    language: String,
+    search: Option<String>,
+    excluded_ids: Vec<String>,
+    include_track_ids: bool,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<Vec<library_db::LibraryCollectionGroup>, String> {
+    let database = state.inner().clone();
+    let mut groups = tauri::async_runtime::spawn_blocking(move || {
+        database.collection_groups(&kind, &language, search.as_deref(), &excluded_ids, include_track_ids)
+    }).await.map_err(|error| format!("Library grouping task failed: {error}"))??;
+    let base_dir = storage::get_portable_base_dir();
+    for group in &mut groups {
+        if let Some(cover) = group.cover_art.as_deref() {
+            if !cover.starts_with("http") && !cover.starts_with("data:") {
+                group.cover_art = storage::to_absolute_cover(cover, &base_dir);
+            }
+        }
+    }
+    Ok(groups)
+}
+
+#[tauri::command]
+fn library_db_get_details(
+    track_id: String,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<Option<library_db::TrackDetails>, String> {
+    state.details(&track_id)
+}
+
+#[tauri::command]
+fn library_db_get_by_paths(
+    paths: Vec<String>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<Vec<library_db::TrackSummary>, String> {
+    let mut tracks = state.summaries_by_paths(&paths)?;
+    let base_dir = storage::get_portable_base_dir();
+    for track in &mut tracks {
+        if let Some(cover) = track.cover_art.as_deref() {
+            if !cover.starts_with("http") && !cover.starts_with("data:") {
+                track.cover_art = storage::to_absolute_cover(cover, &base_dir);
+            }
+        }
+    }
+    Ok(tracks)
+}
+
+#[tauri::command]
+fn library_db_get_by_ids(
+    track_ids: Vec<String>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<Vec<library_db::TrackSummary>, String> {
+    let mut tracks = state.summaries_by_ids(&track_ids)?;
+    let base_dir = storage::get_portable_base_dir();
+    for track in &mut tracks {
+        if let Some(cover) = track.cover_art.as_deref() {
+            if !cover.starts_with("http") && !cover.starts_with("data:") {
+                track.cover_art = storage::to_absolute_cover(cover, &base_dir);
+            }
+        }
+    }
+    Ok(tracks)
+}
+
+#[tauri::command]
+fn library_db_seed_legacy_from_disk(
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<usize, String> {
+    if state.count(None)? > 0 {
+        return Ok(0);
+    }
+    let references = storage::load_legacy_track_references()?;
+    let seeded = state.seed_legacy_track_map(&references)?;
+    if !references.is_empty() {
+        logger::log(
+            "INFO",
+            "LIBRARY_MIGRATION",
+            &format!(
+                "legacy catalog retained; seeded {seeded} path/ID references from {} records for playlist continuity",
+                references.len(),
+            ),
+        );
+    }
+    Ok(seeded)
+}
+
+#[tauri::command]
+fn library_db_seed_playlist_track_references(
+    references: Vec<library_db::LegacyTrackReference>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<usize, String> {
+    state.seed_legacy_track_map(&references)
+}
+
+#[tauri::command]
+fn library_db_upsert_batch(
+    tracks: Vec<serde_json::Value>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<usize, String> {
+    state.upsert_batch(&tracks)
+}
+
+#[tauri::command]
+fn library_db_merge_details(
+    track_ids: Vec<String>,
+    details: serde_json::Value,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<(), String> {
+    state.merge_details(&track_ids, &details)
+}
+
+#[tauri::command]
+fn library_db_merge_summary(
+    track_ids: Vec<String>,
+    mut patch: serde_json::Value,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<usize, String> {
+    let cover = patch.get("coverArt").and_then(serde_json::Value::as_str).map(str::to_string);
+    if let Some(cover) = cover.as_deref() {
+        if cover.is_empty() {
+            patch["coverArt"] = serde_json::Value::Null;
+        } else if let Some(portable) = storage::to_portable_cover(cover, &storage::get_portable_base_dir()) {
+            patch["coverArt"] = serde_json::Value::String(portable);
+        }
+    }
+    state.merge_summary(&track_ids, &patch)
+}
+
+#[tauri::command]
+fn library_db_set_favorites(
+    track_ids: Vec<String>,
+    favorite: bool,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<(), String> {
+    state.set_favorites(&track_ids, favorite)
+}
+
+#[tauri::command]
+fn library_db_delete_ids(
+    track_ids: Vec<String>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<(), String> {
+    state.delete_ids(&track_ids)
+}
+
+#[tauri::command]
+async fn scan_library_to_database(
+    paths: Vec<String>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<usize, String> {
+    let database = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        const BATCH_SIZE: usize = 128;
+        let mut batch = Vec::with_capacity(BATCH_SIZE);
+        let mut scanned = 0usize;
+        let mut discovered = 0usize;
+        let mut directory_results = Vec::new();
+        let mut individual_file_paths = 0usize;
+        let mut individual_file_tracks = 0usize;
+        let mut missing_paths = 0usize;
+        let total_paths = paths.len();
+
+        let mut flush = |batch: &mut Vec<serde_json::Value>| -> Result<(), String> {
+            if batch.is_empty() { return Ok(()); }
+            database.upsert_batch(batch)?;
+            scanned = scanned.saturating_add(batch.len());
+            batch.clear();
+            Ok(())
+        };
+
+        for path_string in paths {
+            let path = Path::new(&path_string);
+            let before = discovered;
+            if path.is_dir() {
+                let path_label = path.to_string_lossy().replace([',', '[', ']'], "_");
+                let mut walk_errors = 0usize;
+                for entry in walkdir::WalkDir::new(path) {
+                    let entry = match entry {
+                        Ok(entry) => entry,
+                        Err(_) => { walk_errors += 1; continue; }
+                    };
+                    if !entry.path().is_file() { continue; }
+                    if let Some(track) = parse_single_file(&entry.path().to_string_lossy()) {
+                        batch.push(serde_json::to_value(track).map_err(|error| error.to_string())?);
+                        discovered = discovered.saturating_add(1);
+                        if batch.len() >= BATCH_SIZE { flush(&mut batch)?; }
+                    }
+                }
+                if directory_results.len() < 8 {
+                    directory_results.push(format!("path={path_label}:tracks={}:walk_errors={walk_errors}", discovered - before));
+                }
+            } else if path.is_file() {
+                individual_file_paths = individual_file_paths.saturating_add(1);
+                if let Some(track) = parse_single_file(&path_string) {
+                    batch.push(serde_json::to_value(track).map_err(|error| error.to_string())?);
+                    discovered = discovered.saturating_add(1);
+                    individual_file_tracks = individual_file_tracks.saturating_add(1);
+                    if batch.len() >= BATCH_SIZE { flush(&mut batch)?; }
+                }
+            } else {
+                missing_paths = missing_paths.saturating_add(1);
+            }
+        }
+        flush(&mut batch)?;
+        logger::log(
+            "INFO",
+            "LIBRARY_SCAN",
+            &format!(
+                "paths={} audio_tracks={} persisted={} directories=[{}] individual_file_paths={} individual_file_tracks={} missing_paths={}",
+                total_paths, discovered, scanned, directory_results.join(","),
+                individual_file_paths, individual_file_tracks, missing_paths,
+            ),
+        );
+        Ok(scanned)
+    })
+    .await
+    .map_err(|error| format!("Library scan task failed: {error}"))?
+}
+
+#[tauri::command]
 fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
@@ -405,20 +736,14 @@ fn update_discord_presence(presence: DiscordPresenceState, state: State<'_, AppS
 }
 
 #[tauri::command]
-async fn open_file_dialog() -> Result<Vec<TrackMetadata>, String> {
+fn open_file_dialog() -> Result<Vec<String>, String> {
     let files = rfd::FileDialog::new()
         .add_filter("Audio Files (*.mp3;*.flac;*.wav;*.ogg;*.m4a;*.opus;*.aac;*.wma)", &["mp3", "flac", "wav", "ogg", "m4a", "opus", "aac", "wma"])
         .pick_files();
 
-    if let Some(paths) = files {
-        let string_paths: Vec<String> = paths
-            .into_iter()
-            .map(|p| p.to_string_lossy().to_string())
-            .collect();
-        read_audio_files(string_paths).await
-    } else {
-        Ok(vec![])
-    }
+    Ok(files.unwrap_or_default().into_iter()
+        .map(|path| path.to_string_lossy().to_string())
+        .collect())
 }
 
 #[tauri::command]
@@ -1535,8 +1860,96 @@ fn get_system_accent_color() -> Result<String, String> {
     Ok("#0078d4".to_string())
 }
 
+#[cfg(target_os = "windows")]
+fn set_window_webview_memory_target(app: &tauri::AppHandle, window_label: &str, low_memory: bool) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+        ICoreWebView2_19,
+    };
+
+    let Some(window) = app.get_webview_window(window_label) else {
+        return;
+    };
+    let log_label = window.label().to_string();
+    let callback_label = log_label.clone();
+    let target_level = if low_memory {
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+    } else {
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL
+    };
+
+    if let Err(error) = window.with_webview(move |webview| {
+        use windows_core::Interface;
+
+        let result = unsafe {
+            webview
+                .controller()
+                .CoreWebView2()
+                .and_then(|core| core.cast::<ICoreWebView2_19>())
+                .and_then(|core| core.SetMemoryUsageTargetLevel(target_level))
+        };
+
+        match result {
+            Ok(()) => logger::log(
+                "INFO",
+                "WEBVIEW_MEMORY",
+                &format!(
+                    "window={} target={}",
+                    callback_label,
+                    if low_memory { "low" } else { "normal" }
+                ),
+            ),
+            Err(error) => logger::log(
+                "WARN",
+                "WEBVIEW_MEMORY",
+                &format!(
+                    "window={} target={} failed: {}",
+                    callback_label,
+                    if low_memory { "low" } else { "normal" },
+                    error
+                ),
+            ),
+        }
+    }) {
+        logger::log(
+            "WARN",
+            "WEBVIEW_MEMORY",
+            &format!("window={} unable to schedule memory target: {}", log_label, error),
+        );
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_window_webview_memory_target(_app: &tauri::AppHandle, _window_label: &str, _low_memory: bool) {}
+
+#[tauri::command]
+fn set_webview_memory_target(app_handle: tauri::AppHandle, low_memory: bool) {
+    set_window_webview_memory_target(&app_handle, "main", low_memory);
+}
+
+#[tauri::command]
+fn sample_memory_diagnostics(reason: String) {
+    let safe_reason = reason.chars()
+        .filter(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+        .take(48)
+        .collect::<String>();
+    let safe_reason = if safe_reason.is_empty() { "manual".to_string() } else { safe_reason };
+    memory_diagnostics::sample_now(&safe_reason);
+}
+
+fn show_main_window(app: &tauri::AppHandle) {
+    set_window_webview_memory_target(app, "main", false);
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 #[tauri::command]
 fn show_window(window: tauri::Window) -> Result<(), String> {
+    set_window_webview_memory_target(&window.app_handle(), window.label(), false);
     window.show().map_err(|e| e.to_string())?;
     let _ = window.set_focus();
     Ok(())
@@ -1546,6 +1959,7 @@ fn show_window(window: tauri::Window) -> Result<(), String> {
 // main WebView when sharing its WebView2 data directory on Windows.
 #[tauri::command]
 async fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    logger::log("INFO", "LYRICS_WINDOW", "Window open command received");
     const LYRICS_WINDOW_WIDTH: f64 = 440.0;
     const LYRICS_WINDOW_HEIGHT: f64 = 700.0;
     const WINDOW_GAP: i64 = 12;
@@ -1608,6 +2022,7 @@ async fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> 
         }
     }
 
+    set_window_webview_memory_target(&app_handle, "lyrics", false);
     let _ = lyrics_window.unminimize();
     lyrics_window
         .show()
@@ -1615,6 +2030,7 @@ async fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> 
     lyrics_window
         .set_focus()
         .map_err(|e| format!("Unable to focus lyrics window: {}", e))?;
+    logger::log("INFO", "LYRICS_WINDOW", "Lyrics window shown and focused");
     Ok(())
 }
 
@@ -1641,6 +2057,7 @@ async fn show_track_details_window(app_handle: tauri::AppHandle) -> Result<(), S
         .map_err(|e| format!("Unable to create track details window: {}", e))?,
     };
 
+    set_window_webview_memory_target(&app_handle, "track-details", false);
     let _ = details_window.unminimize();
     details_window
         .show()
@@ -1655,6 +2072,7 @@ async fn show_track_details_window(app_handle: tauri::AppHandle) -> Result<(), S
 fn hide_track_details_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("track-details") {
         window.hide().map_err(|e| format!("Unable to hide track details window: {}", e))?;
+        set_window_webview_memory_target(&app_handle, "track-details", true);
     }
     Ok(())
 }
@@ -1680,6 +2098,7 @@ async fn show_equalizer_window(app_handle: tauri::AppHandle) -> Result<(), Strin
         .map_err(|e| format!("Unable to create equalizer window: {}", e))?,
     };
 
+    set_window_webview_memory_target(&app_handle, "equalizer", false);
     let _ = equalizer_window.unminimize();
     equalizer_window
         .show()
@@ -1694,6 +2113,7 @@ async fn show_equalizer_window(app_handle: tauri::AppHandle) -> Result<(), Strin
 fn hide_equalizer_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("equalizer") {
         window.hide().map_err(|e| format!("Unable to hide equalizer window: {}", e))?;
+        set_window_webview_memory_target(&app_handle, "equalizer", true);
     }
     Ok(())
 }
@@ -1702,6 +2122,7 @@ fn hide_equalizer_window(app_handle: tauri::AppHandle) -> Result<(), String> {
 fn hide_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app_handle.get_webview_window("lyrics") {
         window.hide().map_err(|e| format!("Unable to hide lyrics window: {}", e))?;
+        set_window_webview_memory_target(&app_handle, "lyrics", true);
     }
     Ok(())
 }
@@ -1710,12 +2131,6 @@ fn hide_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> {
 fn minimize_window(window: tauri::Window) -> Result<(), String> {
     window.minimize().map_err(|e| e.to_string())?;
     Ok(())
-}
-
-#[tauri::command]
-fn trim_memory() {
-    #[cfg(target_os = "windows")]
-    windows_process_grouping::trim_working_set();
 }
 
 #[tauri::command]
@@ -1736,9 +2151,17 @@ fn toggle_maximize_window(window: tauri::Window) -> Result<bool, String> {
 }
 
 #[tauri::command]
-fn close_window(app_handle: tauri::AppHandle) -> Result<(), String> {
-    let _ = app_handle;
-    clean_exit();
+fn close_window(
+    window: tauri::Window,
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if state.close_to_tray.load(Ordering::Relaxed) {
+        set_window_webview_memory_target(&app_handle, window.label(), true);
+        window.hide().map_err(|error| error.to_string())
+    } else {
+        clean_exit();
+    }
 }
 
 fn clean_exit() -> ! {
@@ -1965,7 +2388,6 @@ mod windows_process_grouping {
             cbJobObjectInformationLength: u32,
         ) -> i32;
         fn GetCurrentProcess() -> *mut std::ffi::c_void;
-        fn SetProcessWorkingSetSize(hProcess: *mut std::ffi::c_void, dwMinimumWorkingSetSize: usize, dwMaximumWorkingSetSize: usize) -> i32;
         fn CreateToolhelp32Snapshot(dwFlags: u32, th32ProcessID: u32) -> *mut std::ffi::c_void;
         fn Process32FirstW(hSnapshot: *mut std::ffi::c_void, lppe: *mut PROCESSENTRY32W) -> i32;
         fn Process32NextW(hSnapshot: *mut std::ffi::c_void, lppe: *mut PROCESSENTRY32W) -> i32;
@@ -1988,8 +2410,6 @@ mod windows_process_grouping {
     }
 
     const TH32CS_SNAPPROCESS: u32 = 0x00000002;
-    const PROCESS_SET_QUOTA: u32 = 0x0100;
-    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
 
     pub fn set_job_kill_on_close(enabled: bool) -> Result<(), String> {
         unsafe {
@@ -2013,57 +2433,6 @@ mod windows_process_grouping {
                 Err(std::io::Error::last_os_error().to_string())
             } else {
                 Ok(())
-            }
-        }
-    }
-
-    pub fn trim_working_set() {
-        unsafe {
-            // 1. Trim our own main process
-            let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
-
-            // 2. Enumerate and trim all descendant WebView2 processes (browser, GPU, renderer)
-            let my_pid = std::process::id();
-            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-            if !snapshot.is_null() && snapshot as isize != -1 {
-                let mut pids_to_trim = std::collections::HashSet::new();
-                pids_to_trim.insert(my_pid);
-
-                let mut entries = Vec::new();
-                let mut pe: PROCESSENTRY32W = std::mem::zeroed();
-                pe.dw_size = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-
-                if Process32FirstW(snapshot, &mut pe) != 0 {
-                    loop {
-                        entries.push((pe.th32_process_id, pe.th32_parent_process_id));
-                        if Process32NextW(snapshot, &mut pe) == 0 {
-                            break;
-                        }
-                    }
-                }
-                let _ = CloseHandle(snapshot);
-
-                // Multi-pass to collect child and grandchild processes
-                let mut changed = true;
-                while changed {
-                    changed = false;
-                    for &(pid, ppid) in &entries {
-                        if pids_to_trim.contains(&ppid) && !pids_to_trim.contains(&pid) {
-                            pids_to_trim.insert(pid);
-                            changed = true;
-                        }
-                    }
-                }
-
-                for pid in pids_to_trim {
-                    if pid != my_pid {
-                        let h_proc = OpenProcess(PROCESS_SET_QUOTA | PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-                        if !h_proc.is_null() {
-                            let _ = SetProcessWorkingSetSize(h_proc, usize::MAX, usize::MAX);
-                            let _ = CloseHandle(h_proc);
-                        }
-                    }
-                }
             }
         }
     }
@@ -2323,17 +2692,77 @@ pub fn run() {
                 tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "lyrics" => {
                     api.prevent_close();
                     let _ = window.hide();
+                    set_window_webview_memory_target(&window.app_handle(), window.label(), true);
                 }
-                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed if window.label() == "main" => {
+                tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
+                    let state = window.app_handle().state::<AppState>();
+                    if state.close_to_tray.load(Ordering::Relaxed) {
+                        api.prevent_close();
+                        set_window_webview_memory_target(&window.app_handle(), window.label(), true);
+                        let _ = window.hide();
+                    } else {
+                        clean_exit();
+                    }
+                }
+                tauri::WindowEvent::Destroyed if window.label() == "main" => {
                     clean_exit();
                 }
                 _ => {}
             }
         })
         .setup(|app| {
+            use tauri::{
+                menu::{Menu, MenuItem},
+                tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+            };
+
+            let library_path = storage::get_portable_base_dir()
+                .join("config")
+                .join("library.sqlite3");
+            let library_db = library_db::LibraryDb::open(&library_path)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            app.manage(library_db);
+
+            let is_russian = saved_tray_language_is_russian();
+            let open_label = if is_russian { "Открыть" } else { "Open" };
+            let quit_label = if is_russian { "Выход" } else { "Quit" };
+            let open_item = MenuItem::with_id(app, "open", open_label, true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", quit_label, true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&open_item, &quit_item])?;
+            app.manage(TrayMenuState { open_item, quit_item });
+            let tray_icon = app
+                .default_window_icon()
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Default window icon is missing"))?
+                .clone();
+
+            TrayIconBuilder::new()
+                .icon(tray_icon)
+                .tooltip("Arachnid Music Player")
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "open" => show_main_window(app),
+                    "quit" => clean_exit(),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if matches!(
+                        event,
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        }
+                    ) {
+                        show_main_window(&tray.app_handle());
+                    }
+                })
+                .build(app)?;
+
             logger::initialize_session_clock();
             logger::set_app_handle(app.handle().clone());
             logger::log("INFO", "SYSTEM", &format!("Arachnid Music Player v{} started", get_app_version()));
+            memory_diagnostics::start();
             #[cfg(target_os = "windows")]
             std::thread::spawn(|| {
                 std::thread::sleep(std::time::Duration::from_secs(25));
@@ -2344,11 +2773,31 @@ pub fn run() {
         .manage(AppState {
             discord: discord::DiscordService::new(),
             player: player::NativePlayer::new(),
+            close_to_tray: AtomicBool::new(false),
         })
         .invoke_handler(tauri::generate_handler![
+            library_db_get_count,
+            library_db_get_page,
+            library_db_get_collection_groups,
+            library_db_get_details,
+            library_db_get_by_ids,
+            library_db_get_by_paths,
+            library_db_seed_legacy_from_disk,
+            library_db_seed_playlist_track_references,
+            library_db_upsert_batch,
+            library_db_merge_details,
+            library_db_merge_summary,
+            library_db_set_favorites,
+            library_db_delete_ids,
             get_app_version,
+            set_close_to_tray,
+            set_tray_language,
+            set_webview_memory_target,
+            sample_memory_diagnostics,
+            log_keyboard_probe,
             update_discord_presence,
             read_audio_files,
+            scan_library_to_database,
             read_audio_binary,
             open_file_dialog,
             show_in_folder,
@@ -2358,6 +2807,7 @@ pub fn run() {
             batch_save_track_file_tags,
             batch_update_tags,
             save_portable_data,
+            save_portable_settings,
             load_portable_data,
             get_system_accent_color,
             minimize_window,
@@ -2382,7 +2832,6 @@ pub fn run() {
             check_file_exists,
             batch_check_files_exist,
             pick_single_audio_file,
-            trim_memory,
             native_play,
             native_pause,
             native_resume,
@@ -2396,7 +2845,6 @@ pub fn run() {
             native_get_state,
             logger::get_recent_logs,
             logger::client_log,
-            logger::save_logs_snapshot,
             logger::open_logs_folder,
             export_playlist_to_m3u8,
             import_playlist_from_m3u8,
@@ -2767,6 +3215,7 @@ fn native_play(
     repeat_one: Option<bool>,
     fade_out_previous: Option<bool>,
 ) -> Result<(), String> {
+    memory_diagnostics::sample_now("native-play-request");
     state.player.set_app_handle(app);
     state.player.play(
         path,
@@ -2780,11 +3229,13 @@ fn native_play(
 
 #[tauri::command]
 fn native_pause(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    memory_diagnostics::sample_now("native-pause-request");
     state.player.pause()
 }
 
 #[tauri::command]
 fn native_resume(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    memory_diagnostics::sample_now("native-resume-request");
     state.player.resume()
 }
 
@@ -2793,6 +3244,7 @@ fn native_stop(
     state: tauri::State<'_, AppState>,
     fade_out: Option<bool>,
 ) -> Result<(), String> {
+    memory_diagnostics::sample_now("native-stop-request");
     state.player.stop(fade_out.unwrap_or(false))
 }
 

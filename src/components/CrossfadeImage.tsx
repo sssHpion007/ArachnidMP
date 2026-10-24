@@ -1,0 +1,89 @@
+import React, { useEffect, useRef, useState } from 'react';
+
+interface ImageLayer {
+  src: string;
+  opacity: 0 | 1;
+}
+
+interface CrossfadeImageProps {
+  src: string | null | undefined;
+  alt?: string;
+  className?: string;
+  fadeDurationMs?: number;
+}
+
+/** Keeps the previous cover visible until the next track's cover has loaded. */
+export const CrossfadeImage: React.FC<CrossfadeImageProps> = ({
+  src,
+  alt = '',
+  className = '',
+  fadeDurationMs = 450,
+}) => {
+  const [layers, setLayers] = useState<ImageLayer[]>(() => src ? [{ src, opacity: 0 }] : []);
+  const latestSourceRef = useRef(src);
+  const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  latestSourceRef.current = src;
+
+  useEffect(() => {
+    if (cleanupTimerRef.current) clearTimeout(cleanupTimerRef.current);
+    cleanupTimerRef.current = null;
+
+    setLayers(current => {
+      const visibleLayer = current.reduce<ImageLayer | null>(
+        (best, layer) => !best || layer.opacity > best.opacity ? layer : best,
+        null,
+      );
+      if (visibleLayer?.src === src) return current;
+      const next: ImageLayer[] = visibleLayer
+        ? [{ src: visibleLayer.src, opacity: src ? 1 : 0 }]
+        : [];
+      if (src) next.push({ src, opacity: 0 });
+      return next;
+    });
+
+    if (!src) {
+      cleanupTimerRef.current = setTimeout(() => setLayers([]), fadeDurationMs);
+    }
+    return () => {
+      if (cleanupTimerRef.current) clearTimeout(cleanupTimerRef.current);
+      cleanupTimerRef.current = null;
+    };
+  }, [src, fadeDurationMs]);
+
+  useEffect(() => () => {
+    if (cleanupTimerRef.current) clearTimeout(cleanupTimerRef.current);
+  }, []);
+
+  const handleLoad = (loadedSource: string) => {
+    if (latestSourceRef.current !== loadedSource) return;
+    setLayers(current => current.map(layer => ({
+      ...layer,
+      opacity: layer.src === loadedSource ? 1 : 0,
+    })));
+    if (cleanupTimerRef.current) clearTimeout(cleanupTimerRef.current);
+    cleanupTimerRef.current = setTimeout(() => {
+      setLayers(current => current.filter(layer => layer.src === loadedSource));
+      cleanupTimerRef.current = null;
+    }, fadeDurationMs);
+  };
+
+  return (
+    <>
+      {layers.map(layer => (
+        <img
+          key={layer.src}
+          src={layer.src}
+          alt={alt}
+          draggable={false}
+          decoding="async"
+          className={className}
+          onLoad={() => handleLoad(layer.src)}
+          onError={() => {
+            if (latestSourceRef.current === layer.src) setLayers([]);
+          }}
+          style={{ opacity: layer.opacity, transition: `opacity ${fadeDurationMs}ms ease` }}
+        />
+      ))}
+    </>
+  );
+};

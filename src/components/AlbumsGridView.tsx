@@ -1,9 +1,11 @@
-import React, { useMemo, useState, useEffect, memo } from 'react';
+import React, { useMemo, useRef, memo } from 'react';
 import { Disc3, Play, Clock, Music2 } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage } from '../i18n';
-import { CollectionGridLoading } from './CollectionGridLoading';
+import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
+import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups';
+import { matchesLibraryCollectionSearch, type LibraryCollectionGroup } from '../services/libraryCollectionIndex';
 
 interface AlbumsGridViewProps {
   tracks: Track[];
@@ -11,22 +13,13 @@ interface AlbumsGridViewProps {
   language?: AppLanguage;
   onSelectAlbum: (albumName: string) => void;
   onPlayAlbum: (tracks: Track[]) => void;
+  databaseGroups?: LibraryCollectionGroup[];
+  isLoadingGroups?: boolean;
+  hasGroupLoadError?: boolean;
+  onPlayAlbumByIds?: (trackIds: string[]) => void;
 }
 
-interface AlbumData {
-  name: string;
-  artist: string;
-  year?: number;
-  coverArt?: string;
-  tracks: Track[];
-  totalDuration: number;
-  searchStr: string;
-}
-
-// Module-level memoization cache to prevent expensive re-grouping when switching tabs
-let cachedTracksRef: Track[] | null = null;
-let cachedLangRef: string | null = null;
-let cachedAlbums: AlbumData[] = [];
+type AlbumData = LibraryCollectionGroup;
 
 // Memoized AlbumCard item component for zero-cost re-renders
 const AlbumCard = memo<{
@@ -34,7 +27,7 @@ const AlbumCard = memo<{
   index: number;
   language: AppLanguage;
   onSelectAlbum: (name: string) => void;
-  onPlayAlbum: (tracks: Track[]) => void;
+  onPlayAlbum: (trackIds: string[]) => void;
 }>(({ album, index, language, onSelectAlbum, onPlayAlbum }) => {
   return (
     <div
@@ -62,7 +55,7 @@ const AlbumCard = memo<{
         <button
           onClick={(e) => {
             e.stopPropagation();
-            onPlayAlbum(album.tracks);
+            onPlayAlbum(album.trackIds);
           }}
           title={language === 'ru' ? 'Воспроизвести альбом' : 'Play album'}
           className="absolute bottom-2.5 right-2.5 w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary shadow-lg flex items-center justify-center opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 hover:scale-110 active:scale-95 cursor-pointer"
@@ -82,7 +75,7 @@ const AlbumCard = memo<{
         <div className="flex items-center gap-2 mt-2 text-[11px] text-md3-on-surface-variant/70">
           <span className="flex items-center gap-1">
             <Music2 className="w-3 h-3" />
-            {album.tracks.length}
+            {album.trackIds.length}
           </span>
           <span>•</span>
           <span className="flex items-center gap-1">
@@ -108,123 +101,47 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
   language = 'ru',
   onSelectAlbum,
   onPlayAlbum,
+  databaseGroups,
+  isLoadingGroups = false,
+  hasGroupLoadError = false,
+  onPlayAlbumByIds,
 }) => {
-  const [albumCollection, setAlbumCollection] = useState(() => ({
-    tracks,
-    language,
-    items: cachedTracksRef === tracks && cachedLangRef === language ? cachedAlbums : [],
-    isLoading: cachedTracksRef !== tracks || cachedLangRef !== language,
-  }));
-  const isCurrentCollection = albumCollection.tracks === tracks && albumCollection.language === language;
-  const allAlbums = isCurrentCollection ? albumCollection.items : [];
-  const isIndexing = !isCurrentCollection || albumCollection.isLoading;
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const { groups: indexedAlbums, isLoading: isIndexingLibrary } = useLibraryCollectionGroups(tracks, 'albums', language, !databaseGroups);
+  const allAlbums = databaseGroups ?? indexedAlbums;
+  const isIndexing = isLoadingGroups || (!databaseGroups && isIndexingLibrary);
+  const hasSearch = Boolean(searchQuery.trim());
+  const tracksByIdForSearch = useMemo(
+    () => hasSearch ? new Map(tracks.map(track => [track.id, track])) : null,
+    [tracks, hasSearch],
+  );
 
-  // Build the index in short tasks so opening the tab can paint immediately.
-  useEffect(() => {
-    if (cachedTracksRef === tracks && cachedLangRef === language) {
-      setAlbumCollection({ tracks, language, items: cachedAlbums, isLoading: false });
-      return;
-    }
-
-    if (tracks.length === 0) {
-      cachedTracksRef = tracks;
-      cachedLangRef = language;
-      cachedAlbums = [];
-      setAlbumCollection({ tracks, language, items: [], isLoading: false });
-      return;
-    }
-
-    let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout>;
-    let trackIndex = 0;
-    const map = new Map<string, AlbumData>();
-    const noAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
-    const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
-
-    const processChunk = () => {
-      if (cancelled) return;
-      const chunkStartedAt = performance.now();
-      const chunkStartIndex = trackIndex;
-
-      while (trackIndex < tracks.length && (trackIndex === chunkStartIndex || performance.now() - chunkStartedAt < 6)) {
-        const t = tracks[trackIndex++];
-        const albumKey = t.album ? t.album.trim() : noAlbumLabel;
-        const dur = t.duration && !isNaN(t.duration) ? t.duration : 0;
-        let existing = map.get(albumKey);
-
-        if (!existing) {
-          existing = {
-            name: albumKey,
-            artist: t.artist ? t.artist.trim() : unknownArtistLabel,
-            year: t.year,
-            coverArt: t.coverArt,
-            tracks: [t],
-            totalDuration: dur,
-            searchStr: `${albumKey} ${t.artist || ''} ${t.year || ''} ${t.title || ''}`.toLowerCase(),
-          };
-          map.set(albumKey, existing);
-        } else {
-          existing.tracks.push(t);
-          existing.totalDuration += dur;
-          if (!existing.coverArt && t.coverArt) existing.coverArt = t.coverArt;
-          if (!existing.year && t.year) existing.year = t.year;
-          existing.searchStr += ` ${t.title?.toLowerCase() || ''}`;
-        }
-      }
-
-      if (trackIndex < tracks.length) {
-        timeoutId = setTimeout(processChunk, 0);
-        return;
-      }
-
-      const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-      const result = Array.from(map.values()).sort((a, b) => collator.compare(a.name, b.name));
-
-      cachedTracksRef = tracks;
-      cachedLangRef = language;
-      cachedAlbums = result;
-      setAlbumCollection({ tracks, language, items: result, isLoading: false });
-    };
-
-    setAlbumCollection({ tracks, language, items: [], isLoading: true });
-    timeoutId = setTimeout(processChunk, 0);
-    return () => {
-      cancelled = true;
-      clearTimeout(timeoutId);
-    };
-  }, [tracks, language]);
-
-  // High-performance search filtering
+  // Search the compact shared index against library metadata only when a query exists.
   const albums = useMemo(() => {
+    if (databaseGroups) return allAlbums;
     const q = searchQuery.toLowerCase().trim();
     if (!q) return allAlbums;
-    return allAlbums.filter((a) => a.searchStr.includes(q));
-  }, [allAlbums, searchQuery]);
+    return allAlbums.filter(album => matchesLibraryCollectionSearch('albums', album, q, tracksByIdForSearch!));
+  }, [allAlbums, searchQuery, tracksByIdForSearch, databaseGroups]);
 
-  // Progressive card rendering for instant initial paint & zero dropped frames
-  const [renderedCount, setRenderedCount] = useState(24);
-
-  useEffect(() => {
-    setRenderedCount(24);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    if (renderedCount < albums.length) {
-      const handle = requestAnimationFrame(() => {
-        setRenderedCount((prev) => Math.min(prev + 24, albums.length));
-      });
-      return () => cancelAnimationFrame(handle);
+  const playAlbumByIds = (trackIds: string[]) => {
+    if (onPlayAlbumByIds) {
+      onPlayAlbumByIds(trackIds);
+      return;
     }
-  }, [renderedCount, albums.length]);
+    const tracksById = new Map(tracks.map(track => [track.id, track]));
+    onPlayAlbum(trackIds.map(id => tracksById.get(id)).filter((track): track is Track => !!track));
+  };
 
   if (isIndexing) {
+    return <div aria-busy="true" className="flex-1 min-h-0" />;
+  }
+
+  if (hasGroupLoadError && allAlbums.length === 0) {
     return (
-      <CollectionGridLoading
-        title={language === 'ru' ? 'Альбомы' : 'Albums'}
-        kind="albums"
-        columnsClassName="grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7"
-        language={language}
-      />
+      <div role="alert" className="flex-1 flex items-center justify-center p-8 text-center text-sm text-md3-on-surface-variant">
+        {language === 'ru' ? 'Не удалось загрузить коллекцию. Попробуйте открыть вкладку ещё раз.' : 'Unable to load this collection. Try opening the tab again.'}
+      </div>
     );
   }
 
@@ -264,10 +181,8 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
     );
   }
 
-  const visibleAlbums = renderedCount >= albums.length ? albums : albums.slice(0, renderedCount);
-
   return (
-    <div className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
+    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-md3-on-surface">
@@ -279,18 +194,21 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-5">
-        {visibleAlbums.map((album, index) => (
+      <VirtualizedCollectionGrid
+        items={albums}
+        scrollContainerRef={scrollContainerRef}
+        resetKey={searchQuery}
+        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-5"
+        renderItem={(album, index) => (
           <AlbumCard
-            key={album.name}
             album={album}
             index={index}
             language={language}
             onSelectAlbum={onSelectAlbum}
-            onPlayAlbum={onPlayAlbum}
+            onPlayAlbum={playAlbumByIds}
           />
-        ))}
-      </div>
+        )}
+      />
     </div>
   );
 };

@@ -1,9 +1,11 @@
-import React, { useMemo, useState, useEffect, memo } from 'react';
+import React, { useMemo, useRef, memo } from 'react';
 import { Tag, Play, Music2, Clock } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage } from '../i18n';
-import { CollectionGridLoading } from './CollectionGridLoading';
+import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
+import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups';
+import { matchesLibraryCollectionSearch, type LibraryCollectionGroup } from '../services/libraryCollectionIndex';
 
 interface GenresGridViewProps {
   tracks: Track[];
@@ -11,16 +13,13 @@ interface GenresGridViewProps {
   language?: AppLanguage;
   onSelectGenre: (genreName: string) => void;
   onPlayGenre: (tracks: Track[]) => void;
+  databaseGroups?: LibraryCollectionGroup[];
+  isLoadingGroups?: boolean;
+  hasGroupLoadError?: boolean;
+  onPlayGenreByIds?: (trackIds: string[]) => void;
 }
 
-interface GenreData {
-  name: string;
-  tracks: Track[];
-  trackIdSet: Set<string>;
-  totalDuration: number;
-  coverArt?: string;
-  searchStr: string;
-}
+type GenreData = LibraryCollectionGroup;
 
 const GENRE_GRADIENTS = [
   'from-violet-600/30 to-purple-800/40',
@@ -33,18 +32,13 @@ const GENRE_GRADIENTS = [
   'from-teal-600/30 to-emerald-800/40',
 ];
 
-// Module-level memoization cache to prevent expensive re-grouping when switching tabs
-let cachedTracksRef: Track[] | null = null;
-let cachedLangRef: string | null = null;
-let cachedGenres: GenreData[] = [];
-
 // Memoized GenreCard item component for zero-cost re-renders
 const GenreCard = memo<{
   genre: GenreData;
   index: number;
   language: AppLanguage;
   onSelectGenre: (name: string) => void;
-  onPlayGenre: (tracks: Track[]) => void;
+  onPlayGenre: (trackIds: string[]) => void;
 }>(({ genre, index, language, onSelectGenre, onPlayGenre }) => {
   const gradient = GENRE_GRADIENTS[index % GENRE_GRADIENTS.length];
 
@@ -66,7 +60,7 @@ const GenreCard = memo<{
         <button
           onClick={(e) => {
             e.stopPropagation();
-            onPlayGenre(genre.tracks);
+            onPlayGenre(genre.trackIds);
           }}
           title={language === 'ru' ? `Воспроизвести жанр ${genre.name}` : `Play genre ${genre.name}`}
           className="pointer-events-auto w-10 h-10 rounded-full bg-md3-primary text-md3-on-primary shadow-lg flex items-center justify-center opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 hover:scale-110 active:scale-95 cursor-pointer"
@@ -83,7 +77,7 @@ const GenreCard = memo<{
         <div className="flex items-center gap-2 mt-1 text-[11px] text-md3-on-surface-variant/80">
           <span className="flex items-center gap-1">
             <Music2 className="w-3 h-3" />
-            {genre.tracks.length}
+            {genre.trackIds.length}
           </span>
           <span>•</span>
           <span className="flex items-center gap-1">
@@ -103,129 +97,46 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
   language = 'ru',
   onSelectGenre,
   onPlayGenre,
+  databaseGroups,
+  isLoadingGroups = false,
+  hasGroupLoadError = false,
+  onPlayGenreByIds,
 }) => {
-  const [genreCollection, setGenreCollection] = useState(() => ({
-    tracks,
-    language,
-    items: cachedTracksRef === tracks && cachedLangRef === language ? cachedGenres : [],
-    isLoading: cachedTracksRef !== tracks || cachedLangRef !== language,
-  }));
-  const isCurrentCollection = genreCollection.tracks === tracks && genreCollection.language === language;
-  const allGenres = isCurrentCollection ? genreCollection.items : [];
-  const isIndexing = !isCurrentCollection || genreCollection.isLoading;
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const { groups: indexedGenres, isLoading: isIndexingLibrary } = useLibraryCollectionGroups(tracks, 'genres', language, !databaseGroups);
+  const allGenres = databaseGroups ?? indexedGenres;
+  const isIndexing = isLoadingGroups || (!databaseGroups && isIndexingLibrary);
+  const hasSearch = Boolean(searchQuery.trim());
+  const tracksByIdForSearch = useMemo(
+    () => hasSearch ? new Map(tracks.map(track => [track.id, track])) : null,
+    [tracks, hasSearch],
+  );
 
-  // Build the index in short tasks so opening the tab can paint immediately.
-  useEffect(() => {
-    if (cachedTracksRef === tracks && cachedLangRef === language) {
-      setGenreCollection({ tracks, language, items: cachedGenres, isLoading: false });
-      return;
-    }
-
-    if (tracks.length === 0) {
-      cachedTracksRef = tracks;
-      cachedLangRef = language;
-      cachedGenres = [];
-      setGenreCollection({ tracks, language, items: [], isLoading: false });
-      return;
-    }
-
-    let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout>;
-    let trackIndex = 0;
-    const map = new Map<string, GenreData>();
-    const noGenreLabel = language === 'ru' ? 'Без жанра' : 'No Genre';
-
-    const processChunk = () => {
-      if (cancelled) return;
-      const chunkStartedAt = performance.now();
-      const chunkStartIndex = trackIndex;
-
-      while (trackIndex < tracks.length && (trackIndex === chunkStartIndex || performance.now() - chunkStartedAt < 6)) {
-        const t = tracks[trackIndex++];
-        const genreList = t.genre
-          ? t.genre.split(/[,/;\\]+/).map((g) => g.trim()).filter(Boolean)
-          : [noGenreLabel];
-        const effectiveGenres = genreList.length > 0 ? genreList : [noGenreLabel];
-        const dur = t.duration && !isNaN(t.duration) ? t.duration : 0;
-
-        for (let j = 0; j < effectiveGenres.length; j++) {
-          const g = effectiveGenres[j];
-          let item = map.get(g);
-          if (!item) {
-            const trackIdSet = new Set<string>();
-            trackIdSet.add(t.id);
-            item = {
-              name: g,
-              tracks: [t],
-              trackIdSet,
-              totalDuration: dur,
-              coverArt: t.coverArt,
-              searchStr: `${g} ${t.title || ''} ${t.artist || ''} ${t.album || ''}`.toLowerCase(),
-            };
-            map.set(g, item);
-          } else {
-            if (!item.trackIdSet.has(t.id)) {
-              item.trackIdSet.add(t.id);
-              item.tracks.push(t);
-              item.totalDuration += dur;
-              item.searchStr += ` ${t.title?.toLowerCase() || ''} ${t.artist?.toLowerCase() || ''}`;
-            }
-            if (!item.coverArt && t.coverArt) item.coverArt = t.coverArt;
-          }
-        }
-      }
-
-      if (trackIndex < tracks.length) {
-        timeoutId = setTimeout(processChunk, 0);
-        return;
-      }
-
-      const result = Array.from(map.values()).sort((a, b) => b.tracks.length - a.tracks.length);
-      cachedTracksRef = tracks;
-      cachedLangRef = language;
-      cachedGenres = result;
-      setGenreCollection({ tracks, language, items: result, isLoading: false });
-    };
-
-    setGenreCollection({ tracks, language, items: [], isLoading: true });
-    timeoutId = setTimeout(processChunk, 0);
-    return () => {
-      cancelled = true;
-      clearTimeout(timeoutId);
-    };
-  }, [tracks, language]);
-
-  // High-performance search filtering
   const genres = useMemo(() => {
+    if (databaseGroups) return allGenres;
     const q = searchQuery.toLowerCase().trim();
     if (!q) return allGenres;
-    return allGenres.filter((g) => g.searchStr.includes(q));
-  }, [allGenres, searchQuery]);
+    return allGenres.filter(genre => matchesLibraryCollectionSearch('genres', genre, q, tracksByIdForSearch!));
+  }, [allGenres, searchQuery, tracksByIdForSearch, databaseGroups]);
 
-  // Progressive card rendering for instant initial paint & zero dropped frames
-  const [renderedCount, setRenderedCount] = useState(24);
-
-  useEffect(() => {
-    setRenderedCount(24);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    if (renderedCount < genres.length) {
-      const handle = requestAnimationFrame(() => {
-        setRenderedCount((prev) => Math.min(prev + 24, genres.length));
-      });
-      return () => cancelAnimationFrame(handle);
+  const playGenreByIds = (trackIds: string[]) => {
+    if (onPlayGenreByIds) {
+      onPlayGenreByIds(trackIds);
+      return;
     }
-  }, [renderedCount, genres.length]);
+    const tracksById = new Map(tracks.map(track => [track.id, track]));
+    onPlayGenre(trackIds.map(id => tracksById.get(id)).filter((track): track is Track => !!track));
+  };
 
   if (isIndexing) {
+    return <div aria-busy="true" className="flex-1 min-h-0" />;
+  }
+
+  if (hasGroupLoadError && allGenres.length === 0) {
     return (
-      <CollectionGridLoading
-        title={language === 'ru' ? 'Жанры' : 'Genres'}
-        kind="genres"
-        columnsClassName="grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
-        language={language}
-      />
+      <div role="alert" className="flex-1 flex items-center justify-center p-8 text-center text-sm text-md3-on-surface-variant">
+        {language === 'ru' ? 'Не удалось загрузить коллекцию. Попробуйте открыть вкладку ещё раз.' : 'Unable to load this collection. Try opening the tab again.'}
+      </div>
     );
   }
 
@@ -265,10 +176,8 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
     );
   }
 
-  const visibleGenres = renderedCount >= genres.length ? genres : genres.slice(0, renderedCount);
-
   return (
-    <div className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
+    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-md3-on-surface">
@@ -280,18 +189,21 @@ export const GenresGridView: React.FC<GenresGridViewProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
-        {visibleGenres.map((genre, idx) => (
+      <VirtualizedCollectionGrid
+        items={genres}
+        scrollContainerRef={scrollContainerRef}
+        resetKey={searchQuery}
+        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5"
+        renderItem={(genre, index) => (
           <GenreCard
-            key={genre.name}
             genre={genre}
-            index={idx}
+            index={index}
             language={language}
             onSelectGenre={onSelectGenre}
-            onPlayGenre={onPlayGenre}
+            onPlayGenre={playGenreByIds}
           />
-        ))}
-      </div>
+        )}
+      />
     </div>
   );
 };

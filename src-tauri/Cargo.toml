@@ -1,6 +1,6 @@
 [package]
 name = "arachnid"
-version = "0.4.97"
+version = "0.4.115"
 description = "Arachnid Music Player - Modern Material You 3 Player with MusicBee Power"
 authors = ["sssHpion007"]
 edition = "2021"
@@ -13,9 +13,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "~2.12.5", features = ["protocol-asset", "tray-icon"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+rusqlite = { version = "0.37", features = ["bundled", "collation"] }
+unicode-normalization = "0.1"
 sha2 = "0.10"
 lofty = "0.21"
 walkdir = "2.4"
@@ -23,4 +25,8 @@ base64 = "0.22"
 rfd = "0.15"
 ureq = { version = "2.10", default-features = false, features = ["tls", "native-certs"] }
 rodio = { version = "0.20", features = ["symphonia-all"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+webview2-com = "0.39"
+windows-core = "0.62"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

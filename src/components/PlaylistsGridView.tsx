@@ -22,6 +22,7 @@ import { Playlist, PlaylistFolder, PlaylistGroup, Track, FolderCoverType } from 
 import { formatTime } from '../services/tagEditor';
 import { getFolderIconComponent, getFolderColorHex, getThemedPlayIconColor } from '../theme/folderIcons';
 import { AppLanguage } from '../i18n';
+import { FadeInImage } from './FadeInImage';
 
 interface PlaylistsGridViewProps {
   playlists: Playlist[];
@@ -255,21 +256,21 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
           coverType === 'cycle' && covers.length > 1 ? (
             <div className="relative w-full h-full">
               {covers.map((src, idx) => (
-                <img
+                <FadeInImage
                   key={src + idx}
                   src={src}
                   alt=""
                   draggable={false}
                   loading="lazy"
                   decoding="async"
-                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 pointer-events-none ${
-                    idx === cycleIndex ? 'opacity-100 z-10' : 'opacity-0 z-0'
-                  }`}
+                  isVisible={idx === cycleIndex}
+                  fadeDurationMs={700}
+                  className={`absolute inset-0 w-full h-full object-cover pointer-events-none ${idx === cycleIndex ? 'z-10' : 'z-0'}`}
                 />
               ))}
             </div>
           ) : coverType === 'first_playlist' || covers.length === 1 ? (
-            <img
+            <FadeInImage
               src={covers[0]}
               alt={folder.name}
               draggable={false}
@@ -279,21 +280,21 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
             />
           ) : covers.length === 2 ? (
             <div className="w-full h-full grid grid-cols-2 grid-rows-1 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
-              <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           ) : covers.length === 3 ? (
             <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
-              <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
-              <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <img src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
+              <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           ) : (
             <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
-              <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <img src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <img src={covers[3]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={covers[3]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           )
         ) : (
@@ -515,16 +516,16 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
           coverType === 'cycle' && hasMultipleCovers ? (
             <div className="relative w-full h-full z-[1]">
               {covers.map((c, idx) => (
-                <img
+                <FadeInImage
                   key={c + idx}
                   src={c}
                   alt=""
                   draggable={false}
                   loading="lazy"
                   decoding="async"
-                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 pointer-events-none ${
-                    idx === cycleIndex ? 'opacity-100 z-10' : 'opacity-0 z-0'
-                  }`}
+                  isVisible={idx === cycleIndex}
+                  fadeDurationMs={700}
+                  className={`absolute inset-0 w-full h-full object-cover pointer-events-none ${idx === cycleIndex ? 'z-10' : 'z-0'}`}
                   onError={(e) => {
                     e.currentTarget.style.display = 'none';
                   }}
@@ -534,25 +535,25 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
           ) : coverType === 'collage' && hasMultipleCovers ? (
             covers.length === 2 ? (
               <div className="w-full h-full grid grid-cols-2 grid-rows-1 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-                <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
               </div>
             ) : covers.length === 3 ? (
               <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-                <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
-                <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <img src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
+                <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
               </div>
             ) : (
               <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-                <img src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <img src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <img src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <img src={covers[3]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={covers[3]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
               </div>
             )
           ) : cover ? (
-            <img
+            <FadeInImage
               src={cover}
               alt={playlist.name}
               draggable={false}
@@ -1385,7 +1386,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
             className="fixed pointer-events-none z-50 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-md3-surface-container-highest/95 backdrop-blur-md border border-md3-primary shadow-2xl text-xs font-bold text-md3-on-surface scale-105 rotate-2"
           >
             {dragState.cover ? (
-              <img src={dragState.cover} alt="" className="w-6 h-6 rounded-lg object-cover" />
+              <FadeInImage src={dragState.cover} alt="" className="w-6 h-6 rounded-lg object-cover" />
             ) : (
               <ListMusic className="w-5 h-5 text-md3-primary" />
             )}
@@ -1544,7 +1545,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
           className="fixed pointer-events-none z-50 flex items-center gap-2.5 px-3.5 py-2 rounded-2xl bg-md3-surface-container-highest/95 backdrop-blur-md border border-md3-primary shadow-2xl text-xs font-bold text-md3-on-surface scale-105 rotate-2"
         >
           {dragState.cover ? (
-            <img src={dragState.cover} alt="" className="w-6 h-6 rounded-lg object-cover" />
+            <FadeInImage src={dragState.cover} alt="" className="w-6 h-6 rounded-lg object-cover" />
           ) : (
             <ListMusic className="w-5 h-5 text-md3-primary" />
           )}

@@ -1,8 +1,10 @@
-import React, { useMemo, useState, useEffect, memo } from 'react';
+import React, { useMemo, useRef, memo } from 'react';
 import { Mic2, Play, Music2, Disc } from 'lucide-react';
 import { Track } from '../types/music';
 import { AppLanguage } from '../i18n';
-import { CollectionGridLoading } from './CollectionGridLoading';
+import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
+import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups';
+import { matchesLibraryCollectionSearch, type LibraryCollectionGroup } from '../services/libraryCollectionIndex';
 
 interface ArtistsGridViewProps {
   tracks: Track[];
@@ -10,21 +12,13 @@ interface ArtistsGridViewProps {
   language?: AppLanguage;
   onSelectArtist: (artistName: string) => void;
   onPlayArtist: (tracks: Track[]) => void;
+  databaseGroups?: LibraryCollectionGroup[];
+  isLoadingGroups?: boolean;
+  hasGroupLoadError?: boolean;
+  onPlayArtistByIds?: (trackIds: string[]) => void;
 }
 
-interface ArtistData {
-  name: string;
-  coverArt?: string;
-  tracks: Track[];
-  albumSet: Set<string>;
-  albumsCount: number;
-  searchStr: string;
-}
-
-// Module-level memoization cache to prevent expensive re-grouping when switching tabs
-let cachedTracksRef: Track[] | null = null;
-let cachedLangRef: string | null = null;
-let cachedArtists: ArtistData[] = [];
+type ArtistData = LibraryCollectionGroup;
 
 // Memoized ArtistCard item component for zero-cost re-renders
 const ArtistCard = memo<{
@@ -32,7 +26,7 @@ const ArtistCard = memo<{
   index: number;
   language: AppLanguage;
   onSelectArtist: (name: string) => void;
-  onPlayArtist: (tracks: Track[]) => void;
+  onPlayArtist: (trackIds: string[]) => void;
 }>(({ artist, index, language, onSelectArtist, onPlayArtist }) => {
   return (
     <div
@@ -60,7 +54,7 @@ const ArtistCard = memo<{
         <button
           onClick={(e) => {
             e.stopPropagation();
-            onPlayArtist(artist.tracks);
+            onPlayArtist(artist.trackIds);
           }}
           title={language === 'ru' ? `Воспроизвести все треки ${artist.name}` : `Play all tracks by ${artist.name}`}
           className="absolute inset-0 m-auto w-11 h-11 rounded-full bg-md3-primary text-md3-on-primary shadow-lg flex items-center justify-center opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 hover:scale-110 active:scale-95 cursor-pointer"
@@ -77,7 +71,7 @@ const ArtistCard = memo<{
       <div className="flex items-center justify-center gap-2 mt-1.5 text-[11px] text-md3-on-surface-variant/70 pointer-events-none">
         <span className="flex items-center gap-1">
           <Music2 className="w-3 h-3" />
-          {artist.tracks.length} {language === 'ru' ? (artist.tracks.length % 10 === 1 && artist.tracks.length % 100 !== 11 ? 'трек' : artist.tracks.length % 10 < 5 && artist.tracks.length % 10 > 1 && (artist.tracks.length % 100 < 10 || artist.tracks.length % 100 >= 20) ? 'трека' : 'треков') : (artist.tracks.length === 1 ? 'track' : 'tracks')}
+          {artist.trackIds.length} {language === 'ru' ? (artist.trackIds.length % 10 === 1 && artist.trackIds.length % 100 !== 11 ? 'трек' : artist.trackIds.length % 10 < 5 && artist.trackIds.length % 10 > 1 && (artist.trackIds.length % 100 < 10 || artist.trackIds.length % 100 >= 20) ? 'трека' : 'треков') : (artist.trackIds.length === 1 ? 'track' : 'tracks')}
         </span>
         <span>•</span>
         <span className="flex items-center gap-1">
@@ -96,122 +90,48 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
   language = 'ru',
   onSelectArtist,
   onPlayArtist,
+  databaseGroups,
+  isLoadingGroups = false,
+  hasGroupLoadError = false,
+  onPlayArtistByIds,
 }) => {
-  const [artistCollection, setArtistCollection] = useState(() => ({
-    tracks,
-    language,
-    items: cachedTracksRef === tracks && cachedLangRef === language ? cachedArtists : [],
-    isLoading: cachedTracksRef !== tracks || cachedLangRef !== language,
-  }));
-  const isCurrentCollection = artistCollection.tracks === tracks && artistCollection.language === language;
-  const allArtists = isCurrentCollection ? artistCollection.items : [];
-  const isIndexing = !isCurrentCollection || artistCollection.isLoading;
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const { groups: indexedArtists, isLoading: isIndexingLibrary } = useLibraryCollectionGroups(tracks, 'artists', language, !databaseGroups);
+  const allArtists = databaseGroups ?? indexedArtists;
+  const isIndexing = isLoadingGroups || (!databaseGroups && isIndexingLibrary);
+  const hasSearch = Boolean(searchQuery.trim());
+  const tracksByIdForSearch = useMemo(
+    () => hasSearch ? new Map(tracks.map(track => [track.id, track])) : null,
+    [tracks, hasSearch],
+  );
 
-  // Build the index in short tasks so opening the tab can paint immediately.
-  useEffect(() => {
-    if (cachedTracksRef === tracks && cachedLangRef === language) {
-      setArtistCollection({ tracks, language, items: cachedArtists, isLoading: false });
-      return;
-    }
-
-    if (tracks.length === 0) {
-      cachedTracksRef = tracks;
-      cachedLangRef = language;
-      cachedArtists = [];
-      setArtistCollection({ tracks, language, items: [], isLoading: false });
-      return;
-    }
-
-    let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout>;
-    let trackIndex = 0;
-    const map = new Map<string, ArtistData>();
-    const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
-
-    const processChunk = () => {
-      if (cancelled) return;
-      const chunkStartedAt = performance.now();
-      const chunkStartIndex = trackIndex;
-
-      while (trackIndex < tracks.length && (trackIndex === chunkStartIndex || performance.now() - chunkStartedAt < 6)) {
-        const t = tracks[trackIndex++];
-        const artistKey = t.artist ? t.artist.trim() : unknownArtistLabel;
-        let item = map.get(artistKey);
-        if (!item) {
-          const albumSet = new Set<string>();
-          albumSet.add(t.album || 'Unknown');
-          item = {
-            name: artistKey,
-            coverArt: t.coverArt,
-            tracks: [t],
-            albumSet,
-            albumsCount: 1,
-            searchStr: `${artistKey} ${t.title || ''} ${t.album || ''}`.toLowerCase(),
-          };
-          map.set(artistKey, item);
-        } else {
-          item.tracks.push(t);
-          item.albumSet.add(t.album || 'Unknown');
-          if (!item.coverArt && t.coverArt) item.coverArt = t.coverArt;
-          item.searchStr += ` ${t.title?.toLowerCase() || ''}`;
-        }
-      }
-
-      if (trackIndex < tracks.length) {
-        timeoutId = setTimeout(processChunk, 0);
-        return;
-      }
-
-      const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-      const result = Array.from(map.values());
-      for (const artist of result) artist.albumsCount = artist.albumSet.size;
-      result.sort((a, b) => collator.compare(a.name, b.name));
-
-      cachedTracksRef = tracks;
-      cachedLangRef = language;
-      cachedArtists = result;
-      setArtistCollection({ tracks, language, items: result, isLoading: false });
-    };
-
-    setArtistCollection({ tracks, language, items: [], isLoading: true });
-    timeoutId = setTimeout(processChunk, 0);
-    return () => {
-      cancelled = true;
-      clearTimeout(timeoutId);
-    };
-  }, [tracks, language]);
-
-  // High-performance search filtering
+  // Search only resolves track metadata while a query is active; the shared cache
+  // itself contains compact IDs and never duplicates full Track records.
   const artists = useMemo(() => {
+    if (databaseGroups) return allArtists;
     const q = searchQuery.toLowerCase().trim();
     if (!q) return allArtists;
-    return allArtists.filter((a) => a.searchStr.includes(q));
-  }, [allArtists, searchQuery]);
+    return allArtists.filter(artist => matchesLibraryCollectionSearch('artists', artist, q, tracksByIdForSearch!));
+  }, [allArtists, searchQuery, tracksByIdForSearch, databaseGroups]);
 
-  // Progressive card rendering for instant initial paint & zero dropped frames
-  const [renderedCount, setRenderedCount] = useState(24);
-
-  useEffect(() => {
-    setRenderedCount(24);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    if (renderedCount < artists.length) {
-      const handle = requestAnimationFrame(() => {
-        setRenderedCount((prev) => Math.min(prev + 24, artists.length));
-      });
-      return () => cancelAnimationFrame(handle);
+  const playArtistByIds = (trackIds: string[]) => {
+    if (onPlayArtistByIds) {
+      onPlayArtistByIds(trackIds);
+      return;
     }
-  }, [renderedCount, artists.length]);
+    const tracksById = new Map(tracks.map(track => [track.id, track]));
+    onPlayArtist(trackIds.map(id => tracksById.get(id)).filter((track): track is Track => !!track));
+  };
 
   if (isIndexing) {
+    return <div aria-busy="true" className="flex-1 min-h-0" />;
+  }
+
+  if (hasGroupLoadError && allArtists.length === 0) {
     return (
-      <CollectionGridLoading
-        title={language === 'ru' ? 'Исполнители' : 'Artists'}
-        kind="artists"
-        columnsClassName="grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7"
-        language={language}
-      />
+      <div role="alert" className="flex-1 flex items-center justify-center p-8 text-center text-sm text-md3-on-surface-variant">
+        {language === 'ru' ? 'Не удалось загрузить коллекцию. Попробуйте открыть вкладку ещё раз.' : 'Unable to load this collection. Try opening the tab again.'}
+      </div>
     );
   }
 
@@ -251,10 +171,8 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
     );
   }
 
-  const visibleArtists = renderedCount >= artists.length ? artists : artists.slice(0, renderedCount);
-
   return (
-    <div className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
+    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-md3-on-surface">
@@ -266,18 +184,21 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-5">
-        {visibleArtists.map((artist, index) => (
+      <VirtualizedCollectionGrid
+        items={artists}
+        scrollContainerRef={scrollContainerRef}
+        resetKey={searchQuery}
+        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-5"
+        renderItem={(artist, index) => (
           <ArtistCard
-            key={artist.name}
             artist={artist}
             index={index}
             language={language}
             onSelectArtist={onSelectArtist}
-            onPlayArtist={onPlayArtist}
+            onPlayArtist={playArtistByIds}
           />
-        ))}
-      </div>
+        )}
+      />
     </div>
   );
 };

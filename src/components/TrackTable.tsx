@@ -43,6 +43,11 @@ interface TrackTableProps {
   onReorderTracks?: (reorderedTrackIds: string[]) => void;
   onRelocateTrack?: (track: Track) => void;
   language?: AppLanguage;
+  onLoadMore?: () => void;
+  hasMoreTracks?: boolean;
+  isLoadingMoreTracks?: boolean;
+  isLoading?: boolean;
+  resetScrollKey?: string;
 }
 
 interface TrackDragState {
@@ -89,6 +94,11 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   onReorderTracks,
   onRelocateTrack,
   language = 'ru',
+  onLoadMore,
+  hasMoreTracks = false,
+  isLoadingMoreTracks = false,
+  isLoading = false,
+  resetScrollKey = '',
 }) => {
   const [hoveredTrackId, setHoveredTrackId] = useState<string | null>(null);
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -131,6 +141,24 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(600);
   const rafIdRef = useRef<number | null>(null);
+  const previousTrackWindowRef = useRef<{ firstId: string | null; length: number }>({ firstId: null, length: 0 });
+  const previousResetScrollKeyRef = useRef(resetScrollKey);
+
+  useEffect(() => {
+    const firstId = tracks[0]?.id ?? null;
+    const previous = previousTrackWindowRef.current;
+    const queryChanged = previousResetScrollKeyRef.current !== resetScrollKey;
+    if (queryChanged || (previous.firstId && firstId && previous.firstId !== firstId)) {
+      if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+      setScrollTop(0);
+    }
+    if (tracks.length === 0 && previous.length > 0) {
+      if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+      setScrollTop(0);
+    }
+    previousTrackWindowRef.current = { firstId, length: tracks.length };
+    previousResetScrollKeyRef.current = resetScrollKey;
+  }, [tracks, resetScrollKey]);
 
   useEffect(() => {
     const el = scrollContainerRef.current;
@@ -155,6 +183,11 @@ export const TrackTable: React.FC<TrackTableProps> = ({
       setScrollTop(currentScrollTop);
       rafIdRef.current = null;
     });
+    const container = e.currentTarget;
+    if (onLoadMore && hasMoreTracks && !isLoadingMoreTracks
+      && container.scrollTop + container.clientHeight >= container.scrollHeight - 900) {
+      onLoadMore();
+    }
   };
 
   useEffect(() => {
@@ -439,19 +472,23 @@ export const TrackTable: React.FC<TrackTableProps> = ({
         className="flex-1 overflow-y-auto min-h-0 custom-scrollbar relative"
       >
         {tracks.length === 0 ? (
-          <div className="h-64 flex flex-col items-center justify-center text-center p-8 text-md3-on-surface-variant">
-            <div className="w-16 h-16 rounded-3xl bg-md3-surface-container-high flex items-center justify-center text-md3-primary mb-4">
-              <Music className="w-8 h-8 opacity-60" />
+          isLoading ? (
+            <div aria-busy="true" className="h-64" />
+          ) : (
+            <div className="h-64 flex flex-col items-center justify-center text-center p-8 text-md3-on-surface-variant">
+              <div className="w-16 h-16 rounded-3xl bg-md3-surface-container-high flex items-center justify-center text-md3-primary mb-4">
+                <Music className="w-8 h-8 opacity-60" />
+              </div>
+              <p className="text-base font-semibold text-md3-on-surface mb-1">
+                {language === 'ru' ? 'Здесь пока пусто' : "It's empty here yet"}
+              </p>
+              <p className="text-sm max-w-sm text-md3-on-surface-variant/80">
+                {language === 'ru'
+                  ? 'Перетащите аудиофайлы (MP3, FLAC, WAV, OGG) прямо в это окно или нажмите «Добавить файлы» в верхней панели!'
+                  : 'Drag audio files (MP3, FLAC, WAV, OGG) right into this window or click "Add Files" in the top bar!'}
+              </p>
             </div>
-            <p className="text-base font-semibold text-md3-on-surface mb-1">
-              {language === 'ru' ? 'Здесь пока пусто' : "It's empty here yet"}
-            </p>
-            <p className="text-sm max-w-sm text-md3-on-surface-variant/80">
-              {language === 'ru'
-                ? 'Перетащите аудиофайлы (MP3, FLAC, WAV, OGG) прямо в это окно или нажмите «Добавить файлы» в верхней панели!'
-                : 'Drag audio files (MP3, FLAC, WAV, OGG) right into this window or click "Add Files" in the top bar!'}
-            </p>
-          </div>
+          )
         ) : (
           <div style={{ height: `${totalHeight}px`, position: 'relative', width: '100%' }}>
             <div

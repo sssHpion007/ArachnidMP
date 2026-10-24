@@ -21,7 +21,11 @@ fn get_logger() -> &'static Mutex<LoggerState> {
         let _ = fs::create_dir_all(&logs_dir);
 
         let now = chrono::Local::now();
-        let session_name = format!("arachnid_session_{}.log", now.format("%Y-%m-%d_%H-%M-%S"));
+        let session_name = format!(
+            "arachnid_session_{}_{}.log",
+            now.format("%Y-%m-%d_%H-%M-%S-%3f"),
+            std::process::id(),
+        );
         let session_file = logs_dir.join(session_name);
 
         Mutex::new(LoggerState {
@@ -71,13 +75,7 @@ pub fn log(level: &str, tag: &str, message: &str) {
             }
         }
 
-        // 3. Write to latest log file
-        let latest_path = storage::get_logs_dir().join("arachnid_latest.log");
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(latest_path) {
-            let _ = writeln!(file, "{}", line);
-        }
-
-        // 4. Emit to frontend if available
+        // 3. Emit to frontend if available
         if let Some(ref handle) = state.app_handle {
             let _ = handle.emit("log://new-entry", serde_json::json!({ "line": line }));
         }
@@ -96,24 +94,6 @@ pub fn get_recent_logs() -> Vec<String> {
 #[tauri::command]
 pub fn client_log(level: String, tag: String, message: String) {
     log(&level, &tag, &message);
-}
-
-#[tauri::command]
-pub fn save_logs_snapshot() -> Result<String, String> {
-    let logs_dir = storage::get_logs_dir();
-    let _ = fs::create_dir_all(&logs_dir);
-
-    let now = chrono::Local::now();
-    let filename = format!("arachnid_log_{}.log", now.format("%Y-%m-%d_%H-%M-%S"));
-    let target_path = logs_dir.join(&filename);
-
-    let logs = get_recent_logs();
-    let content = logs.join("\n");
-
-    fs::write(&target_path, content).map_err(|e| e.to_string())?;
-
-    log("INFO", "LOGGER", &format!("Saved logs snapshot to {}", target_path.display()));
-    Ok(filename)
 }
 
 #[tauri::command]

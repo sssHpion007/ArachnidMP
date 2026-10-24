@@ -28,6 +28,7 @@ interface BatchTagEditorModalProps {
   isOpen: boolean;
   onClose: () => void;
   selectedTracks: Track[];
+  selectedTrackCount?: number;
   language?: AppLanguage;
   onSaveTags: (updatedFields: {
     title?: string;
@@ -67,6 +68,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
   isOpen,
   onClose,
   selectedTracks,
+  selectedTrackCount = selectedTracks.length,
   language = 'ru',
   onSaveTags,
 }) => {
@@ -488,10 +490,10 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
         {!isSingle && (
           <div className="px-5 py-2.5 bg-md3-surface-container-lowest/50 border-b border-md3-outline-variant/10 max-h-24 overflow-y-auto custom-scrollbar shrink-0">
             <div className="text-[10px] font-bold uppercase tracking-wider text-md3-on-surface-variant/70 mb-1">
-              {language === 'ru' ? `Выбранные треки (${selectedTracks.length}):` : `Selected tracks (${selectedTracks.length}):`}
+              {language === 'ru' ? `Выбранные треки (${selectedTrackCount}):` : `Selected tracks (${selectedTrackCount}):`}
             </div>
             <div className="space-y-1">
-              {selectedTracks.map((t, idx) => (
+              {selectedTracks.slice(0, 40).map((t, idx) => (
                 <div key={t.id} className="text-xs text-md3-on-surface flex items-center justify-between gap-2">
                   <span className="truncate font-medium">
                     {idx + 1}. {t.title} — {t.artist}
@@ -502,6 +504,13 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
                 </div>
               ))}
             </div>
+            {selectedTrackCount > Math.min(selectedTracks.length, 40) && (
+              <div className="pt-1 text-[10px] text-md3-on-surface-variant/70">
+                {language === 'ru'
+                  ? `Ещё ${selectedTrackCount - Math.min(selectedTracks.length, 40)} трек(ов) не показано.`
+                  : `${selectedTrackCount - Math.min(selectedTracks.length, 40)} more tracks not shown.`}
+              </div>
+            )}
           </div>
         )}
 
@@ -982,7 +991,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
               <span>
                 {isSingle 
                   ? (language === 'ru' ? 'Сохранить изменения' : 'Save Changes') 
-                  : (language === 'ru' ? `Применить к ${selectedTracks.length} трекам` : `Apply to ${selectedTracks.length} tracks`)}
+                  : (language === 'ru' ? `Применить к ${selectedTrackCount} трекам` : `Apply to ${selectedTrackCount} tracks`)}
               </span>
             </button>
           </div>

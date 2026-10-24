@@ -115,6 +115,10 @@ interface SettingsModalProps {
   onRemoveWatchedFolder?: (folder: string) => void;
   autoScanOnStartup?: boolean;
   onToggleAutoScanOnStartup?: () => void;
+  closeBehavior?: 'exit' | 'tray';
+  onSetCloseBehavior?: (behavior: 'exit' | 'tray') => void;
+  startupInterface?: 'full' | 'mini';
+  onSetStartupInterface?: (mode: 'full' | 'mini') => void;
   onScanLibrary?: () => Promise<number>;
   tracks?: Track[];
   missingTracksCount?: number;
@@ -186,6 +190,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onRemoveWatchedFolder,
   autoScanOnStartup = true,
   onToggleAutoScanOnStartup,
+  closeBehavior = 'exit',
+  onSetCloseBehavior,
+  startupInterface = 'full',
+  onSetStartupInterface,
   onScanLibrary,
   tracks = [],
   missingTracksCount = 0,
@@ -250,7 +258,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   }, []);
 
-  // Color Scheme Mode segmented control indicator (Dynamic / System / Custom)
+  // Close behavior and startup layout controls use the same animated segmented style.
+  const closeBehaviorContainerRef = useRef<HTMLDivElement>(null);
+  const closeBehaviorRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+  const [closeBehaviorIndicatorStyle, setCloseBehaviorIndicatorStyle] = useState({ left: 0, width: 0, height: 0, opacity: 0 });
+  const updateCloseBehaviorIndicator = () => {
+    const el = closeBehaviorRefs.current[closeBehavior];
+    if (el) setCloseBehaviorIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, opacity: 1 });
+  };
+
+  const startupInterfaceContainerRef = useRef<HTMLDivElement>(null);
+  const startupInterfaceRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+  const [startupInterfaceIndicatorStyle, setStartupInterfaceIndicatorStyle] = useState({ left: 0, width: 0, height: 0, opacity: 0 });
+  const updateStartupInterfaceIndicator = () => {
+    const el = startupInterfaceRefs.current[startupInterface];
+    if (el) setStartupInterfaceIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, opacity: 1 });
+  };
+
+  useEffect(() => {
+    updateCloseBehaviorIndicator();
+    updateStartupInterfaceIndicator();
+    const timer = setTimeout(() => {
+      updateCloseBehaviorIndicator();
+      updateStartupInterfaceIndicator();
+    }, 40);
+    return () => clearTimeout(timer);
+  }, [closeBehavior, startupInterface, currentView, isOpen]);
+
+  useEffect(() => {
+    if (!window.ResizeObserver) return;
+    const ro = new ResizeObserver(() => {
+      updateCloseBehaviorIndicator();
+      updateStartupInterfaceIndicator();
+    });
+    if (closeBehaviorContainerRef.current) ro.observe(closeBehaviorContainerRef.current);
+    if (startupInterfaceContainerRef.current) ro.observe(startupInterfaceContainerRef.current);
+    return () => ro.disconnect();
+  }, [closeBehavior, startupInterface]);
+
+  // Color Scheme Mode segmented control indicator
   const colorSchemeContainerRef = useRef<HTMLDivElement>(null);
   const colorSchemeRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
   const [colorSchemeIndicatorStyle, setColorSchemeIndicatorStyle] = useState<{ left: number; width: number; height: number; opacity: number }>({
@@ -325,7 +371,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Real-time Logs state
   const [logs, setLogs] = useState<string[]>([]);
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
-  const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const logsScrollRef = useRef<HTMLDivElement>(null);
 
   const handleOpenUpdateSettings = () => {
@@ -574,8 +619,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       const count = await onScanLibrary();
       setScanResult(
         language === 'ru'
-          ? count > 0 ? `Добавлено новых треков: ${count}` : 'Новых треков не найдено'
-          : count > 0 ? `Added ${count} new tracks` : 'No new tracks found'
+          ? count > 0 ? `Обработано аудиотреков: ${count}` : 'Аудиотреки не найдены'
+          : count > 0 ? `Processed audio tracks: ${count}` : 'No audio tracks found'
       );
     } catch (e) {
       setScanResult(language === 'ru' ? 'Ошибка при сканировании' : 'Scan error');
@@ -590,17 +635,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
     setNavDirection('forward');
     setCurrentView('logs');
-  };
-
-  const handleSaveLogsSnapshot = async () => {
-    if (!isTauri()) return;
-    try {
-      const filename = await invoke<string>('save_logs_snapshot');
-      setSaveStatus(filename);
-      setTimeout(() => setSaveStatus(null), 4000);
-    } catch (err) {
-      console.error('Failed to save logs snapshot:', err);
-    }
   };
 
   const handleOpenLogsFolder = async () => {
@@ -1483,23 +1517,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         ) : currentView === 'logs' ? (
           /* Real-Time Logs View */
           <div key="view-logs" className="p-6 space-y-4 flex flex-col flex-1 overflow-hidden anim-view-slide-right">
-            {/* Action Bar: Save button and Folder button */}
+            {/* Session logs are written automatically; retain a direct folder shortcut. */}
             <div className="flex items-center justify-between gap-3 shrink-0">
               <div className="flex items-center gap-2">
-                {/* 1. Кнопка "Сохранить" */}
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={handleSaveLogsSnapshot}
-                  className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-md3-primary text-md3-on-primary hover:bg-md3-primary/90 text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 outline-none focus:outline-none"
-                  title={language === 'ru' ? 'Сохранить лог в файл с текущей датой и временем' : 'Save logs snapshot with current timestamp'}
-                >
-                  <Download className="w-4 h-4 shrink-0" />
-                  <span>{t.settings.saveLogs}</span>
-                </button>
-
-                {/* 2. Кнопка "Папка" */}
                 <button
                   type="button"
                   tabIndex={-1}
@@ -1515,13 +1535,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
               {/* Status and Tools on the right */}
               <div className="flex items-center gap-2">
-                {saveStatus && (
-                  <span className="text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2.5 py-1 rounded-xl animate-in fade-in flex items-center gap-1.5 shadow-xs">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                    <span className="truncate max-w-[200px]">{saveStatus}</span>
-                  </span>
-                )}
-
                 {/* Auto-scroll Toggle */}
                 <button
                   type="button"
@@ -1798,7 +1811,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         ) : (
           /* Main Settings View */
           <div key="view-main-settings" ref={mainSettingsContainerRef} className={`p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 ${navDirection === 'backward' ? 'anim-view-slide-left' : ''}`}>
-            
             {/* 1. Section: Appearance (Внешний вид) */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -2514,6 +2526,111 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
                 <ChevronRight className="w-4 h-4 text-md3-on-surface-variant group-hover:text-md3-primary group-hover:translate-x-0.5 transition-all" />
               </button>
+            </div>
+
+            {/* Window close and startup mode */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+              <section className="p-4 rounded-3xl bg-md3-surface border border-md3-outline-variant/20 space-y-3">
+                <div>
+                  <div className="text-xs font-bold text-md3-on-surface">
+                    {language === 'ru' ? 'При закрытии' : 'When closing'}
+                  </div>
+                </div>
+                <div
+                  ref={closeBehaviorContainerRef}
+                  role="radiogroup"
+                  aria-label={language === 'ru' ? 'Действие крестика' : 'Close button action'}
+                  className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
+                >
+                  <div
+                    className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                    style={{
+                      left: `${closeBehaviorIndicatorStyle.left}px`,
+                      width: `${closeBehaviorIndicatorStyle.width}px`,
+                      height: `${closeBehaviorIndicatorStyle.height}px`,
+                      opacity: closeBehaviorIndicatorStyle.opacity,
+                      boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
+                    }}
+                  />
+                  <button
+                    ref={el => { closeBehaviorRefs.current.exit = el; }}
+                    type="button"
+                    role="radio"
+                    aria-checked={closeBehavior === 'exit'}
+                    tabIndex={-1}
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => onSetCloseBehavior?.('exit')}
+                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'exit' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
+                  >
+                    <X className="w-4 h-4 shrink-0" />
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'Закрыть' : 'Quit'}</span>
+                  </button>
+                  <button
+                    ref={el => { closeBehaviorRefs.current.tray = el; }}
+                    type="button"
+                    role="radio"
+                    aria-checked={closeBehavior === 'tray'}
+                    tabIndex={-1}
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => onSetCloseBehavior?.('tray')}
+                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'tray' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
+                  >
+                    <Radio className="w-4 h-4 shrink-0" />
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'В трей' : 'To tray'}</span>
+                  </button>
+                </div>
+              </section>
+
+              <section className="p-4 rounded-3xl bg-md3-surface border border-md3-outline-variant/20 space-y-3">
+                <div>
+                  <div className="text-xs font-bold text-md3-on-surface">
+                    {language === 'ru' ? 'При запуске' : 'On startup'}
+                  </div>
+                </div>
+                <div
+                  ref={startupInterfaceContainerRef}
+                  role="radiogroup"
+                  aria-label={language === 'ru' ? 'Интерфейс при запуске' : 'Startup interface'}
+                  className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
+                >
+                  <div
+                    className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                    style={{
+                      left: `${startupInterfaceIndicatorStyle.left}px`,
+                      width: `${startupInterfaceIndicatorStyle.width}px`,
+                      height: `${startupInterfaceIndicatorStyle.height}px`,
+                      opacity: startupInterfaceIndicatorStyle.opacity,
+                      boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
+                    }}
+                  />
+                  <button
+                    ref={el => { startupInterfaceRefs.current.full = el; }}
+                    type="button"
+                    role="radio"
+                    aria-checked={startupInterface === 'full'}
+                    tabIndex={-1}
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => onSetStartupInterface?.('full')}
+                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'full' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
+                  >
+                    <Monitor className="w-4 h-4 shrink-0" />
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'Полный' : 'Full'}</span>
+                  </button>
+                  <button
+                    ref={el => { startupInterfaceRefs.current.mini = el; }}
+                    type="button"
+                    role="radio"
+                    aria-checked={startupInterface === 'mini'}
+                    tabIndex={-1}
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => onSetStartupInterface?.('mini')}
+                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'mini' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
+                  >
+                    <Music className="w-4 h-4 shrink-0" />
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'Мини-плеер' : 'Mini player'}</span>
+                  </button>
+                </div>
+              </section>
             </div>
 
             {/* 5. Section: Language (ШТОРКА ЯЗЫКА ИНТЕРФЕЙСА) - Перед горячими клавишами */}

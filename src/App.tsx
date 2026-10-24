@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, startTransition } from 'react';
-import { Track, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode, FadeMode, FolderCoverType } from './types/music';
+import { Track, TrackDetails, TrackSummary, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode, FadeMode, FolderCoverType } from './types/music';
 import { TitleBar } from './components/TitleBar';
 import { TopBar, MainViewType } from './components/TopBar';
 import { TrackTable } from './components/TrackTable';
@@ -26,6 +26,8 @@ import { TrackDetailsModal } from './components/TrackDetailsModal';
 import { LyricsModal } from './components/LyricsModal';
 import { MissingTracksModal } from './components/MissingTracksModal';
 import { audioEngine } from './services/audioEngine';
+import { hydrateTrackDetails, libraryRepository } from './services/libraryRepository';
+import type { LibraryCollectionGroup, LibraryCollectionKind } from './services/libraryCollectionIndex';
 import { discordRpc } from './services/discordRpc';
 import { getAudioFormatFromPath, parseAudioFile } from './services/tagEditor';
 import { 
@@ -44,15 +46,18 @@ import { CustomThemeInfo, ThemeContent } from './types/theme';
 import { AppLanguage, detectSystemLanguage } from './i18n';
 import { isNewerVersion, CURRENT_APP_VERSION } from './utils/version';
 import { getFolderIconComponent } from './theme/folderIcons';
+import { getFolderTrackIds } from './services/folderPlayback';
+import { buildLibraryScanPathPlan } from './services/libraryScanPaths';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { LYRICS_WINDOW_EVENTS } from './utils/lyricsWindowEvents';
-import type { LyricsWindowAction, LyricsWindowPayload } from './utils/lyricsWindowEvents';
+import type { LyricsWindowAction, LyricsWindowPayload, LyricsWindowProgress } from './utils/lyricsWindowEvents';
 import { TRACK_DETAILS_WINDOW_EVENTS } from './utils/trackDetailsWindowEvents';
 import type { TrackDetailsWindowAction, TrackDetailsWindowPayload } from './utils/trackDetailsWindowEvents';
 import { EQUALIZER_WINDOW_EVENTS } from './utils/equalizerWindowEvents';
 import type { EqualizerWindowAction, EqualizerWindowPayload } from './utils/equalizerWindowEvents';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { currentMonitor } from '@tauri-apps/api/window';
 import { LogicalSize, PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi';
 import { MiniPlayer } from './components/MiniPlayer';
@@ -166,6 +171,43 @@ export const normalizeTrackPath = (p?: string | null): string => {
   return p.trim().replace(/\\/g, '/').toLowerCase();
 };
 
+const isPersistedTrackEqual = (left: Track, right: Track): boolean => {
+  const fields: Array<keyof Track> = [
+    'path', 'title', 'artist', 'album', 'duration', 'coverArt', 'genre', 'year',
+    'trackNumber', 'trackTotal', 'bitrate', 'format', 'fileSize', 'dateAdded',
+    'playCount', 'isFavorite', 'isMissing',
+  ];
+  return fields.every(field => left[field] === right[field]);
+};
+
+const hydrateNativeSummaryRows = (rows: TrackSummary[]): Track[] => rows.map(row => {
+  const coverArt = row.coverArt && !row.coverArt.startsWith('http') && !row.coverArt.startsWith('data:')
+    ? convertFileSrc(row.coverArt)
+    : row.coverArt;
+  return {
+    ...row,
+    src: row.path ? convertFileSrc(row.path) : row.src,
+    coverArt,
+    format: row.format || getAudioFormatFromPath(row.path || row.src),
+  };
+});
+
+const toTrackSummary = (track: Track): TrackSummary => {
+  const {
+    lyrics: _lyrics,
+    isInstrumental: _isInstrumental,
+    localFile: _localFile,
+    composer: _composer,
+    contentGroup: _contentGroup,
+    comment: _comment,
+    conductor: _conductor,
+    lyricist: _lyricist,
+    customTags: _customTags,
+    ...summary
+  } = track;
+  return summary;
+};
+
 export const appendUniqueTracks = (existingList: Track[], incoming: Track[]): Track[] => {
   if (!incoming || incoming.length === 0) return existingList;
   const existingPaths = new Set(existingList.map(t => normalizeTrackPath(t.path)).filter(Boolean));
@@ -191,7 +233,20 @@ export const appendUniqueTracks = (existingList: Track[], incoming: Track[]): Tr
 
 export const App: React.FC = () => {
   // Library & Content State (No dummy stubs)
-  const [tracks, setTracks] = useState<Track[]>([]);
+  const [tracks, setTracks] = useState<TrackSummary[]>([]);
+  const [nativeTrackTotal, setNativeTrackTotal] = useState(0);
+  const [nativePageLoading, setNativePageLoading] = useState(false);
+  const [databaseCollectionGroups, setDatabaseCollectionGroups] = useState<LibraryCollectionGroup[] | null>(null);
+  const [databaseCollectionGroupsError, setDatabaseCollectionGroupsError] = useState(false);
+  const [databaseCollectionGroupsKey, setDatabaseCollectionGroupsKey] = useState<{
+    kind: LibraryCollectionKind;
+    language: string;
+    searchQuery: string;
+    isolatedTrackIds: Set<string>;
+  } | null>(null);
+  const nativePageOffsetRef = useRef(0);
+  const nativePageGenerationRef = useRef(0);
+  const nativePageLoadingRef = useRef(false);
   const [playlists, setPlaylists] = useState<Playlist[]>(INITIAL_PLAYLISTS);
   const [playlistFolders, setPlaylistFolders] = useState<PlaylistFolder[]>([]);
   const [playlistGroups, setPlaylistGroups] = useState<PlaylistGroup[]>([]);
@@ -243,6 +298,10 @@ export const App: React.FC = () => {
   const [queue, setQueue] = useState<Track[]>([]);
   const [queueIndex, setQueueIndex] = useState<number>(0);
   const [isMiniMode, setIsMiniMode] = useState(false);
+  const [closeBehavior, setCloseBehavior] = useState<'exit' | 'tray'>('exit');
+  const [startupInterface, setStartupInterface] = useState<'full' | 'mini'>('full');
+  const [startupDataLoaded, setStartupDataLoaded] = useState(false);
+  const startupInterfaceAppliedRef = useRef(false);
   const [isWindowModeTransitioning, setIsWindowModeTransitioning] = useState(false);
   const windowModeTransitionRef = useRef(false);
   const [miniLyricsMode, setMiniLyricsMode] = useState<'closed' | 'attached' | 'detached'>('closed');
@@ -347,6 +406,8 @@ export const App: React.FC = () => {
   const isLoadedRef = useRef<boolean>(false);
   const selectedPlaylistIdRef = useRef<string | null>(null);
   const tracksRef = useRef<Track[]>(tracks);
+  const previousTracksForDbRef = useRef<Track[]>([]);
+  const libraryWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
   const currentTrackRef = useRef<Track | null>(currentTrack);
   const languageRef = useRef<AppLanguage>(language);
   const discordEnabledRef = useRef<boolean>(discordEnabled);
@@ -405,6 +466,9 @@ export const App: React.FC = () => {
 
   const enterMiniMode = useCallback(async () => {
     if (isMiniMode || windowModeTransitionRef.current) return;
+    if (isTauri()) {
+      await invoke('sample_memory_diagnostics', { reason: 'mode-enter-mini-before' }).catch(() => {});
+    }
     windowModeTransitionRef.current = true;
     setIsWindowModeTransitioning(true);
     await waitForDelay(WINDOW_MODE_FADE_MS);
@@ -447,15 +511,35 @@ export const App: React.FC = () => {
     setIsEQOpen(false);
     setIsMiniMode(true);
     await waitForAnimationFrames(2);
+    if (isTauri()) {
+      try {
+        await invoke('set_webview_memory_target', { lowMemory: true });
+      } catch (error) {
+        console.warn('Unable to lower the WebView memory target in mini-player mode:', error);
+      }
+    }
     setIsWindowModeTransitioning(false);
     await waitForDelay(WINDOW_MODE_FADE_MS);
     windowModeTransitionRef.current = false;
+    if (isTauri()) {
+      await invoke('sample_memory_diagnostics', { reason: 'mode-mini-settled' }).catch(() => {});
+    }
   }, [isMiniMode, miniLyricsMode]);
 
   const exitMiniMode = useCallback(async () => {
     if (windowModeTransitionRef.current) return;
+    if (isTauri()) {
+      await invoke('sample_memory_diagnostics', { reason: 'mode-exit-mini-before' }).catch(() => {});
+    }
     windowModeTransitionRef.current = true;
     setIsWindowModeTransitioning(true);
+    if (isTauri()) {
+      try {
+        await invoke('set_webview_memory_target', { lowMemory: false });
+      } catch (error) {
+        console.warn('Unable to restore the normal WebView memory target:', error);
+      }
+    }
     await waitForDelay(WINDOW_MODE_FADE_MS);
 
     if (isTauri()) {
@@ -520,6 +604,9 @@ export const App: React.FC = () => {
     setIsWindowModeTransitioning(false);
     await waitForDelay(WINDOW_MODE_FADE_MS);
     windowModeTransitionRef.current = false;
+    if (isTauri()) {
+      await invoke('sample_memory_diagnostics', { reason: 'mode-full-settled' }).catch(() => {});
+    }
   }, []);
 
   const toggleMiniMode = useCallback(() => {
@@ -549,15 +636,29 @@ export const App: React.FC = () => {
     setMiniLyricsMode('closed');
   }, [isMiniMode, resizeMiniWindow]);
 
+  const getTrackWithDetails = useCallback(async (track: Track): Promise<Track> => {
+    if (!isTauri()) return track;
+    try {
+      return await hydrateTrackDetails(track);
+    } catch (error) {
+      console.warn('Unable to load track details from SQLite:', error);
+      return track;
+    }
+  }, []);
+
+  const openTrackDetails = useCallback(async (track: Track) => {
+    setTrackDetailsTarget(await getTrackWithDetails(track));
+  }, [getTrackWithDetails]);
+
   const openMiniTrackDetails = useCallback(async (track: Track) => {
-    setTrackDetailsTarget(track);
+    setTrackDetailsTarget(await getTrackWithDetails(track));
     if (!isTauri()) return;
     try {
       await invoke('show_track_details_window');
     } catch (error) {
       console.error('Unable to open the separate track details window:', error);
     }
-  }, []);
+  }, [getTrackWithDetails]);
 
   const openMiniEqualizer = useCallback(async () => {
     setIsEQOpen(false);
@@ -799,7 +900,20 @@ export const App: React.FC = () => {
     } else {
       miniLyricsChannelRef.current?.postMessage({ type: 'state', payload: miniLyricsPayloadRef.current });
     }
-  }, [currentTrack, currentTime, isPlaying, language, isMiniMode, miniLyricsMode]);
+  }, [currentTrack, language, isMiniMode, miniLyricsMode]);
+
+  useEffect(() => {
+    const progress: LyricsWindowProgress = {
+      trackId: currentTrack?.id ?? null,
+      currentTime,
+      isPlaying,
+    };
+    if (isTauri()) {
+      void emitTo('lyrics', LYRICS_WINDOW_EVENTS.progress, progress).catch(() => {});
+    } else {
+      miniLyricsChannelRef.current?.postMessage({ type: 'progress', payload: progress });
+    }
+  }, [currentTrack?.id, currentTime, isPlaying]);
 
   useEffect(() => {
     languageRef.current = language;
@@ -820,6 +934,83 @@ export const App: React.FC = () => {
   useEffect(() => {
     tracksRef.current = tracks;
   }, [tracks]);
+
+  const loadNativeTracksPage = useCallback(async (reset = false) => {
+    if (!isTauri() || !startupDataLoaded) return;
+    if (nativePageLoadingRef.current && !reset) return;
+
+    const generation = reset ? ++nativePageGenerationRef.current : nativePageGenerationRef.current;
+    const offset = reset ? 0 : nativePageOffsetRef.current;
+    nativePageLoadingRef.current = true;
+    setNativePageLoading(true);
+    if (reset) {
+      nativePageOffsetRef.current = 0;
+      setTracks([]);
+      tracksRef.current = [];
+    }
+
+    try {
+      const playlist = selectedPlaylistId
+        ? playlists.find(item => item.id === selectedPlaylistId)
+        : currentView === 'favorites' && sortBy === 'custom'
+          ? playlists.find(item => item.id === 'pl_favorites')
+          : undefined;
+      let incoming: TrackSummary[];
+      let total: number;
+      if (playlist) {
+        const pageIds = playlist.trackIds.slice(offset, offset + 300);
+        incoming = await libraryRepository.byIdsPage(playlist.trackIds, offset, 300);
+        total = playlist.trackIds.length;
+        // byIds preserves request order but can omit IDs removed from the native database.
+        if (pageIds.length === 0) total = offset;
+      } else {
+        const filterKind = selectedAlbum ? 'album' : selectedArtist ? 'artist' : selectedGenre ? 'genre' : undefined;
+        const noAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
+        const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
+        const noGenreLabel = language === 'ru' ? 'Без жанра' : 'No Genre';
+        let filterValue = selectedAlbum || selectedArtist || selectedGenre || '';
+        if ((filterKind === 'album' && filterValue === noAlbumLabel)
+          || (filterKind === 'artist' && filterValue === unknownArtistLabel)
+          || (filterKind === 'genre' && filterValue === noGenreLabel)) filterValue = '';
+        const page = await libraryRepository.page({
+          search: searchQuery,
+          sortBy: sortBy === 'custom' ? 'title' : sortBy,
+          descending: sortOrder === 'desc',
+          offset,
+          limit: 300,
+          filterKind,
+          filterValue,
+          favoriteOnly: currentView === 'favorites',
+        });
+        incoming = page.items;
+        total = page.total;
+      }
+      if (generation !== nativePageGenerationRef.current) return;
+      const hydrated = hydrateNativeSummaryRows(incoming);
+      const knownIds = new Set(tracksRef.current.map(item => item.id));
+      const merged = reset
+        ? hydrated
+        : [...tracksRef.current, ...hydrated.filter(item => !knownIds.has(item.id))];
+      tracksRef.current = merged;
+      previousTracksForDbRef.current = merged;
+      setTracks(merged);
+      setNativeTrackTotal(total);
+      nativePageOffsetRef.current = offset + 300;
+    } catch (error) {
+      console.warn('Unable to load a SQLite library page:', error);
+    } finally {
+      if (generation === nativePageGenerationRef.current) {
+        nativePageLoadingRef.current = false;
+        setNativePageLoading(false);
+      }
+    }
+  }, [startupDataLoaded, selectedPlaylistId, currentView, sortBy, sortOrder, playlists, selectedAlbum, selectedArtist, selectedGenre, language, searchQuery]);
+
+  useEffect(() => {
+    if (!isTauri() || !startupDataLoaded) return;
+    void loadNativeTracksPage(true);
+  }, [loadNativeTracksPage]);
+
 
   useEffect(() => {
     currentTrackRef.current = currentTrack;
@@ -875,14 +1066,14 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // Load Portable Data on Startup (strictly from arachnid_data.json next to exe in Tauri)
+  // Load playlist and preference data; SQLite remains the native media catalog.
   useEffect(() => {
     const loadData = async () => {
       try {
         let rawJson: string | null = null;
         if (isTauri()) {
           const res = await invoke<string | null>('load_portable_data');
-          if (res) rawJson = res;
+          rawJson = res || '{}';
         } else {
           rawJson = localStorage.getItem('arachnid_portable_data');
         }
@@ -890,164 +1081,97 @@ export const App: React.FC = () => {
         if (rawJson) {
           const parsed = JSON.parse(rawJson);
           const validIdMap = new Map<string, string>();
-          if (parsed.tracks && Array.isArray(parsed.tracks)) {
-            // Deduplicate tracks from stored cache and build remapping
+          if (isTauri()) {
+            const legacyTracks: any[] = Array.isArray(parsed.tracks) ? parsed.tracks : [];
+            // The native catalog is rebuilt from disk. M3U IDs are connected through
+            // native path references below; never deduplicate playlist IDs by title/artist.
+
+            const catalogWasEmpty = await libraryRepository.count() === 0;
+            if (catalogWasEmpty) {
+              await invoke<number>('library_db_seed_legacy_from_disk');
+            }
+            // Keep playlist IDs as path references, not catalog rows. The scan below
+            // creates the SQLite catalog from real files while preserving M3U IDs.
+            const playlistReferences = legacyTracks
+              .filter(track => typeof track?.id === 'string' && track.id && typeof track?.path === 'string' && track.path)
+              .map(track => ({
+                id: track.id,
+                path: track.path,
+                isFavorite: Boolean(track.isFavorite),
+                playCount: Number.isFinite(track.playCount) ? track.playCount : 0,
+                dateAdded: Number.isFinite(track.dateAdded) ? track.dateAdded : 0,
+              }));
+            if (playlistReferences.length > 0) {
+              await invoke<number>('library_db_seed_playlist_track_references', { references: playlistReferences });
+            }
+
+            const loadNativeCatalog = async (): Promise<Track[]> => {
+              const page = await libraryRepository.page({ sortBy: 'title', descending: false, offset: 0, limit: 300 });
+              setNativeTrackTotal(page.total);
+              nativePageOffsetRef.current = page.items.length;
+              return hydrateNativeSummaryRows(page.items);
+            };
+
+            const existingCount = await libraryRepository.count();
+            const getScanPathPlan = async () => {
+              const portableMusicPath = await invoke<string>('get_portable_music_path');
+              const scanRoots = [portableMusicPath, ...(Array.isArray(parsed.watchedFolders) ? parsed.watchedFolders : [])];
+              return buildLibraryScanPathPlan(scanRoots, playlistReferences.map(track => track.path));
+            };
+            const getScanPaths = async (): Promise<string[]> => (await getScanPathPlan()).scanPaths;
+            const initialScanPathPlan = await getScanPathPlan();
+            if (catalogWasEmpty) {
+              // The first catalog must be populated even if future startup scans are disabled.
+              await invoke<number>('scan_library_to_database', { paths: initialScanPathPlan.scanPaths });
+            } else if (parsed.autoScanOnStartup === false && initialScanPathPlan.uncoveredPlaylistPaths.length > 0) {
+              // Index M3U files outside watched roots when automatic startup scans are disabled.
+              await invoke<number>('scan_library_to_database', { paths: initialScanPathPlan.uncoveredPlaylistPaths });
+            }
+
+            const hydrated = await loadNativeCatalog();
+            setTracks(hydrated);
+            tracksRef.current = hydrated;
+            previousTracksForDbRef.current = hydrated;
+            verifyTracksExistence(hydrated, true);
+
+            if (existingCount > 0 && parsed.autoScanOnStartup !== false) {
+              window.setTimeout(async () => {
+                try {
+                  await invoke<number>('scan_library_to_database', { paths: await getScanPaths() });
+                  const refreshed = await loadNativeCatalog();
+                  setTracks(refreshed);
+                  tracksRef.current = refreshed;
+                  previousTracksForDbRef.current = refreshed;
+                } catch (error) {
+                  console.warn('Startup library scan error:', error);
+                }
+              }, 600);
+            }
+          } else if (parsed.tracks && Array.isArray(parsed.tracks)) {
+            // Browser fallback retains its existing local-storage schema and hydration behavior.
             const seenPaths = new Map<string, string>();
             const seenKeys = new Map<string, string>();
             const seenIds = new Set<string>();
             const cleanTracks: Track[] = [];
-
-            for (const t of parsed.tracks) {
-              const normPath = normalizeTrackPath(t.path);
-              const key = `${(t.title || '').trim().toLowerCase()}|||${(t.artist || '').trim().toLowerCase()}`;
-
+            for (const track of parsed.tracks) {
+              const normPath = normalizeTrackPath(track.path);
+              const key = `${(track.title || '').trim().toLowerCase()}|||${(track.artist || '').trim().toLowerCase()}`;
               if (normPath && seenPaths.has(normPath)) {
-                validIdMap.set(t.id, seenPaths.get(normPath)!);
+                validIdMap.set(track.id, seenPaths.get(normPath)!);
                 continue;
               }
               if (key !== '|||' && key !== 'unknown|||unknown artist' && seenKeys.has(key)) {
-                validIdMap.set(t.id, seenKeys.get(key)!);
+                validIdMap.set(track.id, seenKeys.get(key)!);
                 continue;
               }
-              if (seenIds.has(t.id)) {
-                continue;
-              }
-
-              if (normPath) seenPaths.set(normPath, t.id);
-              if (key !== '|||' && key !== 'unknown|||unknown artist') seenKeys.set(key, t.id);
-              seenIds.add(t.id);
-              cleanTracks.push(t);
+              if (seenIds.has(track.id)) continue;
+              if (normPath) seenPaths.set(normPath, track.id);
+              if (key !== '|||' && key !== 'unknown|||unknown artist') seenKeys.set(key, track.id);
+              seenIds.add(track.id);
+              cleanTracks.push(track);
             }
-
-            // Re-convert native paths and cover paths to fresh asset URLs
-            const hydrated = cleanTracks.map((t: Track) => {
-              let coverArt = t.coverArt;
-              if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
-                coverArt = convertFileSrc(coverArt);
-              }
-              return {
-                ...t,
-                src: t.path && isTauri() ? convertFileSrc(t.path) : t.src,
-                coverArt,
-                format: t.format || getAudioFormatFromPath(t.path || t.localFile?.name || t.src),
-              };
-            });
-            setTracks(hydrated);
-            tracksRef.current = hydrated;
-            verifyTracksExistence(hydrated, true);
-
-            // Auto-scan portable music/ folder and watchedFolders on startup if enabled
-            if (isTauri() && parsed.autoScanOnStartup !== false) {
-              setTimeout(async () => {
-                try {
-                  const portableMusicPath = await invoke<string>('get_portable_music_path');
-                  const foldersToScan = [portableMusicPath, ...(parsed.watchedFolders || [])];
-                  const raw = await invoke<any[]>('read_audio_files', { paths: foldersToScan });
-                  if (raw && raw.length > 0) {
-                    const currentTrackMap = new Map(tracksRef.current.map(t => [normalizeTrackPath(t.path), t]));
-                    const currentPaths = new Set(tracksRef.current.map(t => normalizeTrackPath(t.path)).filter(Boolean));
-                    const currentKeys = new Set(tracksRef.current.map(t => `${t.title.trim().toLowerCase()}|||${t.artist.trim().toLowerCase()}`));
-                    const newFound: Track[] = [];
-                    const updatedCoversMap = new Map<string, string>();
-
-                    for (const m of raw) {
-                      const normPath = normalizeTrackPath(m.path);
-                      let coverArt = m.cover_art || undefined;
-                      if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
-                        coverArt = convertFileSrc(coverArt);
-                      }
-
-                      const existingTrack = normPath ? currentTrackMap.get(normPath) : undefined;
-                      if (existingTrack) {
-                        if (!existingTrack.coverArt && coverArt) {
-                          updatedCoversMap.set(existingTrack.id, coverArt);
-                        }
-                        continue;
-                      }
-
-                      const key = `${(m.title || '').trim().toLowerCase()}|||${(m.artist || '').trim().toLowerCase()}`;
-                      if (key !== '|||' && key !== 'unknown|||unknown artist' && currentKeys.has(key)) {
-                        continue;
-                      }
-                      if (normPath) currentPaths.add(normPath);
-                      if (key !== '|||' && key !== 'unknown|||unknown artist') currentKeys.add(key);
-
-                      const newT: Track = {
-                        id: m.id || `track_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-                        path: m.path,
-                        title: m.title || 'Unknown',
-                        artist: m.artist || 'Unknown Artist',
-                        album: m.album || 'Unknown Album',
-                        duration: m.duration_seconds || 0,
-                        src: convertFileSrc(m.path),
-                        coverArt,
-                        genre: m.genre || undefined,
-                        year: m.year || undefined,
-                        trackNumber: m.track_number || undefined,
-                        format: m.format || getAudioFormatFromPath(m.path),
-                        dateAdded: Date.now(),
-                        playCount: 0,
-                        isFavorite: false,
-                      };
-                      newFound.push(newT);
-                    }
-                    if (updatedCoversMap.size > 0 || newFound.length > 0) {
-                      setTracks(prev => {
-                        let updated = prev;
-                        if (updatedCoversMap.size > 0) {
-                          updated = updated.map(t => {
-                            const newCover = updatedCoversMap.get(t.id);
-                            return newCover ? { ...t, coverArt: newCover } : t;
-                          });
-                        }
-                        if (newFound.length > 0) {
-                          updated = appendUniqueTracks(updated, newFound);
-                        }
-                        return updated;
-                      });
-                    }
-                  }
-                } catch (e) {
-                  console.warn('Startup library scan error:', e);
-                }
-              }, 600);
-            }
-
-            // Auto-refresh metadata in background only for tracks missing essential tags (Unknown title/artist or missing cover)
-            if (isTauri()) {
-              const pathsToRefresh = hydrated
-                .filter(t => t.path && (!t.coverArt || t.title === 'Unknown' || t.artist === 'Unknown Artist'))
-                .slice(0, 500)
-                .map(t => t.path as string);
-              if (pathsToRefresh.length > 0) {
-                invoke<any[]>('read_audio_files', { paths: pathsToRefresh }).then(refreshed => {
-                  if (refreshed && refreshed.length > 0) {
-                    const refreshedMap = new Map<string, any>(refreshed.map(r => [normalizeTrackPath(r.path), r]));
-                    setTracks(prev => prev.map(t => {
-                      if (!t.path) return t;
-                      const r = refreshedMap.get(normalizeTrackPath(t.path));
-                      if (!r) return t;
-                      let refreshedCover = r.cover_art;
-                      if (refreshedCover && !refreshedCover.startsWith('http') && !refreshedCover.startsWith('data:') && isTauri()) {
-                        refreshedCover = convertFileSrc(refreshedCover);
-                      }
-                      return {
-                        ...t,
-                        title: t.title === 'Unknown' || !t.title ? r.title : t.title,
-                        artist: t.artist === 'Unknown Artist' || !t.artist ? r.artist : t.artist,
-                        album: t.album === 'Unknown Album' || !t.album ? r.album : t.album,
-                        coverArt: t.coverArt || refreshedCover || undefined,
-                        format: t.format || r.format || getAudioFormatFromPath(t.path),
-                        lyrics: t.lyrics || r.lyrics || undefined,
-                        genre: t.genre || r.genre || undefined,
-                        year: t.year || r.year || undefined,
-                        trackNumber: t.trackNumber || r.track_number || undefined,
-                      };
-                    }));
-                  }
-                }).catch(err => console.warn('Background tag refresh error:', err));
-              }
-            }
+            setTracks(cleanTracks);
+            tracksRef.current = cleanTracks;
           }
           if (parsed.playlists && Array.isArray(parsed.playlists) && parsed.playlists.length > 0) {
             setPlaylists(parsed.playlists.map((p: Playlist) => {
@@ -1098,22 +1222,119 @@ export const App: React.FC = () => {
           if (typeof parsed.fadeDuration === 'number') setFadeDuration(parsed.fadeDuration);
           if (Array.isArray(parsed.watchedFolders)) setWatchedFolders(parsed.watchedFolders);
           if (typeof parsed.autoScanOnStartup === 'boolean') setAutoScanOnStartup(parsed.autoScanOnStartup);
+          if (parsed.closeBehavior === 'exit' || parsed.closeBehavior === 'tray') {
+            setCloseBehavior(parsed.closeBehavior);
+            if (isTauri()) {
+              await invoke('set_close_to_tray', { enabled: parsed.closeBehavior === 'tray' }).catch(error => {
+                console.warn('Failed to sync close behavior with native window:', error);
+              });
+            }
+          }
+          if (parsed.startupInterface === 'full' || parsed.startupInterface === 'mini') {
+            setStartupInterface(parsed.startupInterface);
+          }
         }
       } catch (err) {
         console.warn('Could not load portable data:', err);
       } finally {
         isLoadedRef.current = true;
+        setStartupDataLoaded(true);
       }
     };
 
     loadData();
   }, []);
 
-  // Save Portable Data whenever library, playlists, or settings change
+  useEffect(() => {
+    if (!isTauri() || !startupDataLoaded) return;
+    invoke('set_tray_language', { language }).catch(error => {
+      console.warn('Failed to update system tray language:', error);
+    });
+  }, [language, startupDataLoaded]);
+
+  // Persist artwork display preferences separately so settings-only changes do not serialize the library.
   useEffect(() => {
     if (!isLoadedRef.current) return;
+    try {
+      localStorage.setItem('arachnid_theme_cache', JSON.stringify({
+        themeMode,
+        seedColor,
+        secondarySeedColor,
+        appTheme,
+        language,
+        colorSchemeMode,
+      }));
+    } catch (_) {}
+  }, [themeMode, seedColor, secondarySeedColor, appTheme, language, colorSchemeMode]);
 
-    const dataToSave = {
+  // Persist only changed track rows to SQLite. Unchanged row objects are reused by state updates,
+  // so one favorite/tag/metadata edit never serializes the full catalog.
+  useEffect(() => {
+    if (!isTauri() || !startupDataLoaded) return;
+    const previous = previousTracksForDbRef.current;
+    if (previous === tracks) return;
+    const previousById = new Map(previous.map(track => [track.id, track]));
+    const upserts: Track[] = [];
+    for (const track of tracks) {
+      const prior = previousById.get(track.id);
+      if (!prior || !isPersistedTrackEqual(prior, track)) upserts.push(track);
+    }
+    // A paged or filtered React collection is only a window into SQLite. Its missing rows
+    // are not deletions; explicit delete actions issue bounded repository deletes instead.
+    previousTracksForDbRef.current = tracks;
+    if (upserts.length === 0) return;
+
+    const write = libraryWriteQueueRef.current.catch(() => {}).then(async () => {
+      await libraryRepository.upsertBatch(upserts);
+    });
+    libraryWriteQueueRef.current = write.catch(error => {
+      console.warn('Failed to persist library changes to SQLite:', error);
+    });
+  }, [tracks, startupDataLoaded]);
+
+  // Desktop playlist/settings persistence deliberately excludes the track catalog.
+  useEffect(() => {
+    if (!isTauri() || !isLoadedRef.current) return;
+    const dataToSave = JSON.stringify({ playlists, playlistFolders, playlistGroups });
+    void libraryWriteQueueRef.current.then(() => invoke('save_portable_data', { data: dataToSave })).catch(error => {
+      console.warn('Failed to save playlists:', error);
+    });
+  }, [playlists, playlistFolders, playlistGroups, startupDataLoaded]);
+
+  // Settings have a separate file and command, avoiding a stringify/copy of all tracks on preference changes.
+  useEffect(() => {
+    if (!isTauri() || !isLoadedRef.current) return;
+    const settings = {
+      themeMode,
+      seedColor,
+      secondarySeedColor,
+      appTheme,
+      language,
+      discordEnabled,
+      showDiscordButton,
+      discordShowPlayIcon,
+      discordShowPauseIcon,
+      discordStatusMode,
+      discordCustomClientId,
+      visibleTabs,
+      colorSchemeMode,
+      isDynamicColor: colorSchemeMode === 'dynamic',
+      fadeMode,
+      fadeDuration,
+      watchedFolders,
+      autoScanOnStartup,
+      closeBehavior,
+      startupInterface,
+    };
+    invoke('save_portable_settings', { data: JSON.stringify(settings) }).catch(error => {
+      console.warn('Failed to save settings:', error);
+    });
+  }, [themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface, startupDataLoaded]);
+
+  // Browser-only fallback retains its existing single localStorage document format.
+  useEffect(() => {
+    if (isTauri() || !isLoadedRef.current) return;
+    const dataToSave = JSON.stringify({
       tracks,
       playlists,
       playlistFolders,
@@ -1136,63 +1357,66 @@ export const App: React.FC = () => {
       fadeDuration,
       watchedFolders,
       autoScanOnStartup,
-    };
-
-    const jsonString = JSON.stringify(dataToSave);
-
+      closeBehavior,
+      startupInterface,
+    });
     try {
-      localStorage.setItem('arachnid_theme_cache', JSON.stringify({
-        themeMode,
-        seedColor,
-        secondarySeedColor,
-        appTheme,
-        language,
-        colorSchemeMode,
-      }));
-    } catch (_) {}
-
-    if (isTauri()) {
-      invoke('save_portable_data', { data: jsonString }).catch((e) => {
-        console.warn('Failed to save to portable folder:', e);
-      });
-    } else {
-      localStorage.setItem('arachnid_portable_data', jsonString);
+      localStorage.setItem('arachnid_portable_data', dataToSave);
+    } catch (error) {
+      console.warn('Failed to save browser library data:', error);
     }
-  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup]);
+  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface]);
 
-  // Safety fallback: reveal window in case TitleBar unmounted or delayed
+  // Reveal the native window only after portable preferences have loaded, so the
+  // selected startup layout is already active when the user sees it.
   useEffect(() => {
-    if (isTauri()) {
-      const timer = setTimeout(async () => {
-        try {
-          const win = getCurrentWebviewWindow();
-          await win.show();
-          await win.setFocus();
-        } catch (_) {
-          try {
-            await invoke('show_window');
-          } catch (_) {}
+    if (!startupDataLoaded || startupInterfaceAppliedRef.current) return;
+    startupInterfaceAppliedRef.current = true;
+
+    const revealWindow = async () => {
+      const logStartup = (message: string) => invoke('client_log', {
+        level: 'INFO',
+        tag: 'WINDOW_STARTUP',
+        message,
+      }).catch(() => {});
+      await logStartup(`Applying ${startupInterface} startup interface.`);
+      if (startupInterface === 'mini') {
+        await enterMiniMode();
+        await logStartup('Mini interface layout applied.');
+      }
+
+      if (isTauri()) {
+        const win = getCurrentWebviewWindow();
+        if (startupInterface === 'full' && !(await win.isMaximized().catch(() => false))) {
+          await win.maximize().catch(() => {});
         }
-      }, 150);
-      return () => clearTimeout(timer);
-    }
-  }, []);
+        await logStartup('Showing the main window.');
+        await win.show();
+        await logStartup('Main window shown; waiting for its native surface to settle.');
+        await waitForDelay(120);
+        await win.setFocus();
+        await logStartup('Native window focus restored; setting WebView focus.');
+        await getCurrentWebview().setFocus();
+        await logStartup('Main window and WebView focus restored after startup layout was applied.');
+      }
+    };
 
-  // Automated background memory optimization (trims cold working set pages in Windows)
-  useEffect(() => {
-    if (!isTauri()) return;
-    const interval = setInterval(() => {
-      invoke('trim_memory').catch(() => {});
-    }, 60000);
-    const handleBlur = () => {
-      invoke('trim_memory').catch(() => {});
-    };
-    window.addEventListener('blur', handleBlur);
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('blur', handleBlur);
-    };
-  }, []);
+    void revealWindow().catch(error => {
+      console.warn('Could not apply startup interface:', error);
+      void invoke('client_log', {
+        level: 'ERROR',
+        tag: 'WINDOW_STARTUP',
+        message: `Could not apply startup interface: ${String(error)}`,
+      }).catch(() => {});
+      if (isTauri()) {
+        const win = getCurrentWebviewWindow();
+        void invoke('show_window').then(async () => {
+          await win.setFocus();
+          await getCurrentWebview().setFocus();
+        }).catch(() => {});
+      }
+    });
+  }, [startupDataLoaded, startupInterface, enterMiniMode]);
 
   // Prevent default browser right-click menu
   useEffect(() => {
@@ -1788,6 +2012,64 @@ export const App: React.FC = () => {
     return tracks.filter(t => !isolatedTrackIds.has(t.id));
   }, [tracks, isolatedTrackIds]);
 
+  const currentCollectionKind: LibraryCollectionKind | null = currentView === 'albums'
+    ? 'albums'
+    : currentView === 'artists'
+      ? 'artists'
+      : currentView === 'genres'
+        ? 'genres'
+        : null;
+  const currentCollectionQueryMatches = Boolean(currentCollectionKind && databaseCollectionGroupsKey
+    && databaseCollectionGroupsKey.kind === currentCollectionKind
+    && databaseCollectionGroupsKey.language === language
+    && databaseCollectionGroupsKey.searchQuery === searchQuery
+    && databaseCollectionGroupsKey.isolatedTrackIds === isolatedTrackIds);
+  const currentCollectionQueryFailed = currentCollectionQueryMatches && databaseCollectionGroupsError;
+
+  useEffect(() => {
+    const kind = currentCollectionKind;
+    if (!isTauri() || !startupDataLoaded || !kind) {
+      setDatabaseCollectionGroups(null);
+      setDatabaseCollectionGroupsError(false);
+      setDatabaseCollectionGroupsKey(null);
+      return;
+    }
+    if (selectedAlbum || selectedArtist || selectedGenre) {
+      setDatabaseCollectionGroups(previous => previous?.map(group => ({
+        ...group,
+        trackCount: group.trackCount ?? group.trackIds.length,
+        trackIds: [],
+      })) ?? null);
+      setDatabaseCollectionGroupsError(false);
+      setDatabaseCollectionGroupsKey(null);
+      return;
+    }
+    let active = true;
+    setDatabaseCollectionGroups(null);
+    setDatabaseCollectionGroupsError(false);
+    setDatabaseCollectionGroupsKey(null);
+    void libraryRepository.collectionGroups(kind, language, searchQuery, [...isolatedTrackIds]).then(groups => {
+      if (!active) return;
+      setDatabaseCollectionGroups(groups.map(group => ({
+        ...group,
+        coverArt: group.coverArt && !group.coverArt.startsWith('http') && !group.coverArt.startsWith('data:')
+          ? convertFileSrc(group.coverArt)
+          : group.coverArt,
+      })));
+      setDatabaseCollectionGroupsError(false);
+      setDatabaseCollectionGroupsKey({ kind, language, searchQuery, isolatedTrackIds });
+    }).catch(error => {
+      console.warn(`Failed to load ${kind} from SQLite:`, error);
+      if (active) {
+        setDatabaseCollectionGroups(null);
+        setDatabaseCollectionGroupsError(true);
+        setDatabaseCollectionGroupsKey({ kind, language, searchQuery, isolatedTrackIds });
+      }
+    });
+    return () => { active = false; };
+  }, [currentCollectionKind, startupDataLoaded, selectedAlbum, selectedArtist, selectedGenre, language, searchQuery, isolatedTrackIds]);
+
+
   // Filtered and Sorted Tracks
   const filteredTracks = useMemo(() => {
     let result = [...tracks];
@@ -1806,14 +2088,16 @@ export const App: React.FC = () => {
       }
 
       if (selectedAlbum) {
-        result = result.filter(t => (t.album ? t.album.trim() : 'Без альбома') === selectedAlbum);
+        const noAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
+        result = result.filter(t => (t.album?.trim() || noAlbumLabel) === selectedAlbum);
       } else if (selectedArtist) {
-        result = result.filter(t => (t.artist ? t.artist.trim() : 'Неизвестный исполнитель') === selectedArtist);
+        const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
+        result = result.filter(t => (t.artist?.trim() || unknownArtistLabel) === selectedArtist);
       } else if (selectedGenre) {
+        const noGenreLabel = language === 'ru' ? 'Без жанра' : 'No Genre';
         result = result.filter(t => {
-          if (!t.genre) return selectedGenre === 'Без жанра';
-          const list = t.genre.split(/[,/;\\]+/).map(g => g.trim()).filter(Boolean);
-          return list.length > 0 ? list.includes(selectedGenre) : selectedGenre === 'Без жанра';
+          const list = t.genre?.split(/[,/;\\]+/).map(g => g.trim()).filter(Boolean) || [];
+          return list.length > 0 ? list.includes(selectedGenre) : selectedGenre === noGenreLabel;
         });
       } else if (currentView === 'favorites') {
         const plFav = playlists.find(p => p.id === 'pl_favorites');
@@ -1863,7 +2147,7 @@ export const App: React.FC = () => {
     }
 
     return result;
-  }, [tracks, selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, currentView, searchQuery, sortBy, sortOrder, playlists, isolatedTrackIds]);
+  }, [tracks, selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, currentView, searchQuery, sortBy, sortOrder, playlists, isolatedTrackIds, language]);
 
   useEffect(() => {
     filteredTracksRef.current = filteredTracks;
@@ -1923,29 +2207,33 @@ export const App: React.FC = () => {
     }
     if (selectedAlbum) {
       const unknownAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
-      const albumTracks = nonIsolatedTracks.filter(t => (t.album ? t.album.trim() : unknownAlbumLabel) === selectedAlbum);
-      const firstCover = albumTracks.find(t => t.coverArt)?.coverArt;
-      const artist = albumTracks[0]?.artist || (language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist');
-      const totalDur = albumTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
+      const albumTracks = nonIsolatedTracks.filter(t => (t.album?.trim() || unknownAlbumLabel) === selectedAlbum);
+      const albumGroup = databaseCollectionGroups?.find(group => group.name === selectedAlbum);
+      const firstCover = albumGroup?.coverArt || albumTracks.find(t => t.coverArt)?.coverArt;
+      const artist = albumGroup?.artist || albumTracks[0]?.artist?.trim() || (language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist');
+      const trackCount = albumGroup?.trackCount ?? albumGroup?.trackIds.length ?? albumTracks.length;
+      const totalDur = albumGroup?.totalDuration ?? albumTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
       const durText = formatDurationText(totalDur);
       return {
         type: 'album' as const,
         title: selectedAlbum,
-        subtitle: `${artist} • ${albumTracks.length} ${language === 'ru' ? 'трек(ов)' : 'tracks'}${durText ? ` • ${durText}` : ''}`,
+        subtitle: `${artist} • ${trackCount} ${language === 'ru' ? 'трек(ов)' : 'tracks'}${durText ? ` • ${durText}` : ''}`,
         coverArt: firstCover,
         icon: <Disc3 className="w-8 h-8" />,
       };
     }
     if (selectedArtist) {
       const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
-      const artistTracks = nonIsolatedTracks.filter(t => (t.artist ? t.artist.trim() : unknownArtistLabel) === selectedArtist);
-      const firstCover = artistTracks.find(t => t.coverArt)?.coverArt;
-      const totalDur = artistTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
+      const artistTracks = nonIsolatedTracks.filter(t => (t.artist?.trim() || unknownArtistLabel) === selectedArtist);
+      const artistGroup = databaseCollectionGroups?.find(group => group.name === selectedArtist);
+      const firstCover = artistGroup?.coverArt || artistTracks.find(t => t.coverArt)?.coverArt;
+      const trackCount = artistGroup?.trackCount ?? artistGroup?.trackIds.length ?? artistTracks.length;
+      const totalDur = artistGroup?.totalDuration ?? artistTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
       const durText = formatDurationText(totalDur);
       return {
         type: 'artist' as const,
         title: selectedArtist,
-        subtitle: `${artistTracks.length} ${language === 'ru' ? 'трек(ов)' : 'tracks'}${durText ? ` • ${durText}` : ''}`,
+        subtitle: `${trackCount} ${language === 'ru' ? 'трек(ов)' : 'tracks'}${durText ? ` • ${durText}` : ''}`,
         coverArt: firstCover,
         icon: <Mic2 className="w-8 h-8" />,
       };
@@ -1957,19 +2245,21 @@ export const App: React.FC = () => {
         const list = t.genre.split(/[,/;\\]+/).map(g => g.trim()).filter(Boolean);
         return list.length > 0 ? list.includes(selectedGenre) : selectedGenre === unknownGenreLabel;
       });
-      const firstCover = genreTracks.find(t => t.coverArt)?.coverArt;
-      const totalDur = genreTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
+      const genreGroup = databaseCollectionGroups?.find(group => group.name === selectedGenre);
+      const firstCover = genreGroup?.coverArt || genreTracks.find(t => t.coverArt)?.coverArt;
+      const trackCount = genreGroup?.trackCount ?? genreGroup?.trackIds.length ?? genreTracks.length;
+      const totalDur = genreGroup?.totalDuration ?? genreTracks.reduce((acc, t) => acc + (t.duration && !isNaN(t.duration) ? t.duration : 0), 0);
       const durText = formatDurationText(totalDur);
       return {
         type: 'genre' as const,
         title: selectedGenre,
-        subtitle: `${genreTracks.length} ${language === 'ru' ? 'трек(ов)' : 'tracks'}${durText ? ` • ${durText}` : ''}`,
+        subtitle: `${trackCount} ${language === 'ru' ? 'трек(ов)' : 'tracks'}${durText ? ` • ${durText}` : ''}`,
         coverArt: firstCover,
         icon: <Tag className="w-8 h-8" />,
       };
     }
     return null;
-  }, [selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, playlists, tracks, nonIsolatedTracks, language]);
+  }, [selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, playlists, tracks, nonIsolatedTracks, language, databaseCollectionGroups]);
 
   const searchPlaceholder = useMemo(() => {
     if (currentDetail) {
@@ -2039,6 +2329,13 @@ export const App: React.FC = () => {
       const focusedInput = keyboardTarget?.closest('input') as HTMLInputElement | null;
       const isTextInput = !!focusedInput && !['range', 'checkbox', 'radio', 'button', 'submit', 'file', 'color'].includes(focusedInput.type);
       const isTypingTarget = isTextInput || !!keyboardTarget?.closest('textarea, select, [contenteditable="true"]');
+      if (e.shiftKey && (e.code === 'KeyT' || e.key.toLowerCase() === 't') && isTauri()) {
+        void invoke('log_keyboard_probe', {
+          target: keyboardTarget?.tagName || 'none',
+          typingTarget: isTypingTarget,
+          focusedId: (document.activeElement as HTMLElement | null)?.id || '',
+        }).catch(() => {});
+      }
       const repeatableCodes = new Set(['Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
       if (e.repeat && !repeatableCodes.has(e.code) && (!isTypingTarget || e.ctrlKey || e.metaKey)) {
         e.preventDefault();
@@ -2353,7 +2650,17 @@ export const App: React.FC = () => {
         handlePrev();
       } else if (e.code === 'KeyA' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        setSelectedTrackIds(new Set(filteredTracks.map(t => t.id)));
+        if (isTauri()) {
+          void loadFullNativePlaybackContext(filteredTracksRef.current).then(all => {
+            const ids = new Set(all.map(track => track.id));
+            selectedTrackIdsRef.current = ids;
+            setSelectedTrackIds(ids);
+          });
+        } else {
+          const ids = new Set(filteredTracks.map(track => track.id));
+          selectedTrackIdsRef.current = ids;
+          setSelectedTrackIds(ids);
+        }
       } else if (e.code === 'Delete' || e.key === 'Delete') {
         const anyModalOpen = isSettingsOpen || isEQOpen || isLyricsOpen || isQueueOpen || isBatchTagEditorOpen ||
           isCreatePlaylistOpen || isCreateFolderOpen || isCreateGroupOpen || renameItemTarget ||
@@ -2574,13 +2881,13 @@ export const App: React.FC = () => {
       });
       setQueue(prev => prev.map(t => {
         const updates = updatedMap.get(t.id);
-        return updates ? { ...t, ...updates } : t;
+        return updates ? toTrackSummary({ ...t, ...updates }) : t;
       }));
     }
 
     if (toAdd.length > 0) {
       setTracks(prev => appendUniqueTracks(prev, toAdd));
-      setQueue(prev => [...prev, ...toAdd]);
+      setQueue(prev => [...prev, ...toAdd.map(toTrackSummary)]);
     }
 
     // If currently viewing a specific playlist, immediately add all tracks (new & existing) into it!
@@ -2611,6 +2918,12 @@ export const App: React.FC = () => {
       const first = toAdd[0] || newTracks[0];
       if (first) playTrackWithContext(first, newTracks);
     }
+
+    if (isTauri() && newTracks.some(track => Boolean(track.path))) {
+      void libraryWriteQueueRef.current.catch(() => {}).then(() => {
+        if (startupDataLoaded) void loadNativeTracksPage(true);
+      });
+    }
   };
 
   // Import native file paths in Tauri desktop with batching & debounce
@@ -2639,33 +2952,9 @@ export const App: React.FC = () => {
         try {
           const res = await invoke<{ name: string; paths: string[] }>('parse_m3u8_file', { path: plPath });
           if (res && res.paths.length > 0) {
-            const raw = await invoke<any[]>('read_audio_files', { paths: res.paths });
-            if (raw && raw.length > 0) {
-              const newPlTracks: Track[] = raw.map(t => ({
-                id: t.id,
-                path: t.path,
-                title: t.title,
-                artist: t.artist,
-                album: t.album,
-                duration: t.duration_seconds || 0,
-                src: convertFileSrc(t.path),
-                coverArt: t.cover_art ? convertFileSrc(t.cover_art) : undefined,
-                genre: t.genre || undefined,
-                year: t.year || undefined,
-                trackNumber: t.track_number || undefined,
-                trackTotal: t.track_total || undefined,
-                format: t.format,
-                fileSize: t.file_size,
-                lyrics: t.lyrics || undefined,
-                composer: t.composer || undefined,
-                contentGroup: t.content_group || undefined,
-                comment: t.comment || undefined,
-                conductor: t.conductor || undefined,
-                lyricist: t.lyricist || undefined,
-                dateAdded: Date.now(),
-                playCount: 0,
-                isFavorite: false,
-              }));
+            await invoke<number>('scan_library_to_database', { paths: res.paths });
+            const newPlTracks = hydrateNativeSummaryRows(await libraryRepository.byPaths(res.paths));
+            if (newPlTracks.length > 0) {
               const existingMap = new Map(tracksRef.current.map(t => [normalizeTrackPath(t.path), t.id]));
               const plTrackIds: string[] = [];
               const tracksToAdd: Track[] = [];
@@ -2700,42 +2989,11 @@ export const App: React.FC = () => {
       if (audioPaths.length === 0) return;
 
       try {
-        const rawTracks = await invoke<any[]>('read_audio_files', { paths: audioPaths });
-        if (!rawTracks || rawTracks.length === 0) return;
-
-        const newTracks: Track[] = rawTracks.map(t => {
-          let coverArt = t.cover_art || undefined;
-          if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
-            coverArt = convertFileSrc(coverArt);
-          }
-          return {
-            id: t.id,
-            path: t.path,
-            title: t.title,
-            artist: t.artist,
-            album: t.album,
-            duration: t.duration_seconds || 0,
-            src: convertFileSrc(t.path),
-            coverArt,
-            genre: t.genre || undefined,
-            year: t.year || undefined,
-            trackNumber: t.track_number || undefined,
-            trackTotal: t.track_total || undefined,
-            format: t.format,
-            fileSize: t.file_size,
-            lyrics: t.lyrics || undefined,
-            composer: t.composer || undefined,
-            contentGroup: t.content_group || undefined,
-            comment: t.comment || undefined,
-            conductor: t.conductor || undefined,
-            lyricist: t.lyricist || undefined,
-            dateAdded: Date.now(),
-            playCount: 0,
-            isFavorite: false,
-          };
-        });
-
-        processImportedTracks(newTracks);
+        await invoke<number>('scan_library_to_database', { paths: audioPaths });
+        const scannedRows = await libraryRepository.byPaths(audioPaths);
+        if (scannedRows.length > 0) {
+          processImportedTracks(hydrateNativeSummaryRows(scannedRows));
+        }
       } catch (err) {
         console.warn('Error reading Tauri dropped files:', err);
       }
@@ -2795,29 +3053,11 @@ export const App: React.FC = () => {
   const handleOpenFiles = async () => {
     if (isTauri()) {
       try {
-        const rawTracks = await invoke<any[]>('open_file_dialog');
-        if (rawTracks && rawTracks.length > 0) {
-          const newTracks: Track[] = rawTracks.map(t => ({
-            id: t.id,
-            path: t.path,
-            title: t.title,
-            artist: t.artist,
-            album: t.album,
-            duration: t.duration_seconds || 0,
-            src: convertFileSrc(t.path),
-            coverArt: t.cover_art || undefined,
-            genre: t.genre || undefined,
-            year: t.year || undefined,
-            trackNumber: t.track_number || undefined,
-            format: t.format,
-            fileSize: t.file_size,
-            lyrics: t.lyrics || undefined,
-            dateAdded: Date.now(),
-            playCount: 0,
-            isFavorite: false,
-          }));
-
-          processImportedTracks(newTracks);
+        const paths = await invoke<string[]>('open_file_dialog');
+        if (paths.length > 0) {
+          await invoke<number>('scan_library_to_database', { paths });
+          const rows = await libraryRepository.byPaths(paths);
+          processImportedTracks(hydrateNativeSummaryRows(rows));
         }
       } catch (err) {
         console.warn('Native open file dialog error:', err);
@@ -2950,12 +3190,14 @@ export const App: React.FC = () => {
       handleRelocateTrack(track);
       return;
     }
+    const detailedTrack = await getTrackWithDetails(track);
+    setQueue(prev => prev.map((item, itemIndex) => itemIndex === index ? toTrackSummary(detailedTrack) : item));
     setQueueIndex(index);
-    setCurrentTrack(track);
+    setCurrentTrack(detailedTrack);
     setCurrentTime(0);
-    setDuration(track.duration || 0);
+    setDuration(detailedTrack.duration || 0);
     try {
-      await audioEngine.playTrack(track.src, true, true, track.duration, track.path, fadeOutPrevious);
+      await audioEngine.playTrack(detailedTrack.src, true, true, detailedTrack.duration, detailedTrack.path, fadeOutPrevious);
       setIsPlaying(true);
     } catch (e) {
       console.warn('Queue playback start error:', e);
@@ -2970,25 +3212,121 @@ export const App: React.FC = () => {
     }
   };
 
-  // Starts playback of a track with context: populates the playback queue with all tracks from that view/playlist
-  // in their exact displayed order, and sets the active queue index to the clicked track.
-  const playTrackWithContext = async (track: Track, contextTracks?: Track[]) => {
+  const loadFullNativePlaybackContext = async (
+    fallback: Track[],
+    contextPlaylistId?: string,
+    collectionFilter?: { kind: LibraryCollectionKind; name: string },
+  ): Promise<Track[]> => {
+    if (!isTauri()) return fallback;
+    try {
+      await libraryWriteQueueRef.current.catch(() => {});
+      const orderedPlaylist = collectionFilter
+        ? undefined
+        : contextPlaylistId !== undefined
+          ? playlists.find(item => item.id === contextPlaylistId)
+        : selectedPlaylistId
+          ? playlists.find(item => item.id === selectedPlaylistId)
+          : currentView === 'favorites' && sortBy === 'custom'
+            ? playlists.find(item => item.id === 'pl_favorites')
+            : undefined;
+      let rows: TrackSummary[] = [];
+      if (orderedPlaylist) {
+        rows = await libraryRepository.byIds(orderedPlaylist.trackIds);
+      } else {
+        const miniCollectionFilterKind = collectionFilter?.kind === 'albums' ? 'album'
+          : collectionFilter?.kind === 'artists' ? 'artist'
+            : collectionFilter?.kind === 'genres' ? 'genre' : undefined;
+        const filterKind = miniCollectionFilterKind
+          || (selectedAlbum ? 'album' : selectedArtist ? 'artist' : selectedGenre ? 'genre' : undefined);
+        const noAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
+        const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
+        const noGenreLabel = language === 'ru' ? 'Без жанра' : 'No Genre';
+        let filterValue = collectionFilter?.name ?? (selectedAlbum || selectedArtist || selectedGenre || '');
+        if ((filterKind === 'album' && filterValue === noAlbumLabel)
+          || (filterKind === 'artist' && filterValue === unknownArtistLabel)
+          || (filterKind === 'genre' && filterValue === noGenreLabel)) filterValue = '';
+        const favoriteOnly = currentView === 'favorites';
+        let offset = 0;
+        let total = 0;
+        do {
+          const page = await libraryRepository.page({
+            search: collectionFilter ? undefined : searchQuery,
+            sortBy: sortBy === 'custom' ? 'title' : sortBy,
+            descending: sortOrder === 'desc',
+            offset,
+            limit: 500,
+            filterKind,
+            filterValue,
+            favoriteOnly,
+            excludedIds: collectionFilter ? [...isolatedTrackIds] : [],
+          });
+          rows.push(...page.items);
+          total = page.total;
+          offset += page.items.length;
+          if (page.items.length === 0) break;
+        } while (offset < total);
+      }
+      let complete = hydrateNativeSummaryRows(rows);
+      // Include freshly imported rows that may not have reached SQLite yet. Rebuild
+      // playlist results from its ID sequence so missing rows never reorder the queue.
+      const byId = new Map(complete.map(item => [item.id, item]));
+      for (const item of fallback) if (!byId.has(item.id)) byId.set(item.id, item);
+      if (orderedPlaylist) {
+        return orderedPlaylist.trackIds.map(id => byId.get(id)).filter((item): item is Track => Boolean(item));
+      }
+      if (isolatedTrackIds.size > 0) {
+        complete = complete.filter(item => !isolatedTrackIds.has(item.id));
+      }
+      if (sortBy === 'custom') {
+        if (sortOrder === 'desc') complete.reverse();
+      } else {
+        const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+        complete.sort((a, b) => {
+          const left = a[sortBy as keyof Track] ?? '';
+          const right = b[sortBy as keyof Track] ?? '';
+          if (typeof left === 'string' && typeof right === 'string') {
+            const result = collator.compare(left, right);
+            return sortOrder === 'asc' ? result : -result;
+          }
+          return sortOrder === 'asc' ? (left > right ? 1 : left < right ? -1 : 0) : (left < right ? 1 : left > right ? -1 : 0);
+        });
+      }
+      return complete;
+    } catch (error) {
+      console.warn('Unable to load the full playback context from SQLite; using the loaded page:', error);
+      return fallback;
+    }
+  };
+
+  // A full view context is materialized only when playback starts; the library itself remains paged.
+  const playTrackWithContext = async (
+    track: Track,
+    contextTracks?: Track[],
+    contextIsComplete = false,
+    contextPlaylistId?: string,
+    collectionFilter?: { kind: LibraryCollectionKind; name: string },
+  ) => {
     if (track.isMissing) {
       handleRelocateTrack(track);
       return;
     }
 
     const list = contextTracks && contextTracks.length > 0 ? contextTracks : [track];
-    setQueue(list);
-    const idx = list.findIndex(t => t.id === track.id);
+    const detailedTrack = await getTrackWithDetails(track);
+    const completeContext = contextIsComplete
+      ? list
+      : await loadFullNativePlaybackContext(list, contextPlaylistId, collectionFilter);
+    const playbackList = completeContext.map(item => toTrackSummary(item.id === detailedTrack.id ? detailedTrack : item));
+    setQueue(playbackList);
+    const idx = playbackList.findIndex(item => item.id === detailedTrack.id);
     const targetIdx = idx !== -1 ? idx : 0;
     setQueueIndex(targetIdx);
 
-    setCurrentTrack(track);
+    setCurrentTrack(detailedTrack);
     setCurrentTime(0);
-    setDuration(track.duration || 0);
+    setDuration(detailedTrack.duration || 0);
     try {
-      await audioEngine.playTrack(track.src, true, true, track.duration, track.path);
+      await audioEngine.playTrack(detailedTrack.src, true, true, detailedTrack.duration, detailedTrack.path);
       setIsPlaying(true);
     } catch (e) {
       console.warn('Playback start error:', e);
@@ -3262,28 +3600,31 @@ export const App: React.FC = () => {
 
   const handleToggleFavorite = (trackId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    setTracks(prev => prev.map(t => {
-      if (t.id === trackId) {
-        const updated = { ...t, isFavorite: !t.isFavorite };
-        setPlaylists(pls => pls.map(p => {
-          if (p.id === 'pl_favorites') {
-            return {
-              ...p,
-              trackIds: updated.isFavorite ? [...p.trackIds, trackId] : p.trackIds.filter(id => id !== trackId),
-            };
-          }
-          return p;
-        }));
-        return updated;
-      }
-      return t;
+    const knownTrack = tracksRef.current.find(track => track.id === trackId)
+      || queue.find(track => track.id === trackId)
+      || (currentTrack?.id === trackId ? currentTrack : undefined);
+    const nextFavorite = !(knownTrack?.isFavorite ?? false);
+    setTracks(prev => prev.map(track => track.id === trackId ? { ...track, isFavorite: nextFavorite } : track));
+    setQueue(prev => prev.map(track => track.id === trackId ? { ...track, isFavorite: nextFavorite } : track));
+    setCurrentTrack(prev => prev?.id === trackId ? { ...prev, isFavorite: nextFavorite } : prev);
+    setPlaylists(prev => prev.map(playlist => {
+      if (playlist.id !== 'pl_favorites') return playlist;
+      const trackIds = nextFavorite
+        ? [...new Set([...playlist.trackIds, trackId])]
+        : playlist.trackIds.filter(id => id !== trackId);
+      return { ...playlist, trackIds };
     }));
+    if (isTauri()) void libraryRepository.setFavorites([trackId], nextFavorite)
+      .catch(error => console.warn('Failed to update track favorite state in SQLite:', error));
   };
 
   const handleAddTracksToFavorites = (trackIds: string[]) => {
     if (!trackIds || trackIds.length === 0) return;
     const idSet = new Set(trackIds);
     setTracks(prev => prev.map(t => idSet.has(t.id) ? { ...t, isFavorite: true } : t));
+    setQueue(prev => prev.map(t => idSet.has(t.id) ? { ...t, isFavorite: true } : t));
+    if (isTauri()) void libraryRepository.setFavorites(trackIds, true)
+      .catch(error => console.warn('Failed to add tracks to SQLite favorites:', error));
     // Also sync with the system favorites playlist
     setPlaylists(prev => prev.map(p => {
       if (p.id === 'pl_favorites') {
@@ -3313,16 +3654,18 @@ export const App: React.FC = () => {
     });
   };
 
-  const handlePlaySelected = () => {
-    const selected = tracks.filter(t => selectedTrackIds.has(t.id));
-    if (selected.length > 0) {
-      playTrackWithContext(selected[0], selected);
-    }
+  const handlePlaySelected = async () => {
+    const selected = isTauri()
+      ? await loadNativeTracksByIds([...selectedTrackIds])
+      : tracks.filter(track => selectedTrackIds.has(track.id));
+    if (selected.length > 0) await playTrackWithContext(selected[0], selected, isTauri());
   };
 
-  const handleAddSelectedToQueue = () => {
-    const selected = tracks.filter(t => selectedTrackIds.has(t.id));
-    setQueue(prev => [...prev, ...selected]);
+  const handleAddSelectedToQueue = async () => {
+    const selected = isTauri()
+      ? await loadNativeTracksByIds([...selectedTrackIds])
+      : tracks.filter(track => selectedTrackIds.has(track.id));
+    setQueue(prev => [...prev, ...selected.map(toTrackSummary)]);
     setSelectedTrackIds(new Set());
   };
 
@@ -3398,9 +3741,9 @@ export const App: React.FC = () => {
 
   // Export a playlist to standard M3U8 file
   const handleExportPlaylistM3U8 = async (playlist: Playlist) => {
-    const plTracks = playlist.trackIds
-      .map(id => tracks.find(t => t.id === id))
-      .filter((t): t is Track => !!t);
+    const plTracks = isTauri()
+      ? hydrateNativeSummaryRows(await libraryRepository.byIds(playlist.trackIds))
+      : playlist.trackIds.map(id => tracks.find(track => track.id === id)).filter((track): track is Track => !!track);
 
     if (isTauri()) {
       try {
@@ -3440,24 +3783,9 @@ export const App: React.FC = () => {
       try {
         const res = await invoke<{ name: string; paths: string[] } | null>('import_playlist_from_m3u8');
         if (res && res.paths.length > 0) {
-          const metaList = await invoke<any[]>('read_audio_files', { paths: res.paths });
-          if (metaList && metaList.length > 0) {
-            const addedTracks: Track[] = metaList.map(m => ({
-              id: m.id || `t_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-              path: m.path,
-              title: m.title || 'Unknown',
-              artist: m.artist || 'Unknown Artist',
-              album: m.album || 'Unknown Album',
-              duration: m.duration_seconds || 0,
-              src: convertFileSrc(m.path),
-              coverArt: m.cover_art ? convertFileSrc(m.cover_art) : undefined,
-              genre: m.genre || undefined,
-              year: m.year || undefined,
-              trackNumber: m.track_number || undefined,
-              dateAdded: Date.now(),
-              playCount: 0,
-              isFavorite: false,
-            }));
+          await invoke<number>('scan_library_to_database', { paths: res.paths });
+          const addedTracks = hydrateNativeSummaryRows(await libraryRepository.byPaths(res.paths));
+          if (addedTracks.length > 0) {
 
             const existingMap = new Map<string, string>(tracks.map(t => [normalizeTrackPath(t.path), t.id]));
             const newTrackIds: string[] = [];
@@ -3543,84 +3871,28 @@ export const App: React.FC = () => {
     setAutoScanOnStartup(prev => !prev);
   };
 
+  const handleSetCloseBehavior = (behavior: 'exit' | 'tray') => {
+    setCloseBehavior(behavior);
+    if (isTauri()) {
+      invoke('set_close_to_tray', { enabled: behavior === 'tray' }).catch(error => {
+        console.warn('Failed to update close behavior:', error);
+      });
+    }
+  };
+
   const handleScanLibrary = useCallback(async (): Promise<number> => {
     if (!isTauri()) return 0;
     try {
       const portableMusicPath = await invoke<string>('get_portable_music_path');
-      const foldersToScan = [portableMusicPath, ...watchedFolders];
-      const raw = await invoke<any[]>('read_audio_files', { paths: foldersToScan });
-      if (!raw || raw.length === 0) return 0;
-
-      const currentTrackMap = new Map(tracksRef.current.map(t => [normalizeTrackPath(t.path), t]));
-      const currentPaths = new Set(tracksRef.current.map(t => normalizeTrackPath(t.path)).filter(Boolean));
-      const currentKeys = new Set(tracksRef.current.map(t => `${t.title.trim().toLowerCase()}|||${t.artist.trim().toLowerCase()}`));
-      const newFound: Track[] = [];
-      const updatedCoversMap = new Map<string, string>();
-
-      for (const m of raw) {
-        const norm = normalizeTrackPath(m.path);
-        let coverArt = m.cover_art || undefined;
-        if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
-          coverArt = convertFileSrc(coverArt);
-        }
-
-        const existingTrack = norm ? currentTrackMap.get(norm) : undefined;
-        if (existingTrack) {
-          if (!existingTrack.coverArt && coverArt) {
-            updatedCoversMap.set(existingTrack.id, coverArt);
-          }
-          continue;
-        }
-
-        const key = `${(m.title || '').trim().toLowerCase()}|||${(m.artist || '').trim().toLowerCase()}`;
-        if (key !== '|||' && key !== 'unknown|||unknown artist' && currentKeys.has(key)) {
-          continue;
-        }
-
-        if (norm) currentPaths.add(norm);
-        if (key !== '|||' && key !== 'unknown|||unknown artist') currentKeys.add(key);
-
-        const newT: Track = {
-          id: m.id || `track_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          path: m.path,
-          title: m.title || 'Unknown',
-          artist: m.artist || 'Unknown Artist',
-          album: m.album || 'Unknown Album',
-          duration: m.duration_seconds || 0,
-          src: convertFileSrc(m.path),
-          coverArt,
-          genre: m.genre || undefined,
-          year: m.year || undefined,
-          trackNumber: m.track_number || undefined,
-          dateAdded: Date.now(),
-          playCount: 0,
-          isFavorite: false,
-        };
-        newFound.push(newT);
-      }
-
-      if (updatedCoversMap.size > 0 || newFound.length > 0) {
-        setTracks(prev => {
-          let updated = prev;
-          if (updatedCoversMap.size > 0) {
-            updated = updated.map(t => {
-              const newCover = updatedCoversMap.get(t.id);
-              return newCover ? { ...t, coverArt: newCover } : t;
-            });
-          }
-          if (newFound.length > 0) {
-            updated = appendUniqueTracks(updated, newFound);
-          }
-          return updated;
-        });
-      }
-
-      return newFound.length + updatedCoversMap.size;
-    } catch (err) {
-      console.warn('Scan library error:', err);
-      return 0;
+      const foldersToScan = Array.from(new Set([portableMusicPath, ...watchedFolders]));
+      const scanned = await invoke<number>('scan_library_to_database', { paths: foldersToScan });
+      await loadNativeTracksPage(true);
+      return scanned;
+    } catch (error) {
+      console.warn('Scan library error:', error);
+      throw error;
     }
-  }, [watchedFolders]);
+  }, [watchedFolders, loadNativeTracksPage]);
 
   // Missing tracks relocation and cleanup
   const handleRelocateMissingInFolder = async (): Promise<{ total: number; found: number } | null> => {
@@ -3714,6 +3986,10 @@ export const App: React.FC = () => {
 
   const handleClearMissingTracks = () => {
     const missingIds = new Set(missingTracksForModal.map(t => t.id));
+    if (isTauri()) {
+      void libraryRepository.delete([...missingIds]).then(() => loadNativeTracksPage(true))
+        .catch(error => console.warn('Failed to delete missing tracks from SQLite:', error));
+    }
     setTracks(prev => prev.filter(t => !missingIds.has(t.id)));
     setPlaylists(prev => prev.map(p => ({
       ...p,
@@ -3733,6 +4009,8 @@ export const App: React.FC = () => {
 
   const handleReorderPlaylistTracks = (reorderedTrackIds: string[]) => {
     if (!selectedPlaylistId) return;
+    const selectedPlaylist = playlists.find(playlist => playlist.id === selectedPlaylistId);
+    if (selectedPlaylist && reorderedTrackIds.length !== selectedPlaylist.trackIds.length) return;
     setPlaylists(prev => prev.map(p => {
       if (p.id === selectedPlaylistId) {
         return { ...p, trackIds: reorderedTrackIds };
@@ -3744,6 +4022,8 @@ export const App: React.FC = () => {
   };
 
   const handleReorderFavoriteTracks = (reorderedTrackIds: string[]) => {
+    const favoritesPlaylist = playlists.find(playlist => playlist.id === 'pl_favorites');
+    if (favoritesPlaylist && reorderedTrackIds.length !== favoritesPlaylist.trackIds.length) return;
     setPlaylists(prev => prev.map(p => {
       if (p.id === 'pl_favorites') {
         return { ...p, trackIds: reorderedTrackIds };
@@ -3918,31 +4198,12 @@ export const App: React.FC = () => {
     setPlaylistFolders(prev => prev.map(f => f.id === folderId ? { ...f, groupId, parentId: null } : f));
   };
 
-  const getFolderAllTracks = (folder: PlaylistFolder): Track[] => {
-    const getSubfolderIds = (fid: string): string[] => {
-      const directChildren = playlistFolders.filter(f => f.parentId === fid).map(f => f.id);
-      let all = [fid];
-      for (const childId of directChildren) {
-        all = [...all, ...getSubfolderIds(childId)];
-      }
-      return all;
-    };
-    const targetFolderIds = new Set(getSubfolderIds(folder.id));
-    const folderPlaylists = playlists.filter(p => p.folderId && targetFolderIds.has(p.folderId));
-    const trackMap = new Map<string, Track>(tracks.map(t => [t.id, t]));
-    const result: Track[] = [];
-    const addedIds = new Set<string>();
+  const getFolderAllTrackIds = (folder: PlaylistFolder): string[] =>
+    getFolderTrackIds(folder, playlistFolders, playlists);
 
-    for (const pl of folderPlaylists) {
-      for (const tid of pl.trackIds) {
-        if (!addedIds.has(tid)) {
-          addedIds.add(tid);
-          const t = trackMap.get(tid);
-          if (t) result.push(t);
-        }
-      }
-    }
-    return result;
+  const getFolderAllTracks = (folder: PlaylistFolder): Track[] => {
+    const trackMap = new Map<string, Track>(tracks.map(track => [track.id, track]));
+    return getFolderAllTrackIds(folder).map(id => trackMap.get(id)).filter((track): track is Track => Boolean(track));
   };
 
   const getOrderedPlaylistTracks = (playlist: Playlist): Track[] => {
@@ -3955,18 +4216,18 @@ export const App: React.FC = () => {
     return result;
   };
 
-  const handlePlayFolder = (folder: PlaylistFolder) => {
-    const folderTracks = getFolderAllTracks(folder);
-    if (folderTracks.length > 0) {
-      playTrackWithContext(folderTracks[0], folderTracks);
-    }
+  const handlePlayFolder = async (folder: PlaylistFolder) => {
+    const folderTracks = isTauri()
+      ? await loadNativeTracksByIds(getFolderAllTrackIds(folder))
+      : getFolderAllTracks(folder);
+    if (folderTracks.length > 0) await playTrackWithContext(folderTracks[0], folderTracks, isTauri());
   };
 
-  const handleAddFolderToQueue = (folder: PlaylistFolder) => {
-    const folderTracks = getFolderAllTracks(folder);
-    if (folderTracks.length > 0) {
-      setQueue(prev => [...prev, ...folderTracks]);
-    }
+  const handleAddFolderToQueue = async (folder: PlaylistFolder) => {
+    const folderTracks = isTauri()
+      ? await loadNativeTracksByIds(getFolderAllTrackIds(folder))
+      : getFolderAllTracks(folder);
+    setQueue(prev => [...prev, ...folderTracks.map(toTrackSummary)]);
   };
 
   const handleRenameItem = (newName: string, newDescription?: string, newCoverType?: FolderCoverType) => {
@@ -3992,10 +4253,58 @@ export const App: React.FC = () => {
     setRenameItemTarget(null);
   };
 
-  const handlePlayPlaylist = (playlist: Playlist) => {
-    const plTracks = getOrderedPlaylistTracks(playlist);
-    if (plTracks.length > 0) {
-      playTrackWithContext(plTracks[0], plTracks);
+  const handlePlayPlaylist = async (playlist: Playlist) => {
+    const plTracks = isTauri()
+      ? await loadNativeTracksByIds(playlist.trackIds)
+      : getOrderedPlaylistTracks(playlist);
+    if (plTracks.length > 0) await playTrackWithContext(plTracks[0], plTracks, isTauri());
+  };
+
+  const loadNativeTracksByIds = useCallback(async (trackIds: string[]): Promise<Track[]> =>
+    hydrateNativeSummaryRows(await libraryRepository.byIds(trackIds)), []);
+
+  const loadMiniCollectionGroups = useCallback(async (kind: LibraryCollectionKind): Promise<LibraryCollectionGroup[]> => {
+    const groups = await libraryRepository.collectionGroups(kind, language, undefined, [...isolatedTrackIds], false);
+    return groups.map(group => ({
+      ...group,
+      coverArt: group.coverArt && !group.coverArt.startsWith('http') && !group.coverArt.startsWith('data:')
+        ? convertFileSrc(group.coverArt)
+        : group.coverArt,
+    }));
+  }, [language, isolatedTrackIds]);
+
+  const loadMiniCollectionTrackPage = useCallback(async (
+    kind: LibraryCollectionKind,
+    name: string,
+    offset: number,
+    limit: number,
+  ): Promise<{ items: Track[]; total: number }> => {
+    const noAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
+    const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
+    const noGenreLabel = language === 'ru' ? 'Без жанра' : 'No Genre';
+    let filterValue = name;
+    if ((kind === 'albums' && name === noAlbumLabel)
+      || (kind === 'artists' && name === unknownArtistLabel)
+      || (kind === 'genres' && name === noGenreLabel)) filterValue = '';
+    const page = await libraryRepository.page({
+      sortBy: 'title',
+      descending: false,
+      offset,
+      limit,
+      filterKind: kind === 'albums' ? 'album' : kind === 'artists' ? 'artist' : 'genre',
+      filterValue,
+      excludedIds: [...isolatedTrackIds],
+    });
+    return { items: hydrateNativeSummaryRows(page.items), total: page.total };
+  }, [language, isolatedTrackIds]);
+
+  const handlePlayNativeGroupByIds = async (trackIds: string[]) => {
+    if (trackIds.length === 0) return;
+    try {
+      const groupTracks = await loadNativeTracksByIds(trackIds);
+      if (groupTracks.length > 0) await playTrackWithContext(groupTracks[0], groupTracks, true);
+    } catch (error) {
+      console.warn('Unable to load tracks for playback:', error);
     }
   };
 
@@ -4014,9 +4323,11 @@ export const App: React.FC = () => {
     playTrackWithContext(genreTracks[0], genreTracks);
   };
 
-  const handleAddPlaylistToQueue = (playlist: Playlist) => {
-    const plTracks = getOrderedPlaylistTracks(playlist);
-    setQueue(prev => [...prev, ...plTracks]);
+  const handleAddPlaylistToQueue = async (playlist: Playlist) => {
+    const plTracks = isTauri()
+      ? await loadNativeTracksByIds(playlist.trackIds)
+      : getOrderedPlaylistTracks(playlist);
+    setQueue(prev => [...prev, ...plTracks.map(toTrackSummary)]);
   };
 
   const handleRenamePlaylist = (playlist: Playlist) => {
@@ -4065,7 +4376,11 @@ export const App: React.FC = () => {
     lyricist?: string;
     coverArt?: string | null;
   }, targetTracks?: Track[]) => {
-    const targetIds = new Set(targetTracks && targetTracks.length > 0 ? targetTracks.map(t => t.id) : Array.from(selectedTrackIds));
+    const targetIds = new Set(
+      targetTracks && targetTracks.length > 0
+        ? (selectedTrackIds.size > targetTracks.length ? [...selectedTrackIds] : targetTracks.map(track => track.id))
+        : Array.from(selectedTrackIds),
+    );
 
     setTracks(prev => prev.map(t => {
       if (targetIds.has(t.id)) {
@@ -4078,16 +4393,40 @@ export const App: React.FC = () => {
           year: updates.year !== undefined ? updates.year : t.year,
           trackNumber: updates.trackNumber !== undefined ? updates.trackNumber : t.trackNumber,
           trackTotal: updates.trackTotal !== undefined ? updates.trackTotal : t.trackTotal,
-          composer: updates.composer !== undefined ? updates.composer : t.composer,
-          contentGroup: updates.contentGroup !== undefined ? updates.contentGroup : t.contentGroup,
-          comment: updates.comment !== undefined ? updates.comment : t.comment,
-          conductor: updates.conductor !== undefined ? updates.conductor : t.conductor,
-          lyricist: updates.lyricist !== undefined ? updates.lyricist : t.lyricist,
           coverArt: updates.coverArt !== undefined ? (updates.coverArt || undefined) : t.coverArt,
         };
       }
       return t;
     }));
+
+    if (isTauri()) {
+      const summaryPatch: Omit<Partial<TrackSummary>, 'genre' | 'coverArt'> & { genre?: string | null; coverArt?: string | null } = {};
+      if (updates.title !== undefined) summaryPatch.title = updates.title;
+      if (updates.artist !== undefined) summaryPatch.artist = updates.artist;
+      if (updates.album !== undefined) summaryPatch.album = updates.album;
+      if (updates.genre !== undefined) summaryPatch.genre = updates.genre || null;
+      if (updates.year !== undefined) summaryPatch.year = updates.year;
+      if (updates.trackNumber !== undefined) summaryPatch.trackNumber = updates.trackNumber;
+      if (updates.trackTotal !== undefined) summaryPatch.trackTotal = updates.trackTotal;
+      if (updates.coverArt !== undefined) summaryPatch.coverArt = updates.coverArt || null;
+      await libraryRepository.mergeSummary([...targetIds], summaryPatch).catch(error => {
+        console.warn('Failed to update track summaries in SQLite:', error);
+      });
+    }
+
+    const detailsPatch: Partial<TrackDetails> = {};
+    if (updates.composer !== undefined) detailsPatch.composer = updates.composer;
+    if (updates.contentGroup !== undefined) detailsPatch.contentGroup = updates.contentGroup;
+    if (updates.comment !== undefined) detailsPatch.comment = updates.comment;
+    if (updates.conductor !== undefined) detailsPatch.conductor = updates.conductor;
+    if (updates.lyricist !== undefined) detailsPatch.lyricist = updates.lyricist;
+    if (isTauri() && Object.keys(detailsPatch).length > 0) {
+      await libraryRepository.mergeDetails(Array.from(targetIds), detailsPatch).catch(error => {
+        console.warn('Failed to save track details to SQLite:', error);
+      });
+    } else if (!isTauri() && Object.keys(detailsPatch).length > 0) {
+      setTracks(prev => prev.map(track => targetIds.has(track.id) ? { ...track, ...detailsPatch } : track));
+    }
 
     if (currentTrack && targetIds.has(currentTrack.id)) {
       setCurrentTrack(prev => prev ? {
@@ -4110,15 +4449,16 @@ export const App: React.FC = () => {
 
     // Persist tags and cover art to audio files on disk if running in Tauri
     if (isTauri()) {
-      const sourceTracks = targetTracks && targetTracks.length > 0
-        ? targetTracks
-        : tracks.filter(t => targetIds.has(t.id));
-      const paths = sourceTracks
-        .filter(t => !t.isMissing)
-        .map(t => t.path)
-        .filter((p): p is string => Boolean(p));
-      if (paths.length > 0) {
-        try {
+      const ids = [...targetIds];
+      try {
+        for (let start = 0; start < ids.length; start += 128) {
+          const idBatch = ids.slice(start, start + 128);
+          const sourceTracks = targetTracks && targetIds.size <= targetTracks.length
+            ? targetTracks.filter(track => idBatch.includes(track.id))
+            : hydrateNativeSummaryRows(await libraryRepository.byIds(idBatch));
+          const paths = sourceTracks.filter(track => !track.isMissing)
+            .map(track => track.path).filter((path): path is string => Boolean(path));
+          if (paths.length === 0) continue;
           await invoke('batch_save_track_file_tags', {
             paths,
             updates: {
@@ -4135,31 +4475,33 @@ export const App: React.FC = () => {
               conductor: updates.conductor,
               lyricist: updates.lyricist,
               cover_art: updates.coverArt !== undefined ? (updates.coverArt || '') : undefined,
-            }
+            },
           });
-        } catch (e) {
-          console.error('Failed to save tags to files:', e);
-          const errStr = String(e);
-          if (!errStr.includes('File not found')) {
-            alert(language === 'ru' ? `Ошибка сохранения тегов в файл: ${e}` : `Failed to save tags to file: ${e}`);
-          }
+        }
+      } catch (error) {
+        console.error('Failed to save tags to files:', error);
+        const errorText = String(error);
+        if (!errorText.includes('File not found')) {
+          alert(language === 'ru' ? `Ошибка сохранения тегов в файл: ${error}` : `Failed to save tags to file: ${error}`);
         }
       }
+      await loadNativeTracksPage(true);
     }
   };
 
   const handleSaveLyrics = async (trackId: string, lyrics: string, isInstrumental: boolean, lyricist?: string) => {
-    setTracks(prev => prev.map(t => {
-      if (t.id === trackId) {
-        return { 
-          ...t, 
-          lyrics, 
-          isInstrumental,
-          lyricist: lyricist !== undefined ? lyricist : t.lyricist
-        };
-      }
-      return t;
-    }));
+    const detailsPatch: Partial<TrackDetails> = {
+      lyrics: isInstrumental ? '' : lyrics,
+      isInstrumental,
+    };
+    if (lyricist !== undefined) detailsPatch.lyricist = lyricist;
+    if (isTauri()) {
+      await libraryRepository.mergeDetails([trackId], detailsPatch).catch(error => {
+        console.warn('Failed to save lyrics to SQLite:', error);
+      });
+    } else {
+      setTracks(prev => prev.map(track => track.id === trackId ? { ...track, ...detailsPatch } : track));
+    }
     if (currentTrack?.id === trackId) {
       setCurrentTrack(prev => prev ? { 
         ...prev, 
@@ -4193,6 +4535,7 @@ export const App: React.FC = () => {
       const paths = targetTracks.map(t => t.path as string);
       const reloaded = await invoke<any[]>('read_audio_files', { paths });
       if (reloaded && reloaded.length > 0) {
+        await libraryRepository.upsertBatch(reloaded as Track[]);
         const reloadedMap = new Map<string, any>(reloaded.map(r => [normalizeTrackPath(r.path), r]));
 
         setTracks(prev => prev.map(t => {
@@ -4214,12 +4557,6 @@ export const App: React.FC = () => {
             year: r.year || undefined,
             trackNumber: r.track_number || undefined,
             trackTotal: r.track_total || undefined,
-            lyrics: r.lyrics || undefined,
-            composer: r.composer || undefined,
-            contentGroup: r.content_group || undefined,
-            comment: r.comment || undefined,
-            conductor: r.conductor || undefined,
-            lyricist: r.lyricist || undefined,
             format: r.format || t.format || getAudioFormatFromPath(t.path),
             fileSize: r.file_size || t.fileSize,
           };
@@ -4274,12 +4611,6 @@ export const App: React.FC = () => {
             year: r.year || undefined,
             trackNumber: r.track_number || undefined,
             trackTotal: r.track_total || undefined,
-            lyrics: r.lyrics || undefined,
-            composer: r.composer || undefined,
-            contentGroup: r.content_group || undefined,
-            comment: r.comment || undefined,
-            conductor: r.conductor || undefined,
-            lyricist: r.lyricist || undefined,
             format: r.format || t.format || getAudioFormatFromPath(t.path),
             fileSize: r.file_size || t.fileSize,
           };
@@ -4311,6 +4642,10 @@ export const App: React.FC = () => {
         return p;
       }));
     } else {
+      if (isTauri()) {
+        void libraryRepository.delete(trackIds).then(() => loadNativeTracksPage(true))
+          .catch(error => console.warn('Failed to delete tracks from SQLite:', error));
+      }
       setTracks(prev => prev.filter(t => !idSet.has(t.id)));
       setQueue(prev => prev.filter(t => !idSet.has(t.id)));
       setPlaylists(prev => prev.map(p => ({
@@ -4366,6 +4701,10 @@ export const App: React.FC = () => {
     }
 
     // Remove from tracks (library)
+    if (isTauri()) {
+      await libraryRepository.delete(targetIds).catch(error => console.warn('Failed to delete tracks from SQLite:', error));
+      await loadNativeTracksPage(true);
+    }
     const idSet = new Set(targetIds);
     setTracks(prev => prev.filter(t => !idSet.has(t.id)));
 
@@ -4428,10 +4767,12 @@ export const App: React.FC = () => {
           queue={queue}
           queueIndex={queueIndex}
           tracks={tracks}
+          visibleTracks={nonIsolatedTracks}
           playlists={playlists}
           playlistFolders={playlistFolders}
           playlistGroups={playlistGroups}
           language={language}
+          isLibraryDataLoading={!startupDataLoaded || (isTauri() && nativePageLoading)}
           lyricsMode={miniLyricsMode}
           discordEnabled={discordEnabled}
           showDiscordButton={showDiscordButton}
@@ -4444,7 +4785,15 @@ export const App: React.FC = () => {
           onToggleShuffle={handleToggleShuffle}
           onToggleRepeat={handleToggleRepeat}
           onPlayQueueTrack={index => { void playQueueIndex(index); }}
-          onPlayTrack={(track, context) => playTrackWithContext(track, context)}
+          onPlayTrack={(track, context, playlistId) => playTrackWithContext(track, context, false, playlistId)}
+          onPlayPlaylist={handlePlayPlaylist}
+          onPlayFolder={handlePlayFolder}
+          onResolveTracksByIds={loadNativeTracksByIds}
+          onLoadMiniCollectionGroups={isTauri() ? loadMiniCollectionGroups : undefined}
+          onLoadMiniCollectionTrackPage={isTauri() ? loadMiniCollectionTrackPage : undefined}
+          onPlayMiniCollectionTrack={isTauri() ? (track, kind, name) => {
+            void playTrackWithContext(track, [track], false, undefined, { kind, name });
+          } : undefined}
           onClearQueue={handleClearQueue}
           onToggleLyrics={() => {
             if (miniLyricsMode === 'closed') void attachMiniLyrics();
@@ -4477,7 +4826,7 @@ export const App: React.FC = () => {
         onSelectView={handleSelectView}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        totalTracksCount={nonIsolatedTracks.length}
+        totalTracksCount={isTauri() ? nativeTrackTotal : nonIsolatedTracks.length}
         searchPlaceholder={searchPlaceholder}
         onOpenFiles={handleOpenFiles}
         themeMode={themeMode}
@@ -4589,10 +4938,15 @@ export const App: React.FC = () => {
               onDropInternalTracks={selectedPlaylistId ? (tIds) => handleDropTracksToPlaylist(selectedPlaylistId, tIds) : undefined}
               onAddTracksToFavorites={handleAddTracksToFavorites}
               currentView={currentView}
-              isReorderable={Boolean(selectedPlaylistId) && !searchQuery.trim()}
+              isReorderable={Boolean(selectedPlaylistId) && !searchQuery.trim() && (!isTauri() || nativePageOffsetRef.current >= nativeTrackTotal)}
               onReorderTracks={selectedPlaylistId ? handleReorderPlaylistTracks : undefined}
               onRelocateTrack={handleRelocateTrack}
               language={language}
+              onLoadMore={() => { void loadNativeTracksPage(false); }}
+              hasMoreTracks={isTauri() && nativePageOffsetRef.current < nativeTrackTotal}
+              isLoadingMoreTracks={nativePageLoading}
+              isLoading={!startupDataLoaded || (isTauri() && nativePageLoading)}
+              resetScrollKey={`${currentView}:${selectedPlaylistId ?? ''}:${selectedAlbum ?? ''}:${selectedArtist ?? ''}:${selectedGenre ?? ''}:${searchQuery}:${sortBy}:${sortOrder}`}
             />
           </div>
         ) : currentView === 'playlists' ? (
@@ -4659,6 +5013,10 @@ export const App: React.FC = () => {
               setSelectedAlbum(alb);
             }}
             onPlayAlbum={handlePlayAlbum}
+            databaseGroups={isTauri() && currentCollectionQueryMatches ? databaseCollectionGroups ?? undefined : undefined}
+            isLoadingGroups={!startupDataLoaded || (isTauri() && !currentCollectionQueryMatches && !currentCollectionQueryFailed)}
+            hasGroupLoadError={isTauri() && currentCollectionQueryFailed}
+            onPlayAlbumByIds={isTauri() ? handlePlayNativeGroupByIds : undefined}
           />
         ) : currentView === 'artists' ? (
           <ArtistsGridView
@@ -4670,6 +5028,10 @@ export const App: React.FC = () => {
               setSelectedArtist(art);
             }}
             onPlayArtist={handlePlayArtist}
+            databaseGroups={isTauri() && currentCollectionQueryMatches ? databaseCollectionGroups ?? undefined : undefined}
+            isLoadingGroups={!startupDataLoaded || (isTauri() && !currentCollectionQueryMatches && !currentCollectionQueryFailed)}
+            hasGroupLoadError={isTauri() && currentCollectionQueryFailed}
+            onPlayArtistByIds={isTauri() ? handlePlayNativeGroupByIds : undefined}
           />
         ) : currentView === 'genres' ? (
           <GenresGridView
@@ -4681,6 +5043,10 @@ export const App: React.FC = () => {
               setSelectedGenre(gen);
             }}
             onPlayGenre={handlePlayGenre}
+            databaseGroups={isTauri() && currentCollectionQueryMatches ? databaseCollectionGroups ?? undefined : undefined}
+            isLoadingGroups={!startupDataLoaded || (isTauri() && !currentCollectionQueryMatches && !currentCollectionQueryFailed)}
+            hasGroupLoadError={isTauri() && currentCollectionQueryFailed}
+            onPlayGenreByIds={isTauri() ? handlePlayNativeGroupByIds : undefined}
           />
         ) : (
           /* 'tracks' and 'favorites' */
@@ -4705,10 +5071,15 @@ export const App: React.FC = () => {
             sortOrder={sortOrder}
             onSortChange={handleSortChange}
             onDropFiles={importFiles}
-            isReorderable={currentView === 'favorites' && !searchQuery.trim()}
+            isReorderable={currentView === 'favorites' && !searchQuery.trim() && (!isTauri() || nativePageOffsetRef.current >= nativeTrackTotal)}
             onReorderTracks={currentView === 'favorites' ? handleReorderFavoriteTracks : undefined}
             onRelocateTrack={handleRelocateTrack}
             language={language}
+            onLoadMore={() => { void loadNativeTracksPage(false); }}
+            hasMoreTracks={isTauri() && nativePageOffsetRef.current < nativeTrackTotal}
+            isLoadingMoreTracks={nativePageLoading}
+            isLoading={!startupDataLoaded || (isTauri() && nativePageLoading)}
+            resetScrollKey={`${currentView}:${selectedPlaylistId ?? ''}:${selectedAlbum ?? ''}:${selectedArtist ?? ''}:${selectedGenre ?? ''}:${searchQuery}:${sortBy}:${sortOrder}`}
           />
         )}
       </main>
@@ -4741,7 +5112,7 @@ export const App: React.FC = () => {
         discordEnabled={discordEnabled}
         onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
         showDiscordButton={showDiscordButton}
-        onOpenTrackDetails={(t) => setTrackDetailsTarget(t)}
+        onOpenTrackDetails={openTrackDetails}
         onOpenLyrics={() => {
           if (currentTrack) setIsLyricsOpen(true);
         }}
@@ -4805,6 +5176,7 @@ export const App: React.FC = () => {
         isOpen={isBatchTagEditorOpen}
         onClose={() => setIsBatchTagEditorOpen(false)}
         selectedTracks={selectedTracksList}
+        selectedTrackCount={selectedTrackIds.size || selectedTracksList.length}
         language={language}
         onSaveTags={handleSaveBatchTags}
       />
@@ -4873,6 +5245,10 @@ export const App: React.FC = () => {
         onRemoveWatchedFolder={handleRemoveWatchedFolder}
         autoScanOnStartup={autoScanOnStartup}
         onToggleAutoScanOnStartup={handleToggleAutoScanOnStartup}
+        closeBehavior={closeBehavior}
+        onSetCloseBehavior={handleSetCloseBehavior}
+        startupInterface={startupInterface}
+        onSetStartupInterface={setStartupInterface}
         onScanLibrary={handleScanLibrary}
         tracks={tracks}
         missingTracksCount={missingTracksForModal.length}
@@ -4892,7 +5268,7 @@ export const App: React.FC = () => {
           language={language}
           onClose={() => setContextMenu(null)}
           onPlay={(t) => playTrackWithContext(t, filteredTracks)}
-          onAddToQueue={(t) => setQueue(prev => [...prev, ...t])}
+          onAddToQueue={(t) => setQueue(prev => [...prev, ...t.map(toTrackSummary)])}
           onPlayNext={(t) => {
             setQueue(prev => {
               const copy = [...prev];
@@ -4911,7 +5287,7 @@ export const App: React.FC = () => {
           onCreatePlaylistWithTracks={(trackIds) => handleCreatePlaylist(null, null, trackIds)}
           onRemoveTracks={handleRequestRemoveTracks}
           onDeleteFromDisk={handleRequestDeleteFromDisk}
-          onOpenTrackDetails={(t) => setTrackDetailsTarget(t)}
+          onOpenTrackDetails={openTrackDetails}
           onRelocateTrack={handleRelocateTrack}
           onReloadTracks={handleReloadTracks}
         />

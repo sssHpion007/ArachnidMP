@@ -31,6 +31,38 @@ export interface Track {
   isMissing?: boolean;
 }
 
+/** Lightweight catalogue row. Detail-only metadata is fetched when a track is opened or played. */
+export type TrackSummary = Omit<
+  Track,
+  | 'lyrics'
+  | 'isInstrumental'
+  | 'localFile'
+  | 'composer'
+  | 'contentGroup'
+  | 'comment'
+  | 'conductor'
+  | 'lyricist'
+  | 'customTags'
+>;
+
+export type TrackDetails = Pick<
+  Track,
+  | 'lyrics'
+  | 'isInstrumental'
+  | 'composer'
+  | 'contentGroup'
+  | 'comment'
+  | 'conductor'
+  | 'lyricist'
+  | 'customTags'
+>;
+
+export interface TrackPage {
+  items: TrackSummary[];
+  offset: number;
+  total: number;
+}
+
 export type FolderCoverType = 'icon' | 'first_playlist' | 'collage' | 'cycle';
 
 export interface PlaylistFolder {
