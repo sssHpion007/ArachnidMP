@@ -473,10 +473,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
       >
         {tracks.length === 0 ? (
           isLoading ? (
-            <div role="status" aria-live="polite" className="h-64 flex items-center justify-center gap-2 text-sm text-md3-on-surface-variant">
-              <span className="h-4 w-4 rounded-full border-2 border-md3-primary/25 border-t-md3-primary animate-spin" aria-hidden="true" />
-              {language === 'ru' ? 'Загружаю медиатеку…' : 'Loading library…'}
-            </div>
+            <div aria-busy="true" className="h-64" />
           ) : (
             <div className="h-64 flex flex-col items-center justify-center text-center p-8 text-md3-on-surface-variant">
               <div className="w-16 h-16 rounded-3xl bg-md3-surface-container-high flex items-center justify-center text-md3-primary mb-4">

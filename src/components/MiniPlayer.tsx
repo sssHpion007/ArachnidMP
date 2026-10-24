@@ -1541,9 +1541,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                     </div>
                   )}
                   {(['albums', 'artists', 'genres'] as LibraryTab[]).includes(libraryTab) && !selectedCollection && (
-                    isCollectionsLoading ? (
-                      <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Загружаю медиатеку…', 'Loading library…')}</p>
-                    ) : isCollectionsError ? (
+                    isCollectionsLoading ? null : isCollectionsError ? (
                       <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Не удалось загрузить медиатеку', 'Unable to load the library')}</p>
                     ) : visibleCollections.length > 0 ? (
                       <>
@@ -1608,11 +1606,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                       </div>
                     ) : selectedCollection && onLoadMiniCollectionTrackPage
                       && (!collectionTrackPage || collectionTrackPage.key !== selectedCollectionPageKey || collectionTrackPage.isLoading) ? (
-                      <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Загружаю треки…', 'Loading tracks…')}</p>
+                      null
                     ) : selectedCollection && collectionTrackPage?.key === selectedCollectionPageKey && collectionTrackPage.error ? (
                       <p role="alert" className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Не удалось загрузить треки коллекции', 'Unable to load collection tracks')}</p>
                     ) : isLibraryDataLoading && (libraryTab === 'tracks' || libraryTab === 'favorites') ? (
-                      <p role="status" aria-live="polite" className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Загружаю медиатеку…', 'Loading library…')}</p>
+                      null
                     ) : <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, libraryTab === 'favorites' ? 'В избранном пока нет треков' : 'В этом списке нет треков', libraryTab === 'favorites' ? 'No favorite tracks yet' : 'No tracks in this list')}</p>
                   )}
                 </div>

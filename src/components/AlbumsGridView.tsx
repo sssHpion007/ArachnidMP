@@ -3,7 +3,6 @@ import { Disc3, Play, Clock, Music2 } from 'lucide-react';
 import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage } from '../i18n';
-import { CollectionGridLoading } from './CollectionGridLoading';
 import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
 import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups';
 import { matchesLibraryCollectionSearch, type LibraryCollectionGroup } from '../services/libraryCollectionIndex';
@@ -135,14 +134,7 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
   };
 
   if (isIndexing) {
-    return (
-      <CollectionGridLoading
-        title={language === 'ru' ? 'Альбомы' : 'Albums'}
-        kind="albums"
-        columnsClassName="grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7"
-        language={language}
-      />
-    );
+    return <div aria-busy="true" className="flex-1 min-h-0" />;
   }
 
   if (hasGroupLoadError && allAlbums.length === 0) {
