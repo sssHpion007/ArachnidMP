@@ -312,7 +312,9 @@ pub fn cover_url(hash: &str, size: Option<u32>) -> String {
     let variant = size.filter(|value| VARIANT_SIZES.contains(value))
         .map(|value| value.to_string()).unwrap_or_else(|| "original".to_string());
     if cfg!(target_os = "windows") {
-        format!("https://cover.localhost/{hash}/{variant}")
+        // Tauri 2 / WebView2 maps registered custom schemes to http://<scheme>.localhost
+        // by default. Keep this in sync with app.windows.useHttpsScheme (false).
+        format!("http://cover.localhost/{hash}/{variant}")
     } else {
         format!("cover://localhost/{hash}/{variant}")
     }
@@ -586,5 +588,14 @@ mod tests {
         assert_eq!(parse_cover_request("/"), None);
         assert_eq!(parse_cover_request(&format!("/{}/96", "a".repeat(64))), Some(("a".repeat(64), Some(96))));
         assert_eq!(parse_cover_request(&format!("/{}/128", "a".repeat(64))), None);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_cover_urls_use_tauri_default_http_custom_protocol_scheme() {
+        let url = cover_url(&"a".repeat(64), Some(256));
+        assert!(url.starts_with("http://cover.localhost/"), "unexpected URL: {url}");
+        let request_path = url.strip_prefix("http://cover.localhost").unwrap();
+        assert_eq!(parse_cover_request(request_path), Some(("a".repeat(64), Some(256))));
     }
 }

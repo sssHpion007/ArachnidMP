@@ -154,6 +154,8 @@ impl LibraryDb {
                 date_added INTEGER NOT NULL DEFAULT 0
              );"
         ).map_err(|e| format!("Initialize library database: {e}"))?;
+        #[cfg(target_os = "windows")]
+        normalize_legacy_windows_cover_urls(&connection)?;
         migrate_search_index(&connection)?;
         Ok(Self { connection: Arc::new(Mutex::new(connection)) })
     }
@@ -662,6 +664,19 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+fn normalize_legacy_windows_cover_urls(connection: &Connection) -> Result<(), String> {
+    // Earlier builds stored HTTPS URLs, but Tauri's default Windows custom-protocol
+    // origin is HTTP. Rewrite only this app's cache origin; artwork hashes/BLOBs stay intact.
+    connection.execute(
+        "UPDATE tracks
+         SET cover_art=replace(cover_art, 'https://cover.localhost/', 'http://cover.localhost/')
+         WHERE cover_art LIKE 'https://cover.localhost/%'",
+        [],
+    ).map_err(|error| format!("Normalize cached cover URLs for Windows: {error}"))?;
+    Ok(())
+}
+
 fn migrate_search_index(connection: &Connection) -> Result<(), String> {
     let version = connection.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
         .map_err(|error| format!("Read library database version: {error}"))?;
@@ -767,6 +782,20 @@ mod tests {
             "coverArt":null, "cover_art_scan_complete":true
         })]).unwrap();
         assert_eq!(db.summaries_by_ids(&["scan-1".into()]).unwrap()[0].cover_art, None);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn legacy_https_cover_urls_are_rewritten_to_tauri_windows_origin() {
+        let db = database();
+        let legacy_url = format!("https://cover.localhost/{}/original", "b".repeat(64));
+        db.upsert_batch(&[json!({
+            "id":"legacy-cover", "path":"C:\\\\Music\\\\legacy.flac", "title":"Legacy",
+            "coverArt":legacy_url
+        })]).unwrap();
+        normalize_legacy_windows_cover_urls(&db.connection.lock().unwrap()).unwrap();
+        let expected = format!("http://cover.localhost/{}/original", "b".repeat(64));
+        assert_eq!(db.summaries_by_ids(&["legacy-cover".into()]).unwrap()[0].cover_art.as_deref(), Some(expected.as_str()));
     }
 
     #[test]
