@@ -79,7 +79,13 @@ export const CrossfadeImage: React.FC<CrossfadeImageProps> = ({
           className={className}
           onLoad={() => handleLoad(layer.src)}
           onError={() => {
-            if (latestSourceRef.current === layer.src) setLayers([]);
+            if (latestSourceRef.current !== layer.src) return;
+            setLayers(current => {
+              const fallback = current.find(candidate => candidate.src !== layer.src);
+              return fallback
+                ? [{ ...fallback, opacity: 1 }]
+                : current.filter(candidate => candidate.src !== layer.src);
+            });
           }}
           style={{ opacity: layer.opacity, transition: `opacity ${fadeDurationMs}ms ease` }}
         />

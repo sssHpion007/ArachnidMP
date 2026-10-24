@@ -32,6 +32,8 @@ pub struct TrackMetadata {
     pub track_total: Option<u32>,
     pub duration_seconds: f64,
     pub cover_art: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cover_art_scan_complete: Option<bool>,
     pub format: String,
     pub file_size: u64,
     pub lyrics: Option<String>,
@@ -258,6 +260,7 @@ fn parse_single_file(path_str: &str, covers: &cover_cache::CoverCache) -> Option
     let mut track_total = None;
     let mut duration_seconds = 0.0;
     let mut cover_art = None;
+    let mut cover_art_scan_complete = false;
     let mut lyrics = None;
     let mut composer = None;
     let mut content_group = None;
@@ -267,6 +270,7 @@ fn parse_single_file(path_str: &str, covers: &cover_cache::CoverCache) -> Option
 
     let parse_opts = ParseOptions::new().parsing_mode(ParsingMode::Relaxed);
     if let Ok(tagged_file) = Probe::open(path).and_then(|p| p.options(parse_opts).read()) {
+        cover_art_scan_complete = true;
         let properties = tagged_file.properties();
         duration_seconds = properties.duration().as_secs_f64();
 
@@ -356,7 +360,10 @@ fn parse_single_file(path_str: &str, covers: &cover_cache::CoverCache) -> Option
                     };
                     match covers.store_bytes(pic.data(), mime) {
                         Ok(hash) => cover_art = Some(cover_cache::cover_url(&hash, None)),
-                        Err(error) => logger::log("WARN", "COVER_CACHE", &format!("Could not cache embedded cover for {}: {error}", path.display())),
+                        Err(error) => {
+                            cover_art_scan_complete = false;
+                            logger::log("WARN", "COVER_CACHE", &format!("Could not cache embedded cover for {}: {error}", path.display()));
+                        }
                     }
                 }
             }
@@ -366,8 +373,14 @@ fn parse_single_file(path_str: &str, covers: &cover_cache::CoverCache) -> Option
     if cover_art.is_none() {
         if let Some(folder_cover) = find_folder_cover_art(path) {
             match covers.store_file(&folder_cover) {
-                Ok(hash) => cover_art = Some(cover_cache::cover_url(&hash, None)),
-                Err(error) => logger::log("WARN", "COVER_CACHE", &format!("Could not cache folder cover {}: {error}", folder_cover)),
+                Ok(hash) => {
+                    cover_art = Some(cover_cache::cover_url(&hash, None));
+                    cover_art_scan_complete = true;
+                }
+                Err(error) => {
+                    cover_art_scan_complete = false;
+                    logger::log("WARN", "COVER_CACHE", &format!("Could not cache folder cover {}: {error}", folder_cover));
+                }
             }
         }
     }
@@ -417,6 +430,7 @@ fn parse_single_file(path_str: &str, covers: &cover_cache::CoverCache) -> Option
         track_total,
         duration_seconds,
         cover_art,
+        cover_art_scan_complete: Some(cover_art_scan_complete),
         format: ext.to_uppercase(),
         file_size,
         lyrics,
@@ -2767,9 +2781,24 @@ pub fn run() {
             let covers = context.app_handle().state::<cover_cache::CoverCache>().inner().clone();
             let path = request.uri().path().to_string();
             tauri::async_runtime::spawn_blocking(move || {
-                let response = match cover_cache::parse_cover_request(&path)
-                    .and_then(|(hash, size)| covers.get_image(&hash, size).ok().flatten())
-                {
+                let image = match cover_cache::parse_cover_request(&path) {
+                    Some((hash, size)) => match covers.get_image(&hash, size) {
+                        Ok(Some(image)) => Some(image),
+                        Ok(None) => {
+                            logger::log("WARN", "COVER_PROTOCOL", &format!("Cached cover not found: hash={hash} size={size:?}"));
+                            None
+                        }
+                        Err(error) => {
+                            logger::log("ERROR", "COVER_PROTOCOL", &format!("Failed reading cached cover hash={hash}: {error}"));
+                            None
+                        }
+                    },
+                    None => {
+                        logger::log("WARN", "COVER_PROTOCOL", &format!("Rejected invalid cover request path={path}"));
+                        None
+                    }
+                };
+                let response = match image {
                     Some(image) => tauri::http::Response::builder()
                         .status(tauri::http::StatusCode::OK)
                         .header(tauri::http::header::CONTENT_TYPE, image.mime)
@@ -2779,6 +2808,7 @@ pub fn run() {
                         .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
                     None => tauri::http::Response::builder()
                         .status(tauri::http::StatusCode::NOT_FOUND)
+                        .header(tauri::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
                         .body(Vec::new())
                         .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
                 };

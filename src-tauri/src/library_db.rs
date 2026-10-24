@@ -631,7 +631,15 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
     if let Some(g) = &genre { search_parts.push(g.clone()); }
     let search_text = search_parts.join("\n").to_lowercase();
     let src = path.clone().unwrap_or_else(|| string(value, "src", "src", ""));
-    let cover_field_present = value.get("coverArt").is_some() || value.get("cover_art").is_some();
+    // A scanner may fail to inspect tags or persist the artwork because of a transient
+    // I/O/cache error. In that case preserve the last known cover instead of treating
+    // the missing result as an explicit removal. A completed scan with no cover still
+    // serializes coverArt: null and clears the old link as intended.
+    let cover_scan_incomplete = value.get("coverArtScanComplete")
+        .or_else(|| value.get("cover_art_scan_complete"))
+        .and_then(Value::as_bool) == Some(false);
+    let cover_field_present = !cover_scan_incomplete
+        && (value.get("coverArt").is_some() || value.get("cover_art").is_some());
     let raw_cover = optional_string(value, "coverArt", "cover_art");
     let cover_art = raw_cover.map(|cover| {
         crate::storage::to_portable_cover(&cover, &crate::storage::get_portable_base_dir()).unwrap_or(cover)
@@ -749,7 +757,14 @@ mod tests {
         assert_eq!(db.summaries_by_ids(&["scan-1".into()]).unwrap()[0].cover_art.as_deref(), Some(cover.as_str()));
 
         db.upsert_batch(&[json!({
-            "id":"fresh-id-2", "path":"C:\\\\Music\\\\scan.flac", "title":"Scan no art", "coverArt":null
+            "id":"fresh-id-2", "path":"C:\\\\Music\\\\scan.flac", "title":"Scan could not read art",
+            "coverArt":null, "cover_art_scan_complete":false
+        })]).unwrap();
+        assert_eq!(db.summaries_by_ids(&["scan-1".into()]).unwrap()[0].cover_art.as_deref(), Some(cover.as_str()));
+
+        db.upsert_batch(&[json!({
+            "id":"fresh-id-3", "path":"C:\\\\Music\\\\scan.flac", "title":"Scan completed without art",
+            "coverArt":null, "cover_art_scan_complete":true
         })]).unwrap();
         assert_eq!(db.summaries_by_ids(&["scan-1".into()]).unwrap()[0].cover_art, None);
     }
