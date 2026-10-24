@@ -1559,7 +1559,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                             <button
                               type="button"
                               onClick={() => setSelectedCollection({ type: libraryTab as LibraryCollectionType, name: group.name })}
-                              className="group relative aspect-[1.18] min-w-0 overflow-hidden rounded-xl bg-md3-surface-container-high text-left"
+                              className="group relative aspect-[1.18] w-full min-w-0 overflow-hidden rounded-xl bg-md3-surface-container-high text-left"
                             >
                               {group.coverArt ? <img src={group.coverArt} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high"><Disc3 size={28} className="text-md3-primary/65" /></div>}
                               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
