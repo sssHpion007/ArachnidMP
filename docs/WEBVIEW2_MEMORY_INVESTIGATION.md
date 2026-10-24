@@ -188,7 +188,9 @@ Remove-Item Env:ARACHNIDMP_WEBVIEW_BACKGROUNDING -ErrorAction SilentlyContinue
 - [Windows `PROCESS_MEMORY_COUNTERS_EX2`](https://learn.microsoft.com/en-us/windows/win32/api/psapi/ns-psapi-process_memory_counters_ex2) — смысл WS, private usage и private working set.
 - [Edge memory terminology](https://learn.microsoft.com/en-us/microsoft-edge/devtools/memory-problems/memory-101) и [Browser Task Manager](https://learn.microsoft.com/en-us/microsoft-edge/devtools/memory-problems/microsoft-edge-browser-task-manager) — различие JS heap и native memory, инструменты измерений.
 
-## 9. Вывод
+## 9. Вывод и статус проверки
+
+A/B-переключатель фоновой политики добавлен в код с сохранением текущего поведения по умолчанию. Windows CI run [#40080729566](https://github.com/sssHpion007/ArachnidMP/actions/runs/40080729566) успешно собрал приложение, прошёл startup/lyrics smoke test и native test suites. Это подтверждает сборку и базовый запуск новой версии, но **не измеряет RAM-разницу между двумя режимами**: фактический memory A/B ещё не проводился.
 
 Наиболее точное заключение по имеющимся данным: **WebView2 объясняет подавляющую часть памяти process tree в предоставленном snapshot, но факт утечки не установлен.** У ArachnidMP есть конкретный, проверяемый механизм, способный поддерживать фоновую работу скрытых WebView: глобально выключенные background timer throttling и renderer/occlusion backgrounding в сочетании с переиспользуемыми скрытыми окнами. Это хорошая первая гипотеза для контролируемого A/B-теста, но пока не доказанная причина цифры 451 MiB Private Bytes.
 
