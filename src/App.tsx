@@ -47,6 +47,7 @@ import { AppLanguage, detectSystemLanguage } from './i18n';
 import { isNewerVersion, CURRENT_APP_VERSION } from './utils/version';
 import { getFolderIconComponent } from './theme/folderIcons';
 import { getFolderTrackIds } from './services/folderPlayback';
+import { coverVariantUrl, isCachedCoverUrl } from './utils/coverArt';
 import { buildLibraryScanPathPlan } from './services/libraryScanPaths';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
@@ -181,7 +182,7 @@ const isPersistedTrackEqual = (left: Track, right: Track): boolean => {
 };
 
 const hydrateNativeSummaryRows = (rows: TrackSummary[]): Track[] => rows.map(row => {
-  const coverArt = row.coverArt && !row.coverArt.startsWith('http') && !row.coverArt.startsWith('data:')
+  const coverArt = row.coverArt && !row.coverArt.startsWith('http') && !row.coverArt.startsWith('data:') && !isCachedCoverUrl(row.coverArt)
     ? convertFileSrc(row.coverArt)
     : row.coverArt;
   return {
@@ -1176,7 +1177,7 @@ export const App: React.FC = () => {
           if (parsed.playlists && Array.isArray(parsed.playlists) && parsed.playlists.length > 0) {
             setPlaylists(parsed.playlists.map((p: Playlist) => {
               let coverArt = p.coverArt;
-              if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+              if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && !isCachedCoverUrl(coverArt) && isTauri()) {
                 coverArt = convertFileSrc(coverArt);
               }
               const remapped = (p.trackIds || []).map(id => validIdMap.get(id) || id);
@@ -1692,7 +1693,7 @@ export const App: React.FC = () => {
         let activeColor = DEFAULT_SEED_COLOR;
         if (colorSchemeMode === 'dynamic') {
           if (currentTrack?.coverArt) {
-            activeColor = await extractDominantColor(currentTrack.coverArt);
+            activeColor = await extractDominantColor(coverVariantUrl(currentTrack.coverArt, 256) || currentTrack.coverArt);
           } else {
             activeColor = await getWindowsAccentColor();
           }
@@ -2052,7 +2053,7 @@ export const App: React.FC = () => {
       if (!active) return;
       setDatabaseCollectionGroups(groups.map(group => ({
         ...group,
-        coverArt: group.coverArt && !group.coverArt.startsWith('http') && !group.coverArt.startsWith('data:')
+        coverArt: group.coverArt && !group.coverArt.startsWith('http') && !group.coverArt.startsWith('data:') && !isCachedCoverUrl(group.coverArt)
           ? convertFileSrc(group.coverArt)
           : group.coverArt,
       })));
@@ -3105,7 +3106,7 @@ export const App: React.FC = () => {
 
   const updateTrackRelocation = (trackId: string, newPath: string, newSrc: string, metadata?: any) => {
     const resolvedCover = metadata?.cover_art && isTauri()
-      ? convertFileSrc(metadata.cover_art)
+      ? (isCachedCoverUrl(metadata.cover_art) ? metadata.cover_art : convertFileSrc(metadata.cover_art))
       : (metadata?.coverArt || undefined);
 
     setTracks(prev => prev.map(t => {
@@ -3579,7 +3580,7 @@ export const App: React.FC = () => {
           artist: currentTrack.artist,
           album: currentTrack.album || '',
           artwork: currentTrack.coverArt
-            ? [{ src: currentTrack.coverArt, sizes: '512x512', type: 'image/jpeg' }]
+            ? [{ src: coverVariantUrl(currentTrack.coverArt, 256) || currentTrack.coverArt, sizes: '256x256' }]
             : [],
         });
       } catch (_) {}
@@ -3936,7 +3937,7 @@ export const App: React.FC = () => {
             const meta = metaMap[newPath.toLowerCase()];
             let newCover = t.coverArt;
             if (meta?.cover_art) {
-              newCover = convertFileSrc(meta.cover_art);
+              newCover = isCachedCoverUrl(meta.cover_art) ? meta.cover_art : convertFileSrc(meta.cover_art);
             }
             return {
               ...t,
@@ -3955,7 +3956,7 @@ export const App: React.FC = () => {
             const meta = metaMap[newPath.toLowerCase()];
             let newCover = prev.coverArt;
             if (meta?.cover_art) {
-              newCover = convertFileSrc(meta.cover_art);
+              newCover = isCachedCoverUrl(meta.cover_art) ? meta.cover_art : convertFileSrc(meta.cover_art);
             }
             return {
               ...prev,
@@ -4267,7 +4268,7 @@ export const App: React.FC = () => {
     const groups = await libraryRepository.collectionGroups(kind, language, undefined, [...isolatedTrackIds], false);
     return groups.map(group => ({
       ...group,
-      coverArt: group.coverArt && !group.coverArt.startsWith('http') && !group.coverArt.startsWith('data:')
+      coverArt: group.coverArt && !group.coverArt.startsWith('http') && !group.coverArt.startsWith('data:') && !isCachedCoverUrl(group.coverArt)
         ? convertFileSrc(group.coverArt)
         : group.coverArt,
     }));
@@ -4543,7 +4544,7 @@ export const App: React.FC = () => {
           const r = reloadedMap.get(normalizeTrackPath(t.path));
           if (!r) return t;
           let coverArt = r.cover_art;
-          if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+          if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && !isCachedCoverUrl(coverArt) && isTauri()) {
             coverArt = convertFileSrc(coverArt);
           }
           return {
@@ -4567,7 +4568,7 @@ export const App: React.FC = () => {
           const r = reloadedMap.get(normalizeTrackPath(prev.path));
           if (!r) return prev;
           let coverArt = r.cover_art;
-          if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+          if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && !isCachedCoverUrl(coverArt) && isTauri()) {
             coverArt = convertFileSrc(coverArt);
           }
           return {
@@ -4597,7 +4598,7 @@ export const App: React.FC = () => {
           const r = reloadedMap.get(normalizeTrackPath(t.path));
           if (!r) return t;
           let coverArt = r.cover_art;
-          if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && isTauri()) {
+          if (coverArt && !coverArt.startsWith('http') && !coverArt.startsWith('data:') && !isCachedCoverUrl(coverArt) && isTauri()) {
             coverArt = convertFileSrc(coverArt);
           }
           return {
@@ -4874,7 +4875,7 @@ export const App: React.FC = () => {
                   </div>
                   {currentDetail.coverArt && (
                     <img 
-                      src={currentDetail.coverArt} 
+                      src={coverVariantUrl(currentDetail.coverArt, 96)}
                       alt={currentDetail.title} 
                       className="w-full h-full object-cover relative z-0" 
                       onError={(e) => {

@@ -19,6 +19,7 @@ import {
   FolderPlus
 } from 'lucide-react';
 import { Track } from '../types/music';
+import { coverVariantUrl } from '../utils/coverArt';
 import { formatTime } from '../services/tagEditor';
 import { audioEngine } from '../services/audioEngine';
 import { AppLanguage, getTranslations } from '../i18n';
@@ -356,7 +357,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
               </div>
               {currentTrack?.coverArt && (
                 <img 
-                  src={currentTrack.coverArt} 
+                  src={coverVariantUrl(currentTrack.coverArt, 96)}
                   alt={currentTrack.title} 
                   className={`w-full h-full max-w-full max-h-full object-cover transition-transform duration-300 relative z-[1] ${isPlaying ? 'scale-105' : ''}`} 
                   onError={(e) => {
@@ -682,7 +683,7 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             </div>
             {currentTrack?.coverArt && (
               <img 
-                src={currentTrack.coverArt} 
+                src={coverVariantUrl(currentTrack.coverArt, 96)}
                 alt={currentTrack.title} 
                 className={`w-full h-full max-w-full max-h-full object-cover transition-transform duration-300 relative z-[1] ${isPlaying ? 'scale-105' : ''} group-hover:scale-110`} 
                 onError={(e) => {

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useModalAnimation } from '../utils/useModalAnimation';
 import { Track } from '../types/music';
+import { coverVariantUrl } from '../utils/coverArt';
 import { formatTime, getAudioFormatFromPath } from '../services/tagEditor';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -174,7 +175,7 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
             {/* Large Cover Art */}
             <div className={`${standaloneWindow ? 'w-28 h-28 sm:w-32 sm:h-32' : 'w-36 h-36 sm:w-44 sm:h-44'} rounded-2xl overflow-hidden bg-md3-surface-container-high shadow-lg shrink-0 border border-md3-outline-variant/15 relative`}>
               {track.coverArt ? (
-                <img src={track.coverArt} alt={track.title} className="w-full h-full object-cover" />
+                <img src={coverVariantUrl(track.coverArt, 256)} alt={track.title} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center bg-md3-primary/10 text-md3-primary gap-2">
                   <Disc3 className="w-12 h-12" />

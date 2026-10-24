@@ -33,6 +33,7 @@ import { formatTime } from '../services/tagEditor';
 import { MiniLyricsPane, MiniLyricsTrack } from './MiniLyricsPane';
 import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups';
 import type { LibraryCollectionGroup } from '../services/libraryCollectionIndex';
+import { coverVariantUrl } from '../utils/coverArt';
 import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
 import { FadeInImage } from './FadeInImage';
 import { CrossfadeImage } from './CrossfadeImage';
@@ -117,7 +118,7 @@ const MiniTrackRow: React.FC<MiniTrackRowProps> = ({ track, active = false, sele
   >
     <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-md3-surface-container-highest shadow-sm">
       {track.coverArt ? (
-        <img src={track.coverArt} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+        <img src={coverVariantUrl(track.coverArt, 96)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
       ) : (
         <span className="flex h-full w-full items-center justify-center bg-md3-primary/10 text-md3-primary/70"><Music2 size={16} /></span>
       )}
@@ -176,7 +177,7 @@ const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
     style={accentColor ? { borderColor: accentColor } : undefined}
   >
     {displayedCover ? (
-      <FadeInImage src={displayedCover} alt="" loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" />
+      <FadeInImage src={coverVariantUrl(displayedCover, 256)} alt="" loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" />
     ) : (
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high text-md3-primary/70">
         {icon}
@@ -1038,7 +1039,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
           >
             <Disc3 className="h-24 w-24 text-md3-primary/40" strokeWidth={1.25} />
             <CrossfadeImage
-              src={currentTrack?.coverArt}
+              src={coverVariantUrl(currentTrack?.coverArt, 256)}
               alt={currentTrack?.title || ''}
               className="absolute inset-0 h-full w-full select-none object-cover"
             />
@@ -1565,7 +1566,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                               onClick={() => setSelectedCollection({ type: libraryTab as LibraryCollectionType, name: group.name })}
                               className="group relative aspect-[1.18] w-full min-w-0 overflow-hidden rounded-xl bg-md3-surface-container-high text-left"
                             >
-                              {group.coverArt ? <img src={group.coverArt} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high"><Disc3 size={28} className="text-md3-primary/65" /></div>}
+                              {group.coverArt ? <img src={coverVariantUrl(group.coverArt, 96)} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high"><Disc3 size={28} className="text-md3-primary/65" /></div>}
                               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
                               <span className="absolute inset-x-2 bottom-2 min-w-0 text-white">
                                 <span className="block truncate text-[11px] font-semibold">{group.name}</span>

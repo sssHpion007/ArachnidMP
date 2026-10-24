@@ -19,6 +19,7 @@ import {
   FileUp
 } from 'lucide-react';
 import { Playlist, PlaylistFolder, PlaylistGroup, Track, FolderCoverType } from '../types/music';
+import { coverVariantUrl } from '../utils/coverArt';
 import { formatTime } from '../services/tagEditor';
 import { getFolderIconComponent, getFolderColorHex, getThemedPlayIconColor } from '../theme/folderIcons';
 import { AppLanguage } from '../i18n';
@@ -271,7 +272,7 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
             </div>
           ) : coverType === 'first_playlist' || covers.length === 1 ? (
             <FadeInImage
-              src={covers[0]}
+              src={coverVariantUrl(covers[0], 256)}
               alt={folder.name}
               draggable={false}
               loading="lazy"
@@ -280,21 +281,21 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
             />
           ) : covers.length === 2 ? (
             <div className="w-full h-full grid grid-cols-2 grid-rows-1 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
-              <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[0], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[1], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           ) : covers.length === 3 ? (
             <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
-              <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
-              <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <FadeInImage src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[0], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
+              <FadeInImage src={coverVariantUrl(covers[1], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[2], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           ) : (
             <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
-              <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <FadeInImage src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <FadeInImage src={covers[3]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[0], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[1], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[2], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[3], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           )
         ) : (
@@ -535,26 +536,26 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
           ) : coverType === 'collage' && hasMultipleCovers ? (
             covers.length === 2 ? (
               <div className="w-full h-full grid grid-cols-2 grid-rows-1 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-                <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[0], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[1], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
               </div>
             ) : covers.length === 3 ? (
               <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-                <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
-                <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[0], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
+                <FadeInImage src={coverVariantUrl(covers[1], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[2], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
               </div>
             ) : (
               <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-                <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={covers[3]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[0], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[1], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[2], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[3], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
               </div>
             )
           ) : cover ? (
             <FadeInImage
-              src={cover}
+              src={coverVariantUrl(cover, 256)}
               alt={playlist.name}
               draggable={false}
               loading="lazy"

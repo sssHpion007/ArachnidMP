@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { X, Trash2, Shuffle, Music, Play, ArrowUp, ArrowDown, GripVertical, AlertTriangle } from 'lucide-react';
 import { Track } from '../types/music';
+import { coverVariantUrl } from '../utils/coverArt';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage } from '../i18n';
 import { useDrawerAnimation } from '../utils/useModalAnimation';
@@ -451,7 +452,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                     <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-md3-surface-container-highest shadow-sm relative">
                       {track.coverArt ? (
                         <img
-                          src={track.coverArt}
+                          src={coverVariantUrl(track.coverArt, 96)}
                           alt={track.title}
                           loading="lazy"
                           decoding="async"
@@ -535,7 +536,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
         >
           <div className="w-6 h-6 rounded-lg overflow-hidden shrink-0 bg-md3-surface-container-high flex items-center justify-center">
             {queue[dragState.index].coverArt ? (
-              <img src={queue[dragState.index].coverArt} alt="" className="w-full h-full object-cover" />
+              <img src={coverVariantUrl(queue[dragState.index].coverArt, 96)} alt="" className="w-full h-full object-cover" />
             ) : (
               <Music className="w-3.5 h-3.5 text-md3-primary" />
             )}

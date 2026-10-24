@@ -1,6 +1,7 @@
 mod discord;
 mod library_db;
 mod storage;
+mod cover_cache;
 mod player;
 mod logger;
 mod memory_diagnostics;
@@ -233,7 +234,7 @@ fn find_folder_cover_art(track_path: &Path) -> Option<String> {
     None
 }
 
-fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
+fn parse_single_file(path_str: &str, covers: &cover_cache::CoverCache) -> Option<TrackMetadata> {
     let path = Path::new(path_str);
     if !path.is_file() {
         return None;
@@ -353,8 +354,9 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
                         Some(m) => m.as_str(),
                         None => "image/jpeg",
                     };
-                    if let Some(saved_path) = storage::save_cover_bytes(pic.data(), mime) {
-                        cover_art = Some(saved_path);
+                    match covers.store_bytes(pic.data(), mime) {
+                        Ok(hash) => cover_art = Some(cover_cache::cover_url(&hash, None)),
+                        Err(error) => logger::log("WARN", "COVER_CACHE", &format!("Could not cache embedded cover for {}: {error}", path.display())),
                     }
                 }
             }
@@ -362,7 +364,12 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
     }
 
     if cover_art.is_none() {
-        cover_art = find_folder_cover_art(path);
+        if let Some(folder_cover) = find_folder_cover_art(path) {
+            match covers.store_file(&folder_cover) {
+                Ok(hash) => cover_art = Some(cover_cache::cover_url(&hash, None)),
+                Err(error) => logger::log("WARN", "COVER_CACHE", &format!("Could not cache folder cover {}: {error}", folder_cover)),
+            }
+        }
     }
 
     if lyrics.is_none() {
@@ -427,7 +434,11 @@ fn rand_suffix() -> u32 {
 }
 
 #[tauri::command]
-async fn read_audio_files(paths: Vec<String>) -> Result<Vec<TrackMetadata>, String> {
+async fn read_audio_files(
+    paths: Vec<String>,
+    cover_state: State<'_, cover_cache::CoverCache>,
+) -> Result<Vec<TrackMetadata>, String> {
+    let covers = cover_state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut results = Vec::new();
 
@@ -436,13 +447,13 @@ async fn read_audio_files(paths: Vec<String>) -> Result<Vec<TrackMetadata>, Stri
             if p.is_dir() {
                 for entry in walkdir::WalkDir::new(p).into_iter().filter_map(|e| e.ok()) {
                     if entry.path().is_file() {
-                        if let Some(meta) = parse_single_file(&entry.path().to_string_lossy()) {
+                        if let Some(meta) = parse_single_file(&entry.path().to_string_lossy(), &covers) {
                             results.push(meta);
                         }
                     }
                 }
             } else if p.is_file() {
-                if let Some(meta) = parse_single_file(&p_str) {
+                if let Some(meta) = parse_single_file(&p_str, &covers) {
                     results.push(meta);
                 }
             }
@@ -586,12 +597,27 @@ fn library_db_seed_playlist_track_references(
     state.seed_legacy_track_map(&references)
 }
 
+fn upsert_tracks_with_cover_cache(
+    database: &library_db::LibraryDb,
+    covers: &cover_cache::CoverCache,
+    tracks: &[serde_json::Value],
+) -> Result<usize, String> {
+    let changed = database.upsert_batch(tracks)?;
+    let paths = tracks.iter()
+        .filter_map(|track| track.get("path").and_then(serde_json::Value::as_str).map(str::to_string))
+        .collect::<Vec<_>>();
+    let links = database.cover_links_for_paths(&paths)?;
+    covers.set_track_artwork_batch(&links)?;
+    Ok(changed)
+}
+
 #[tauri::command]
 fn library_db_upsert_batch(
     tracks: Vec<serde_json::Value>,
     state: State<'_, library_db::LibraryDb>,
+    covers: State<'_, cover_cache::CoverCache>,
 ) -> Result<usize, String> {
-    state.upsert_batch(&tracks)
+    upsert_tracks_with_cover_cache(state.inner(), covers.inner(), &tracks)
 }
 
 #[tauri::command]
@@ -608,16 +634,23 @@ fn library_db_merge_summary(
     track_ids: Vec<String>,
     mut patch: serde_json::Value,
     state: State<'_, library_db::LibraryDb>,
+    covers: State<'_, cover_cache::CoverCache>,
 ) -> Result<usize, String> {
-    let cover = patch.get("coverArt").and_then(serde_json::Value::as_str).map(str::to_string);
-    if let Some(cover) = cover.as_deref() {
+    let cover_field = patch.get("coverArt").cloned();
+    if let Some(cover) = cover_field.as_ref().and_then(serde_json::Value::as_str) {
         if cover.is_empty() {
             patch["coverArt"] = serde_json::Value::Null;
         } else if let Some(portable) = storage::to_portable_cover(cover, &storage::get_portable_base_dir()) {
             patch["coverArt"] = serde_json::Value::String(portable);
         }
     }
-    state.merge_summary(&track_ids, &patch)
+    let changed = state.merge_summary(&track_ids, &patch)?;
+    if cover_field.is_some() {
+        let cover = patch.get("coverArt").and_then(serde_json::Value::as_str).map(str::to_string);
+        let links = track_ids.iter().cloned().map(|id| (id, cover.clone())).collect::<Vec<_>>();
+        covers.set_track_artwork_batch(&links)?;
+    }
+    Ok(changed)
 }
 
 #[tauri::command]
@@ -633,16 +666,20 @@ fn library_db_set_favorites(
 fn library_db_delete_ids(
     track_ids: Vec<String>,
     state: State<'_, library_db::LibraryDb>,
+    covers: State<'_, cover_cache::CoverCache>,
 ) -> Result<(), String> {
-    state.delete_ids(&track_ids)
+    state.delete_ids(&track_ids)?;
+    covers.remove_tracks(&track_ids)
 }
 
 #[tauri::command]
 async fn scan_library_to_database(
     paths: Vec<String>,
     state: State<'_, library_db::LibraryDb>,
+    cover_state: State<'_, cover_cache::CoverCache>,
 ) -> Result<usize, String> {
     let database = state.inner().clone();
+    let covers = cover_state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         const BATCH_SIZE: usize = 128;
         let mut batch = Vec::with_capacity(BATCH_SIZE);
@@ -656,7 +693,7 @@ async fn scan_library_to_database(
 
         let mut flush = |batch: &mut Vec<serde_json::Value>| -> Result<(), String> {
             if batch.is_empty() { return Ok(()); }
-            database.upsert_batch(batch)?;
+            upsert_tracks_with_cover_cache(&database, &covers, batch)?;
             scanned = scanned.saturating_add(batch.len());
             batch.clear();
             Ok(())
@@ -674,7 +711,7 @@ async fn scan_library_to_database(
                         Err(_) => { walk_errors += 1; continue; }
                     };
                     if !entry.path().is_file() { continue; }
-                    if let Some(track) = parse_single_file(&entry.path().to_string_lossy()) {
+                    if let Some(track) = parse_single_file(&entry.path().to_string_lossy(), &covers) {
                         batch.push(serde_json::to_value(track).map_err(|error| error.to_string())?);
                         discovered = discovered.saturating_add(1);
                         if batch.len() >= BATCH_SIZE { flush(&mut batch)?; }
@@ -685,7 +722,7 @@ async fn scan_library_to_database(
                 }
             } else if path.is_file() {
                 individual_file_paths = individual_file_paths.saturating_add(1);
-                if let Some(track) = parse_single_file(&path_string) {
+                if let Some(track) = parse_single_file(&path_string, &covers) {
                     batch.push(serde_json::to_value(track).map_err(|error| error.to_string())?);
                     discovered = discovered.saturating_add(1);
                     individual_file_tracks = individual_file_tracks.saturating_add(1);
@@ -747,8 +784,27 @@ fn open_file_dialog() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-async fn scan_folder(folder_path: String) -> Result<Vec<TrackMetadata>, String> {
-    read_audio_files(vec![folder_path]).await
+async fn scan_folder(
+    folder_path: String,
+    cover_state: State<'_, cover_cache::CoverCache>,
+) -> Result<Vec<TrackMetadata>, String> {
+    let covers = cover_state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut results = Vec::new();
+        let path = Path::new(&folder_path);
+        if path.is_dir() {
+            for entry in walkdir::WalkDir::new(path).into_iter().filter_map(|entry| entry.ok()) {
+                if entry.path().is_file() {
+                    if let Some(track) = parse_single_file(&entry.path().to_string_lossy(), &covers) {
+                        results.push(track);
+                    }
+                }
+            }
+        } else if path.is_file() {
+            if let Some(track) = parse_single_file(&folder_path, &covers) { results.push(track); }
+        }
+        Ok(results)
+    }).await.map_err(|error| format!("Task execution error: {error}"))?
 }
 
 #[tauri::command]
@@ -1523,9 +1579,13 @@ fn pick_single_audio_file() -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
-fn save_track_file_tags(path: String, updates: TagUpdates) -> Result<Option<TrackMetadata>, String> {
+fn save_track_file_tags(
+    path: String,
+    updates: TagUpdates,
+    covers: State<'_, cover_cache::CoverCache>,
+) -> Result<Option<TrackMetadata>, String> {
     apply_tag_updates_to_file(&path, &updates)?;
-    Ok(parse_single_file(&path))
+    Ok(parse_single_file(&path, covers.inner()))
 }
 
 #[tauri::command]
@@ -2703,6 +2763,28 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol("cover", |context, request, responder| {
+            let covers = context.app_handle().state::<cover_cache::CoverCache>().inner().clone();
+            let path = request.uri().path().to_string();
+            tauri::async_runtime::spawn_blocking(move || {
+                let response = match cover_cache::parse_cover_request(&path)
+                    .and_then(|(hash, size)| covers.get_image(&hash, size).ok().flatten())
+                {
+                    Some(image) => tauri::http::Response::builder()
+                        .status(tauri::http::StatusCode::OK)
+                        .header(tauri::http::header::CONTENT_TYPE, image.mime)
+                        .header(tauri::http::header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+                        .header(tauri::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                        .body(image.bytes)
+                        .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
+                    None => tauri::http::Response::builder()
+                        .status(tauri::http::StatusCode::NOT_FOUND)
+                        .body(Vec::new())
+                        .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
+                };
+                responder.respond(response);
+            });
+        })
         .on_window_event(|window, event| {
             match event {
                 tauri::WindowEvent::Focused(focused) => {
@@ -2744,7 +2826,15 @@ pub fn run() {
                 .join("library.sqlite3");
             let library_db = library_db::LibraryDb::open(&library_path)
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            let covers_path = storage::get_portable_base_dir().join("config").join("covers.sqlite3");
+            let cover_cache = cover_cache::CoverCache::open(&covers_path)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            let track_covers = library_db.cached_cover_links()
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            cover_cache.reconcile_library_covers(&track_covers)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
             app.manage(library_db);
+            app.manage(cover_cache);
 
             let is_russian = saved_tray_language_is_russian();
             let open_label = if is_russian { "Открыть" } else { "Open" };

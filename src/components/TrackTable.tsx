@@ -17,6 +17,7 @@ import { Track } from '../types/music';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage } from '../i18n';
 import { isTauri } from '@tauri-apps/api/core';
+import { coverVariantUrl } from '../utils/coverArt';
 
 interface TrackTableProps {
   tracks: Track[];
@@ -594,7 +595,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                     </div>
                     {track.coverArt && (
                       <img 
-                        src={track.coverArt} 
+                        src={coverVariantUrl(track.coverArt, 96)}
                         alt={track.title} 
                         loading="lazy"
                         decoding="async"

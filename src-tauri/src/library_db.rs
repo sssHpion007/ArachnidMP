@@ -471,6 +471,34 @@ impl LibraryDb {
         for id in ids { transaction.execute("DELETE FROM tracks WHERE id=?1", [id]).map_err(|e| e.to_string())?; }
         transaction.commit().map_err(|e| e.to_string())
     }
+
+    pub fn cached_cover_links(&self) -> Result<Vec<(String, Option<String>)>, String> {
+        let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let mut statement = connection.prepare(
+            "SELECT id,cover_art FROM tracks
+             WHERE cover_art LIKE 'https://cover.localhost/%'
+                OR cover_art LIKE 'http://cover.localhost/%'
+                OR cover_art LIKE 'cover://localhost/%'"
+        ).map_err(|error| error.to_string())?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|error| error.to_string())?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|error| error.to_string())
+    }
+
+    pub fn cover_links_for_paths(&self, paths: &[String]) -> Result<Vec<(String, Option<String>)>, String> {
+        let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let mut statement = connection.prepare("SELECT id,cover_art FROM tracks WHERE path_key=?1")
+            .map_err(|error| error.to_string())?;
+        let mut links = Vec::new();
+        for path in paths {
+            let path_key = normalize_path(path);
+            if let Some(link) = statement.query_row([path_key], |row| Ok((row.get(0)?, row.get(1)?)))
+                .optional().map_err(|error| error.to_string())? {
+                links.push(link);
+            }
+        }
+        Ok(links)
+    }
 }
 
 fn collation_key(value: &str) -> Vec<char> {
@@ -603,6 +631,7 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
     if let Some(g) = &genre { search_parts.push(g.clone()); }
     let search_text = search_parts.join("\n").to_lowercase();
     let src = path.clone().unwrap_or_else(|| string(value, "src", "src", ""));
+    let cover_field_present = value.get("coverArt").is_some() || value.get("cover_art").is_some();
     let raw_cover = optional_string(value, "coverArt", "cover_art");
     let cover_art = raw_cover.map(|cover| {
         crate::storage::to_portable_cover(&cover, &crate::storage::get_portable_base_dir()).unwrap_or(cover)
@@ -610,13 +639,13 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
     transaction.execute(
         "INSERT INTO tracks (id,path,path_key,title,artist,album,genre,year,track_number,track_total,duration,src,cover_art,bitrate,format,file_size,date_added,play_count,is_favorite,is_missing,search_text,details_json)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)
-         ON CONFLICT(id) DO UPDATE SET path=excluded.path,path_key=excluded.path_key,title=excluded.title,artist=excluded.artist,album=excluded.album,genre=excluded.genre,year=excluded.year,track_number=excluded.track_number,track_total=excluded.track_total,duration=excluded.duration,src=excluded.src,cover_art=COALESCE(excluded.cover_art,tracks.cover_art),bitrate=excluded.bitrate,format=excluded.format,file_size=excluded.file_size,date_added=excluded.date_added,play_count=excluded.play_count,is_favorite=excluded.is_favorite,is_missing=excluded.is_missing,search_text=excluded.search_text,details_json=excluded.details_json",
+         ON CONFLICT(id) DO UPDATE SET path=excluded.path,path_key=excluded.path_key,title=excluded.title,artist=excluded.artist,album=excluded.album,genre=excluded.genre,year=excluded.year,track_number=excluded.track_number,track_total=excluded.track_total,duration=excluded.duration,src=excluded.src,cover_art=CASE WHEN ?23 THEN excluded.cover_art ELSE tracks.cover_art END,bitrate=excluded.bitrate,format=excluded.format,file_size=excluded.file_size,date_added=excluded.date_added,play_count=excluded.play_count,is_favorite=excluded.is_favorite,is_missing=excluded.is_missing,search_text=excluded.search_text,details_json=excluded.details_json",
         params![
             id, path, path_key, title, artist, album, genre,
             number(value,"year","year"), number(value,"trackNumber","track_number"), number(value,"trackTotal","track_total"),
             value.get("duration").and_then(Value::as_f64).or_else(|| value.get("duration_seconds").and_then(Value::as_f64)).unwrap_or(0.0),
             src, cover_art, number(value,"bitrate","bitrate"), optional_string(value,"format","format"),
-            number(value,"fileSize","file_size"), date_added, play_count, is_favorite, is_missing, search_text, details_json
+            number(value,"fileSize","file_size"), date_added, play_count, is_favorite, is_missing, search_text, details_json, cover_field_present
         ],
     ).map_err(|e| format!("Save track {id}: {e}"))?;
     if let Some(path_key) = path_key {
@@ -704,6 +733,25 @@ mod tests {
         assert_eq!(page.total, 2);
         assert_eq!(page.items.len(), 1);
         assert!(db.details("1").unwrap().unwrap().lyrics.unwrap().contains("long lyrics"));
+    }
+
+    #[test]
+    fn explicit_rescan_cover_value_replaces_or_clears_but_missing_field_preserves_it() {
+        let db = database();
+        let cover = format!("https://cover.localhost/{}/original", "a".repeat(64));
+        db.upsert_batch(&[json!({
+            "id":"scan-1", "path":"C:\\\\Music\\\\scan.flac", "title":"Scan",
+            "artist":"Artist", "album":"Album", "coverArt":cover.clone()
+        })]).unwrap();
+        assert_eq!(db.summaries_by_ids(&["scan-1".into()]).unwrap()[0].cover_art.as_deref(), Some(cover.as_str()));
+
+        db.upsert_batch(&[json!({"id":"fresh-id", "path":"C:\\\\Music\\\\scan.flac", "title":"Scan again"})]).unwrap();
+        assert_eq!(db.summaries_by_ids(&["scan-1".into()]).unwrap()[0].cover_art.as_deref(), Some(cover.as_str()));
+
+        db.upsert_batch(&[json!({
+            "id":"fresh-id-2", "path":"C:\\\\Music\\\\scan.flac", "title":"Scan no art", "coverArt":null
+        })]).unwrap();
+        assert_eq!(db.summaries_by_ids(&["scan-1".into()]).unwrap()[0].cover_art, None);
     }
 
     #[test]

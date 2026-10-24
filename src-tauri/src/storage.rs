@@ -129,6 +129,12 @@ pub fn to_portable_cover(cover_val: &str, base_dir: &Path) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
+    if trimmed.starts_with("https://cover.localhost/")
+        || trimmed.starts_with("http://cover.localhost/")
+        || trimmed.starts_with("cover://localhost/")
+    {
+        return Some(trimmed.to_string());
+    }
 
     // 1. If base64 data URI, save to config/covers and return relative path
     if trimmed.starts_with("data:image/") {
@@ -198,6 +204,12 @@ pub fn to_absolute_cover(cover_val: &str, base_dir: &Path) -> Option<String> {
     let trimmed = cover_val.trim();
     if trimmed.is_empty() {
         return None;
+    }
+    if trimmed.starts_with("https://cover.localhost/")
+        || trimmed.starts_with("http://cover.localhost/")
+        || trimmed.starts_with("cover://localhost/")
+    {
+        return Some(trimmed.to_string());
     }
 
     // 1. Base64 data URLs pass through as-is

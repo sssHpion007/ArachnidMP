@@ -45,6 +45,7 @@ import {
 } from 'lucide-react';
 import { marked } from 'marked';
 import { ThemeMode, Track, FadeMode } from '../types/music';
+import { coverVariantUrl } from '../utils/coverArt';
 import { CustomThemeInfo } from '../types/theme';
 import { ThemePaletteModal } from './ThemePaletteModal';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -1333,7 +1334,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="relative w-16 h-16 rounded-xl bg-[#313338] overflow-hidden shrink-0 border border-white/5 shadow-md">
                     {currentTrack && currentTrack.coverArt ? (
                       <img
-                        src={currentTrack.coverArt}
+                        src={coverVariantUrl(currentTrack.coverArt, 96)}
                         alt="Artwork"
                         className="w-full h-full object-cover"
                       />
