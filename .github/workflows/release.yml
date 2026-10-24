@@ -6,6 +6,7 @@ on:
       - 'arena/da9dc431-arachnidmp'
       - 'arena/034a5a55-arachnidmp'
       - 'arena/cd6430e2-arachnidmp'
+      - 'arena/6fcee020-arachnidmp'
     tags:
       - 'v*'
   workflow_dispatch:
@@ -236,7 +237,7 @@ jobs:
           echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
 
       - name: Upload Windows test build
-        if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp' || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && !contains(github.event.head_commit.message, '[publish-release]')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag == 'test-build')
+        if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp' || github.ref == 'refs/heads/arena/6fcee020-arachnidmp' || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && !contains(github.event.head_commit.message, '[publish-release]')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag == 'test-build')
         uses: actions/upload-artifact@v4
         with:
           name: Arachnid-Windows-Test-${{ github.run_number }}-${{ github.sha }}
