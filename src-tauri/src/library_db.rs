@@ -2,7 +2,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::cmp::Ordering;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use unicode_normalization::UnicodeNormalization;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -97,7 +97,6 @@ pub struct LegacyTrackReference {
 #[derive(Clone)]
 pub struct LibraryDb {
     connection: Arc<Mutex<Connection>>,
-    path: PathBuf,
 }
 
 impl LibraryDb {
@@ -156,10 +155,8 @@ impl LibraryDb {
              );"
         ).map_err(|e| format!("Initialize library database: {e}"))?;
         migrate_search_index(&connection)?;
-        Ok(Self { connection: Arc::new(Mutex::new(connection)), path })
+        Ok(Self { connection: Arc::new(Mutex::new(connection)) })
     }
-
-    pub fn path(&self) -> &Path { &self.path }
 
     pub fn count(&self, search: Option<&str>) -> Result<u64, String> {
         let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;

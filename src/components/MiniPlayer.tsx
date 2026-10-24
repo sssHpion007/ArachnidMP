@@ -342,6 +342,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     items: Track[];
     total: number;
     isLoading: boolean;
+    error?: boolean;
   } | null>(null);
   const collectionPageRequestRef = useRef<{ key: string; offset: number } | null>(null);
   const activeCollectionPageKeyRef = useRef<string | null>(null);
@@ -741,11 +742,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const shouldLoadCollection = bottomPanel === 'library' && isPanelContentRendered && isCollectionTab;
   const nativeCollectionKey = `${activeCollectionType}:${language}`;
   const useNativeCollectionSource = Boolean(onLoadMiniCollectionGroups);
+  // Build a lightweight index from the already-loaded page while the full
+  // SQLite query runs. This keeps mini-player collection tabs usable if the
+  // native request is slow or fails; a successful native result replaces it.
   const localCollectionResult = useLibraryCollectionGroups(
     visibleTracks,
     activeCollectionType,
     language,
-    shouldLoadCollection && !useNativeCollectionSource,
+    shouldLoadCollection,
   );
 
   useEffect(() => {
@@ -765,15 +769,24 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     return () => { active = false; };
   }, [shouldLoadCollection, onLoadMiniCollectionGroups, nativeCollectionKey, activeCollectionType]);
 
-  const indexedCollections = useNativeCollectionSource
-    ? nativeCollectionSnapshot?.key === nativeCollectionKey ? nativeCollectionSnapshot.groups : []
+  const nativeCollectionRequest = nativeCollectionSnapshot?.key === nativeCollectionKey
+    ? nativeCollectionSnapshot
+    : null;
+  const hasNativeCollections = Boolean(nativeCollectionRequest && !nativeCollectionRequest.isLoading
+    && !nativeCollectionRequest.error && nativeCollectionRequest.groups.length > 0);
+  const indexedCollections = useNativeCollectionSource && hasNativeCollections
+    ? nativeCollectionRequest!.groups
     : localCollectionResult.groups;
-  const isCollectionsLoading = useNativeCollectionSource
-    ? shouldLoadCollection && (nativeCollectionSnapshot?.key !== nativeCollectionKey || nativeCollectionSnapshot.isLoading)
-    : localCollectionResult.isLoading;
+  const isCollectionsLoading = shouldLoadCollection
+    && indexedCollections.length === 0
+    && (localCollectionResult.isLoading
+      || (useNativeCollectionSource && (!nativeCollectionRequest || nativeCollectionRequest.isLoading)));
   const isCollectionsError = useNativeCollectionSource
-    && nativeCollectionSnapshot?.key === nativeCollectionKey
-    && nativeCollectionSnapshot.error;
+    && Boolean(nativeCollectionRequest?.error)
+    && indexedCollections.length === 0;
+  const isLocalCollectionsFallback = useNativeCollectionSource
+    && indexedCollections.length > 0
+    && !hasNativeCollections;
   const visibleCollections = useMemo(
     () => [...indexedCollections].sort((a, b) => a.name.localeCompare(b.name)),
     [indexedCollections],
@@ -791,7 +804,16 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   }, [shouldLoadCollection, isCollectionTab, selectedCollection, activeCollectionType, visibleCollections.length, isCollectionsLoading, isCollectionsError]);
 
   const selectedCollectionGroup = selectedCollection
-    ? indexedCollections.find(group => group.name === selectedCollection.name) || null
+    ? (() => {
+      const indexedGroup = indexedCollections.find(group => group.name === selectedCollection.name);
+      const localGroup = localCollectionResult.groups.find(group => group.name === selectedCollection.name);
+      if (!indexedGroup) return localGroup || null;
+      // Native group summaries omit IDs to keep the payload small. Keep the
+      // local page's IDs available as a fallback if paged track loading fails.
+      return indexedGroup.trackIds.length > 0 || !localGroup
+        ? indexedGroup
+        : { ...indexedGroup, trackIds: localGroup.trackIds };
+    })()
     : null;
   const selectedCollectionTracks = useMemo(() => {
     if (!selectedCollectionGroup) return [];
@@ -823,13 +845,15 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     void onLoadMiniCollectionTrackPage(selectedCollection.type, selectedCollection.name, 0, 100).then(page => {
       logger.info('MINI_COLLECTION', `tracks request completed: kind=${selectedCollection.type}, offset=0, returned=${page.items.length}, total=${page.total}`);
       if (active && activeCollectionPageKeyRef.current === key) {
-        setCollectionTrackPage({ key, items: page.items, total: page.total, isLoading: false });
+        setCollectionTrackPage({ key, items: page.items, total: page.total, isLoading: false, error: false });
       }
     }).catch(error => {
       logger.error('MINI_COLLECTION', `tracks request failed: kind=${selectedCollection.type}, error=${String(error)}`);
       console.warn(`Mini-player failed to load tracks for ${selectedCollection.name}:`, error);
       if (active && activeCollectionPageKeyRef.current === key) {
-        setCollectionTrackPage(previous => previous?.key === key ? { ...previous, isLoading: false } : previous);
+        setCollectionTrackPage(previous => previous?.key === key
+          ? { ...previous, isLoading: false, error: true }
+          : previous);
       }
     });
     return () => {
@@ -880,7 +904,10 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     }
     if (selectedCollection) {
       if (!onLoadMiniCollectionTrackPage) return selectedCollectionTracks;
-      return collectionTrackPage?.key === selectedCollectionPageKey ? collectionTrackPage.items : [];
+      if (collectionTrackPage?.key !== selectedCollectionPageKey) return [];
+      return collectionTrackPage.error && collectionTrackPage.items.length === 0
+        ? selectedCollectionTracks
+        : collectionTrackPage.items;
     }
     if (libraryTab === 'favorites') return visibleTracks.filter(track => track.isFavorite);
     if (libraryTab === 'tracks') return visibleTracks;
@@ -1513,26 +1540,37 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                     ) : isCollectionsError ? (
                       <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Не удалось загрузить медиатеку', 'Unable to load the library')}</p>
                     ) : visibleCollections.length > 0 ? (
-                      <VirtualizedCollectionGrid
-                        items={visibleCollections}
-                        scrollContainerRef={libraryListRef}
-                        resetKey={`collections:${libraryTab}:${selectedCollection?.name ?? ''}`}
-                        className="grid grid-cols-2 gap-2"
-                        renderItem={group => (
-                          <button
-                            type="button"
-                            onClick={() => setSelectedCollection({ type: libraryTab as LibraryCollectionType, name: group.name })}
-                            className="group relative aspect-[1.18] min-w-0 overflow-hidden rounded-xl bg-md3-surface-container-high text-left"
-                          >
-                            {group.coverArt ? <img src={group.coverArt} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high"><Disc3 size={28} className="text-md3-primary/65" /></div>}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
-                            <span className="absolute inset-x-2 bottom-2 min-w-0 text-white">
-                              <span className="block truncate text-[11px] font-semibold">{group.name}</span>
-                              <span className="block truncate text-[9px] text-white/75">{group.trackCount ?? group.trackIds.length} {text(language, 'треков', 'tracks')}</span>
-                            </span>
-                          </button>
+                      <>
+                        {isLocalCollectionsFallback && (
+                          <p role="status" className="mb-2 rounded-lg bg-md3-surface-container-high px-2 py-1.5 text-[10px] text-md3-on-surface-variant">
+                            {nativeCollectionRequest?.isLoading || !nativeCollectionRequest
+                              ? text(language, 'Показана загруженная часть медиатеки; загружаю полный список…', 'Showing loaded library items while the full list loads…')
+                              : nativeCollectionRequest.error
+                                ? text(language, 'Не удалось загрузить полный список; показана загруженная часть медиатеки.', 'Unable to load the full list; showing loaded library items.')
+                                : text(language, 'Полный список пуст; показана загруженная часть медиатеки.', 'The full list is empty; showing loaded library items.')}
+                          </p>
                         )}
-                      />
+                        <VirtualizedCollectionGrid
+                          items={visibleCollections}
+                          scrollContainerRef={libraryListRef}
+                          resetKey={`collections:${libraryTab}:${selectedCollection?.name ?? ''}`}
+                          className="grid grid-cols-2 gap-2"
+                          renderItem={group => (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedCollection({ type: libraryTab as LibraryCollectionType, name: group.name })}
+                              className="group relative aspect-[1.18] min-w-0 overflow-hidden rounded-xl bg-md3-surface-container-high text-left"
+                            >
+                              {group.coverArt ? <img src={group.coverArt} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high"><Disc3 size={28} className="text-md3-primary/65" /></div>}
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+                              <span className="absolute inset-x-2 bottom-2 min-w-0 text-white">
+                                <span className="block truncate text-[11px] font-semibold">{group.name}</span>
+                                <span className="block truncate text-[9px] text-white/75">{group.trackCount ?? group.trackIds.length} {text(language, 'треков', 'tracks')}</span>
+                              </span>
+                            </button>
+                          )}
+                        />
+                      </>
                     ) : <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Ничего не найдено', 'Nothing here yet')}</p>
                   )}
                   {(libraryTab === 'tracks' || libraryTab === 'favorites' || currentPlaylist || selectedCollection) && (

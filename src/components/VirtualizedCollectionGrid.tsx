@@ -17,7 +17,10 @@ interface VirtualizedCollectionGridProps<T> {
   overscanRows?: number;
 }
 
-const INITIAL_RENDER_COUNT = 24;
+// Render a small first batch while measuring the scroll viewport. The grid
+// switches to viewport-based rows immediately afterwards; keeping this batch
+// small avoids eagerly mounting many image-heavy cards before virtualization is ready.
+const INITIAL_RENDER_COUNT = 8;
 
 export function VirtualizedCollectionGrid<T>({
   items,
