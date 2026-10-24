@@ -2668,15 +2668,38 @@ pub fn run() {
     {
         windows_process_grouping::setup_process_grouping();
 
-        let webview_args = "--enable-features=HardwareMediaKeyHandling,MediaSessionService \
-                            --autoplay-policy=no-user-gesture-required \
-                            --disable-background-timer-throttling \
-                            --disable-renderer-backgrounding \
-                            --disable-backgrounding-occluded-windows \
-                            --disable-features=CalculateNativeWinOcclusion";
+        // Keep the established background policy by default. For controlled Windows
+        // memory investigations, setting ARACHNIDMP_WEBVIEW_BACKGROUNDING=default
+        // lets WebView2 use Chromium's normal background throttling/backgrounding.
+        let use_runtime_backgrounding = std::env::var("ARACHNIDMP_WEBVIEW_BACKGROUNDING")
+            .map(|value| value.trim().eq_ignore_ascii_case("default"))
+            .unwrap_or(false);
+        let webview_args = if use_runtime_backgrounding {
+            concat!(
+                "--enable-features=HardwareMediaKeyHandling,MediaSessionService ",
+                "--autoplay-policy=no-user-gesture-required"
+            )
+        } else {
+            concat!(
+                "--enable-features=HardwareMediaKeyHandling,MediaSessionService ",
+                "--autoplay-policy=no-user-gesture-required ",
+                "--disable-background-timer-throttling ",
+                "--disable-renderer-backgrounding ",
+                "--disable-backgrounding-occluded-windows ",
+                "--disable-features=CalculateNativeWinOcclusion"
+            )
+        };
 
         std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", webview_args);
         std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGS", webview_args);
+        logger::log(
+            "INFO",
+            "WEBVIEW_CONFIG",
+            &format!(
+                "background_policy={}",
+                if use_runtime_backgrounding { "runtime-default" } else { "legacy-unthrottled" }
+            ),
+        );
     }
 
     tauri::Builder::default()
