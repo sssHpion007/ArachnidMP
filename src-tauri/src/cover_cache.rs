@@ -1,6 +1,6 @@
 use jpeg_decoder::{Decoder as JpegDecoder, PixelFormat as JpegPixelFormat};
 use jpeg_encoder::{ColorType as JpegColorType, Encoder as JpegEncoder};
-use rusqlite::{blob::Blob, params, Connection, DatabaseName, OptionalExtension};
+use rusqlite::{blob::Blob, params, Connection, OptionalExtension, MAIN_DB};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{BufReader, Cursor, Read};
@@ -122,7 +122,7 @@ impl CoverCache {
         ).map_err(|error| format!("Create cached artwork: {error}"))?;
         let row_id: i64 = transaction.query_row("SELECT rowid FROM artworks WHERE hash=?1", [&hash], |row| row.get(0))
             .map_err(|error| format!("Find cached artwork row: {error}"))?;
-        let mut blob: Blob<'_> = transaction.blob_open(DatabaseName::Main, "artworks", "source", row_id, false)
+        let mut blob: Blob<'_> = transaction.blob_open(MAIN_DB, "artworks", "source", row_id, false)
             .map_err(|error| format!("Open artwork cache blob: {error}"))?;
         let mut source_file = File::open(path).map_err(|error| format!("Reopen cover image: {error}"))?;
         let copied = std::io::copy(&mut source_file, &mut blob).map_err(|error| format!("Write artwork cache blob: {error}"))?;
@@ -428,7 +428,6 @@ fn jpeg_to_rgb(data: &[u8], width: usize, height: usize, format: JpegPixelFormat
                 ]);
             }
         }
-        _ => return Err("Unsupported JPEG pixel format".to_string()),
     }
     if output.len() != pixels.saturating_mul(3) {
         return Err("JPEG decoder returned an unexpected pixel buffer".to_string());
@@ -480,7 +479,6 @@ fn decode_streamed_png<R: Read + std::io::Seek>(reader: R, target: u32) -> Resul
         png::ColorType::Rgb => 3,
         png::ColorType::Rgba => 4,
         png::ColorType::Indexed => return Err("PNG palette expansion failed".to_string()),
-        _ => return Err("Unsupported PNG color type".to_string()),
     };
     let target = target as usize;
     let (target_width, target_height) = target_dimensions(width, height, target);
@@ -500,7 +498,6 @@ fn decode_streamed_png<R: Read + std::io::Seek>(reader: R, target: u32) -> Resul
                 png::ColorType::Rgb => (data[input], data[input + 1], data[input + 2], 255u8),
                 png::ColorType::Rgba => (data[input], data[input + 1], data[input + 2], data[input + 3]),
                 png::ColorType::Indexed => unreachable!(),
-                _ => unreachable!(),
             };
             let output = out_y * target_width + out_x;
             let alpha = a as u64;
