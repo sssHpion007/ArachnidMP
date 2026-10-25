@@ -101,6 +101,17 @@ export const libraryRepository = {
     return ids;
   },
 
+  async reconcileMissingImports(paths: string[]): Promise<Array<{ importedId: string; retainedId: string }>> {
+    const replacements: Array<{ importedId: string; retainedId: string }> = [];
+    for (let start = 0; start < paths.length; start += 500) {
+      replacements.push(...await invoke<Array<{ importedId: string; retainedId: string }>>(
+        'library_db_reconcile_missing_imports',
+        { paths: paths.slice(start, start + 500) },
+      ));
+    }
+    return replacements;
+  },
+
   async byPaths(paths: string[]): Promise<TrackSummary[]> {
     const rows: TrackSummary[] = [];
     for (let start = 0; start < paths.length; start += 500) {

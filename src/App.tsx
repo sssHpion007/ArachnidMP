@@ -3109,16 +3109,14 @@ export const App: React.FC = () => {
 
       if (knownExistingIds?.has(nt.id)) {
         const existing = prevTracks.find(track => track.id === nt.id);
-        if (existing) {
-          updatedMap.set(existing.id, {
-            ...nt,
-            id: existing.id,
-            isMissing: false,
-            dateAdded: existing.dateAdded,
-            playCount: existing.playCount,
-            isFavorite: existing.isFavorite,
-          });
-        }
+        updatedMap.set(nt.id, {
+          ...nt,
+          id: nt.id,
+          isMissing: false,
+          dateAdded: existing?.dateAdded ?? nt.dateAdded,
+          playCount: existing?.playCount ?? nt.playCount,
+          isFavorite: existing?.isFavorite ?? nt.isFavorite,
+        });
         if (pathKey) existingPaths.add(pathKey);
         if (titleArtistKey !== '|||' && titleArtistKey !== 'unknown|||unknown artist') existingKeys.add(titleArtistKey);
         plTargetIds.push(nt.id);
@@ -3286,10 +3284,13 @@ export const App: React.FC = () => {
       try {
         const knownExistingIds = new Set(await libraryRepository.existingPathIds(audioPaths));
         await invoke<number>('scan_library_to_database', { paths: audioPaths });
+        const replacements = await libraryRepository.reconcileMissingImports(audioPaths);
+        replacements.forEach(({ retainedId }) => knownExistingIds.add(retainedId));
         const scannedRows = await libraryRepository.byPaths(audioPaths);
         if (scannedRows.length > 0) {
           processImportedTracks(hydrateNativeSummaryRows(scannedRows), knownExistingIds);
         }
+        if (replacements.length > 0) await loadNativeTracksPage(true);
       } catch (err) {
         console.warn('Error reading Tauri dropped files:', err);
       }
@@ -3353,8 +3354,11 @@ export const App: React.FC = () => {
         if (paths.length > 0) {
           const knownExistingIds = new Set(await libraryRepository.existingPathIds(paths));
           await invoke<number>('scan_library_to_database', { paths });
+          const replacements = await libraryRepository.reconcileMissingImports(paths);
+          replacements.forEach(({ retainedId }) => knownExistingIds.add(retainedId));
           const rows = await libraryRepository.byPaths(paths);
           processImportedTracks(hydrateNativeSummaryRows(rows), knownExistingIds);
+          if (replacements.length > 0) await loadNativeTracksPage(true);
         }
       } catch (err) {
         console.warn('Native open file dialog error:', err);

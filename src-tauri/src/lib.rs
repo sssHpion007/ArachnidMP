@@ -578,6 +578,20 @@ fn library_db_get_path_ids(
 }
 
 #[tauri::command]
+fn library_db_reconcile_missing_imports(
+    paths: Vec<String>,
+    state: State<'_, library_db::LibraryDb>,
+    covers: State<'_, cover_cache::CoverCache>,
+) -> Result<Vec<library_db::TrackIdReplacement>, String> {
+    let replacements = state.reconcile_missing_imports(&paths)?;
+    let imported_ids = replacements.iter().map(|replacement| replacement.imported_id.clone()).collect::<Vec<_>>();
+    covers.remove_tracks(&imported_ids)?;
+    let links = state.cover_links_for_paths(&paths)?;
+    covers.set_track_artwork_batch(&links)?;
+    Ok(replacements)
+}
+
+#[tauri::command]
 fn library_db_get_by_paths(
     paths: Vec<String>,
     state: State<'_, library_db::LibraryDb>,
@@ -3051,6 +3065,7 @@ pub fn run() {
             library_db_get_details,
             library_db_get_by_ids,
             library_db_get_path_ids,
+            library_db_reconcile_missing_imports,
             library_db_get_by_paths,
             library_db_seed_legacy_from_disk,
             library_db_seed_playlist_track_references,

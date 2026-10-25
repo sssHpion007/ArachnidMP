@@ -23,6 +23,13 @@ const DETAIL_KEYS: &[&str] = &[
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TrackIdReplacement {
+    pub imported_id: String,
+    pub retained_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TrackSummary {
     pub id: String,
     pub path: Option<String>,
@@ -402,6 +409,90 @@ impl LibraryDb {
         Ok(ids)
     }
 
+    pub fn reconcile_missing_imports(&self, paths: &[String]) -> Result<Vec<TrackIdReplacement>, String> {
+        let mut connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let transaction = connection.transaction().map_err(|e| e.to_string())?;
+
+        let mut imported = Vec::with_capacity(paths.len());
+        {
+            let mut statement = transaction.prepare(
+                "SELECT id,path,title,artist,album,genre,year,track_number,track_total,duration,src,cover_art,bitrate,format,file_size,date_added,play_count,is_favorite,is_missing,search_text,details_json
+                 FROM tracks WHERE path_key=?1"
+            ).map_err(|e| e.to_string())?;
+            for path in paths {
+                let path_key = normalize_path(path);
+                if let Some((summary, details_json)) = statement.query_row([path_key], |row| {
+                    Ok((row_to_summary(row)?, row.get::<_, String>(19)?, row.get::<_, String>(20)?))
+                }).optional().map_err(|e| e.to_string())? {
+                    imported.push((summary, details_json));
+                }
+            }
+        }
+
+        let mut used_missing_ids = std::collections::HashSet::new();
+        let mut replacements = Vec::new();
+        for (summary, search_text, details_json) in imported {
+            if summary.is_missing { continue; }
+            let Some(key) = title_artist_key(&summary.title, &summary.artist) else { continue };
+            let retained_id = {
+                let mut statement = transaction.prepare(
+                    "SELECT id,title,artist FROM tracks WHERE title=?1 COLLATE NATURAL_NOCASE AND is_missing=1 ORDER BY rowid"
+                ).map_err(|e| e.to_string())?;
+                let mut rows = statement.query([&summary.title]).map_err(|e| e.to_string())?;
+                let mut match_id = None;
+                while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+                    let id: String = row.get(0).map_err(|e| e.to_string())?;
+                    let title: String = row.get(1).map_err(|e| e.to_string())?;
+                    let artist: String = row.get(2).map_err(|e| e.to_string())?;
+                    if id != summary.id && !used_missing_ids.contains(&id)
+                        && title_artist_key(&title, &artist).as_deref() == Some(key.as_str())
+                    {
+                        match_id = Some(id);
+                        break;
+                    }
+                }
+                match_id
+            };
+            let Some(retained_id) = retained_id else { continue };
+            used_missing_ids.insert(retained_id.clone());
+
+            transaction.execute("DELETE FROM tracks WHERE id=?1", [&summary.id]).map_err(|e| e.to_string())?;
+            let changed = transaction.execute(
+                "UPDATE tracks SET path=?1,path_key=?2,title=?3,artist=?4,album=?5,genre=?6,year=?7,track_number=?8,track_total=?9,duration=?10,src=?11,cover_art=?12,bitrate=?13,format=?14,file_size=?15,is_missing=0,search_text=?16,details_json=?17 WHERE id=?18 AND is_missing=1",
+                params![
+                    summary.path,
+                    summary.path.as_deref().map(normalize_path),
+                    summary.title,
+                    summary.artist,
+                    summary.album,
+                    summary.genre,
+                    summary.year,
+                    summary.track_number,
+                    summary.track_total,
+                    summary.duration,
+                    summary.src,
+                    summary.cover_art,
+                    summary.bitrate,
+                    summary.format,
+                    summary.file_size,
+                    search_text,
+                    details_json,
+                    retained_id,
+                ],
+            ).map_err(|e| e.to_string())?;
+            if changed != 1 {
+                return Err(format!("Missing track {retained_id} changed during import reconciliation"));
+            }
+            if let Some(path) = summary.path.as_deref() {
+                let path_key = normalize_path(path);
+                transaction.execute("DELETE FROM legacy_path_map WHERE path_key=?1", [path_key]).map_err(|e| e.to_string())?;
+            }
+            replacements.push(TrackIdReplacement { imported_id: summary.id, retained_id });
+        }
+        transaction.commit().map_err(|e| e.to_string())?;
+        Ok(replacements)
+    }
+
     pub fn summaries_by_paths(&self, paths: &[String]) -> Result<Vec<TrackSummary>, String> {
         let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
         let mut result = Vec::with_capacity(paths.len());
@@ -648,6 +739,11 @@ fn sort_column(value: &str) -> &'static str {
 
 fn normalize_search(value: &str) -> String { value.trim().to_lowercase() }
 fn normalize_path(value: &str) -> String { value.trim().replace('\\', "/").to_lowercase() }
+
+fn title_artist_key(title: &str, artist: &str) -> Option<String> {
+    let key = format!("{}|||{}", title.trim().to_lowercase(), artist.trim().to_lowercase());
+    if key == "|||" || key == "unknown|||unknown artist" { None } else { Some(key) }
+}
 fn string(value: &Value, camel: &str, snake: &str, default: &str) -> String {
     value.get(camel).or_else(|| value.get(snake)).and_then(Value::as_str).unwrap_or(default).to_string()
 }
@@ -970,6 +1066,27 @@ mod tests {
         assert_eq!(page.items[0].title, "Updated");
         assert!(page.items[0].is_favorite);
         assert_eq!(page.items[0].play_count, 9);
+        assert_eq!(page.items[0].date_added, 123);
+    }
+
+    #[test]
+    fn reimport_reuses_evicted_missing_track_id_by_title_and_artist() {
+        let db = database();
+        db.upsert_batch(&[json!({"id":"stable-id","title":"Ёж и песня","artist":"Группа","album":"Альбом","path":"/old/song.flac","isFavorite":true,"playCount":7,"dateAdded":123})]).unwrap();
+        db.set_missing(&["stable-id".into()], true).unwrap();
+        db.upsert_batch(&[json!({"id":"new-id","title":"ёж и песня","artist":"ГРУППА","album":"Альбом 2","path":"/new/song.flac"})]).unwrap();
+
+        let replacements = db.reconcile_missing_imports(&["/new/song.flac".into()]).unwrap();
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(replacements[0].imported_id, "new-id");
+        assert_eq!(replacements[0].retained_id, "stable-id");
+        let page = db.page(None, "title", false, 0, 10).unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items[0].id, "stable-id");
+        assert_eq!(page.items[0].path.as_deref(), Some("/new/song.flac"));
+        assert!(!page.items[0].is_missing);
+        assert!(page.items[0].is_favorite);
+        assert_eq!(page.items[0].play_count, 7);
         assert_eq!(page.items[0].date_added, 123);
     }
 
