@@ -21,6 +21,10 @@ import { coverVariantUrl } from '../utils/coverArt';
 
 interface TrackTableProps {
   tracks: Track[];
+  /** Absolute filtered-list index for each cached track. Omit for a complete array starting at zero. */
+  trackIndices?: number[];
+  totalTrackCount?: number;
+  onLoadRange?: (startIndex: number, endIndex: number) => void;
   currentTrack: Track | null;
   isPlaying: boolean;
   selectedTrackIds: Set<string>;
@@ -72,6 +76,9 @@ interface DropTargetState {
 
 export const TrackTable: React.FC<TrackTableProps> = ({
   tracks,
+  trackIndices,
+  totalTrackCount = tracks.length,
+  onLoadRange,
   currentTrack,
   isPlaying,
   selectedTrackIds,
@@ -149,7 +156,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
     const firstId = tracks[0]?.id ?? null;
     const previous = previousTrackWindowRef.current;
     const queryChanged = previousResetScrollKeyRef.current !== resetScrollKey;
-    if (queryChanged || (previous.firstId && firstId && previous.firstId !== firstId)) {
+    if (queryChanged || (!trackIndices && previous.firstId && firstId && previous.firstId !== firstId)) {
       if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
       setScrollTop(0);
     }
@@ -200,12 +207,26 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   }, []);
 
   const rowHeight = isCompact ? 60 : 54;
-  const totalHeight = tracks.length * rowHeight;
+  const totalHeight = totalTrackCount * rowHeight;
   const OVERSCAN = 6;
   const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
-  const endIndex = Math.min(tracks.length, Math.ceil((scrollTop + viewportHeight) / rowHeight) + OVERSCAN);
-  const visibleTracks = tracks.slice(startIndex, endIndex);
+  const endIndex = Math.min(totalTrackCount, Math.ceil((scrollTop + viewportHeight) / rowHeight) + OVERSCAN);
+  const tracksByIndex = React.useMemo(() => {
+    const rows = new Map<number, Track>();
+    tracks.forEach((track, index) => rows.set(trackIndices?.[index] ?? index, track));
+    return rows;
+  }, [tracks, trackIndices]);
+  const visibleRows = Array.from({ length: Math.max(0, endIndex - startIndex) }, (_, offset) => {
+    const index = startIndex + offset;
+    return { index, track: tracksByIndex.get(index) };
+  });
   const offsetY = startIndex * rowHeight;
+
+  useEffect(() => {
+    if (onLoadRange && totalTrackCount > 0 && endIndex > startIndex) {
+      onLoadRange(startIndex, endIndex);
+    }
+  }, [onLoadRange, startIndex, endIndex, totalTrackCount]);
 
   const handlePointerDown = (e: React.PointerEvent, track: Track, index: number) => {
     if (!isReorderable || !onReorderTracks) return;
@@ -467,12 +488,13 @@ export const TrackTable: React.FC<TrackTableProps> = ({
       </div>
 
       {/* Tracks List */}
-      <div 
+      <div
         ref={scrollContainerRef}
+        data-track-table-scroll
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto min-h-0 custom-scrollbar relative"
       >
-        {tracks.length === 0 ? (
+        {totalTrackCount === 0 ? (
           isLoading ? (
             <div aria-busy="true" className="h-64" />
           ) : (
@@ -502,9 +524,20 @@ export const TrackTable: React.FC<TrackTableProps> = ({
               }}
               className="divide-y divide-md3-outline-variant/10"
             >
-              {visibleTracks.map((track, relativeIdx) => {
-                const idx = startIndex + relativeIdx;
-            const isSelected = selectedTrackIds.has(track.id);
+              {visibleRows.map(({ track, index: idx }) => {
+                if (!track) {
+                  return (
+                    <div
+                      key={`loading-row-${idx}`}
+                      aria-busy="true"
+                      className="flex items-center px-4 border-b border-md3-outline-variant/10"
+                      style={{ height: `${rowHeight}px` }}
+                    >
+                      <div className="h-3 w-40 max-w-[45%] rounded bg-md3-surface-container-high animate-pulse" />
+                    </div>
+                  );
+                }
+                const isSelected = selectedTrackIds.has(track.id);
             const isCurrent = currentTrack?.id === track.id;
             const isHovered = hoveredTrackId === track.id;
             const isDropAbove = dropTarget?.trackId === track.id && dropTarget.position === 'above';

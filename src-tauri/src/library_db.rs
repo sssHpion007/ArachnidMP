@@ -467,6 +467,20 @@ impl LibraryDb {
         transaction.commit().map_err(|e| e.to_string())
     }
 
+    pub fn set_missing(&self, ids: &[String], missing: bool) -> Result<usize, String> {
+        let mut connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let transaction = connection.transaction().map_err(|e| e.to_string())?;
+        let mut changed = 0usize;
+        {
+            let mut statement = transaction.prepare("UPDATE tracks SET is_missing=?1 WHERE id=?2").map_err(|e| e.to_string())?;
+            for id in ids {
+                changed += statement.execute(params![missing, id]).map_err(|e| e.to_string())?;
+            }
+        }
+        transaction.commit().map_err(|e| e.to_string())?;
+        Ok(changed)
+    }
+
     pub fn delete_ids(&self, ids: &[String]) -> Result<(), String> {
         let mut connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
         let transaction = connection.transaction().map_err(|e| e.to_string())?;
@@ -955,5 +969,19 @@ mod tests {
         assert!(db.page(None, "title", false, 0, 10).unwrap().items[0].is_favorite);
         db.delete_ids(&["same".to_string()]).unwrap();
         assert_eq!(db.count(None).unwrap(), 0);
+    }
+
+    #[test]
+    fn missing_status_updates_rows_outside_the_visible_page() {
+        let db = database();
+        db.upsert_batch(&[
+            json!({"id":"1","title":"Track 1","artist":"Artist","album":"Album","path":"/music/1.flac"}),
+            json!({"id":"2","title":"Track 2","artist":"Artist","album":"Album","path":"/music/2.flac"}),
+        ]).unwrap();
+        assert_eq!(db.set_missing(&["2".into()], true).unwrap(), 1);
+        let row = db.summaries_by_ids(&["2".into()]).unwrap().pop().unwrap();
+        assert!(row.is_missing);
+        assert_eq!(db.set_missing(&["2".into()], false).unwrap(), 1);
+        assert!(!db.summaries_by_ids(&["2".into()]).unwrap()[0].is_missing);
     }
 }

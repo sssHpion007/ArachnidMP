@@ -677,6 +677,15 @@ fn library_db_set_favorites(
 }
 
 #[tauri::command]
+fn library_db_set_missing(
+    track_ids: Vec<String>,
+    missing: bool,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<usize, String> {
+    state.set_missing(&track_ids, missing)
+}
+
+#[tauri::command]
 fn library_db_delete_ids(
     track_ids: Vec<String>,
     state: State<'_, library_db::LibraryDb>,
@@ -1559,28 +1568,113 @@ fn batch_check_files_exist(paths: Vec<String>) -> std::collections::HashMap<Stri
     map
 }
 
-#[tauri::command]
-async fn delete_files_from_disk(paths: Vec<String>, state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
-    // If playback is currently active, stop native player to release any file locks
-    let _ = state.player.stop(false);
+const MAX_DELETE_TRACK_BATCH: usize = 500;
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteTrackFailure {
+    track_id: String,
+    reason: String,
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteTracksFromDiskResult {
+    deleted_track_ids: Vec<String>,
+    already_missing_track_ids: Vec<String>,
+    failures: Vec<DeleteTrackFailure>,
+}
+
+fn is_supported_audio_track_path(path: &Path) -> bool {
+    const AUDIO_EXTENSIONS: &[&str] = &["mp3", "flac", "wav", "ogg", "m4a", "aac", "opus", "wma"];
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| AUDIO_EXTENSIONS.iter().any(|supported| extension.eq_ignore_ascii_case(supported)))
+}
+
+#[tauri::command]
+async fn delete_files_from_disk(
+    track_ids: Vec<String>,
+    database: State<'_, library_db::LibraryDb>,
+) -> Result<DeleteTracksFromDiskResult, String> {
+    if track_ids.len() > MAX_DELETE_TRACK_BATCH {
+        return Err(format!("A maximum of {MAX_DELETE_TRACK_BATCH} tracks can be deleted per request"));
+    }
+
+    let database = database.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        // Short grace pause for Windows filesystem handle closure
-        std::thread::sleep(std::time::Duration::from_millis(60));
-        let mut deleted = Vec::new();
-        for p_str in paths {
-            let p = Path::new(&p_str);
-            if p.is_file() {
-                if std::fs::remove_file(p).is_ok() {
-                    deleted.push(p_str.clone());
-                    notify_shell_file_changed(p);
-                }
+        let mut result = DeleteTracksFromDiskResult::default();
+        let mut unique_ids = Vec::with_capacity(track_ids.len());
+        let mut seen_ids = std::collections::HashSet::with_capacity(track_ids.len());
+        for track_id in track_ids {
+            if seen_ids.insert(track_id.clone()) {
+                unique_ids.push(track_id);
             }
         }
-        Ok(deleted)
+
+        let tracks = database.summaries_by_ids(&unique_ids)?;
+        let tracks_by_id = tracks.into_iter().map(|track| (track.id.clone(), track)).collect::<std::collections::HashMap<_, _>>();
+
+        for track_id in unique_ids {
+            let Some(track) = tracks_by_id.get(&track_id) else {
+                result.failures.push(DeleteTrackFailure {
+                    track_id,
+                    reason: "Track is not present in the library database".to_string(),
+                });
+                continue;
+            };
+            let Some(path_string) = track.path.as_deref() else {
+                result.failures.push(DeleteTrackFailure {
+                    track_id,
+                    reason: "Track has no file path".to_string(),
+                });
+                continue;
+            };
+            let path = Path::new(path_string);
+            if !path.is_absolute() {
+                result.failures.push(DeleteTrackFailure {
+                    track_id,
+                    reason: "Track path is not absolute".to_string(),
+                });
+                continue;
+            }
+            if !is_supported_audio_track_path(path) {
+                result.failures.push(DeleteTrackFailure {
+                    track_id,
+                    reason: "Track path does not have a supported audio extension".to_string(),
+                });
+                continue;
+            }
+
+            match std::fs::metadata(path) {
+                Ok(metadata) if metadata.is_file() => match std::fs::remove_file(path) {
+                    Ok(()) => {
+                        notify_shell_file_changed(path);
+                        result.deleted_track_ids.push(track_id);
+                    }
+                    Err(error) => result.failures.push(DeleteTrackFailure {
+                        track_id,
+                        reason: format!("Unable to delete audio file: {error}"),
+                    }),
+                },
+                Ok(_) => result.failures.push(DeleteTrackFailure {
+                    track_id,
+                    reason: "Track path does not refer to a regular file".to_string(),
+                }),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    result.already_missing_track_ids.push(track_id);
+                }
+                Err(error) => result.failures.push(DeleteTrackFailure {
+                    track_id,
+                    reason: format!("Unable to inspect audio file: {error}"),
+                }),
+            }
+        }
+
+        Ok(result)
     })
     .await
-    .map_err(|e| format!("Failed to delete files: {}", e))?
+    .map_err(|error| format!("Failed to delete library files: {error}"))?
 }
 
 #[tauri::command]
@@ -2931,6 +3025,7 @@ pub fn run() {
             library_db_merge_details,
             library_db_merge_summary,
             library_db_set_favorites,
+            library_db_set_missing,
             library_db_delete_ids,
             get_app_version,
             set_close_to_tray,

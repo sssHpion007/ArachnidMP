@@ -48,6 +48,14 @@ jobs:
       - name: Build Web Frontend
         run: npm run build
 
+      - name: Test bounded library cache and frontend regressions
+        shell: pwsh
+        run: |
+          npm run test:bounded-page-cache
+          npm run test:library-index
+          npm run test:folder-playback
+          npm run test:library-scan-paths
+
       - name: Build Tauri Desktop Portable
         shell: pwsh
         run: |

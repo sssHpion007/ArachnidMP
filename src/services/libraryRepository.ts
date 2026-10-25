@@ -15,6 +15,18 @@ export interface LibraryPageQuery {
 }
 
 const MAX_PAGE_SIZE = 500;
+const MAX_DELETE_BATCH_SIZE = 500;
+
+export interface DeleteTrackFailure {
+  trackId: string;
+  reason: string;
+}
+
+export interface DeleteTracksFromDiskResult {
+  deletedTrackIds: string[];
+  alreadyMissingTrackIds: string[];
+  failures: DeleteTrackFailure[];
+}
 
 /** Typed boundary for native catalog access. Keep calls bounded; never request the whole DB by default. */
 export const libraryRepository = {
@@ -113,6 +125,37 @@ export const libraryRepository = {
     for (let start = 0; start < trackIds.length; start += 500) {
       await invoke('library_db_set_favorites', { trackIds: trackIds.slice(start, start + 500), favorite });
     }
+  },
+
+  async setMissing(trackIds: string[], missing: boolean): Promise<void> {
+    for (let start = 0; start < trackIds.length; start += 500) {
+      await invoke('library_db_set_missing', { trackIds: trackIds.slice(start, start + 500), missing });
+    }
+  },
+
+  async deleteFilesFromDisk(trackIds: string[]): Promise<DeleteTracksFromDiskResult> {
+    const uniqueIds = [...new Set(trackIds)];
+    const result: DeleteTracksFromDiskResult = {
+      deletedTrackIds: [],
+      alreadyMissingTrackIds: [],
+      failures: [],
+    };
+
+    for (let start = 0; start < uniqueIds.length; start += MAX_DELETE_BATCH_SIZE) {
+      const batch = uniqueIds.slice(start, start + MAX_DELETE_BATCH_SIZE);
+      try {
+        const batchResult = await invoke<DeleteTracksFromDiskResult>('delete_files_from_disk', {
+          trackIds: batch,
+        });
+        result.deletedTrackIds.push(...batchResult.deletedTrackIds);
+        result.alreadyMissingTrackIds.push(...batchResult.alreadyMissingTrackIds);
+        result.failures.push(...batchResult.failures);
+      } catch (error) {
+        result.failures.push(...batch.map(trackId => ({ trackId, reason: String(error) })));
+      }
+    }
+
+    return result;
   },
 
   async delete(trackIds: string[]): Promise<void> {

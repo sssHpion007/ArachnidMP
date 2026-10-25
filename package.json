@@ -9,6 +9,7 @@
     "test:library-index": "node --experimental-strip-types tests/library-collection-index.test.mjs",
     "test:folder-playback": "node --experimental-strip-types tests/folder-playback.test.mjs",
     "test:library-scan-paths": "node --experimental-strip-types tests/library-scan-paths.test.mjs",
+    "test:bounded-page-cache": "node --experimental-strip-types tests/bounded-page-cache.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },
