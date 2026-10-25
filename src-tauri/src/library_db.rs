@@ -421,7 +421,7 @@ impl LibraryDb {
             ).map_err(|e| e.to_string())?;
             for path in paths {
                 let path_key = normalize_path(path);
-                if let Some((summary, details_json)) = statement.query_row([path_key], |row| {
+                if let Some((summary, search_text, details_json)) = statement.query_row([path_key], |row| {
                     Ok((row_to_summary(row)?, row.get::<_, String>(19)?, row.get::<_, String>(20)?))
                 }).optional().map_err(|e| e.to_string())? {
                     imported.push((summary, details_json));
