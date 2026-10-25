@@ -72,6 +72,11 @@ const MINI_WINDOW_WITH_LYRICS_WIDTH = 620;
 const WINDOW_MODE_FADE_MS = 150;
 const WINDOW_MODE_RESIZE_MS = 220;
 
+type NativeLibraryScanResult = {
+  scanned: number;
+  replacements: Array<{ importedId: string; retainedId: string }>;
+};
+
 const waitForDelay = (duration: number) => new Promise<void>(resolve => window.setTimeout(resolve, duration));
 
 const waitForAnimationFrames = async (count: number) => {
@@ -1383,23 +1388,29 @@ export const App: React.FC = () => {
             const initialScanPathPlan = await getScanPathPlan();
             if (catalogWasEmpty) {
               // The first catalog must be populated even if future startup scans are disabled.
-              await invoke<number>('scan_library_to_database', { paths: initialScanPathPlan.scanPaths });
+              await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: initialScanPathPlan.scanPaths });
             } else if (parsed.autoScanOnStartup === false && initialScanPathPlan.uncoveredPlaylistPaths.length > 0) {
               // Index M3U files outside watched roots when automatic startup scans are disabled.
-              await invoke<number>('scan_library_to_database', { paths: initialScanPathPlan.uncoveredPlaylistPaths });
+              await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: initialScanPathPlan.uncoveredPlaylistPaths });
             }
 
             const hydrated = await loadNativeCatalog();
             setTracks(hydrated);
             tracksRef.current = hydrated;
             previousTracksForDbRef.current = hydrated;
-            void verifyNativeLibraryExistence(true);
 
-            if (existingCount > 0 && parsed.autoScanOnStartup !== false) {
+            const scanBeforeStartupMissingCheck = existingCount > 0 && parsed.autoScanOnStartup !== false;
+            if (!scanBeforeStartupMissingCheck) {
+              // Verify only after any synchronous first-run/uncovered-path scan has finished.
+              void verifyNativeLibraryExistence(true);
+            } else {
+              // Let the startup scan settle and reconcile moved tracks before presenting a
+              // missing-files warning; otherwise stale DB paths can be reported as missing.
               window.setTimeout(async () => {
                 try {
-                  await invoke<number>('scan_library_to_database', { paths: await getScanPaths() });
+                  await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: await getScanPaths() });
                   await loadNativeTracksPageRef.current?.(true);
+                  await verifyNativeLibraryExistence(true);
                 } catch (error) {
                   console.warn('Startup library scan error:', error);
                 }
@@ -1802,7 +1813,9 @@ export const App: React.FC = () => {
       if (isTauri()) void verifyNativeLibraryExistence();
       else if (tracksRef.current.length > 0) void verifyTracksExistence(tracksRef.current);
     };
-    verify();
+    // Native startup performs its first check explicitly after the initial scan; avoid a
+    // competing pre-scan check that could mark stale paths missing while discovery runs.
+    if (!isTauri()) verify();
     const timer = setInterval(verify, 300000);
     return () => clearInterval(timer);
   }, [startupDataLoaded, verifyNativeLibraryExistence, verifyTracksExistence]);
@@ -3203,7 +3216,7 @@ export const App: React.FC = () => {
         try {
           const res = await invoke<{ name: string; paths: string[] }>('parse_m3u8_file', { path: plPath });
           if (res && res.paths.length > 0) {
-            await invoke<number>('scan_library_to_database', { paths: res.paths });
+            await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: res.paths });
             const newPlTracks = hydrateNativeSummaryRows(await libraryRepository.byPaths(res.paths));
             if (newPlTracks.length > 0) {
               const newPl: Playlist = {
@@ -3230,14 +3243,13 @@ export const App: React.FC = () => {
 
       try {
         const knownExistingIds = new Set(await libraryRepository.existingPathIds(audioPaths));
-        await invoke<number>('scan_library_to_database', { paths: audioPaths });
-        const replacements = await libraryRepository.reconcileMissingImports(audioPaths);
-        replacements.forEach(({ retainedId }) => knownExistingIds.add(retainedId));
+        const scanResult = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: audioPaths });
+        scanResult.replacements.forEach(({ retainedId }) => knownExistingIds.add(retainedId));
         const scannedRows = await libraryRepository.byPaths(audioPaths);
         if (scannedRows.length > 0) {
           processImportedTracks(hydrateNativeSummaryRows(scannedRows), knownExistingIds);
         }
-        if (replacements.length > 0) await loadNativeTracksPage(true);
+        if (scanResult.replacements.length > 0) await loadNativeTracksPage(true);
       } catch (err) {
         console.warn('Error reading Tauri dropped files:', err);
       }
@@ -3300,12 +3312,11 @@ export const App: React.FC = () => {
         const paths = await invoke<string[]>('open_file_dialog');
         if (paths.length > 0) {
           const knownExistingIds = new Set(await libraryRepository.existingPathIds(paths));
-          await invoke<number>('scan_library_to_database', { paths });
-          const replacements = await libraryRepository.reconcileMissingImports(paths);
-          replacements.forEach(({ retainedId }) => knownExistingIds.add(retainedId));
+          const scanResult = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths });
+          scanResult.replacements.forEach(({ retainedId }) => knownExistingIds.add(retainedId));
           const rows = await libraryRepository.byPaths(paths);
           processImportedTracks(hydrateNativeSummaryRows(rows), knownExistingIds);
-          if (replacements.length > 0) await loadNativeTracksPage(true);
+          if (scanResult.replacements.length > 0) await loadNativeTracksPage(true);
         }
       } catch (err) {
         console.warn('Native open file dialog error:', err);
@@ -4068,7 +4079,7 @@ export const App: React.FC = () => {
       try {
         const res = await invoke<{ name: string; paths: string[] } | null>('import_playlist_from_m3u8');
         if (res && res.paths.length > 0) {
-          await invoke<number>('scan_library_to_database', { paths: res.paths });
+          await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: res.paths });
           const addedTracks = hydrateNativeSummaryRows(await libraryRepository.byPaths(res.paths));
           if (addedTracks.length > 0) {
             const newPl: Playlist = {
@@ -4155,9 +4166,9 @@ export const App: React.FC = () => {
     try {
       const portableMusicPath = await invoke<string>('get_portable_music_path');
       const foldersToScan = Array.from(new Set([portableMusicPath, ...watchedFolders]));
-      const scanned = await invoke<number>('scan_library_to_database', { paths: foldersToScan });
+      const scanResult = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: foldersToScan });
       await loadNativeTracksPage(true);
-      return scanned;
+      return scanResult.scanned;
     } catch (error) {
       console.warn('Scan library error:', error);
       throw error;

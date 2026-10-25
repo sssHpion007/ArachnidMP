@@ -577,16 +577,20 @@ fn library_db_get_path_ids(
     state.ids_by_paths(&paths)
 }
 
-#[tauri::command]
-fn library_db_reconcile_missing_imports(
-    paths: Vec<String>,
-    state: State<'_, library_db::LibraryDb>,
-    covers: State<'_, cover_cache::CoverCache>,
+fn reconcile_missing_imports_with_covers(
+    database: &library_db::LibraryDb,
+    covers: &cover_cache::CoverCache,
+    paths: &[String],
+    known_existing_ids: &[String],
 ) -> Result<Vec<library_db::TrackIdReplacement>, String> {
-    let replacements = state.reconcile_missing_imports(&paths)?;
+    let replacements = database.reconcile_missing_imports(paths, known_existing_ids)?;
+    if replacements.is_empty() { return Ok(replacements); }
     let imported_ids = replacements.iter().map(|replacement| replacement.imported_id.clone()).collect::<Vec<_>>();
+    let retained_ids = replacements.iter().map(|replacement| replacement.retained_id.clone()).collect::<Vec<_>>();
     covers.remove_tracks(&imported_ids)?;
-    let links = state.cover_links_for_paths(&paths)?;
+    let retained_paths = database.summaries_by_ids(&retained_ids)?.into_iter()
+        .filter_map(|track| track.path).collect::<Vec<_>>();
+    let links = database.cover_links_for_paths(&retained_paths)?;
     covers.set_track_artwork_batch(&links)?;
     Ok(replacements)
 }
@@ -739,18 +743,26 @@ fn library_db_delete_ids(
     covers.remove_tracks(&track_ids)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LibraryScanResult {
+    scanned: usize,
+    replacements: Vec<library_db::TrackIdReplacement>,
+}
+
 #[tauri::command]
 async fn scan_library_to_database(
     paths: Vec<String>,
     state: State<'_, library_db::LibraryDb>,
     cover_state: State<'_, cover_cache::CoverCache>,
-) -> Result<usize, String> {
+) -> Result<LibraryScanResult, String> {
     let database = state.inner().clone();
     let covers = cover_state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         const BATCH_SIZE: usize = 128;
         let mut batch = Vec::with_capacity(BATCH_SIZE);
         let mut scanned = 0usize;
+        let mut replacements = Vec::new();
         let mut discovered = 0usize;
         let mut directory_results = Vec::new();
         let mut individual_file_paths = 0usize;
@@ -760,7 +772,14 @@ async fn scan_library_to_database(
 
         let mut flush = |batch: &mut Vec<serde_json::Value>| -> Result<(), String> {
             if batch.is_empty() { return Ok(()); }
+            let mut seen_paths = std::collections::HashSet::new();
+            let batch_paths = batch.iter()
+                .filter_map(|track| track.get("path").and_then(serde_json::Value::as_str).map(str::to_string))
+                .filter(|path| seen_paths.insert(path.trim().replace('\\', "/").to_lowercase()))
+                .collect::<Vec<_>>();
+            let known_existing_ids = database.ids_by_paths(&batch_paths)?;
             upsert_tracks_with_cover_cache(&database, &covers, batch)?;
+            replacements.extend(reconcile_missing_imports_with_covers(&database, &covers, &batch_paths, &known_existing_ids)?);
             scanned = scanned.saturating_add(batch.len());
             batch.clear();
             Ok(())
@@ -804,12 +823,12 @@ async fn scan_library_to_database(
             "INFO",
             "LIBRARY_SCAN",
             &format!(
-                "paths={} audio_tracks={} persisted={} directories=[{}] individual_file_paths={} individual_file_tracks={} missing_paths={}",
-                total_paths, discovered, scanned, directory_results.join(","),
+                "paths={} audio_tracks={} persisted={} reconciled_missing_tracks={} directories=[{}] individual_file_paths={} individual_file_tracks={} missing_paths={}",
+                total_paths, discovered, scanned, replacements.len(), directory_results.join(","),
                 individual_file_paths, individual_file_tracks, missing_paths,
             ),
         );
-        Ok(scanned)
+        Ok(LibraryScanResult { scanned, replacements })
     })
     .await
     .map_err(|error| format!("Library scan task failed: {error}"))?
@@ -3065,7 +3084,6 @@ pub fn run() {
             library_db_get_details,
             library_db_get_by_ids,
             library_db_get_path_ids,
-            library_db_reconcile_missing_imports,
             library_db_get_by_paths,
             library_db_seed_legacy_from_disk,
             library_db_seed_playlist_track_references,

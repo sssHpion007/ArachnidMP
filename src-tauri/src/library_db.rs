@@ -409,7 +409,8 @@ impl LibraryDb {
         Ok(ids)
     }
 
-    pub fn reconcile_missing_imports(&self, paths: &[String]) -> Result<Vec<TrackIdReplacement>, String> {
+    pub fn reconcile_missing_imports(&self, paths: &[String], known_existing_ids: &[String]) -> Result<Vec<TrackIdReplacement>, String> {
+        let known_existing_ids = known_existing_ids.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
         let mut connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
         let transaction = connection.transaction().map_err(|e| e.to_string())?;
 
@@ -432,7 +433,7 @@ impl LibraryDb {
         let mut used_missing_ids = std::collections::HashSet::new();
         let mut replacements = Vec::new();
         for (summary, search_text, details_json) in imported {
-            if summary.is_missing { continue; }
+            if summary.is_missing || known_existing_ids.contains(summary.id.as_str()) { continue; }
             let Some(key) = title_artist_key(&summary.title, &summary.artist) else { continue };
             let retained_id = {
                 let mut statement = transaction.prepare(
@@ -1076,7 +1077,7 @@ mod tests {
         db.set_missing(&["stable-id".into()], true).unwrap();
         db.upsert_batch(&[json!({"id":"new-id","title":"ёж и песня","artist":"ГРУППА","album":"Альбом 2","path":"/new/song.flac"})]).unwrap();
 
-        let replacements = db.reconcile_missing_imports(&["/new/song.flac".into()]).unwrap();
+        let replacements = db.reconcile_missing_imports(&["/new/song.flac".into()], &[]).unwrap();
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].imported_id, "new-id");
         assert_eq!(replacements[0].retained_id, "stable-id");
@@ -1088,6 +1089,22 @@ mod tests {
         assert!(page.items[0].is_favorite);
         assert_eq!(page.items[0].play_count, 7);
         assert_eq!(page.items[0].date_added, 123);
+    }
+
+    #[test]
+    fn rescanning_an_existing_path_does_not_consume_another_missing_duplicate() {
+        let db = database();
+        db.upsert_batch(&[
+            json!({"id":"missing-id","title":"Same title","artist":"Same artist","path":"/old/song.mp3","isMissing":true}),
+            json!({"id":"active-id","title":"Same title","artist":"Same artist","path":"/new/song.mp3"}),
+        ]).unwrap();
+
+        let replacements = db.reconcile_missing_imports(&["/new/song.mp3".into()], &["active-id".into()]).unwrap();
+        assert!(replacements.is_empty());
+        let page = db.page(None, "title", false, 0, 10).unwrap();
+        assert_eq!(page.total, 2);
+        assert!(page.items.iter().any(|track| track.id == "missing-id" && track.is_missing));
+        assert!(page.items.iter().any(|track| track.id == "active-id" && !track.is_missing));
     }
 
     #[test]
