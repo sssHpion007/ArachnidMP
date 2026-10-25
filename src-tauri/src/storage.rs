@@ -1268,31 +1268,20 @@ pub fn parse_m3u8_playlist(
 }
 
 
-/// Read only the minimal path/ID/user-state projection needed to reconnect playlists
-/// during the one-time SQLite catalog rebuild. No legacy Track objects cross the WebView.
-pub fn load_legacy_track_references() -> Result<Vec<crate::library_db::LegacyTrackReference>, String> {
-    let base_dir = get_portable_base_dir();
-    let candidates = [
-        base_dir.join("config").join("library.json"),
-        base_dir.join("arachnid_data.json.bak"),
-        base_dir.join("arachnid_data.json"),
-    ];
-    let Some(path) = candidates.iter().find(|path| path.is_file()) else {
-        return Ok(Vec::new());
-    };
-    let content = fs::read_to_string(path).map_err(|error| format!("Read legacy library index: {error}"))?;
-    let value: Value = serde_json::from_str(&content).map_err(|error| format!("Parse legacy library index: {error}"))?;
-    let Some(tracks) = value.get("tracks").and_then(Value::as_array) else {
-        return Ok(Vec::new());
-    };
-    let mut references = Vec::with_capacity(tracks.len());
+fn legacy_track_references_from_value(
+    value: &Value,
+    requested_ids: &std::collections::HashSet<String>,
+    base_dir: &Path,
+) -> Vec<crate::library_db::LegacyTrackReference> {
+    let Some(tracks) = value.get("tracks").and_then(Value::as_array) else { return Vec::new() };
+    let mut references = Vec::with_capacity(tracks.len().min(requested_ids.len()));
     for track in tracks {
         let (Some(id), Some(raw_path)) = (
             track.get("id").and_then(Value::as_str),
             track.get("path").and_then(Value::as_str),
         ) else { continue };
-        if id.is_empty() || raw_path.trim().is_empty() { continue; }
-        let resolved_path = to_absolute_music_path(raw_path, &base_dir).unwrap_or_else(|| {
+        if id.is_empty() || raw_path.trim().is_empty() || !requested_ids.contains(id) { continue; }
+        let resolved_path = to_absolute_music_path(raw_path, base_dir).unwrap_or_else(|| {
             let path = Path::new(raw_path);
             if path.is_absolute() { raw_path.to_string() } else { base_dir.join(path).to_string_lossy().to_string() }
         });
@@ -1304,5 +1293,50 @@ pub fn load_legacy_track_references() -> Result<Vec<crate::library_db::LegacyTra
             date_added: track.get("dateAdded").and_then(Value::as_i64).unwrap_or(0),
         });
     }
-    Ok(references)
+    references
+}
+
+/// Read only references still present in playlists from the old full-library index.
+/// Removed/library-only IDs must not seed a path mapping during the SQLite rebuild.
+pub fn load_legacy_track_references(track_ids: &[String]) -> Result<Vec<crate::library_db::LegacyTrackReference>, String> {
+    if track_ids.is_empty() { return Ok(Vec::new()); }
+    let requested_ids = track_ids.iter().cloned().collect::<std::collections::HashSet<_>>();
+    let base_dir = get_portable_base_dir();
+    let candidates = [
+        base_dir.join("config").join("library.json"),
+        base_dir.join("arachnid_data.json.bak"),
+        base_dir.join("arachnid_data.json"),
+    ];
+    let Some(path) = candidates.iter().find(|path| path.is_file()) else {
+        return Ok(Vec::new());
+    };
+    let content = fs::read_to_string(path).map_err(|error| format!("Read legacy library index: {error}"))?;
+    let value: Value = serde_json::from_str(&content).map_err(|error| format!("Parse legacy library index: {error}"))?;
+    Ok(legacy_track_references_from_value(&value, &requested_ids, &base_dir))
+}
+
+#[cfg(test)]
+mod legacy_reference_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn legacy_index_only_restores_ids_still_referenced_by_playlists() {
+        let base_dir = Path::new("portable-root");
+        let value = json!({
+            "tracks": [
+                {"id":"playlist-track","path":"music/kept.mp3","isFavorite":true,"playCount":4,"dateAdded":55},
+                {"id":"removed-track","path":"music/stale.mp3","isFavorite":false}
+            ]
+        });
+        let requested = ["playlist-track".to_string()].into_iter().collect();
+
+        let references = legacy_track_references_from_value(&value, &requested, base_dir);
+        assert_eq!(references.len(), 1);
+        assert_eq!(references[0].id, "playlist-track");
+        assert_eq!(references[0].path, base_dir.join("music/kept.mp3").to_string_lossy());
+        assert!(references[0].is_favorite);
+        assert_eq!(references[0].play_count, 4);
+        assert_eq!(references[0].date_added, 55);
+    }
 }

@@ -631,12 +631,13 @@ fn library_db_get_by_ids(
 
 #[tauri::command]
 fn library_db_seed_legacy_from_disk(
+    track_ids: Vec<String>,
     state: State<'_, library_db::LibraryDb>,
 ) -> Result<usize, String> {
     if state.count(None)? > 0 {
         return Ok(0);
     }
-    let references = storage::load_legacy_track_references()?;
+    let references = storage::load_legacy_track_references(&track_ids)?;
     let seeded = state.seed_legacy_track_map(&references)?;
     if !references.is_empty() {
         logger::log(

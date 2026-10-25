@@ -1349,17 +1349,23 @@ export const App: React.FC = () => {
           const validIdMap = new Map<string, string>();
           if (isTauri()) {
             const legacyTracks: any[] = Array.isArray(parsed.tracks) ? parsed.tracks : [];
-            // The native catalog is rebuilt from disk. M3U IDs are connected through
-            // native path references below; never deduplicate playlist IDs by title/artist.
-
+            const legacyPlaylistTrackIds = new Set<string>(
+              (Array.isArray(parsed.playlists) ? parsed.playlists : [])
+                .flatMap((playlist: any) => Array.isArray(playlist?.trackIds) ? playlist.trackIds : [])
+                .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0),
+            );
+            // The native catalog is rebuilt from disk. Only IDs still referenced by
+            // playlists may be recovered from the old index; stale library-only rows
+            // must not regain a legacy ID during migration.
             const catalogWasEmpty = await libraryRepository.count() === 0;
             if (catalogWasEmpty) {
-              await invoke<number>('library_db_seed_legacy_from_disk');
+              await invoke<number>('library_db_seed_legacy_from_disk', { trackIds: [...legacyPlaylistTrackIds] });
             }
             // Keep playlist IDs as path references, not catalog rows. The scan below
             // creates the SQLite catalog from real files while preserving M3U IDs.
             const playlistReferences = legacyTracks
-              .filter(track => typeof track?.id === 'string' && track.id && typeof track?.path === 'string' && track.path)
+              .filter(track => legacyPlaylistTrackIds.has(track?.id)
+                && typeof track?.id === 'string' && track.id && typeof track?.path === 'string' && track.path)
               .map(track => ({
                 id: track.id,
                 path: track.path,
