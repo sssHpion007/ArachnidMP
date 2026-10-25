@@ -570,6 +570,14 @@ fn library_db_get_details(
 }
 
 #[tauri::command]
+fn library_db_get_path_ids(
+    paths: Vec<String>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<Vec<String>, String> {
+    state.ids_by_paths(&paths)
+}
+
+#[tauri::command]
 fn library_db_get_by_paths(
     paths: Vec<String>,
     state: State<'_, library_db::LibraryDb>,
@@ -3042,6 +3050,7 @@ pub fn run() {
             library_db_get_collection_groups,
             library_db_get_details,
             library_db_get_by_ids,
+            library_db_get_path_ids,
             library_db_get_by_paths,
             library_db_seed_legacy_from_disk,
             library_db_seed_playlist_track_references,

@@ -93,6 +93,14 @@ export const libraryRepository = {
     return invoke<TrackDetails | null>('library_db_get_details', { trackId });
   },
 
+  async existingPathIds(paths: string[]): Promise<string[]> {
+    const ids: string[] = [];
+    for (let start = 0; start < paths.length; start += 500) {
+      ids.push(...await invoke<string[]>('library_db_get_path_ids', { paths: paths.slice(start, start + 500) }));
+    }
+    return ids;
+  },
+
   async byPaths(paths: string[]): Promise<TrackSummary[]> {
     const rows: TrackSummary[] = [];
     for (let start = 0; start < paths.length; start += 500) {

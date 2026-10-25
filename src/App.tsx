@@ -3092,7 +3092,7 @@ export const App: React.FC = () => {
   const importTauriTimerRef = useRef<any>(null);
 
   // Synchronous, robust track processor and playlist assigner
-  const processImportedTracks = (newTracks: Track[]) => {
+  const processImportedTracks = (newTracks: Track[], knownExistingIds?: ReadonlySet<string>) => {
     if (!newTracks || newTracks.length === 0) return;
 
     const prevTracks = tracksRef.current;
@@ -3106,6 +3106,24 @@ export const App: React.FC = () => {
     for (const nt of newTracks) {
       const pathKey = normalizeTrackPath(nt.path);
       const titleArtistKey = `${nt.title.trim().toLowerCase()}|||${nt.artist.trim().toLowerCase()}`;
+
+      if (knownExistingIds?.has(nt.id)) {
+        const existing = prevTracks.find(track => track.id === nt.id);
+        if (existing) {
+          updatedMap.set(existing.id, {
+            ...nt,
+            id: existing.id,
+            isMissing: false,
+            dateAdded: existing.dateAdded,
+            playCount: existing.playCount,
+            isFavorite: existing.isFavorite,
+          });
+        }
+        if (pathKey) existingPaths.add(pathKey);
+        if (titleArtistKey !== '|||' && titleArtistKey !== 'unknown|||unknown artist') existingKeys.add(titleArtistKey);
+        plTargetIds.push(nt.id);
+        continue;
+      }
 
       const isPathMatch = !!pathKey && existingPaths.has(pathKey);
       const isTitleArtistMatch = titleArtistKey !== '|||' && titleArtistKey !== 'unknown|||unknown artist' && existingKeys.has(titleArtistKey);
@@ -3266,10 +3284,11 @@ export const App: React.FC = () => {
       if (audioPaths.length === 0) return;
 
       try {
+        const knownExistingIds = new Set(await libraryRepository.existingPathIds(audioPaths));
         await invoke<number>('scan_library_to_database', { paths: audioPaths });
         const scannedRows = await libraryRepository.byPaths(audioPaths);
         if (scannedRows.length > 0) {
-          processImportedTracks(hydrateNativeSummaryRows(scannedRows));
+          processImportedTracks(hydrateNativeSummaryRows(scannedRows), knownExistingIds);
         }
       } catch (err) {
         console.warn('Error reading Tauri dropped files:', err);
@@ -3332,9 +3351,10 @@ export const App: React.FC = () => {
       try {
         const paths = await invoke<string[]>('open_file_dialog');
         if (paths.length > 0) {
+          const knownExistingIds = new Set(await libraryRepository.existingPathIds(paths));
           await invoke<number>('scan_library_to_database', { paths });
           const rows = await libraryRepository.byPaths(paths);
-          processImportedTracks(hydrateNativeSummaryRows(rows));
+          processImportedTracks(hydrateNativeSummaryRows(rows), knownExistingIds);
         }
       } catch (err) {
         console.warn('Native open file dialog error:', err);

@@ -388,6 +388,20 @@ impl LibraryDb {
         raw.map(|json| serde_json::from_str(&json).map_err(|e| format!("Decode track details: {e}"))).transpose()
     }
 
+    pub fn ids_by_paths(&self, paths: &[String]) -> Result<Vec<String>, String> {
+        let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let mut statement = connection.prepare("SELECT id FROM tracks WHERE path_key=?1")
+            .map_err(|e| e.to_string())?;
+        let mut ids = Vec::with_capacity(paths.len());
+        for path in paths {
+            let path_key = normalize_path(path);
+            if let Some(id) = statement.query_row([path_key], |row| row.get::<_, String>(0)).optional().map_err(|e| e.to_string())? {
+                ids.push(id);
+            }
+        }
+        Ok(ids)
+    }
+
     pub fn summaries_by_paths(&self, paths: &[String]) -> Result<Vec<TrackSummary>, String> {
         let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
         let mut result = Vec::with_capacity(paths.len());
@@ -1031,6 +1045,7 @@ mod tests {
         let item = json!({"id":"same","title":"Track","artist":"Artist","album":"Album","path":"/music/a.mp3","isFavorite":false});
         db.upsert_batch(&[item.clone(), item]).unwrap();
         assert_eq!(db.count(None).unwrap(), 1);
+        assert_eq!(db.ids_by_paths(&["/MUSIC/a.mp3".into()]).unwrap(), vec!["same"]);
         db.set_favorites(&["same".to_string()], true).unwrap();
         assert!(db.page(None, "title", false, 0, 10).unwrap().items[0].is_favorite);
         db.delete_ids(&["same".to_string()]).unwrap();
