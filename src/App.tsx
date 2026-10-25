@@ -4581,11 +4581,13 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!isTauri() || !startupDataLoaded || currentView !== 'playlists') return;
     let active = true;
-    const requests = playlists.map(playlist => ({
-      playlistId: playlist.id,
-      trackIds: playlist.trackIds,
-      limit: 8,
-    }));
+    const requests = playlists
+      .filter(playlist => !playlist.coverArt && playlist.trackIds.length > 0)
+      .map(playlist => ({
+        playlistId: playlist.id,
+        trackIds: playlist.trackIds,
+        limit: 8,
+      }));
     if (requests.length === 0) {
       setNativePlaylistCovers({});
       return;
