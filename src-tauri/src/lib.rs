@@ -488,6 +488,28 @@ fn library_db_get_count(
 }
 
 #[tauri::command]
+fn library_db_get_ordered_ids(
+    search: Option<String>,
+    sort_by: String,
+    descending: bool,
+    favorite_only: bool,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<Vec<String>, String> {
+    state.ordered_ids(search.as_deref(), &sort_by, descending, favorite_only)
+}
+
+#[tauri::command]
+fn library_db_order_subset_ids(
+    track_ids: Vec<String>,
+    search: Option<String>,
+    sort_by: String,
+    descending: bool,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<Vec<String>, String> {
+    state.ordered_subset_ids(&track_ids, search.as_deref(), &sort_by, descending)
+}
+
+#[tauri::command]
 fn library_db_get_page(
     search: Option<String>,
     sort_by: String,
@@ -3014,6 +3036,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             library_db_get_count,
+            library_db_get_ordered_ids,
+            library_db_order_subset_ids,
             library_db_get_page,
             library_db_get_collection_groups,
             library_db_get_details,

@@ -160,6 +160,68 @@ impl LibraryDb {
         Ok(Self { connection: Arc::new(Mutex::new(connection)) })
     }
 
+    pub fn ordered_subset_ids(
+        &self,
+        ids: &[String],
+        search: Option<&str>,
+        sort_by: &str,
+        descending: bool,
+    ) -> Result<Vec<String>, String> {
+        let search = normalize_search(search.unwrap_or_default());
+        let mut connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let transaction = connection.transaction().map_err(|e| e.to_string())?;
+        transaction.execute_batch(
+            "CREATE TEMP TABLE IF NOT EXISTS requested_track_order (ordinal INTEGER PRIMARY KEY NOT NULL, id TEXT NOT NULL);
+             CREATE INDEX IF NOT EXISTS idx_requested_track_order_id ON requested_track_order(id);
+             DELETE FROM requested_track_order;"
+        ).map_err(|e| e.to_string())?;
+        {
+            let mut insert = transaction.prepare("INSERT INTO requested_track_order(id, ordinal) VALUES (?1, ?2)")
+                .map_err(|e| e.to_string())?;
+            for (ordinal, id) in ids.iter().enumerate() {
+                insert.execute(params![id, ordinal.min(i64::MAX as usize) as i64]).map_err(|e| e.to_string())?;
+            }
+        }
+        let direction = if descending { "DESC" } else { "ASC" };
+        let order_clause = if sort_by == "custom" {
+            format!("requested_track_order.ordinal {direction}")
+        } else {
+            format!("tracks.{} COLLATE NATURAL_NOCASE {direction}, requested_track_order.ordinal ASC", sort_column(sort_by))
+        };
+        let sql = format!(
+            "SELECT tracks.id FROM tracks JOIN requested_track_order USING(id)
+             WHERE (?1 = '' OR instr(tracks.search_text, ?1) > 0) ORDER BY {order_clause}"
+        );
+        let mut statement = transaction.prepare(&sql).map_err(|e| e.to_string())?;
+        let rows = statement.query_map([search], |row| row.get::<_, String>(0)).map_err(|e| e.to_string())?;
+        let mut ordered = Vec::new();
+        for row in rows { ordered.push(row.map_err(|e| e.to_string())?); }
+        drop(statement);
+        transaction.commit().map_err(|e| e.to_string())?;
+        Ok(ordered)
+    }
+
+    pub fn ordered_ids(
+        &self,
+        search: Option<&str>,
+        sort_by: &str,
+        descending: bool,
+        favorite_only: bool,
+    ) -> Result<Vec<String>, String> {
+        let search = normalize_search(search.unwrap_or_default());
+        let column = sort_column(sort_by);
+        let direction = if descending { "DESC" } else { "ASC" };
+        let sql = format!(
+            "SELECT id FROM tracks WHERE (?1 = '' OR instr(search_text, ?1) > 0) AND (?2 = 0 OR is_favorite = 1) ORDER BY {column} COLLATE NATURAL_NOCASE {direction}, id {direction}"
+        );
+        let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let mut statement = connection.prepare(&sql).map_err(|e| e.to_string())?;
+        let rows = statement.query_map(params![search, favorite_only], |row| row.get::<_, String>(0)).map_err(|e| e.to_string())?;
+        let mut ids = Vec::new();
+        for row in rows { ids.push(row.map_err(|e| e.to_string())?); }
+        Ok(ids)
+    }
+
     pub fn count(&self, search: Option<&str>) -> Result<u64, String> {
         let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
         let search = normalize_search(search.unwrap_or_default());
@@ -855,6 +917,9 @@ mod tests {
         assert_eq!(descending.items.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(), vec!["10", "2"]);
         let duration = db.page(None, "duration", false, 0, 10).unwrap();
         assert_eq!(duration.items[0].id, "2");
+        assert_eq!(db.ordered_ids(None, "title", false, false).unwrap(), vec!["2", "10"]);
+        assert_eq!(db.ordered_subset_ids(&["10".into(), "2".into(), "10".into()], None, "custom", false).unwrap(), vec!["10", "2", "10"]);
+        assert_eq!(db.ordered_subset_ids(&["10".into(), "2".into()], None, "title", false).unwrap(), vec!["2", "10"]);
     }
 
     #[test]
@@ -868,6 +933,7 @@ mod tests {
         let page = db.page_filtered(Some("rock track"), "title", false, 0, 10, Some("genre"), Some("Classic Rock"), true).unwrap();
         assert_eq!(page.total, 1);
         assert_eq!(page.items[0].id, "1");
+        assert_eq!(db.ordered_subset_ids(&["2".into(), "1".into()], Some("rock track"), "custom", false).unwrap(), vec!["1"]);
     }
 
     #[test]

@@ -45,6 +45,7 @@ interface TrackTableProps {
   onAddTracksToFavorites?: (trackIds: string[]) => void;
   currentView?: string;
   isReorderable?: boolean;
+  reorderableTrackIds?: string[];
   onReorderTracks?: (reorderedTrackIds: string[]) => void;
   onRelocateTrack?: (track: Track) => void;
   language?: AppLanguage;
@@ -99,6 +100,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   onAddTracksToFavorites,
   currentView,
   isReorderable = false,
+  reorderableTrackIds,
   onReorderTracks,
   onRelocateTrack,
   language = 'ru',
@@ -345,9 +347,10 @@ export const TrackTable: React.FC<TrackTableProps> = ({
       }
 
       const draggedTrackId = current.trackId;
+      const currentIds = reorderableTrackIds ?? tracks.map(track => track.id);
       let idsToMove: string[] = [];
       if (selectedTrackIds.has(draggedTrackId)) {
-        idsToMove = tracks.filter(t => selectedTrackIds.has(t.id)).map(t => t.id);
+        idsToMove = currentIds.filter(id => selectedTrackIds.has(id));
       } else {
         idsToMove = [draggedTrackId];
       }
@@ -355,7 +358,6 @@ export const TrackTable: React.FC<TrackTableProps> = ({
       // Reordering within a playlist or favorites
       if (isReorderable && onReorderTracks && drop) {
         if (!idsToMove.includes(drop.trackId)) {
-          const currentIds = tracks.map(t => t.id);
           const remaining = currentIds.filter(id => !idsToMove.includes(id));
           let targetIdx = remaining.indexOf(drop.trackId);
           if (targetIdx !== -1) {
@@ -382,7 +384,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
       window.removeEventListener('pointerup', handlePointerUp);
       window.removeEventListener('pointercancel', handlePointerUp);
     };
-  }, [dragState, tracks, selectedTrackIds, onReorderTracks]);
+  }, [dragState, tracks, selectedTrackIds, isReorderable, reorderableTrackIds, onReorderTracks]);
 
   const handleTableDragOver = (e: React.DragEvent) => {
     e.preventDefault();

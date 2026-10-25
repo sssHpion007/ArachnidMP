@@ -34,6 +34,29 @@ export const libraryRepository = {
     return invoke<number>('library_db_get_count', { search: search?.trim() || null });
   },
 
+  async orderedIds(sortBy: string, descending: boolean, favoriteOnly = false, search?: string): Promise<string[]> {
+    return invoke<string[]>('library_db_get_ordered_ids', {
+      search: search?.trim() || null,
+      sortBy: sortBy || 'title',
+      descending,
+      favoriteOnly,
+    });
+  },
+
+  async orderedSubsetIds(
+    trackIds: string[],
+    search: string,
+    sortBy: string,
+    descending: boolean,
+  ): Promise<string[]> {
+    return invoke<string[]>('library_db_order_subset_ids', {
+      trackIds,
+      search: search.trim() || null,
+      sortBy: sortBy || 'custom',
+      descending,
+    });
+  },
+
   async page(query: LibraryPageQuery): Promise<TrackPage> {
     const limit = Math.max(1, Math.min(MAX_PAGE_SIZE, Math.trunc(query.limit)));
     const offset = Math.max(0, Math.trunc(query.offset));

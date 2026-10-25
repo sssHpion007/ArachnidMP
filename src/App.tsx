@@ -238,6 +238,14 @@ export const App: React.FC = () => {
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
   const [nativeTrackTotal, setNativeTrackTotal] = useState(0);
   const [nativeTrackIndices, setNativeTrackIndices] = useState<number[]>([]);
+  const [nativeFavoriteOrderIds, setNativeFavoriteOrderIds] = useState<string[] | null>(null);
+  const [filteredOrderedTrackIds, setFilteredOrderedTrackIds] = useState<{
+    source: string[];
+    query: string;
+    sortBy: string;
+    descending: boolean;
+    ids: string[];
+  } | null>(null);
   const [nativePageLoading, setNativePageLoading] = useState(false);
   const [nativeTrackPageLoaded, setNativeTrackPageLoaded] = useState(false);
   const [databaseCollectionGroups, setDatabaseCollectionGroups] = useState<LibraryCollectionGroup[] | null>(null);
@@ -251,10 +259,12 @@ export const App: React.FC = () => {
   const nativePageOffsetRef = useRef(0);
   const nativePageGenerationRef = useRef(0);
   const nativeTrackPageCacheRef = useRef(new BoundedPageCache<TrackSummary>({ maxPages: 8 }));
+  const nativeTrackTotalRef = useRef(0);
   const loadNativeTracksPageRef = useRef<((reset?: boolean) => Promise<void>) | null>(null);
   const nativePageLoadingRef = useRef(false);
   const missingCheckRunningRef = useRef(false);
   const [playlists, setPlaylists] = useState<Playlist[]>(INITIAL_PLAYLISTS);
+  const systemFavoritesPlaylist = useMemo(() => playlists.find(playlist => playlist.id === 'pl_favorites'), [playlists]);
   const [playlistFolders, setPlaylistFolders] = useState<PlaylistFolder[]>([]);
   const [playlistGroups, setPlaylistGroups] = useState<PlaylistGroup[]>([]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
@@ -266,6 +276,19 @@ export const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortBy, setSortBy] = useState<string>('title');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const orderedNativeTrackIds = useMemo(() => {
+    if (selectedPlaylistId) return playlists.find(playlist => playlist.id === selectedPlaylistId)?.trackIds ?? [];
+    if (currentView === 'favorites' && sortBy === 'custom') return systemFavoritesPlaylist?.trackIds ?? [];
+    return null;
+  }, [selectedPlaylistId, playlists, currentView, sortBy, systemFavoritesPlaylist]);
+  const readyOrderedNativeTrackIds = useMemo(() => {
+    if (orderedNativeTrackIds === null) return null;
+    if (filteredOrderedTrackIds?.source !== orderedNativeTrackIds
+      || filteredOrderedTrackIds.query !== searchQuery.trim()
+      || filteredOrderedTrackIds.sortBy !== sortBy
+      || filteredOrderedTrackIds.descending !== (sortOrder === 'desc')) return null;
+    return filteredOrderedTrackIds.ids;
+  }, [orderedNativeTrackIds, filteredOrderedTrackIds, searchQuery, sortBy, sortOrder]);
 
   // Responsive layout state
   const [windowWidth, setWindowWidth] = useState<number>(window.innerWidth);
@@ -996,8 +1019,7 @@ export const App: React.FC = () => {
     tracksRef.current = tracks;
   }, [tracks]);
 
-  const isNativeBoundedTrackView = isTauri() && !selectedPlaylistId
-    && !(currentView === 'favorites' && sortBy === 'custom');
+  const isNativeBoundedTrackView = isTauri();
 
   const loadNativeTracksRange = useCallback(async (startIndex: number, endIndex: number, reset = false) => {
     if (!isTauri() || !startupDataLoaded || !isNativeBoundedTrackView) return;
@@ -1011,6 +1033,7 @@ export const App: React.FC = () => {
       setTracks([]);
       setNativeTrackIndices([]);
       setNativeTrackTotal(0);
+      nativeTrackTotalRef.current = 0;
       setNativeTrackPageLoaded(false);
       tracksRef.current = [];
       setNativePageLoading(true);
@@ -1021,9 +1044,31 @@ export const App: React.FC = () => {
     const lastPage = Math.max(firstPage, Math.floor(Math.max(startIndex, endIndex - 1) / pageSize) + 1);
     const pageIndices = Array.from({ length: lastPage - firstPage + 1 }, (_, index) => firstPage + index);
 
+    const search = searchQuery.trim();
+    const descending = sortOrder === 'desc';
+    const orderedTrackIds = orderedNativeTrackIds === null
+      ? undefined
+      : filteredOrderedTrackIds?.source === orderedNativeTrackIds
+        && filteredOrderedTrackIds.query === search
+        && filteredOrderedTrackIds.sortBy === sortBy
+        && filteredOrderedTrackIds.descending === descending
+        ? filteredOrderedTrackIds.ids
+        : undefined;
+    if (orderedNativeTrackIds !== null && orderedTrackIds === undefined) {
+      setNativePageLoading(false);
+      return;
+    }
+
     try {
       await Promise.all(pageIndices.map(pageIndex => nativeTrackPageCacheRef.current.getOrLoad(pageIndex, async () => {
         const offset = pageIndex * pageSize;
+        if (orderedTrackIds) {
+          if (generation === nativePageGenerationRef.current) {
+            nativeTrackTotalRef.current = orderedTrackIds.length;
+            setNativeTrackTotal(orderedTrackIds.length);
+          }
+          return hydrateNativeSummaryRows(await libraryRepository.byIdsPage(orderedTrackIds, offset, pageSize));
+        }
         const filterKind = selectedAlbum ? 'album' : selectedArtist ? 'artist' : selectedGenre ? 'genre' : undefined;
         const noAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
         const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
@@ -1043,7 +1088,10 @@ export const App: React.FC = () => {
           favoriteOnly: currentView === 'favorites',
           excludedIds: [...isolatedTrackIds],
         });
-        if (generation === nativePageGenerationRef.current) setNativeTrackTotal(page.total);
+        if (generation === nativePageGenerationRef.current) {
+          nativeTrackTotalRef.current = page.total;
+          setNativeTrackTotal(page.total);
+        }
         return hydrateNativeSummaryRows(page.items);
       })));
 
@@ -1055,13 +1103,13 @@ export const App: React.FC = () => {
       setTracks(nextRows);
       setNativeTrackIndices(nextIndices);
       setNativeTrackPageLoaded(true);
-      nativePageOffsetRef.current = Math.min(nativeTrackTotal, (lastCachedPage + 1) * pageSize);
+      nativePageOffsetRef.current = Math.min(nativeTrackTotalRef.current, (lastCachedPage + 1) * pageSize);
     } catch (error) {
       console.warn('Unable to load a SQLite track range:', error);
     } finally {
       if (generation === nativePageGenerationRef.current) setNativePageLoading(false);
     }
-  }, [startupDataLoaded, isNativeBoundedTrackView, selectedAlbum, selectedArtist, selectedGenre, language, searchQuery, sortBy, sortOrder, currentView, isolatedTrackIds]);
+  }, [startupDataLoaded, isNativeBoundedTrackView, selectedAlbum, selectedArtist, selectedGenre, language, searchQuery, sortBy, sortOrder, currentView, isolatedTrackIds, orderedNativeTrackIds, filteredOrderedTrackIds]);
 
   const loadNativeTracksPage = useCallback(async (reset = false) => {
     if (!isTauri() || !startupDataLoaded) return;
@@ -1122,6 +1170,42 @@ export const App: React.FC = () => {
   }, [startupDataLoaded, isNativeBoundedTrackView, loadNativeTracksRange, selectedPlaylistId, currentView, sortBy, sortOrder, playlists, searchQuery, nativeTrackTotal]);
 
   loadNativeTracksPageRef.current = loadNativeTracksPage;
+
+  useEffect(() => {
+    if (!isTauri() || orderedNativeTrackIds === null) {
+      setFilteredOrderedTrackIds(null);
+      return;
+    }
+    let active = true;
+    const query = searchQuery.trim();
+    const descending = sortOrder === 'desc';
+    setFilteredOrderedTrackIds(null);
+    void libraryRepository.orderedSubsetIds(orderedNativeTrackIds, query, sortBy, descending)
+      .then(ids => {
+        if (active) setFilteredOrderedTrackIds({ source: orderedNativeTrackIds, query, sortBy, descending, ids });
+      })
+      .catch(error => {
+        console.warn('Unable to filter and order SQLite track IDs:', error);
+        if (active) setFilteredOrderedTrackIds({ source: orderedNativeTrackIds, query, sortBy, descending, ids: [] });
+      });
+    return () => { active = false; };
+  }, [orderedNativeTrackIds, searchQuery, sortBy, sortOrder]);
+
+  useEffect(() => {
+    if (!isTauri() || !startupDataLoaded || currentView !== 'favorites' || searchQuery.trim() || sortBy === 'custom') {
+      setNativeFavoriteOrderIds(null);
+      return;
+    }
+    let active = true;
+    setNativeFavoriteOrderIds(null);
+    void libraryRepository.orderedIds(sortBy, sortOrder === 'desc', true)
+      .then(ids => { if (active) setNativeFavoriteOrderIds(ids); })
+      .catch(error => {
+        console.warn('Unable to load favorite reorder IDs:', error);
+        if (active) setNativeFavoriteOrderIds(null);
+      });
+    return () => { active = false; };
+  }, [startupDataLoaded, currentView, searchQuery, sortBy, sortOrder, systemFavoritesPlaylist?.trackIds]);
 
   const selectNativeTrackAtIndex = useCallback(async (index: number) => {
     if (!isNativeBoundedTrackView || index < 0 || index >= nativeTrackTotal) return;
@@ -3273,16 +3357,13 @@ export const App: React.FC = () => {
       const start = Math.min(lastSelectedIndexRef.current, index);
       const end = Math.max(lastSelectedIndexRef.current, index);
       if (isNativeBoundedTrackView) {
+        if (orderedNativeTrackIds !== null) {
+          const ids = readyOrderedNativeTrackIds?.slice(start, end + 1) ?? [];
+          selectedTrackIdsRef.current = new Set(ids);
+          setSelectedTrackIds(new Set(ids));
+          return;
+        }
         void (async () => {
-          const customPlaylist = currentView === 'favorites' && sortBy === 'custom'
-            ? playlists.find(playlist => playlist.id === 'pl_favorites')
-            : undefined;
-          if (customPlaylist) {
-            const ids = customPlaylist.trackIds.slice(start, end + 1);
-            selectedTrackIdsRef.current = new Set(ids);
-            setSelectedTrackIds(new Set(ids));
-            return;
-          }
           const filterKind = selectedAlbum ? 'album' : selectedArtist ? 'artist' : selectedGenre ? 'genre' : undefined;
           const noAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
           const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
@@ -4949,6 +5030,12 @@ export const App: React.FC = () => {
     return () => { active = false; };
   }, [selectedTrackIds]);
 
+  const favoriteReorderTrackIds = currentView !== 'favorites'
+    ? undefined
+    : isTauri()
+      ? sortBy === 'custom' ? readyOrderedNativeTrackIds ?? undefined : nativeFavoriteOrderIds ?? undefined
+      : filteredTracks.map(track => track.id);
+
   return (
     <div className="relative flex flex-col h-screen w-screen overflow-hidden bg-md3-background text-md3-on-background select-none font-sans">
       <div
@@ -5159,7 +5246,8 @@ export const App: React.FC = () => {
               onDropInternalTracks={selectedPlaylistId ? (tIds) => handleDropTracksToPlaylist(selectedPlaylistId, tIds) : undefined}
               onAddTracksToFavorites={handleAddTracksToFavorites}
               currentView={currentView}
-              isReorderable={Boolean(selectedPlaylistId) && !searchQuery.trim() && (!isTauri() || nativePageOffsetRef.current >= nativeTrackTotal)}
+              isReorderable={Boolean(selectedPlaylistId) && !searchQuery.trim() && Boolean(readyOrderedNativeTrackIds)}
+              reorderableTrackIds={selectedPlaylistId ? readyOrderedNativeTrackIds ?? undefined : undefined}
               onReorderTracks={selectedPlaylistId ? handleReorderPlaylistTracks : undefined}
               onRelocateTrack={handleRelocateTrack}
               language={language}
@@ -5295,7 +5383,8 @@ export const App: React.FC = () => {
             sortOrder={sortOrder}
             onSortChange={handleSortChange}
             onDropFiles={importFiles}
-            isReorderable={currentView === 'favorites' && !searchQuery.trim() && (!isTauri() || nativePageOffsetRef.current >= nativeTrackTotal)}
+            isReorderable={currentView === 'favorites' && !searchQuery.trim() && Boolean(favoriteReorderTrackIds)}
+            reorderableTrackIds={favoriteReorderTrackIds}
             onReorderTracks={currentView === 'favorites' ? handleReorderFavoriteTracks : undefined}
             onRelocateTrack={handleRelocateTrack}
             language={language}
