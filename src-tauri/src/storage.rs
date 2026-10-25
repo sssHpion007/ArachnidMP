@@ -1334,7 +1334,7 @@ mod legacy_reference_tests {
         let references = legacy_track_references_from_value(&value, &requested, base_dir);
         assert_eq!(references.len(), 1);
         assert_eq!(references[0].id, "playlist-track");
-        assert_eq!(references[0].path, base_dir.join("music/kept.mp3").to_string_lossy());
+        assert_eq!(references[0].path, base_dir.join("music/kept.mp3").to_string_lossy().to_string());
         assert!(references[0].is_favorite);
         assert_eq!(references[0].play_count, 4);
         assert_eq!(references[0].date_added, 55);
