@@ -146,7 +146,8 @@ Frontend использует `music-metadata-browser` для `parseBlob` (`src/
 ### Этап 5. Регрессии и измерения
 
 - **Выполнено:** frontend production build, тест ограниченного кэша на 100k синтетических записей и три существующих JS-теста проходят; `git diff --check` чистый.
-- **Выполнено:** Windows Actions run `40166872559` прошёл успешно на commit `d2dc701`: Rust/Tauri release build, запуск EXE, SQLite library tests (включая ordered subset IDs и missing status), тест bounded cache и frontend regressions. Создан тестовый EXE artifact `Arachnid-Windows-Test-312-d2dc701ee954c13812fc958ca30addd4ba6c9826` (7.5 MB, доступен в run 14 дней).
+- **Выполнено:** Windows Actions run `40166872559` прошёл успешно на commit `d2dc701`: Rust/Tauri release build, запуск EXE, SQLite library tests (включая ordered subset IDs и missing status), тест bounded cache и frontend regressions. Создан тестовый EXE artifact `Arachnid-Windows-Test-312-d2dc701ee954c13812fc958ca30addd4ba6c9826` (7.5 MB).
+- **Выполнено дополнительно:** после фикса проверки уже известных путей run `40167330878` прошёл успешно на `a26181f`; он включает frontend build/regressions, Tauri build и startup smoke test, SQLite repository tests с `ids_by_paths`. Создан тестовый EXE artifact `Arachnid-Windows-Test-313-a26181f5474e5df221853e327b1b19337894b8f8` (7.5 MB; [run](https://github.com/sssHpion007/ArachnidMP/actions/runs/40167330878)).
 - **Осталось:** интерактивно проверить Tauri/WebView2 на Windows (включая прокрутку к началу/середине/концу, быстрый scrollbar, фильтры/сортировку, выделение и ошибки запросов), затем измерить память/отзывчивость/IPC. Пользовательскую медиатеку готовить не нужно; синтетический тест не измеряет RAM WebView2.
 
 **Следующий этап:** проверить глобальную дедупликацию импорта по title/artist и интерактивные сценарии в Windows WebView2; базовый bounded cache всех native-таблиц уже реализован.
