@@ -261,7 +261,6 @@ export const App: React.FC = () => {
   const nativeTrackPageCacheRef = useRef(new BoundedPageCache<TrackSummary>({ maxPages: 8 }));
   const nativeTrackTotalRef = useRef(0);
   const loadNativeTracksPageRef = useRef<((reset?: boolean) => Promise<void>) | null>(null);
-  const nativePageLoadingRef = useRef(false);
   const missingCheckRunningRef = useRef(false);
   const [playlists, setPlaylists] = useState<Playlist[]>(INITIAL_PLAYLISTS);
   const systemFavoritesPlaylist = useMemo(() => playlists.find(playlist => playlist.id === 'pl_favorites'), [playlists]);
@@ -1112,62 +1111,10 @@ export const App: React.FC = () => {
   }, [startupDataLoaded, isNativeBoundedTrackView, selectedAlbum, selectedArtist, selectedGenre, language, searchQuery, sortBy, sortOrder, currentView, isolatedTrackIds, orderedNativeTrackIds, filteredOrderedTrackIds]);
 
   const loadNativeTracksPage = useCallback(async (reset = false) => {
-    if (!isTauri() || !startupDataLoaded) return;
-    if (isNativeBoundedTrackView) {
-      if (reset) await loadNativeTracksRange(0, 300, true);
-      else await loadNativeTracksRange(nativePageOffsetRef.current, nativePageOffsetRef.current + 300);
-      return;
-    }
-    if (nativePageLoadingRef.current && !reset) return;
-
-    const generation = reset ? ++nativePageGenerationRef.current : nativePageGenerationRef.current;
-    const offset = reset ? 0 : nativePageOffsetRef.current;
-    nativePageLoadingRef.current = true;
-    setNativePageLoading(true);
-    if (reset) {
-      nativePageOffsetRef.current = 0;
-      nativeTrackPageCacheRef.current.clear();
-      setNativeTrackIndices([]);
-      setNativeTrackPageLoaded(false);
-      setTracks([]);
-      tracksRef.current = [];
-    }
-
-    try {
-      const playlist = selectedPlaylistId
-        ? playlists.find(item => item.id === selectedPlaylistId)
-        : playlists.find(item => item.id === 'pl_favorites');
-      const pageIds = playlist?.trackIds.slice(offset, offset + 300) ?? [];
-      const incoming = playlist
-        ? await libraryRepository.byIdsPage(playlist.trackIds, offset, 300)
-        : (await libraryRepository.page({
-            search: searchQuery,
-            sortBy: 'title',
-            descending: sortOrder === 'desc',
-            offset,
-            limit: 300,
-            favoriteOnly: true,
-          })).items;
-      if (generation !== nativePageGenerationRef.current) return;
-      const hydrated = hydrateNativeSummaryRows(incoming);
-      const knownIds = new Set(tracksRef.current.map(item => item.id));
-      const merged = reset ? hydrated : [...tracksRef.current, ...hydrated.filter(item => !knownIds.has(item.id))];
-      tracksRef.current = merged;
-      previousTracksForDbRef.current = merged;
-      setTracks(merged);
-      setNativeTrackIndices([]);
-      setNativeTrackTotal(playlist ? playlist.trackIds.length : await libraryRepository.count());
-      setNativeTrackPageLoaded(true);
-      nativePageOffsetRef.current = Math.min(playlist?.trackIds.length ?? nativeTrackTotal, offset + Math.max(pageIds.length, hydrated.length));
-    } catch (error) {
-      console.warn('Unable to load a SQLite library page:', error);
-    } finally {
-      if (generation === nativePageGenerationRef.current) {
-        nativePageLoadingRef.current = false;
-        setNativePageLoading(false);
-      }
-    }
-  }, [startupDataLoaded, isNativeBoundedTrackView, loadNativeTracksRange, selectedPlaylistId, currentView, sortBy, sortOrder, playlists, searchQuery, nativeTrackTotal]);
+    if (!isTauri() || !startupDataLoaded || !isNativeBoundedTrackView) return;
+    if (reset) await loadNativeTracksRange(0, 300, true);
+    else await loadNativeTracksRange(nativePageOffsetRef.current, nativePageOffsetRef.current + 300);
+  }, [startupDataLoaded, isNativeBoundedTrackView, loadNativeTracksRange]);
 
   loadNativeTracksPageRef.current = loadNativeTracksPage;
 
