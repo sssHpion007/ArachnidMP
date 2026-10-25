@@ -2,6 +2,17 @@ import { invoke } from '@tauri-apps/api/core';
 import { Track, TrackDetails, TrackPage, TrackSummary } from '../types/music';
 import type { LibraryCollectionGroup, LibraryCollectionKind } from './libraryCollectionIndex';
 
+export interface PlaylistCoverQuery {
+  playlistId: string;
+  trackIds: string[];
+  limit: number;
+}
+
+export interface PlaylistCoverResult {
+  playlistId: string;
+  covers: string[];
+}
+
 export interface LibraryPageQuery {
   search?: string;
   sortBy: string;
@@ -123,6 +134,10 @@ export const libraryRepository = {
   async byIdsPage(trackIds: string[], offset: number, limit = 500): Promise<TrackSummary[]> {
     const selectedIds = trackIds.slice(offset, offset + Math.min(500, limit));
     return this.byIds(selectedIds);
+  },
+
+  async playlistCovers(playlists: PlaylistCoverQuery[]): Promise<PlaylistCoverResult[]> {
+    return invoke<PlaylistCoverResult[]>('library_db_get_playlist_covers', { playlists });
   },
 
   async upsertBatch(tracks: Track[]): Promise<number> {

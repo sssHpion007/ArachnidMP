@@ -243,6 +243,7 @@ export const App: React.FC = () => {
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
   const [nativeTrackTotal, setNativeTrackTotal] = useState(0);
   const [nativeTrackIndices, setNativeTrackIndices] = useState<number[]>([]);
+  const [nativePlaylistCovers, setNativePlaylistCovers] = useState<Record<string, string[]>>({});
   const [nativeFavoriteOrderIds, setNativeFavoriteOrderIds] = useState<string[] | null>(null);
   const [filteredOrderedTrackIds, setFilteredOrderedTrackIds] = useState<{
     source: string[];
@@ -4577,6 +4578,37 @@ export const App: React.FC = () => {
   const loadNativeTracksByIds = useCallback(async (trackIds: string[]): Promise<Track[]> =>
     hydrateNativeSummaryRows(await libraryRepository.byIds(trackIds)), []);
 
+  useEffect(() => {
+    if (!isTauri() || !startupDataLoaded || currentView !== 'playlists') return;
+    let active = true;
+    const requests = playlists.map(playlist => ({
+      playlistId: playlist.id,
+      trackIds: playlist.trackIds,
+      limit: 8,
+    }));
+    if (requests.length === 0) {
+      setNativePlaylistCovers({});
+      return;
+    }
+
+    void libraryRepository.playlistCovers(requests).then(results => {
+      if (!active) return;
+      const coversByPlaylist: Record<string, string[]> = {};
+      for (const result of results) {
+        coversByPlaylist[result.playlistId] = result.covers.map(cover =>
+          cover && !cover.startsWith('http') && !cover.startsWith('data:') && !isCachedCoverUrl(cover)
+            ? convertFileSrc(cover)
+            : cover,
+        );
+      }
+      setNativePlaylistCovers(coversByPlaylist);
+    }).catch(error => {
+      console.warn('Unable to load native playlist cover previews:', error);
+    });
+
+    return () => { active = false; };
+  }, [startupDataLoaded, currentView, playlists]);
+
   const loadMiniCollectionGroups = useCallback(async (kind: LibraryCollectionKind): Promise<LibraryCollectionGroup[]> => {
     const groups = await libraryRepository.collectionGroups(kind, language, undefined, [...isolatedTrackIds], false);
     return groups.map(group => ({
@@ -5280,6 +5312,7 @@ export const App: React.FC = () => {
               folders={playlistFolders}
               groups={playlistGroups}
               tracks={tracks}
+              playlistCovers={isTauri() ? nativePlaylistCovers : undefined}
               searchQuery={searchQuery}
               language={language}
               onSelectPlaylist={handleSelectPlaylist}

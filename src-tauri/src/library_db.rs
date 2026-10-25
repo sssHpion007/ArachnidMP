@@ -75,6 +75,21 @@ pub struct TrackPage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PlaylistCoverRequest {
+    pub playlist_id: String,
+    pub track_ids: Vec<String>,
+    pub limit: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistCoverResult {
+    pub playlist_id: String,
+    pub covers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LibraryCollectionGroup {
     pub name: String,
     pub track_ids: Vec<String>,
@@ -534,6 +549,47 @@ impl LibraryDb {
             }
         }
         Ok(result)
+    }
+
+    pub fn cover_art_by_ids(&self, ids: &[String], max_covers: usize) -> Result<Vec<String>, String> {
+        use std::collections::{HashMap, HashSet};
+
+        let max_covers = max_covers.min(8);
+        if max_covers == 0 || ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let mut covers = Vec::with_capacity(max_covers);
+        let mut seen_covers = HashSet::new();
+
+        for id_chunk in ids.chunks(500) {
+            let placeholders = (1..=id_chunk.len()).map(|index| format!("?{index}")).collect::<Vec<_>>().join(",");
+            let sql = format!("SELECT id, cover_art FROM tracks WHERE id IN ({placeholders}) AND cover_art IS NOT NULL AND trim(cover_art) != ''");
+            let values = id_chunk.iter().cloned().map(rusqlite::types::Value::Text).collect::<Vec<_>>();
+            let mut statement = connection.prepare(&sql).map_err(|e| e.to_string())?;
+            let rows = statement.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            }).map_err(|e| e.to_string())?;
+            let mut covers_by_id = HashMap::new();
+            for row in rows {
+                let (id, cover) = row.map_err(|e| e.to_string())?;
+                covers_by_id.insert(id, cover);
+            }
+
+            for id in id_chunk {
+                if let Some(cover) = covers_by_id.get(id) {
+                    if seen_covers.insert(cover.clone()) {
+                        covers.push(cover.clone());
+                        if covers.len() == max_covers {
+                            return Ok(covers);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(covers)
     }
 
     pub fn seed_legacy_track_map(&self, tracks: &[LegacyTrackReference]) -> Result<usize, String> {
@@ -1026,6 +1082,28 @@ mod tests {
         ).unwrap();
         assert_eq!(remaining.total, 1);
         assert_eq!(remaining.items.iter().map(|track| track.id.as_str()).collect::<Vec<_>>(), vec!["2"]);
+    }
+
+    #[test]
+    fn playlist_cover_lookup_preserves_track_order_and_deduplicates_art() {
+        let db = database();
+        db.upsert_batch(&[
+            json!({"id":"cover-1","title":"One","artist":"A","album":"Album","duration":10.0}),
+            json!({"id":"cover-2","title":"Two","artist":"A","album":"Album","duration":20.0,"coverArt":"covers/a.jpg"}),
+            json!({"id":"cover-3","title":"Three","artist":"A","album":"Album","duration":30.0,"coverArt":"covers/a.jpg"}),
+            json!({"id":"cover-4","title":"Four","artist":"A","album":"Album","duration":40.0,"coverArt":"covers/b.jpg"}),
+        ]).unwrap();
+
+        let ids = vec![
+            "cover-1".to_string(),
+            "cover-2".to_string(),
+            "cover-3".to_string(),
+            "missing".to_string(),
+            "cover-4".to_string(),
+        ];
+        assert_eq!(db.cover_art_by_ids(&ids, 8).unwrap(), vec!["covers/a.jpg", "covers/b.jpg"]);
+        assert_eq!(db.cover_art_by_ids(&ids, 1).unwrap(), vec!["covers/a.jpg"]);
+        assert!(db.cover_art_by_ids(&ids, 0).unwrap().is_empty());
     }
 
     #[test]

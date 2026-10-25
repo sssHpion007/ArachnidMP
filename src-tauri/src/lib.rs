@@ -632,6 +632,27 @@ fn library_db_get_by_ids(
 }
 
 #[tauri::command]
+fn library_db_get_playlist_covers(
+    playlists: Vec<library_db::PlaylistCoverRequest>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<Vec<library_db::PlaylistCoverResult>, String> {
+    let base_dir = storage::get_portable_base_dir();
+    playlists.into_iter().map(|playlist| {
+        let covers = state.cover_art_by_ids(&playlist.track_ids, playlist.limit)?
+            .into_iter()
+            .map(|cover| {
+                if cover.starts_with("http") || cover.starts_with("data:") {
+                    cover
+                } else {
+                    storage::to_absolute_cover(&cover, &base_dir).unwrap_or(cover)
+                }
+            })
+            .collect();
+        Ok(library_db::PlaylistCoverResult { playlist_id: playlist.playlist_id, covers })
+    }).collect()
+}
+
+#[tauri::command]
 fn library_db_seed_legacy_from_disk(
     track_ids: Vec<String>,
     state: State<'_, library_db::LibraryDb>,
@@ -3086,6 +3107,7 @@ pub fn run() {
             library_db_get_collection_groups,
             library_db_get_details,
             library_db_get_by_ids,
+            library_db_get_playlist_covers,
             library_db_get_path_ids,
             library_db_get_by_paths,
             library_db_seed_legacy_from_disk,

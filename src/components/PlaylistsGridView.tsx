@@ -30,6 +30,7 @@ interface PlaylistsGridViewProps {
   folders: PlaylistFolder[];
   groups: PlaylistGroup[];
   tracks: Track[];
+  playlistCovers?: Record<string, string[]>;
   searchQuery?: string;
   language?: AppLanguage;
   onSelectPlaylist: (id: string) => void;
@@ -630,6 +631,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   folders,
   groups,
   tracks,
+  playlistCovers,
   searchQuery = '',
   language = 'ru',
   onSelectPlaylist,
@@ -730,19 +732,27 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
 
   // Helpers to get cover art and duration
   const getPlaylistCover = (playlist: Playlist): string | null => {
+    if (playlist.coverArt) return playlist.coverArt;
+    const resolvedCovers = playlistCovers?.[playlist.id];
+    if (resolvedCovers) return resolvedCovers[0] ?? null;
     for (const id of playlist.trackIds) {
-      const t = trackMap.get(id);
-      if (t && t.coverArt) return t.coverArt;
+      const cover = trackMap.get(id)?.coverArt;
+      if (cover) return cover;
     }
     return null;
   };
 
   const getPlaylistCovers = (playlist: Playlist): string[] => {
+    const resolvedCovers = playlistCovers?.[playlist.id];
+    if (resolvedCovers) {
+      if (!playlist.coverArt || resolvedCovers.includes(playlist.coverArt)) return resolvedCovers;
+      return [playlist.coverArt, ...resolvedCovers].slice(0, 8);
+    }
     const covers: string[] = [];
     for (const id of playlist.trackIds) {
-      const t = trackMap.get(id);
-      if (t && t.coverArt && !covers.includes(t.coverArt)) {
-        covers.push(t.coverArt);
+      const cover = trackMap.get(id)?.coverArt;
+      if (cover && !covers.includes(cover)) {
+        covers.push(cover);
         if (covers.length >= 8) break;
       }
     }
@@ -806,12 +816,9 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     // 2. Secondary: supplement from tracks if fewer than 8 distinct covers
     if (covers.length < 8) {
       for (const pl of folderPlaylists) {
-        for (const tid of pl.trackIds) {
-          const t = trackMap.get(tid);
-          if (t && t.coverArt && !covers.includes(t.coverArt)) {
-            covers.push(t.coverArt);
-            if (covers.length >= 8) break;
-          }
+        for (const cover of getPlaylistCovers(pl)) {
+          if (!covers.includes(cover)) covers.push(cover);
+          if (covers.length >= 8) break;
         }
         if (covers.length >= 8) break;
       }
