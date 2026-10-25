@@ -47,7 +47,7 @@ import { AppLanguage, detectSystemLanguage } from './i18n';
 import { isNewerVersion, CURRENT_APP_VERSION } from './utils/version';
 import { getFolderIconComponent } from './theme/folderIcons';
 import { getFolderTrackIds } from './services/folderPlayback';
-import { BoundedPageCache } from './services/boundedPageCache';
+import { BoundedIndexedCache } from './services/boundedIndexedCache';
 import { coverVariantUrl, isCachedCoverUrl } from './utils/coverArt';
 import { buildLibraryScanPathPlan } from './services/libraryScanPaths';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
@@ -263,8 +263,11 @@ export const App: React.FC = () => {
   } | null>(null);
   const nativePageOffsetRef = useRef(0);
   const nativePageGenerationRef = useRef(0);
-  const nativeTrackPageCacheRef = useRef(new BoundedPageCache<TrackSummary>({ maxPages: 8 }));
+  const nativeRangeRequestRef = useRef(0);
+  const nativeTrackRangeCacheRef = useRef(new BoundedIndexedCache<TrackSummary>({ maxItems: 128 }));
   const nativeTrackTotalRef = useRef(0);
+  const nativeTrackTotalGenerationRef = useRef(-1);
+  const nativeTrackTotalRequestGenerationRef = useRef(-1);
   const loadNativeTracksPageRef = useRef<((reset?: boolean) => Promise<void>) | null>(null);
   const missingCheckRunningRef = useRef(false);
   const [playlists, setPlaylists] = useState<Playlist[]>(INITIAL_PLAYLISTS);
@@ -1029,8 +1032,11 @@ export const App: React.FC = () => {
     if (!isTauri() || !startupDataLoaded || !isNativeBoundedTrackView) return;
 
     const generation = reset ? ++nativePageGenerationRef.current : nativePageGenerationRef.current;
+    const requestId = ++nativeRangeRequestRef.current;
+    const rangeStart = Math.max(0, Math.trunc(startIndex));
+    const rangeEnd = Math.max(rangeStart, Math.trunc(endIndex));
     if (reset) {
-      nativeTrackPageCacheRef.current.clear();
+      nativeTrackRangeCacheRef.current.clear();
       nativePageOffsetRef.current = 0;
       lastSelectedIndexRef.current = null;
       setLastSelectedIndex(null);
@@ -1038,15 +1044,16 @@ export const App: React.FC = () => {
       setNativeTrackIndices([]);
       setNativeTrackTotal(0);
       nativeTrackTotalRef.current = 0;
+      nativeTrackTotalGenerationRef.current = -1;
+      nativeTrackTotalRequestGenerationRef.current = -1;
       setNativeTrackPageLoaded(false);
       tracksRef.current = [];
       setNativePageLoading(true);
     }
-
-    const pageSize = 300;
-    const firstPage = Math.max(0, Math.floor(startIndex / pageSize) - 1);
-    const lastPage = Math.max(firstPage, Math.floor(Math.max(startIndex, endIndex - 1) / pageSize) + 1);
-    const pageIndices = Array.from({ length: lastPage - firstPage + 1 }, (_, index) => firstPage + index);
+    if (rangeEnd <= rangeStart) {
+      if (reset && generation === nativePageGenerationRef.current) setNativePageLoading(false);
+      return;
+    }
 
     const search = searchQuery.trim();
     const descending = sortOrder === 'desc';
@@ -1059,20 +1066,22 @@ export const App: React.FC = () => {
         ? filteredOrderedTrackIds.ids
         : undefined;
     if (orderedNativeTrackIds !== null && orderedTrackIds === undefined) {
-      setNativePageLoading(false);
+      if (requestId === nativeRangeRequestRef.current) setNativePageLoading(false);
       return;
     }
 
     try {
-      await Promise.all(pageIndices.map(pageIndex => nativeTrackPageCacheRef.current.getOrLoad(pageIndex, async () => {
-        const offset = pageIndex * pageSize;
+      if (orderedTrackIds) {
+        nativeTrackTotalRef.current = orderedTrackIds.length;
+        nativeTrackTotalGenerationRef.current = generation;
+        setNativeTrackTotal(orderedTrackIds.length);
+      }
+
+      await nativeTrackRangeCacheRef.current.loadRange(rangeStart, rangeEnd, async (offset, limit) => {
         if (orderedTrackIds) {
-          if (generation === nativePageGenerationRef.current) {
-            nativeTrackTotalRef.current = orderedTrackIds.length;
-            setNativeTrackTotal(orderedTrackIds.length);
-          }
-          return hydrateNativeSummaryRows(await libraryRepository.byIdsPage(orderedTrackIds, offset, pageSize));
+          return hydrateNativeSummaryRows(await libraryRepository.byIdsPage(orderedTrackIds, offset, limit));
         }
+
         const filterKind = selectedAlbum ? 'album' : selectedArtist ? 'artist' : selectedGenre ? 'genre' : undefined;
         const noAlbumLabel = language === 'ru' ? 'Без альбома' : 'No Album';
         const unknownArtistLabel = language === 'ru' ? 'Неизвестный исполнитель' : 'Unknown Artist';
@@ -1081,44 +1090,59 @@ export const App: React.FC = () => {
         if ((filterKind === 'album' && filterValue === noAlbumLabel)
           || (filterKind === 'artist' && filterValue === unknownArtistLabel)
           || (filterKind === 'genre' && filterValue === noGenreLabel)) filterValue = '';
-        const page = await libraryRepository.page({
-          search: searchQuery,
-          sortBy: sortBy === 'custom' ? 'title' : sortBy,
-          descending: sortOrder === 'desc',
-          offset,
-          limit: pageSize,
-          filterKind,
-          filterValue,
-          favoriteOnly: currentView === 'favorites',
-          excludedIds: [...isolatedTrackIds],
-        });
-        if (generation === nativePageGenerationRef.current) {
+        const includeTotal = nativeTrackTotalGenerationRef.current !== generation
+          && nativeTrackTotalRequestGenerationRef.current !== generation;
+        if (includeTotal) nativeTrackTotalRequestGenerationRef.current = generation;
+        let page: Awaited<ReturnType<typeof libraryRepository.page>>;
+        try {
+          page = await libraryRepository.page({
+            search: searchQuery,
+            sortBy: sortBy === 'custom' ? 'title' : sortBy,
+            descending: sortOrder === 'desc',
+            offset,
+            limit,
+            filterKind,
+            filterValue,
+            favoriteOnly: currentView === 'favorites',
+            excludedIds: [...isolatedTrackIds],
+            includeTotal,
+          });
+        } catch (error) {
+          if (includeTotal && nativeTrackTotalRequestGenerationRef.current === generation) {
+            nativeTrackTotalRequestGenerationRef.current = -1;
+          }
+          throw error;
+        }
+        if (includeTotal && generation === nativePageGenerationRef.current) {
           nativeTrackTotalRef.current = page.total;
+          nativeTrackTotalGenerationRef.current = generation;
           setNativeTrackTotal(page.total);
         }
         return hydrateNativeSummaryRows(page.items);
-      })));
+      });
 
-      if (generation !== nativePageGenerationRef.current) return;
-      const { items: nextRows, indices: nextIndices } = nativeTrackPageCacheRef.current.getIndexedRows(pageSize);
-      const lastCachedPage = Math.max(...nativeTrackPageCacheRef.current.cachedPageIndices, -1);
+      if (generation !== nativePageGenerationRef.current || requestId !== nativeRangeRequestRef.current) return;
+      nativeTrackRangeCacheRef.current.retainRange(rangeStart, rangeEnd);
+      const { items: nextRows, indices: nextIndices } = nativeTrackRangeCacheRef.current.getIndexedRows(rangeStart, rangeEnd);
       tracksRef.current = nextRows;
       previousTracksForDbRef.current = nextRows;
       setTracks(nextRows);
       setNativeTrackIndices(nextIndices);
       setNativeTrackPageLoaded(true);
-      nativePageOffsetRef.current = Math.min(nativeTrackTotalRef.current, (lastCachedPage + 1) * pageSize);
+      nativePageOffsetRef.current = Math.min(nativeTrackTotalRef.current, rangeEnd);
     } catch (error) {
       console.warn('Unable to load a SQLite track range:', error);
     } finally {
-      if (generation === nativePageGenerationRef.current) setNativePageLoading(false);
+      if (generation === nativePageGenerationRef.current && requestId === nativeRangeRequestRef.current) {
+        setNativePageLoading(false);
+      }
     }
   }, [startupDataLoaded, isNativeBoundedTrackView, selectedAlbum, selectedArtist, selectedGenre, language, searchQuery, sortBy, sortOrder, currentView, isolatedTrackIds, orderedNativeTrackIds, filteredOrderedTrackIds]);
 
   const loadNativeTracksPage = useCallback(async (reset = false) => {
     if (!isTauri() || !startupDataLoaded || !isNativeBoundedTrackView) return;
-    if (reset) await loadNativeTracksRange(0, 300, true);
-    else await loadNativeTracksRange(nativePageOffsetRef.current, nativePageOffsetRef.current + 300);
+    if (reset) await loadNativeTracksRange(0, 1, true);
+    else await loadNativeTracksRange(nativePageOffsetRef.current, nativePageOffsetRef.current + 1);
   }, [startupDataLoaded, isNativeBoundedTrackView, loadNativeTracksRange]);
 
   loadNativeTracksPageRef.current = loadNativeTracksPage;
@@ -1161,9 +1185,10 @@ export const App: React.FC = () => {
 
   const selectNativeTrackAtIndex = useCallback(async (index: number) => {
     if (!isNativeBoundedTrackView || index < 0 || index >= nativeTrackTotal) return;
-    await loadNativeTracksRange(index, index + 1);
-    const pageIndex = Math.floor(index / 300);
-    const track = nativeTrackPageCacheRef.current.get(pageIndex)?.[index % 300];
+    const rangeStart = Math.max(0, index - 12);
+    const rangeEnd = Math.min(nativeTrackTotal, index + 13);
+    await loadNativeTracksRange(rangeStart, rangeEnd);
+    const track = nativeTrackRangeCacheRef.current.get(index);
     if (!track) return;
     const nextSelection = new Set([track.id]);
     selectedTrackIdsRef.current = nextSelection;
@@ -1294,7 +1319,7 @@ export const App: React.FC = () => {
           console.warn('Unable to persist file existence status:', error);
         }
 
-        nativeTrackPageCacheRef.current.updateItems(track => {
+        nativeTrackRangeCacheRef.current.updateItems(track => {
           const missing = updates.get(track.id);
           return missing === undefined ? track : { ...track, isMissing: missing };
         });
@@ -1378,8 +1403,9 @@ export const App: React.FC = () => {
             }
 
             const loadNativeCatalog = async (): Promise<Track[]> => {
-              const page = await libraryRepository.page({ sortBy: 'title', descending: false, offset: 0, limit: 300 });
+              const page = await libraryRepository.page({ sortBy: 'title', descending: false, offset: 0, limit: 1 });
               setNativeTrackTotal(page.total);
+              nativeTrackTotalRef.current = page.total;
               nativePageOffsetRef.current = page.items.length;
               return hydrateNativeSummaryRows(page.items);
             };
@@ -2505,11 +2531,12 @@ export const App: React.FC = () => {
         return language === 'ru' ? 'Поиск в избранном...' : 'Search favorites...';
       case 'tracks':
       default:
+        const trackCount = isTauri() ? nativeTrackTotal : nonIsolatedTracks.length;
         return language === 'ru'
-          ? `Поиск среди треков (${nonIsolatedTracks.length})...`
-          : `Search all tracks (${nonIsolatedTracks.length})...`;
+          ? `Поиск среди треков (${trackCount})...`
+          : `Search all tracks (${trackCount})...`;
     }
-  }, [currentDetail, currentView, nonIsolatedTracks.length, language]);
+  }, [currentDetail, currentView, nativeTrackTotal, nonIsolatedTracks.length, language]);
 
   const handleBackToGrid = () => {
     setDetailNavDirection('backward');
@@ -4867,7 +4894,7 @@ export const App: React.FC = () => {
           };
         };
 
-        nativeTrackPageCacheRef.current.updateItems(applyNativeMetadata);
+        nativeTrackRangeCacheRef.current.updateItems(applyNativeMetadata);
         setTracks(previous => previous.map(applyNativeMetadata));
         setCurrentTrack(previous => previous ? applyNativeMetadata(previous) : previous);
         setQueue(previous => previous.map(applyNativeMetadata));

@@ -520,11 +520,13 @@ fn library_db_get_page(
     filter_value: Option<String>,
     favorite_only: bool,
     excluded_ids: Vec<String>,
+    include_total: Option<bool>,
     state: State<'_, library_db::LibraryDb>,
 ) -> Result<library_db::TrackPage, String> {
-    let mut page = state.page_filtered_excluding(
+    let mut page = state.page_filtered_excluding_with_total(
         search.as_deref(), &sort_by, descending, offset, limit,
         filter_kind.as_deref(), filter_value.as_deref(), favorite_only, &excluded_ids,
+        include_total.unwrap_or(true),
     )?;
     let base_dir = storage::get_portable_base_dir();
     for track in &mut page.items {

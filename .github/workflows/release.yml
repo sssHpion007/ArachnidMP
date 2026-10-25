@@ -52,6 +52,7 @@ jobs:
         shell: pwsh
         run: |
           npm run test:bounded-page-cache
+          npm run test:bounded-indexed-cache
           npm run test:library-index
           npm run test:folder-playback
           npm run test:library-scan-paths

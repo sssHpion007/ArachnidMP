@@ -255,6 +255,15 @@ impl LibraryDb {
         &self, search: Option<&str>, sort_by: &str, descending: bool, offset: u64, limit: u32,
         filter_kind: Option<&str>, filter_value: Option<&str>, favorite_only: bool, excluded_ids: &[String],
     ) -> Result<TrackPage, String> {
+        self.page_filtered_excluding_with_total(
+            search, sort_by, descending, offset, limit, filter_kind, filter_value, favorite_only, excluded_ids, true,
+        )
+    }
+
+    pub fn page_filtered_excluding_with_total(
+        &self, search: Option<&str>, sort_by: &str, descending: bool, offset: u64, limit: u32,
+        filter_kind: Option<&str>, filter_value: Option<&str>, favorite_only: bool, excluded_ids: &[String], include_total: bool,
+    ) -> Result<TrackPage, String> {
         let limit = limit.clamp(1, 500) as u64;
         let search = normalize_search(search.unwrap_or_default());
         let filter_kind = filter_kind.unwrap_or_default();
@@ -289,14 +298,18 @@ impl LibraryDb {
             rusqlite::types::Value::Integer(if favorite_only { 1 } else { 0 }),
         ];
         query_values.extend(excluded_ids.iter().cloned().map(rusqlite::types::Value::Text));
-        let count = connection.query_row(
-            &format!("SELECT COUNT(*) FROM tracks WHERE {predicate}{exclusion_clause}"),
-            rusqlite::params_from_iter(query_values.iter()), |row| row.get::<_, i64>(0),
-        ).map_err(|e| e.to_string())?;
+        let total = if include_total {
+            let count = connection.query_row(
+                &format!("SELECT COUNT(*) FROM tracks WHERE {predicate}{exclusion_clause}"),
+                rusqlite::params_from_iter(query_values.iter()), |row| row.get::<_, i64>(0),
+            ).map_err(|e| e.to_string())?;
+            count.max(0) as u64
+        } else {
+            0
+        };
         let mut page_values = query_values;
         page_values.push(rusqlite::types::Value::Integer(limit as i64));
         page_values.push(rusqlite::types::Value::Integer(offset.min(i64::MAX as u64) as i64));
-        let total = count.max(0) as u64;
         let mut statement = connection.prepare(&sql).map_err(|e| e.to_string())?;
         let rows = statement.query_map(rusqlite::params_from_iter(page_values.iter()), row_to_summary).map_err(|e| e.to_string())?;
         let mut items = Vec::new();
@@ -1013,6 +1026,27 @@ mod tests {
         ).unwrap();
         assert_eq!(remaining.total, 1);
         assert_eq!(remaining.items.iter().map(|track| track.id.as_str()).collect::<Vec<_>>(), vec!["2"]);
+    }
+
+    #[test]
+    fn page_ranges_can_skip_recounting_after_the_view_total_is_known() {
+        let db = database();
+        db.upsert_batch(&[
+            json!({"id":"1","title":"Track 1","artist":"A","album":"Album","duration":10.0}),
+            json!({"id":"2","title":"Track 2","artist":"A","album":"Album","duration":20.0}),
+        ]).unwrap();
+
+        let first = db.page_filtered_excluding_with_total(
+            None, "title", false, 0, 1, None, None, false, &[], true,
+        ).unwrap();
+        assert_eq!(first.total, 2);
+        assert_eq!(first.items.len(), 1);
+
+        let next = db.page_filtered_excluding_with_total(
+            None, "title", false, 1, 1, None, None, false, &[], false,
+        ).unwrap();
+        assert_eq!(next.total, 0);
+        assert_eq!(next.items[0].id, "2");
     }
 
     #[test]

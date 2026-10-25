@@ -12,6 +12,7 @@ export interface LibraryPageQuery {
   filterValue?: string;
   favoriteOnly?: boolean;
   excludedIds?: string[];
+  includeTotal?: boolean;
 }
 
 const MAX_PAGE_SIZE = 500;
@@ -70,6 +71,7 @@ export const libraryRepository = {
       filterValue: query.filterValue ?? null,
       favoriteOnly: query.favoriteOnly ?? false,
       excludedIds: query.excludedIds ?? [],
+      includeTotal: query.includeTotal ?? true,
     });
   },
 

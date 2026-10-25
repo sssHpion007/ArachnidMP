@@ -210,7 +210,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
 
   const rowHeight = isCompact ? 60 : 54;
   const totalHeight = totalTrackCount * rowHeight;
-  const OVERSCAN = 6;
+  const OVERSCAN = 12;
   const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
   const endIndex = Math.min(totalTrackCount, Math.ceil((scrollTop + viewportHeight) / rowHeight) + OVERSCAN);
   const tracksByIndex = React.useMemo(() => {
