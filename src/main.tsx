@@ -35,16 +35,83 @@ try {
   }
 } catch (_) {}
 
-// Sample the JavaScript heap independently in every WebView (main, lyrics, details, EQ).
-// This Chromium API is optional; native per-process diagnostics remain available when absent.
+// Sample each WebView's JS heap and reclaim unreachable V8 objects when an
+// idle renderer has accumulated a sizeable heap. This does not cap Chromium's
+// native/GPU memory; native process diagnostics measure that separately.
 if (isTauri()) {
   const rendererPerformance = performance as Performance & {
     memory?: { usedJSHeapSize: number; totalJSHeapSize: number; jsHeapSizeLimit: number };
   };
+  const gcWindow = window as Window & { gc?: () => void };
   let renderer = document.title || 'webview';
   try { renderer = getCurrentWebviewWindow().label; } catch {}
   const megabytes = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1);
+  const GC_CHECK_INTERVAL_MS = 60_000;
+  const GC_MINIMUM_HEAP_BYTES = 40 * 1024 * 1024;
+  const MINIMUM_IDLE_MS = 15_000;
   let unavailableWasReported = false;
+  let gcUnavailableWasReported = false;
+  let lastGcAttemptAt = performance.now();
+  let lastInteractionAt = performance.now();
+  let gcScheduled = false;
+
+  const noteInteraction = () => { lastInteractionAt = performance.now(); };
+  window.addEventListener('pointerdown', noteInteraction, { passive: true });
+  window.addEventListener('keydown', noteInteraction, { passive: true });
+  window.addEventListener('wheel', noteInteraction, { passive: true });
+  window.addEventListener('touchstart', noteInteraction, { passive: true });
+
+  const report = (tag: string, message: string) => {
+    void invoke('client_log', { level: 'INFO', tag, message }).catch(() => {});
+  };
+
+  const maybeCollectGarbage = (usedHeapBytes: number) => {
+    const now = performance.now();
+    if (gcScheduled
+      || now - lastGcAttemptAt < GC_CHECK_INTERVAL_MS
+      || usedHeapBytes < GC_MINIMUM_HEAP_BYTES) return;
+
+    if (!gcWindow.gc) {
+      if (!gcUnavailableWasReported) {
+        gcUnavailableWasReported = true;
+        report('MEMORY_JS_GC', `renderer=${renderer} explicit V8 GC unavailable; verify WebView2 --expose-gc flag.`);
+      }
+      return;
+    }
+
+    const wasHidden = document.visibilityState === 'hidden';
+    if (!wasHidden && now - lastInteractionAt < MINIMUM_IDLE_MS) return;
+
+    gcScheduled = true;
+    lastGcAttemptAt = now;
+    const collect = () => {
+      gcScheduled = false;
+      // Do not interrupt an interaction that began while collection was queued,
+      // including a window that became visible after collection was scheduled.
+      if (document.visibilityState !== 'hidden'
+        && performance.now() - lastInteractionAt < MINIMUM_IDLE_MS) return;
+
+      const before = rendererPerformance.memory?.usedJSHeapSize;
+      try {
+        gcWindow.gc?.();
+      } catch (error) {
+        report('MEMORY_JS_GC', `renderer=${renderer} explicit V8 GC failed: ${String(error)}`);
+        return;
+      }
+
+      window.setTimeout(() => {
+        const after = rendererPerformance.memory?.usedJSHeapSize;
+        report(
+          'MEMORY_JS_GC',
+          `renderer=${renderer} reason=idle-heap-threshold before_used_js_heap_mb=${before === undefined ? 'unavailable' : megabytes(before)} after_used_js_heap_mb=${after === undefined ? 'unavailable' : megabytes(after)}`,
+        );
+      }, 250);
+    };
+
+    // Yield one task so React/browser work can finish before the synchronous GC.
+    window.setTimeout(collect, 0);
+  };
+
   const sample = () => {
     // Re-read the optional API for every sample; retaining its initial object can
     // freeze the diagnostic values for the entire lifetime of the WebView.
@@ -52,20 +119,17 @@ if (isTauri()) {
     if (!memory) {
       if (!unavailableWasReported) {
         unavailableWasReported = true;
-        void invoke('client_log', {
-          level: 'INFO',
-          tag: 'MEMORY_JS_HEAP',
-          message: `renderer=${renderer} performance.memory is unavailable in this WebView2 runtime.`,
-        }).catch(() => {});
+        report('MEMORY_JS_HEAP', `renderer=${renderer} performance.memory is unavailable in this WebView2 runtime.`);
       }
       return;
     }
-    void invoke('client_log', {
-      level: 'INFO',
-      tag: 'MEMORY_JS_HEAP',
-      message: `renderer=${renderer} used_js_heap_mb=${megabytes(memory.usedJSHeapSize)} total_js_heap_mb=${megabytes(memory.totalJSHeapSize)} js_heap_limit_mb=${megabytes(memory.jsHeapSizeLimit)}`,
-    }).catch(() => {});
+    report(
+      'MEMORY_JS_HEAP',
+      `renderer=${renderer} used_js_heap_mb=${megabytes(memory.usedJSHeapSize)} total_js_heap_mb=${megabytes(memory.totalJSHeapSize)} js_heap_limit_mb=${megabytes(memory.jsHeapSizeLimit)}`,
+    );
+    maybeCollectGarbage(memory.usedJSHeapSize);
   };
+
   sample();
   window.setInterval(sample, 30_000);
 }

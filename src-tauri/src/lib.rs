@@ -2218,7 +2218,7 @@ async fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> 
     const LYRICS_WINDOW_WIDTH: f64 = 440.0;
     const LYRICS_WINDOW_HEIGHT: f64 = 700.0;
     const WINDOW_GAP: i64 = 12;
-    const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--max-old-space-size=256\"";
+    const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--expose-gc --max-old-space-size=256\"";
 
     let (lyrics_window, created) = match app_handle.get_webview_window("lyrics") {
         Some(window) => (window, false),
@@ -2293,7 +2293,7 @@ async fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> 
 async fn show_track_details_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     const DETAILS_WINDOW_WIDTH: f64 = 560.0;
     const DETAILS_WINDOW_HEIGHT: f64 = 640.0;
-    const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--max-old-space-size=256\"";
+    const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--expose-gc --max-old-space-size=256\"";
 
     let details_window = match app_handle.get_webview_window("track-details") {
         Some(window) => window,
@@ -2334,7 +2334,7 @@ fn hide_track_details_window(app_handle: tauri::AppHandle) -> Result<(), String>
 
 #[tauri::command]
 async fn show_equalizer_window(app_handle: tauri::AppHandle) -> Result<(), String> {
-    const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--max-old-space-size=256\"";
+    const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--expose-gc --max-old-space-size=256\"";
 
     let equalizer_window = match app_handle.get_webview_window("equalizer") {
         Some(window) => window,
