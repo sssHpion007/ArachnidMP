@@ -1421,10 +1421,12 @@ export const App: React.FC = () => {
             const initialScanPathPlan = await getScanPathPlan();
             if (catalogWasEmpty) {
               // The first catalog must be populated even if future startup scans are disabled.
-              await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: initialScanPathPlan.scanPaths });
+              const scanResult = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: initialScanPathPlan.scanPaths });
+              scanResult.replacements.forEach(({ importedId, retainedId }) => validIdMap.set(importedId, retainedId));
             } else if (parsed.autoScanOnStartup === false && initialScanPathPlan.uncoveredPlaylistPaths.length > 0) {
               // Index M3U files outside watched roots when automatic startup scans are disabled.
-              await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: initialScanPathPlan.uncoveredPlaylistPaths });
+              const scanResult = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: initialScanPathPlan.uncoveredPlaylistPaths });
+              scanResult.replacements.forEach(({ importedId, retainedId }) => validIdMap.set(importedId, retainedId));
             }
 
             const hydrated = await loadNativeCatalog();
@@ -1441,7 +1443,8 @@ export const App: React.FC = () => {
               // missing-files warning; otherwise stale DB paths can be reported as missing.
               window.setTimeout(async () => {
                 try {
-                  await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: await getScanPaths() });
+                  const scanResult = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: await getScanPaths() });
+                  applyNativeTrackIdReplacements(scanResult.replacements);
                   await loadNativeTracksPageRef.current?.(true);
                   await verifyNativeLibraryExistence(true);
                 } catch (error) {
@@ -3085,6 +3088,39 @@ export const App: React.FC = () => {
   const pendingTauriPathsRef = useRef<Set<string>>(new Set());
   const importTauriTimerRef = useRef<any>(null);
 
+  const applyNativeTrackIdReplacements = (replacements: Array<{ importedId: string; retainedId: string }>) => {
+    if (replacements.length === 0) return;
+    const byImportedId = new Map(replacements.map(({ importedId, retainedId }) => [importedId, retainedId]));
+    const resolveId = (id: string) => {
+      let current = id;
+      const visited = new Set<string>();
+      while (byImportedId.has(current) && !visited.has(current)) {
+        visited.add(current);
+        current = byImportedId.get(current)!;
+      }
+      return current;
+    };
+
+    setPlaylists(previous => previous.map(playlist => {
+      const trackIds = Array.from(new Set(playlist.trackIds.map(resolveId)));
+      return trackIds.every((id, index) => id === playlist.trackIds[index])
+        && trackIds.length === playlist.trackIds.length ? playlist : { ...playlist, trackIds };
+    }));
+    setQueue(previous => previous.map(track => {
+      const id = resolveId(track.id);
+      return id === track.id ? track : { ...track, id };
+    }));
+    setCurrentTrack(previous => {
+      if (!previous) return previous;
+      const id = resolveId(previous.id);
+      return id === previous.id ? previous : { ...previous, id };
+    });
+    setSelectedTrackIds(previous => {
+      const next = new Set(Array.from(previous, resolveId));
+      return next.size === previous.size && Array.from(previous).every(id => next.has(id)) ? previous : next;
+    });
+  };
+
   // Synchronous, robust track processor and playlist assigner
   const processImportedTracks = (newTracks: Track[], knownExistingIds?: ReadonlySet<string>) => {
     if (!newTracks || newTracks.length === 0) return;
@@ -3250,7 +3286,8 @@ export const App: React.FC = () => {
         try {
           const res = await invoke<{ name: string; paths: string[] }>('parse_m3u8_file', { path: plPath });
           if (res && res.paths.length > 0) {
-            await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: res.paths });
+            const scanResult = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: res.paths });
+            applyNativeTrackIdReplacements(scanResult.replacements);
             const newPlTracks = hydrateNativeSummaryRows(await libraryRepository.byPaths(res.paths));
             if (newPlTracks.length > 0) {
               const newPl: Playlist = {
@@ -3278,6 +3315,7 @@ export const App: React.FC = () => {
       try {
         const knownExistingIds = new Set(await libraryRepository.existingPathIds(audioPaths));
         const scanResult = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: audioPaths });
+        applyNativeTrackIdReplacements(scanResult.replacements);
         scanResult.replacements.forEach(({ retainedId }) => knownExistingIds.add(retainedId));
         const scannedRows = await libraryRepository.byPaths(audioPaths);
         if (scannedRows.length > 0) {
@@ -3347,6 +3385,7 @@ export const App: React.FC = () => {
         if (paths.length > 0) {
           const knownExistingIds = new Set(await libraryRepository.existingPathIds(paths));
           const scanResult = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths });
+          applyNativeTrackIdReplacements(scanResult.replacements);
           scanResult.replacements.forEach(({ retainedId }) => knownExistingIds.add(retainedId));
           const rows = await libraryRepository.byPaths(paths);
           processImportedTracks(hydrateNativeSummaryRows(rows), knownExistingIds);
@@ -4113,7 +4152,8 @@ export const App: React.FC = () => {
       try {
         const res = await invoke<{ name: string; paths: string[] } | null>('import_playlist_from_m3u8');
         if (res && res.paths.length > 0) {
-          await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: res.paths });
+          const scanResult = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: res.paths });
+          applyNativeTrackIdReplacements(scanResult.replacements);
           const addedTracks = hydrateNativeSummaryRows(await libraryRepository.byPaths(res.paths));
           if (addedTracks.length > 0) {
             const newPl: Playlist = {
@@ -4201,13 +4241,14 @@ export const App: React.FC = () => {
       const portableMusicPath = await invoke<string>('get_portable_music_path');
       const foldersToScan = Array.from(new Set([portableMusicPath, ...watchedFolders]));
       const scanResult = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: foldersToScan });
+      applyNativeTrackIdReplacements(scanResult.replacements);
       await loadNativeTracksPage(true);
       return scanResult.scanned;
     } catch (error) {
       console.warn('Scan library error:', error);
       throw error;
     }
-  }, [watchedFolders, loadNativeTracksPage]);
+  }, [watchedFolders, loadNativeTracksPage, applyNativeTrackIdReplacements]);
 
   // Missing tracks relocation and cleanup
   const handleRelocateMissingInFolder = async (): Promise<{ total: number; found: number } | null> => {

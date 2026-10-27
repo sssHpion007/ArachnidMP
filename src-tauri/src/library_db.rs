@@ -174,7 +174,8 @@ impl LibraryDb {
                 is_favorite INTEGER NOT NULL DEFAULT 0,
                 play_count INTEGER NOT NULL DEFAULT 0,
                 date_added INTEGER NOT NULL DEFAULT 0
-             );"
+             );
+             CREATE INDEX IF NOT EXISTS idx_legacy_path_map_old_id ON legacy_path_map(old_id);"
         ).map_err(|e| format!("Initialize library database: {e}"))?;
         #[cfg(target_os = "windows")]
         normalize_legacy_windows_cover_urls(&connection)?;
@@ -461,11 +462,14 @@ impl LibraryDb {
         let mut used_missing_ids = std::collections::HashSet::new();
         let mut replacements = Vec::new();
         for (summary, search_text, details_json) in imported {
-            if summary.is_missing || known_existing_ids.contains(summary.id.as_str()) { continue; }
+            if summary.is_missing { continue; }
+            let already_known_path = known_existing_ids.contains(summary.id.as_str());
             let Some(key) = title_artist_key(&summary.title, &summary.artist) else { continue };
             let retained_id = {
                 let mut statement = transaction.prepare(
-                    "SELECT id,title,artist,path,is_missing FROM tracks WHERE title=?1 COLLATE NATURAL_NOCASE ORDER BY rowid"
+                    "SELECT id,title,artist,path,is_missing,
+                            EXISTS(SELECT 1 FROM legacy_path_map WHERE old_id=tracks.id)
+                     FROM tracks WHERE title=?1 COLLATE NATURAL_NOCASE ORDER BY rowid"
                 ).map_err(|e| e.to_string())?;
                 let mut rows = statement.query([&summary.title]).map_err(|e| e.to_string())?;
                 let mut match_id = None;
@@ -475,6 +479,7 @@ impl LibraryDb {
                     let artist: String = row.get(2).map_err(|e| e.to_string())?;
                     let old_path: Option<String> = row.get(3).map_err(|e| e.to_string())?;
                     let was_missing: bool = row.get(4).map_err(|e| e.to_string())?;
+                    let is_legacy_playlist_reference: bool = row.get(5).map_err(|e| e.to_string())?;
                     // Startup rescans can discover a moved file before the separate
                     // existence check has set is_missing. Treat a stale on-disk path
                     // the same as an already-flagged missing row so playlist IDs survive.
@@ -483,6 +488,10 @@ impl LibraryDb {
                         .unwrap_or(true);
                     if id != summary.id && !used_missing_ids.contains(&id)
                         && (was_missing || old_path_is_missing)
+                        // An already-indexed new path is only merged when the old ID is
+                        // explicitly referenced by a playlist. This repairs duplicates
+                        // created by earlier builds without collapsing ordinary duplicates.
+                        && (!already_known_path || is_legacy_playlist_reference)
                         && title_artist_key(&title, &artist).as_deref() == Some(key.as_str())
                     {
                         match_id = Some(id);
@@ -1239,6 +1248,44 @@ mod tests {
         assert!(!page.items[0].is_missing);
         assert!(page.items[0].is_favorite);
         assert_eq!(page.items[0].play_count, 4);
+    }
+
+    #[test]
+    fn already_scanned_moved_track_recovers_legacy_playlist_id() {
+        let db = database();
+        db.upsert_batch(&[json!({
+            "id":"playlist-id","title":"Moved song","artist":"Artist",
+            "path":"/old/song.mp3","isFavorite":true,"playCount":5
+        })]).unwrap();
+        db.seed_legacy_track_map(&[LegacyTrackReference {
+            id: "playlist-id".into(),
+            path: "/old/song.mp3".into(),
+            is_favorite: true,
+            play_count: 5,
+            date_added: 123,
+        }]).unwrap();
+        db.upsert_batch(&[json!({
+            "id":"duplicate-id","title":"Moved song","artist":"Artist",
+            "path":"/new/song.mp3"
+        })]).unwrap();
+
+        // The new path is already in SQLite, as happens after an earlier build imported it.
+        let replacements = db.reconcile_missing_imports(
+            &["/new/song.mp3".into()],
+            &["duplicate-id".into()],
+        ).unwrap();
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(replacements[0].imported_id, "duplicate-id");
+        assert_eq!(replacements[0].retained_id, "playlist-id");
+
+        let page = db.page(None, "title", false, 0, 10).unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items[0].id, "playlist-id");
+        assert_eq!(page.items[0].path.as_deref(), Some("/new/song.mp3"));
+        assert!(!page.items[0].is_missing);
+        assert!(page.items[0].is_favorite);
+        assert_eq!(page.items[0].play_count, 5);
+        assert_eq!(page.items[0].date_added, 123);
     }
 
     #[test]

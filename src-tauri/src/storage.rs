@@ -320,14 +320,14 @@ pub fn to_absolute_music_path(path_str: &str, base_dir: &Path) -> Option<String>
 /// Initialize the modular directory structure on startup
 pub fn init_storage_structure(base_dir: &Path) {
     let config_dir = base_dir.join("config");
-    let covers_dir = config_dir.join("covers");
     let playlists_dir = base_dir.join("playlists");
     let themes_dir = base_dir.join("themes");
     let locales_dir = base_dir.join("locales");
     let logs_dir = config_dir.join("logs");
 
     let _ = fs::create_dir_all(&config_dir);
-    let _ = fs::create_dir_all(&covers_dir);
+    // The SQLite artwork cache replaced config/covers; only the legacy importer
+    // creates that directory when it actually converts a base64 cover.
     let _ = fs::create_dir_all(&logs_dir);
     let _ = fs::create_dir_all(&playlists_dir);
     let _ = fs::create_dir_all(&themes_dir);
@@ -1319,6 +1319,23 @@ pub fn load_legacy_track_references(track_ids: &[String]) -> Result<Vec<crate::l
 mod legacy_reference_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn startup_storage_init_does_not_recreate_legacy_cover_folder() {
+        let root = std::env::temp_dir().join(format!(
+            "arachnid-storage-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        let legacy_covers = root.join("config").join("covers");
+        fs::create_dir_all(&legacy_covers).unwrap();
+        fs::remove_dir(&legacy_covers).unwrap();
+
+        init_storage_structure(&root);
+
+        assert!(!legacy_covers.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn legacy_index_only_restores_ids_still_referenced_by_playlists() {
