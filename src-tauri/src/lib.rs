@@ -133,10 +133,37 @@ fn log_keyboard_probe(target: String, typing_target: bool, focused_id: String) {
     );
 }
 
+fn cache_inline_cover(covers: &cover_cache::CoverCache, cover: &str) -> String {
+    if !cover.starts_with("data:image/") { return cover.to_string(); }
+    let Some((header, encoded)) = cover.split_once(";base64,") else { return cover.to_string() };
+    let Some(mime) = header.strip_prefix("data:") else { return cover.to_string() };
+    let encoded = encoded.chars().filter(|character| !character.is_whitespace()).collect::<String>();
+    let Ok(bytes) = BASE64_STANDARD.decode(encoded) else { return cover.to_string() };
+    match covers.store_bytes(&bytes, mime) {
+        Ok(hash) => cover_cache::cover_url(&hash, None),
+        Err(error) => {
+            logger::log("WARN", "COVER_CACHE", &format!("Could not migrate inline cover into SQLite: {error}"));
+            cover.to_string()
+        }
+    }
+}
+
 #[tauri::command]
-fn save_portable_data(data: String, state: State<'_, library_db::LibraryDb>) -> Result<bool, String> {
+fn save_portable_data(
+    data: String,
+    state: State<'_, library_db::LibraryDb>,
+    covers: State<'_, cover_cache::CoverCache>,
+) -> Result<bool, String> {
     let mut value = serde_json::from_str::<serde_json::Value>(&data)
         .map_err(|_| "Invalid JSON data format".to_string())?;
+    if let Some(playlists) = value.get_mut("playlists").and_then(serde_json::Value::as_array_mut) {
+        for playlist in playlists {
+            if let Some(cover) = playlist.get("coverArt").and_then(serde_json::Value::as_str) {
+                let cached = cache_inline_cover(covers.inner(), cover);
+                playlist["coverArt"] = serde_json::Value::String(cached);
+            }
+        }
+    }
     let mut referenced_ids = Vec::new();
     if let Some(playlists) = value.get("playlists").and_then(serde_json::Value::as_array) {
         let mut unique_ids = std::collections::HashSet::new();
@@ -688,7 +715,15 @@ fn upsert_tracks_with_cover_cache(
     covers: &cover_cache::CoverCache,
     tracks: &[serde_json::Value],
 ) -> Result<usize, String> {
-    let changed = database.upsert_batch(tracks)?;
+    let mut normalized_tracks = tracks.to_vec();
+    for track in &mut normalized_tracks {
+        let cover_field = if track.get("coverArt").is_some() { "coverArt" } else { "cover_art" };
+        if let Some(cover) = track.get(cover_field).and_then(serde_json::Value::as_str) {
+            let cached = cache_inline_cover(covers, cover);
+            track[cover_field] = serde_json::Value::String(cached);
+        }
+    }
+    let changed = database.upsert_batch(&normalized_tracks)?;
     let paths = tracks.iter()
         .filter_map(|track| track.get("path").and_then(serde_json::Value::as_str).map(str::to_string))
         .collect::<Vec<_>>();
@@ -726,6 +761,8 @@ fn library_db_merge_summary(
     if let Some(cover) = cover_field.as_ref().and_then(serde_json::Value::as_str) {
         if cover.is_empty() {
             patch["coverArt"] = serde_json::Value::Null;
+        } else if cover.starts_with("data:image/") {
+            patch["coverArt"] = serde_json::Value::String(cache_inline_cover(covers.inner(), cover));
         } else if let Some(portable) = storage::to_portable_cover(cover, &storage::get_portable_base_dir()) {
             patch["coverArt"] = serde_json::Value::String(portable);
         }

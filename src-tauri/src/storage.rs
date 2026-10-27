@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
-use base64::prelude::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -14,55 +13,8 @@ pub fn get_portable_base_dir() -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
-pub fn get_covers_dir() -> PathBuf {
-    get_portable_base_dir().join("config").join("covers")
-}
-
 pub fn get_logs_dir() -> PathBuf {
     get_portable_base_dir().join("config").join("logs")
-}
-
-pub fn save_cover_bytes(bytes: &[u8], mime: &str) -> Option<String> {
-    if bytes.is_empty() {
-        return None;
-    }
-    let mut hasher = DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    let hash = format!("{:016x}", hasher.finish());
-
-    let ext = match mime.to_lowercase().as_str() {
-        "image/png" | "png" => "png",
-        "image/webp" | "webp" => "webp",
-        _ => "jpg",
-    };
-
-    let covers_dir = get_covers_dir();
-    let _ = fs::create_dir_all(&covers_dir);
-    let filename = format!("{}.{}", hash, ext);
-    let file_path = covers_dir.join(&filename);
-
-    if !file_path.exists() {
-        let _ = fs::write(&file_path, bytes);
-    }
-
-    Some(file_path.to_string_lossy().to_string())
-}
-
-pub fn save_base64_cover(data_uri: &str) -> Option<String> {
-    if !data_uri.starts_with("data:image/") {
-        return None;
-    }
-    let parts: Vec<&str> = data_uri.splitn(2, ";base64,").collect();
-    if parts.len() != 2 {
-        return None;
-    }
-    let mime = parts[0].trim_start_matches("data:");
-    let b64_clean: String = parts[1].chars().filter(|c| !c.is_whitespace()).collect();
-    if let Ok(bytes) = BASE64_STANDARD.decode(&b64_clean) {
-        save_cover_bytes(&bytes, mime)
-    } else {
-        None
-    }
 }
 
 fn url_decode(input: &str) -> String {
@@ -122,8 +74,7 @@ fn extract_cover_filename(cover_val: &str) -> Option<String> {
     None
 }
 
-/// Convert any cover string (asset URL, old absolute path, base64, relative)
-/// to a portable relative path "config/covers/<filename>" suitable for saving in playlists.
+/// Normalize legacy filesystem covers while preserving inline, external, and SQLite-cache URLs.
 pub fn to_portable_cover(cover_val: &str, base_dir: &Path) -> Option<String> {
     let trimmed = cover_val.trim();
     if trimmed.is_empty() {
@@ -136,15 +87,9 @@ pub fn to_portable_cover(cover_val: &str, base_dir: &Path) -> Option<String> {
         return Some(trimmed.to_string());
     }
 
-    // 1. If base64 data URI, save to config/covers and return relative path
+    // Inline legacy images remain readable; native callers migrate them into the SQLite cache.
     if trimmed.starts_with("data:image/") {
-        if let Some(disk_path) = save_base64_cover(trimmed) {
-            let p = Path::new(&disk_path);
-            if let Some(fname) = p.file_name().and_then(|f| f.to_str()) {
-                return Some(format!("config/covers/{}", fname));
-            }
-        }
-        return None;
+        return Some(trimmed.to_string());
     }
 
     // 2. External web URLs (http/https not asset.localhost)
@@ -326,8 +271,7 @@ pub fn init_storage_structure(base_dir: &Path) {
     let logs_dir = config_dir.join("logs");
 
     let _ = fs::create_dir_all(&config_dir);
-    // The SQLite artwork cache replaced config/covers; only the legacy importer
-    // creates that directory when it actually converts a base64 cover.
+    // Artwork is stored in the SQLite cover cache; do not recreate the retired config/covers folder.
     let _ = fs::create_dir_all(&logs_dir);
     let _ = fs::create_dir_all(&playlists_dir);
     let _ = fs::create_dir_all(&themes_dir);
@@ -1333,6 +1277,9 @@ mod legacy_reference_tests {
 
         init_storage_structure(&root);
 
+        assert!(!legacy_covers.exists());
+        let inline_cover = "data:image/png;base64,aGVsbG8=";
+        assert_eq!(to_portable_cover(inline_cover, &root).as_deref(), Some(inline_cover));
         assert!(!legacy_covers.exists());
         fs::remove_dir_all(root).unwrap();
     }
