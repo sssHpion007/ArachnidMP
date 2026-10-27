@@ -17,6 +17,16 @@ pub fn get_logs_dir() -> PathBuf {
     get_portable_base_dir().join("config").join("logs")
 }
 
+/// Remove the retired monolithic index; SQLite and M3U are now authoritative.
+pub fn remove_retired_library_index(base_dir: &Path) -> Result<bool, String> {
+    let path = base_dir.join("config").join("library.json");
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!("Remove retired library index {}: {error}", path.display())),
+    }
+}
+
 fn url_decode(input: &str) -> String {
     let mut result = Vec::new();
     let bytes = input.as_bytes();
@@ -595,24 +605,6 @@ Arachnid Music Player supports two formats for custom themes:
     }
 }
 
-/// Automatically migrate legacy single arachnid_data.json into the modular folder structure
-fn migrate_legacy_data(base_dir: &Path) {
-    let legacy_file = base_dir.join("arachnid_data.json");
-    let settings_file = base_dir.join("config").join("settings.json");
-
-    // Only migrate if legacy exists and settings.json does not exist yet
-    if legacy_file.is_file() && !settings_file.exists() {
-        if let Ok(content) = fs::read_to_string(&legacy_file) {
-            if let Ok(val) = serde_json::from_str::<Value>(&content) {
-                let _ = save_modular_data(&val);
-                // Create backup of old single file to ensure no loss of data
-                let backup_file = base_dir.join("arachnid_data.json.bak");
-                let _ = fs::rename(&legacy_file, &backup_file);
-            }
-        }
-    }
-}
-
 /// Save only the domains present in `data` into their modular files across config/ and playlists/
 pub fn save_modular_data(data: &Value) -> Result<bool, String> {
     let base_dir = get_portable_base_dir();
@@ -640,9 +632,7 @@ pub fn save_modular_data(data: &Value) -> Result<bool, String> {
             .map_err(|e| format!("Failed to write settings to {:?}: {}", settings_path, e))?;
     }
 
-    // 2. The SQLite database is the only active media catalog. Older library.json
-    // files are deliberately left untouched for one-time ID/path recovery; never
-    // overwrite them with a paginated view or remove them without user consent.
+    // 2. SQLite is the only native track catalog. Playlist path/ID references live in M3U8 files.
 
     // 3. Save Playlists Hierarchy Tree (folders & groups) only when supplied.
     // This lets settings-only writes avoid touching the playlist files.
@@ -723,25 +713,10 @@ pub fn load_modular_data() -> Result<Option<String>, String> {
     let base_dir = get_portable_base_dir();
     init_storage_structure(&base_dir);
 
-    // Perform one-time migration if needed
-    migrate_legacy_data(&base_dir);
-
     let config_dir = base_dir.join("config");
     let playlists_dir = base_dir.join("playlists");
     let settings_path = config_dir.join("settings.json");
-    let library_path = config_dir.join("library.json");
     let tree_path = playlists_dir.join("tree.json");
-
-    // If nothing exists yet, check legacy file as fallback
-    if !settings_path.exists() && !library_path.exists() {
-        let legacy_file = base_dir.join("arachnid_data.json");
-        if legacy_file.is_file() {
-            let content = fs::read_to_string(&legacy_file)
-                .map_err(|e| format!("Failed to read legacy data: {}", e))?;
-            return Ok(Some(content));
-        }
-        return Ok(None);
-    }
 
     let mut combined = json!({});
 
@@ -1212,57 +1187,26 @@ pub fn parse_m3u8_playlist(
 }
 
 
-fn legacy_track_references_from_value(
-    value: &Value,
-    requested_ids: &std::collections::HashSet<String>,
-    base_dir: &Path,
-) -> Vec<crate::library_db::LegacyTrackReference> {
-    let Some(tracks) = value.get("tracks").and_then(Value::as_array) else { return Vec::new() };
-    let mut references = Vec::with_capacity(tracks.len().min(requested_ids.len()));
-    for track in tracks {
-        let (Some(id), Some(raw_path)) = (
-            track.get("id").and_then(Value::as_str),
-            track.get("path").and_then(Value::as_str),
-        ) else { continue };
-        if id.is_empty() || raw_path.trim().is_empty() || !requested_ids.contains(id) { continue; }
-        let resolved_path = to_absolute_music_path(raw_path, base_dir).unwrap_or_else(|| {
-            let path = Path::new(raw_path);
-            if path.is_absolute() { raw_path.to_string() } else { base_dir.join(path).to_string_lossy().to_string() }
-        });
-        references.push(crate::library_db::LegacyTrackReference {
-            id: id.to_string(),
-            path: resolved_path,
-            is_favorite: track.get("isFavorite").and_then(Value::as_bool).unwrap_or(false),
-            play_count: track.get("playCount").and_then(Value::as_u64).unwrap_or(0),
-            date_added: track.get("dateAdded").and_then(Value::as_i64).unwrap_or(0),
-        });
-    }
-    references
-}
-
-/// Read only references still present in playlists from the old full-library index.
-/// Removed/library-only IDs must not seed a path mapping during the SQLite rebuild.
-pub fn load_legacy_track_references(track_ids: &[String]) -> Result<Vec<crate::library_db::LegacyTrackReference>, String> {
-    if track_ids.is_empty() { return Ok(Vec::new()); }
-    let requested_ids = track_ids.iter().cloned().collect::<std::collections::HashSet<_>>();
-    let base_dir = get_portable_base_dir();
-    let candidates = [
-        base_dir.join("config").join("library.json"),
-        base_dir.join("arachnid_data.json.bak"),
-        base_dir.join("arachnid_data.json"),
-    ];
-    let Some(path) = candidates.iter().find(|path| path.is_file()) else {
-        return Ok(Vec::new());
-    };
-    let content = fs::read_to_string(path).map_err(|error| format!("Read legacy library index: {error}"))?;
-    let value: Value = serde_json::from_str(&content).map_err(|error| format!("Parse legacy library index: {error}"))?;
-    Ok(legacy_track_references_from_value(&value, &requested_ids, &base_dir))
-}
-
 #[cfg(test)]
-mod legacy_reference_tests {
+mod storage_tests {
     use super::*;
-    use serde_json::json;
+
+    #[test]
+    fn retired_library_index_cleanup_removes_only_the_obsolete_file() {
+        let root = std::env::temp_dir().join(format!(
+            "arachnid-retired-index-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        let index = root.join("config").join("library.json");
+        fs::create_dir_all(index.parent().unwrap()).unwrap();
+        fs::write(&index, "stale synthetic index").unwrap();
+
+        assert!(remove_retired_library_index(&root).unwrap());
+        assert!(!index.exists());
+        assert!(!remove_retired_library_index(&root).unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn startup_storage_init_does_not_recreate_legacy_cover_folder() {
@@ -1282,25 +1226,5 @@ mod legacy_reference_tests {
         assert_eq!(to_portable_cover(inline_cover, &root).as_deref(), Some(inline_cover));
         assert!(!legacy_covers.exists());
         fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn legacy_index_only_restores_ids_still_referenced_by_playlists() {
-        let base_dir = Path::new("portable-root");
-        let value = json!({
-            "tracks": [
-                {"id":"playlist-track","path":"music/kept.mp3","isFavorite":true,"playCount":4,"dateAdded":55},
-                {"id":"removed-track","path":"music/stale.mp3","isFavorite":false}
-            ]
-        });
-        let requested = ["playlist-track".to_string()].into_iter().collect();
-
-        let references = legacy_track_references_from_value(&value, &requested, base_dir);
-        assert_eq!(references.len(), 1);
-        assert_eq!(references[0].id, "playlist-track");
-        assert_eq!(references[0].path, base_dir.join("music").join("kept.mp3").to_string_lossy().to_string());
-        assert!(references[0].is_favorite);
-        assert_eq!(references[0].play_count, 4);
-        assert_eq!(references[0].date_added, 55);
     }
 }

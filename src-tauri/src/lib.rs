@@ -109,19 +109,10 @@ fn set_tray_language(language: String, state: State<'_, TrayMenuState>) -> Resul
 
 fn saved_tray_language_is_russian() -> bool {
     let base_dir = storage::get_portable_base_dir();
-    let settings_paths = [
-        base_dir.join("config").join("settings.json"),
-        base_dir.join("arachnid_data.json"),
-    ];
-
-    for path in settings_paths {
-        let Ok(contents) = std::fs::read_to_string(path) else { continue };
-        let Ok(settings) = serde_json::from_str::<serde_json::Value>(&contents) else { continue };
-        if let Some(language) = settings.get("language").and_then(serde_json::Value::as_str) {
-            return language == "ru";
-        }
-    }
-    false
+    let settings_path = base_dir.join("config").join("settings.json");
+    let Ok(contents) = std::fs::read_to_string(settings_path) else { return false };
+    let Ok(settings) = serde_json::from_str::<serde_json::Value>(&contents) else { return false };
+    settings.get("language").and_then(serde_json::Value::as_str) == Some("ru")
 }
 
 #[tauri::command]
@@ -680,34 +671,11 @@ fn library_db_get_playlist_covers(
 }
 
 #[tauri::command]
-fn library_db_seed_legacy_from_disk(
-    track_ids: Vec<String>,
-    state: State<'_, library_db::LibraryDb>,
-) -> Result<usize, String> {
-    if state.count(None)? > 0 {
-        return Ok(0);
-    }
-    let references = storage::load_legacy_track_references(&track_ids)?;
-    let seeded = state.seed_legacy_track_map(&references)?;
-    if !references.is_empty() {
-        logger::log(
-            "INFO",
-            "LIBRARY_MIGRATION",
-            &format!(
-                "legacy catalog retained; seeded {seeded} path/ID references from {} records for playlist continuity",
-                references.len(),
-            ),
-        );
-    }
-    Ok(seeded)
-}
-
-#[tauri::command]
 fn library_db_seed_playlist_track_references(
-    references: Vec<library_db::LegacyTrackReference>,
+    references: Vec<library_db::PlaylistTrackReference>,
     state: State<'_, library_db::LibraryDb>,
 ) -> Result<usize, String> {
-    state.seed_legacy_track_map(&references)
+    state.seed_playlist_track_map(&references)
 }
 
 fn upsert_tracks_with_cover_cache(
@@ -3074,6 +3042,11 @@ pub fn run() {
                 .join("library.sqlite3");
             let library_db = library_db::LibraryDb::open(&library_path)
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            match storage::remove_retired_library_index(&storage::get_portable_base_dir()) {
+                Ok(true) => logger::log("INFO", "LIBRARY_STORAGE", "removed retired config/library.json"),
+                Ok(false) => {}
+                Err(error) => logger::log("WARN", "LIBRARY_STORAGE", &error),
+            }
             let covers_path = storage::get_portable_base_dir().join("config").join("covers.sqlite3");
             let cover_cache = cover_cache::CoverCache::open(&covers_path)
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
@@ -3147,7 +3120,6 @@ pub fn run() {
             library_db_get_playlist_covers,
             library_db_get_path_ids,
             library_db_get_by_paths,
-            library_db_seed_legacy_from_disk,
             library_db_seed_playlist_track_references,
             library_db_upsert_batch,
             library_db_merge_details,

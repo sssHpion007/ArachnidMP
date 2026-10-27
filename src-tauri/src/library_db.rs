@@ -103,7 +103,7 @@ pub struct LibraryCollectionGroup {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LegacyTrackReference {
+pub struct PlaylistTrackReference {
     pub id: String,
     pub path: String,
     #[serde(default)]
@@ -168,14 +168,15 @@ impl LibraryDb {
              CREATE INDEX IF NOT EXISTS idx_tracks_genre ON tracks(genre COLLATE NATURAL_NOCASE, id);
              CREATE INDEX IF NOT EXISTS idx_tracks_favorite ON tracks(is_favorite, id);
              CREATE INDEX IF NOT EXISTS idx_tracks_path_key ON tracks(path_key);
-             CREATE TABLE IF NOT EXISTS legacy_path_map (
+             DROP TABLE IF EXISTS legacy_path_map;
+             CREATE TABLE IF NOT EXISTS playlist_path_map (
                 path_key TEXT PRIMARY KEY NOT NULL,
-                old_id TEXT NOT NULL,
+                track_id TEXT NOT NULL,
                 is_favorite INTEGER NOT NULL DEFAULT 0,
                 play_count INTEGER NOT NULL DEFAULT 0,
                 date_added INTEGER NOT NULL DEFAULT 0
              );
-             CREATE INDEX IF NOT EXISTS idx_legacy_path_map_old_id ON legacy_path_map(old_id);"
+             CREATE INDEX IF NOT EXISTS idx_playlist_path_map_track_id ON playlist_path_map(track_id);"
         ).map_err(|e| format!("Initialize library database: {e}"))?;
         #[cfg(target_os = "windows")]
         normalize_legacy_windows_cover_urls(&connection)?;
@@ -468,7 +469,7 @@ impl LibraryDb {
             let retained_id = {
                 let mut statement = transaction.prepare(
                     "SELECT id,title,artist,path,is_missing,
-                            EXISTS(SELECT 1 FROM legacy_path_map WHERE old_id=tracks.id)
+                            EXISTS(SELECT 1 FROM playlist_path_map WHERE track_id=tracks.id)
                      FROM tracks WHERE title=?1 COLLATE NATURAL_NOCASE ORDER BY rowid"
                 ).map_err(|e| e.to_string())?;
                 let mut rows = statement.query([&summary.title]).map_err(|e| e.to_string())?;
@@ -479,7 +480,7 @@ impl LibraryDb {
                     let artist: String = row.get(2).map_err(|e| e.to_string())?;
                     let old_path: Option<String> = row.get(3).map_err(|e| e.to_string())?;
                     let was_missing: bool = row.get(4).map_err(|e| e.to_string())?;
-                    let is_legacy_playlist_reference: bool = row.get(5).map_err(|e| e.to_string())?;
+                    let is_playlist_reference: bool = row.get(5).map_err(|e| e.to_string())?;
                     // Startup rescans can discover a moved file before the separate
                     // existence check has set is_missing. Treat a stale on-disk path
                     // the same as an already-flagged missing row so playlist IDs survive.
@@ -491,7 +492,7 @@ impl LibraryDb {
                         // An already-indexed new path is only merged when the old ID is
                         // explicitly referenced by a playlist. This repairs duplicates
                         // created by earlier builds without collapsing ordinary duplicates.
-                        && (!already_known_path || is_legacy_playlist_reference)
+                        && (!already_known_path || is_playlist_reference)
                         && title_artist_key(&title, &artist).as_deref() == Some(key.as_str())
                     {
                         match_id = Some(id);
@@ -532,7 +533,7 @@ impl LibraryDb {
             }
             if let Some(path) = summary.path.as_deref() {
                 let path_key = normalize_path(path);
-                transaction.execute("DELETE FROM legacy_path_map WHERE path_key=?1", [path_key]).map_err(|e| e.to_string())?;
+                transaction.execute("DELETE FROM playlist_path_map WHERE path_key=?1", [path_key]).map_err(|e| e.to_string())?;
             }
             replacements.push(TrackIdReplacement { imported_id: summary.id, retained_id });
         }
@@ -610,11 +611,11 @@ impl LibraryDb {
         Ok(covers)
     }
 
-    pub fn seed_legacy_track_map(&self, tracks: &[LegacyTrackReference]) -> Result<usize, String> {
+    pub fn seed_playlist_track_map(&self, tracks: &[PlaylistTrackReference]) -> Result<usize, String> {
         let mut connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
         let transaction = connection.transaction().map_err(|e| e.to_string())?;
         let mut statement = transaction.prepare(
-            "INSERT INTO legacy_path_map(path_key,old_id,is_favorite,play_count,date_added) VALUES (?1,?2,?3,?4,?5)
+            "INSERT INTO playlist_path_map(path_key,track_id,is_favorite,play_count,date_added) VALUES (?1,?2,?3,?4,?5)
              ON CONFLICT(path_key) DO NOTHING"
         ).map_err(|e| e.to_string())?;
         let mut inserted = 0usize;
@@ -848,9 +849,9 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
     let path_key = path.as_deref().map(normalize_path);
     // A rescan can produce a fresh ID for an already-known file. Keep the existing ID
     // so playlist and queue references survive rescans.
-    let legacy_state: Option<(String, bool, i64, i64)> = if let Some(path_key) = path_key.as_deref() {
+    let playlist_state: Option<(String, bool, i64, i64)> = if let Some(path_key) = path_key.as_deref() {
         transaction.query_row(
-            "SELECT old_id,is_favorite,play_count,date_added FROM legacy_path_map WHERE path_key=?1",
+            "SELECT track_id,is_favorite,play_count,date_added FROM playlist_path_map WHERE path_key=?1",
             [path_key],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         ).optional().map_err(|e| e.to_string())?
@@ -862,7 +863,7 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
     } else {
         None
     };
-    let id = existing_path_id.as_deref().or_else(|| legacy_state.as_ref().map(|state| state.0.as_str())).unwrap_or(incoming_id);
+    let id = existing_path_id.as_deref().or_else(|| playlist_state.as_ref().map(|state| state.0.as_str())).unwrap_or(incoming_id);
     let existing_state: Option<(i64, i64, bool, bool)> = transaction.query_row(
         "SELECT date_added,play_count,is_favorite,is_missing FROM tracks WHERE id=?1",
         [id],
@@ -870,14 +871,14 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
     ).optional().map_err(|e| e.to_string())?;
     let date_added = number(value, "dateAdded", "date_added")
         .or_else(|| existing_state.map(|state| state.0))
-        .or_else(|| legacy_state.as_ref().map(|state| state.3))
+        .or_else(|| playlist_state.as_ref().map(|state| state.3))
         .unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis().min(i64::MAX as u128) as i64);
     let play_count = number(value, "playCount", "play_count")
         .or_else(|| existing_state.map(|state| state.1))
-        .or_else(|| legacy_state.as_ref().map(|state| state.2)).unwrap_or(0);
+        .or_else(|| playlist_state.as_ref().map(|state| state.2)).unwrap_or(0);
     let is_favorite = value.get("isFavorite").or_else(|| value.get("is_favorite")).and_then(Value::as_bool)
         .or_else(|| existing_state.map(|state| state.2))
-        .or_else(|| legacy_state.as_ref().map(|state| state.1)).unwrap_or(false);
+        .or_else(|| playlist_state.as_ref().map(|state| state.1)).unwrap_or(false);
     let is_missing = value.get("isMissing").or_else(|| value.get("is_missing")).and_then(Value::as_bool)
         .or_else(|| existing_state.map(|state| state.3)).unwrap_or(false);
     let title = string(value, "title", "title", "Unknown");
@@ -933,7 +934,7 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
         ],
     ).map_err(|e| format!("Save track {id}: {e}"))?;
     if let Some(path_key) = path_key {
-        transaction.execute("DELETE FROM legacy_path_map WHERE path_key=?1", [path_key]).map_err(|e| e.to_string())?;
+        transaction.execute("DELETE FROM playlist_path_map WHERE path_key=?1", [path_key]).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1010,6 +1011,33 @@ mod tests {
     use serde_json::json;
 
     fn database() -> LibraryDb { LibraryDb::open(":memory:").expect("database initializes") }
+
+    #[test]
+    fn opening_catalog_drops_obsolete_legacy_path_map() {
+        let path = std::env::temp_dir().join(format!(
+            "arachnid-obsolete-map-{}-{}.sqlite3",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        let connection = Connection::open(&path).unwrap();
+        connection.execute_batch(
+            "CREATE TABLE legacy_path_map(path_key TEXT PRIMARY KEY, old_id TEXT NOT NULL);
+             INSERT INTO legacy_path_map(path_key,old_id) VALUES('/stale/song.mp3','stale-id');",
+        ).unwrap();
+        drop(connection);
+
+        let db = LibraryDb::open(&path).unwrap();
+        let connection = db.connection.lock().unwrap();
+        let old_table_exists: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='legacy_path_map')",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert!(!old_table_exists);
+        drop(connection);
+        drop(db);
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn natural_collation_handles_cyrillic_accents_and_numeric_sequences() {
@@ -1251,13 +1279,13 @@ mod tests {
     }
 
     #[test]
-    fn already_scanned_moved_track_recovers_legacy_playlist_id() {
+    fn already_scanned_moved_track_recovers_playlist_id() {
         let db = database();
         db.upsert_batch(&[json!({
             "id":"playlist-id","title":"Moved song","artist":"Artist",
             "path":"/old/song.mp3","isFavorite":true,"playCount":5,"dateAdded":123
         })]).unwrap();
-        db.seed_legacy_track_map(&[LegacyTrackReference {
+        db.seed_playlist_track_map(&[PlaylistTrackReference {
             id: "playlist-id".into(),
             path: "/old/song.mp3".into(),
             is_favorite: true,
@@ -1353,9 +1381,9 @@ mod tests {
     }
 
     #[test]
-    fn legacy_path_map_preserves_playlist_ids_and_user_state_after_rescan() {
+    fn playlist_path_map_preserves_playlist_ids_and_user_state_after_rescan() {
         let db = database();
-        db.seed_legacy_track_map(&[LegacyTrackReference {
+        db.seed_playlist_track_map(&[PlaylistTrackReference {
             id: "playlist-track-id".into(),
             path: "C:\\Music\\legacy.flac".into(),
             is_favorite: true,

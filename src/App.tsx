@@ -1374,23 +1374,16 @@ export const App: React.FC = () => {
           const parsed = JSON.parse(rawJson);
           const validIdMap = new Map<string, string>();
           if (isTauri()) {
-            const legacyTracks: any[] = Array.isArray(parsed.tracks) ? parsed.tracks : [];
-            const legacyPlaylistTrackIds = new Set<string>(
+            const playlistTracks: any[] = Array.isArray(parsed.tracks) ? parsed.tracks : [];
+            const playlistTrackIds = new Set<string>(
               (Array.isArray(parsed.playlists) ? parsed.playlists : [])
                 .flatMap((playlist: any) => Array.isArray(playlist?.trackIds) ? playlist.trackIds : [])
                 .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0),
             );
-            // The native catalog is rebuilt from disk. Only IDs still referenced by
-            // playlists may be recovered from the old index; stale library-only rows
-            // must not regain a legacy ID during migration.
-            const catalogWasEmpty = await libraryRepository.count() === 0;
-            if (catalogWasEmpty) {
-              await invoke<number>('library_db_seed_legacy_from_disk', { trackIds: [...legacyPlaylistTrackIds] });
-            }
-            // Keep playlist IDs as path references, not catalog rows. The scan below
-            // creates the SQLite catalog from real files while preserving M3U IDs.
-            const playlistReferences = legacyTracks
-              .filter(track => legacyPlaylistTrackIds.has(track?.id)
+            // The playlist files are the only source for playlist ID/path references.
+            // SQLite remains the sole track catalog; no legacy library index is loaded.
+            const playlistReferences = playlistTracks
+              .filter(track => playlistTrackIds.has(track?.id)
                 && typeof track?.id === 'string' && track.id && typeof track?.path === 'string' && track.path)
               .map(track => ({
                 id: track.id,
@@ -1402,6 +1395,7 @@ export const App: React.FC = () => {
             if (playlistReferences.length > 0) {
               await invoke<number>('library_db_seed_playlist_track_references', { references: playlistReferences });
             }
+            const catalogWasEmpty = await libraryRepository.count() === 0;
 
             const loadNativeCatalog = async (): Promise<Track[]> => {
               const page = await libraryRepository.page({ sortBy: 'title', descending: false, offset: 0, limit: 1 });

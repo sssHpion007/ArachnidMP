@@ -4,7 +4,7 @@
 
 Replace the desktop library's monolithic `library.json` track array with a local SQLite database and make the native library repository the source of truth. Keep the browser-only fallback independent. The database is portable and lives under the same portable data root as the current desktop data.
 
-The selected transition is a fresh catalog followed by a rescan, not an import of the old track objects. Do not silently delete the old `library.json`: retain it as a backup until the new catalog has been scanned and validated. Keep settings and playlist metadata separate from the catalog. Playlist track IDs must be reconciled against rescanned file paths where possible; unresolved entries should be reported rather than silently discarded.
+SQLite and M3U8 are the current desktop data model. The application does not read, write, or migrate `library.json` or the former monolithic `arachnid_data.json`; startup removes the retired `config/library.json`. Track metadata is stored only in SQLite, while playlist IDs and paths are stored in M3U8. On scan, SQLite reconciles moved tracks against current M3U8 references and retains playlist IDs where a match is established. Keep settings and playlist metadata separate from the catalog.
 
 ## Runtime model
 
