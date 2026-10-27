@@ -56,6 +56,7 @@ jobs:
           npm run test:library-index
           npm run test:folder-playback
           npm run test:library-scan-paths
+          npm run test:track-table-scroll
 
       - name: Build Tauri Desktop Portable
         shell: pwsh

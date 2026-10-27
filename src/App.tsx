@@ -50,6 +50,7 @@ import { getFolderTrackIds } from './services/folderPlayback';
 import { BoundedIndexedCache } from './services/boundedIndexedCache';
 import { coverVariantUrl, isCachedCoverUrl } from './utils/coverArt';
 import { buildLibraryScanPathPlan } from './services/libraryScanPaths';
+import { getTrackTableRangeForViewport, preserveTrackTableScrollAfterDelete } from './utils/trackTableScroll';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { LYRICS_WINDOW_EVENTS } from './utils/lyricsWindowEvents';
@@ -270,6 +271,8 @@ export const App: React.FC = () => {
   const nativeTrackTotalGenerationRef = useRef(-1);
   const nativeTrackTotalRequestGenerationRef = useRef(-1);
   const loadNativeTracksPageRef = useRef<((reset?: boolean) => Promise<void>) | null>(null);
+  const loadNativeTracksRangeRef = useRef<((startIndex: number, endIndex: number, reset?: boolean, preserveViewport?: boolean) => Promise<void>) | null>(null);
+  const skipNextNativePageResetRef = useRef(false);
   const missingCheckRunningRef = useRef(false);
   const [playlists, setPlaylists] = useState<Playlist[]>(INITIAL_PLAYLISTS);
   const systemFavoritesPlaylist = useMemo(() => playlists.find(playlist => playlist.id === 'pl_favorites'), [playlists]);
@@ -1029,7 +1032,7 @@ export const App: React.FC = () => {
 
   const isNativeBoundedTrackView = isTauri();
 
-  const loadNativeTracksRange = useCallback(async (startIndex: number, endIndex: number, reset = false) => {
+  const loadNativeTracksRange = useCallback(async (startIndex: number, endIndex: number, reset = false, preserveViewport = false) => {
     if (!isTauri() || !startupDataLoaded || !isNativeBoundedTrackView) return;
 
     const generation = reset ? ++nativePageGenerationRef.current : nativePageGenerationRef.current;
@@ -1041,14 +1044,18 @@ export const App: React.FC = () => {
       nativePageOffsetRef.current = 0;
       lastSelectedIndexRef.current = null;
       setLastSelectedIndex(null);
-      setTracks([]);
-      setNativeTrackIndices([]);
-      setNativeTrackTotal(0);
-      nativeTrackTotalRef.current = 0;
       nativeTrackTotalGenerationRef.current = -1;
       nativeTrackTotalRequestGenerationRef.current = -1;
-      setNativeTrackPageLoaded(false);
-      tracksRef.current = [];
+      if (!preserveViewport) {
+        setTracks([]);
+        setNativeTrackIndices([]);
+        setNativeTrackTotal(0);
+        nativeTrackTotalRef.current = 0;
+        setNativeTrackPageLoaded(false);
+        tracksRef.current = [];
+      }
+      // Keep the existing spacer and rendered rows while refreshing after a delete.
+      // Collapsing the virtual list would clamp scrollTop to zero before the new range arrives.
       setNativePageLoading(true);
     }
     if (rangeEnd <= rangeStart) {
@@ -1147,6 +1154,7 @@ export const App: React.FC = () => {
   }, [startupDataLoaded, isNativeBoundedTrackView, loadNativeTracksRange]);
 
   loadNativeTracksPageRef.current = loadNativeTracksPage;
+  loadNativeTracksRangeRef.current = loadNativeTracksRange;
 
   useEffect(() => {
     if (!isTauri() || orderedNativeTrackIds === null) {
@@ -1206,9 +1214,29 @@ export const App: React.FC = () => {
   }, [isNativeBoundedTrackView, nativeTrackTotal, loadNativeTracksRange]);
 
   useEffect(() => {
-    if (!isTauri() || !startupDataLoaded) return;
-    void loadNativeTracksPage(true);
-  }, [loadNativeTracksPage]);
+    if (!isTauri() || !startupDataLoaded || !isNativeBoundedTrackView) return;
+    if (orderedNativeTrackIds !== null && readyOrderedNativeTrackIds === null) return;
+    if (skipNextNativePageResetRef.current) {
+      skipNextNativePageResetRef.current = false;
+      return;
+    }
+    void loadNativeTracksPageRef.current?.(true);
+  }, [
+    startupDataLoaded,
+    isNativeBoundedTrackView,
+    currentView,
+    selectedPlaylistId,
+    selectedAlbum,
+    selectedArtist,
+    selectedGenre,
+    language,
+    searchQuery,
+    sortBy,
+    sortOrder,
+    orderedNativeTrackIds,
+    readyOrderedNativeTrackIds,
+    isolatedTrackIds,
+  ]);
 
 
   useEffect(() => {
@@ -4987,25 +5015,74 @@ export const App: React.FC = () => {
 
   const handleRemoveTracks = (trackIds: string[]) => {
     const idSet = new Set(trackIds);
-    if (selectedPlaylistId) {
-      setPlaylists(prev => prev.map(p => {
-        if (p.id === selectedPlaylistId) {
-          return { ...p, trackIds: p.trackIds.filter(id => !idSet.has(id)) };
+    let refreshNativeWindow: (() => Promise<void>) | null = null;
+
+    if (isNativeBoundedTrackView) {
+      const container = document.querySelector('[data-track-table-scroll]') as HTMLDivElement | null;
+      const scrollTop = container?.scrollTop ?? 0;
+      const rowHeight = isCompact ? 60 : 54;
+      const viewportHeight = container?.clientHeight ?? 600;
+      const deletedIndices: number[] = [];
+      const knownOrderedIds = readyOrderedNativeTrackIds;
+
+      if (knownOrderedIds) {
+        knownOrderedIds.forEach((id, index) => {
+          if (idSet.has(id)) deletedIndices.push(index);
+        });
+      } else {
+        tracks.forEach((track, index) => {
+          if (idSet.has(track.id)) deletedIndices.push(nativeTrackIndices[index] ?? index);
+        });
+      }
+
+      const nextScrollTop = preserveTrackTableScrollAfterDelete(scrollTop, rowHeight, deletedIndices);
+      const range = getTrackTableRangeForViewport(nextScrollTop, viewportHeight, rowHeight);
+      skipNextNativePageResetRef.current = true;
+      refreshNativeWindow = async () => {
+        await waitForAnimationFrames(1);
+        const reloadRange = loadNativeTracksRangeRef.current;
+        if (reloadRange) {
+          await reloadRange(range.start, range.end, true, true);
+        } else {
+          await loadNativeTracksPageRef.current?.(true);
         }
-        return p;
+        await waitForAnimationFrames(1);
+        const currentContainer = document.querySelector('[data-track-table-scroll]') as HTMLDivElement | null;
+        if (currentContainer) {
+          const maxScrollTop = Math.max(0, currentContainer.scrollHeight - currentContainer.clientHeight);
+          currentContainer.scrollTop = Math.min(nextScrollTop, maxScrollTop);
+        }
+      };
+    }
+
+    if (selectedPlaylistId) {
+      setPlaylists(prev => prev.map(playlist => {
+        if (playlist.id === selectedPlaylistId) {
+          return { ...playlist, trackIds: playlist.trackIds.filter(id => !idSet.has(id)) };
+        }
+        return playlist;
       }));
+      if (refreshNativeWindow) void refreshNativeWindow();
     } else {
       if (isTauri()) {
-        void libraryRepository.delete(trackIds).then(() => loadNativeTracksPage(true))
-          .catch(error => console.warn('Failed to delete tracks from SQLite:', error));
+        void (async () => {
+          try {
+            await libraryRepository.delete(trackIds);
+          } catch (error) {
+            console.warn('Failed to delete tracks from SQLite:', error);
+          }
+          if (refreshNativeWindow) await refreshNativeWindow();
+        })();
+      } else {
+        setTracks(prev => prev.filter(track => !idSet.has(track.id)));
       }
-      setTracks(prev => prev.filter(t => !idSet.has(t.id)));
-      setQueue(prev => prev.filter(t => !idSet.has(t.id)));
-      setPlaylists(prev => prev.map(p => ({
-        ...p,
-        trackIds: p.trackIds.filter(id => !idSet.has(id))
+      setQueue(prev => prev.filter(track => !idSet.has(track.id)));
+      setPlaylists(prev => prev.map(playlist => ({
+        ...playlist,
+        trackIds: playlist.trackIds.filter(id => !idSet.has(id)),
       })));
     }
+
     if (currentTrack && idSet.has(currentTrack.id)) {
       audioEngine.pause();
       setIsPlaying(false);
