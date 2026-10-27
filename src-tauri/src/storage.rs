@@ -1209,7 +1209,7 @@ mod storage_tests {
     }
 
     #[test]
-    fn startup_storage_init_does_not_recreate_legacy_cover_folder() {
+    fn startup_storage_init_does_not_recreate_file_cover_folder() {
         let root = std::env::temp_dir().join(format!(
             "arachnid-storage-test-{}-{}",
             std::process::id(),

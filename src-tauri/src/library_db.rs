@@ -1013,7 +1013,7 @@ mod tests {
     fn database() -> LibraryDb { LibraryDb::open(":memory:").expect("database initializes") }
 
     #[test]
-    fn opening_catalog_drops_obsolete_legacy_path_map() {
+    fn opening_catalog_drops_obsolete_path_map() {
         let path = std::env::temp_dir().join(format!(
             "arachnid-obsolete-map-{}-{}.sqlite3",
             std::process::id(),
@@ -1088,7 +1088,7 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn legacy_https_cover_urls_are_rewritten_to_tauri_windows_origin() {
+    fn previous_https_cover_urls_are_rewritten_to_tauri_windows_origin() {
         let db = database();
         let legacy_url = format!("https://cover.localhost/{}/original", "b".repeat(64));
         db.upsert_batch(&[json!({
