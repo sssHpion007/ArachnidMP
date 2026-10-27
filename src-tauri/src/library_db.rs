@@ -465,7 +465,7 @@ impl LibraryDb {
             let Some(key) = title_artist_key(&summary.title, &summary.artist) else { continue };
             let retained_id = {
                 let mut statement = transaction.prepare(
-                    "SELECT id,title,artist FROM tracks WHERE title=?1 COLLATE NATURAL_NOCASE AND is_missing=1 ORDER BY rowid"
+                    "SELECT id,title,artist,path,is_missing FROM tracks WHERE title=?1 COLLATE NATURAL_NOCASE ORDER BY rowid"
                 ).map_err(|e| e.to_string())?;
                 let mut rows = statement.query([&summary.title]).map_err(|e| e.to_string())?;
                 let mut match_id = None;
@@ -473,7 +473,16 @@ impl LibraryDb {
                     let id: String = row.get(0).map_err(|e| e.to_string())?;
                     let title: String = row.get(1).map_err(|e| e.to_string())?;
                     let artist: String = row.get(2).map_err(|e| e.to_string())?;
+                    let old_path: Option<String> = row.get(3).map_err(|e| e.to_string())?;
+                    let was_missing: bool = row.get(4).map_err(|e| e.to_string())?;
+                    // Startup rescans can discover a moved file before the separate
+                    // existence check has set is_missing. Treat a stale on-disk path
+                    // the same as an already-flagged missing row so playlist IDs survive.
+                    let old_path_is_missing = old_path.as_deref()
+                        .map(|path| !Path::new(path).is_file())
+                        .unwrap_or(true);
                     if id != summary.id && !used_missing_ids.contains(&id)
+                        && (was_missing || old_path_is_missing)
                         && title_artist_key(&title, &artist).as_deref() == Some(key.as_str())
                     {
                         match_id = Some(id);
@@ -487,7 +496,7 @@ impl LibraryDb {
 
             transaction.execute("DELETE FROM tracks WHERE id=?1", [&summary.id]).map_err(|e| e.to_string())?;
             let changed = transaction.execute(
-                "UPDATE tracks SET path=?1,path_key=?2,title=?3,artist=?4,album=?5,genre=?6,year=?7,track_number=?8,track_total=?9,duration=?10,src=?11,cover_art=?12,bitrate=?13,format=?14,file_size=?15,is_missing=0,search_text=?16,details_json=?17 WHERE id=?18 AND is_missing=1",
+                "UPDATE tracks SET path=?1,path_key=?2,title=?3,artist=?4,album=?5,genre=?6,year=?7,track_number=?8,track_total=?9,duration=?10,src=?11,cover_art=?12,bitrate=?13,format=?14,file_size=?15,is_missing=0,search_text=?16,details_json=?17 WHERE id=?18",
                 params![
                     summary.path,
                     summary.path.as_deref().map(normalize_path),
@@ -1201,6 +1210,35 @@ mod tests {
         assert!(page.items[0].is_favorite);
         assert_eq!(page.items[0].play_count, 7);
         assert_eq!(page.items[0].date_added, 123);
+    }
+
+    #[test]
+    fn moved_path_reuses_playlist_id_before_missing_flag_is_set() {
+        let db = database();
+        let old_path = std::env::temp_dir()
+            .join(format!("arachnid-moved-track-{}.mp3", std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()))
+            .to_string_lossy().to_string();
+        assert!(!Path::new(&old_path).is_file());
+        db.upsert_batch(&[json!({
+            "id":"stable-id","title":"Moved song","artist":"Artist",
+            "path":old_path,"isFavorite":true,"playCount":4
+        })]).unwrap();
+        db.upsert_batch(&[json!({
+            "id":"new-id","title":"Moved song","artist":"Artist","path":"/new/song.mp3"
+        })]).unwrap();
+
+        let replacements = db.reconcile_missing_imports(&["/new/song.mp3".into()], &[]).unwrap();
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(replacements[0].imported_id, "new-id");
+        assert_eq!(replacements[0].retained_id, "stable-id");
+        let page = db.page(None, "title", false, 0, 10).unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items[0].id, "stable-id");
+        assert_eq!(page.items[0].path.as_deref(), Some("/new/song.mp3"));
+        assert!(!page.items[0].is_missing);
+        assert!(page.items[0].is_favorite);
+        assert_eq!(page.items[0].play_count, 4);
     }
 
     #[test]
