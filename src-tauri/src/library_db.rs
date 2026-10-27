@@ -1255,7 +1255,7 @@ mod tests {
         let db = database();
         db.upsert_batch(&[json!({
             "id":"playlist-id","title":"Moved song","artist":"Artist",
-            "path":"/old/song.mp3","isFavorite":true,"playCount":5
+            "path":"/old/song.mp3","isFavorite":true,"playCount":5,"dateAdded":123
         })]).unwrap();
         db.seed_legacy_track_map(&[LegacyTrackReference {
             id: "playlist-id".into(),
