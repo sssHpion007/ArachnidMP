@@ -337,6 +337,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const [renderedPanel, setRenderedPanel] = useState<Exclude<BottomPanel, null>>('library');
   const [isPanelContentRendered, setIsPanelContentRendered] = useState(false);
   const [libraryTab, setLibraryTab] = useState<LibraryTab>('tracks');
+  const [failedArtworkSource, setFailedArtworkSource] = useState<string | null>(null);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [selectedPlaylistFolderId, setSelectedPlaylistFolderId] = useState<string | null>(null);
   const [selectedPlaylistGroupId, setSelectedPlaylistGroupId] = useState<string | null>(null);
@@ -806,9 +807,6 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const isCollectionsError = useNativeCollectionSource
     && Boolean(nativeCollectionRequest?.error)
     && indexedCollections.length === 0;
-  const isLocalCollectionsFallback = useNativeCollectionSource
-    && indexedCollections.length > 0
-    && !hasNativeCollections;
   const visibleCollections = useMemo(
     () => [...indexedCollections].sort((a, b) => a.name.localeCompare(b.name)),
     [indexedCollections],
@@ -1060,6 +1058,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     return () => cancelAnimationFrame(frame);
   }, [bottomPanel, libraryTrackSelectedIndex, libraryTracks.length]);
 
+  const currentCoverSrc = coverVariantUrl(currentTrack?.coverArt, 256);
+  const showCoverFallback = !currentCoverSrc || failedArtworkSource === currentCoverSrc;
   const lyricsTrack: MiniLyricsTrack | null = currentTrack ? {
     id: currentTrack.id,
     title: currentTrack.title,
@@ -1103,6 +1103,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
 
   const handleCoverMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0 || bottomPanel !== null || !isTauri()) return;
+    event.preventDefault();
     void getCurrentWindow().startDragging().catch(error => {
       console.warn('Unable to drag the mini-player window:', error);
     });
@@ -1134,13 +1135,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
               ? text(language, 'Нажмите, чтобы закрыть панель', 'Click to close the panel')
               : text(language, 'Перетащить окно мини-плеера', 'Drag the mini-player window')}
             title={bottomPanel ? text(language, 'Нажмите, чтобы закрыть панель', 'Click to close the panel') : undefined}
-            className={`relative mx-auto flex aspect-square w-full max-w-[280px] shrink-0 items-center justify-center overflow-hidden rounded-[24px] bg-md3-surface-container-high shadow-xl ${bottomPanel ? 'cursor-pointer' : ''}`}
+            className={`relative mx-auto flex aspect-square w-full max-w-[280px] shrink-0 select-none items-center justify-center overflow-hidden rounded-[24px] bg-md3-surface-container-high shadow-xl ${bottomPanel ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}
           >
-            <Disc3 className="h-24 w-24 text-md3-primary/40" strokeWidth={1.25} />
+            {showCoverFallback && <Disc3 className="pointer-events-none h-24 w-24 text-md3-primary/40" strokeWidth={1.25} />}
             <CrossfadeImage
-              src={coverVariantUrl(currentTrack?.coverArt, 256)}
+              src={currentCoverSrc}
               alt={currentTrack?.title || ''}
-              className="absolute inset-0 h-full w-full select-none object-cover"
+              className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover"
+              onSourceError={source => setFailedArtworkSource(source)}
             />
           </div>
 
@@ -1648,16 +1650,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                     isCollectionsLoading ? null : isCollectionsError ? (
                       <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Не удалось загрузить медиатеку', 'Unable to load the library')}</p>
                     ) : visibleCollections.length > 0 ? (
-                      <>
-                        {isLocalCollectionsFallback && (
-                          <p role="status" className="mb-2 rounded-lg bg-md3-surface-container-high px-2 py-1.5 text-[10px] text-md3-on-surface-variant">
-                            {nativeCollectionRequest?.isLoading || !nativeCollectionRequest
-                              ? text(language, 'Показана загруженная часть медиатеки; загружаю полный список…', 'Showing loaded library items while the full list loads…')
-                              : nativeCollectionRequest.error
-                                ? text(language, 'Не удалось загрузить полный список; показана загруженная часть медиатеки.', 'Unable to load the full list; showing loaded library items.')
-                                : text(language, 'Полный список пуст; показана загруженная часть медиатеки.', 'The full list is empty; showing loaded library items.')}
-                          </p>
-                        )}
+                      <div key={`mini-collections:${libraryTab}`} className="collection-card-enter">
                         <VirtualizedCollectionGrid
                           items={visibleCollections}
                           scrollContainerRef={libraryListRef}
@@ -1678,7 +1671,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                             </button>
                           )}
                         />
-                      </>
+                      </div>
                     ) : <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Ничего не найдено', 'Nothing here yet')}</p>
                   )}
                   {(libraryTab === 'tracks' || libraryTab === 'favorites' || currentPlaylist || selectedCollection) && (

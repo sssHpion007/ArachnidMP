@@ -10,6 +10,7 @@ interface CrossfadeImageProps {
   alt?: string;
   className?: string;
   fadeDurationMs?: number;
+  onSourceError?: (src: string) => void;
 }
 
 /** Keeps the previous cover visible until the next track's cover has loaded. */
@@ -18,6 +19,7 @@ export const CrossfadeImage: React.FC<CrossfadeImageProps> = ({
   alt = '',
   className = '',
   fadeDurationMs = 450,
+  onSourceError,
 }) => {
   const [layers, setLayers] = useState<ImageLayer[]>(() => src ? [{ src, opacity: 0 }] : []);
   const latestSourceRef = useRef(src);
@@ -80,6 +82,7 @@ export const CrossfadeImage: React.FC<CrossfadeImageProps> = ({
           onLoad={() => handleLoad(layer.src)}
           onError={() => {
             if (latestSourceRef.current !== layer.src) return;
+            onSourceError?.(layer.src);
             setLayers(current => {
               const fallback = current.find(candidate => candidate.src !== layer.src);
               return fallback
