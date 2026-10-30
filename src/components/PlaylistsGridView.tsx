@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { Playlist, PlaylistFolder, PlaylistGroup, Track, FolderCoverType } from '../types/music';
 import { coverVariantUrl } from '../utils/coverArt';
+import { shouldShowPlaylistCoverFallback } from '../utils/playlistCoverFallback';
 import { formatTime } from '../services/tagEditor';
 import { getFolderIconComponent, getFolderColorHex, getThemedPlayIconColor } from '../theme/folderIcons';
 import { AppLanguage } from '../i18n';
@@ -414,7 +415,28 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
   };
   const coverType: FolderCoverType = (playlist.coverType as FolderCoverType) || 'first_playlist';
   const hasMultipleCovers = covers && covers.length > 1;
-  const hasImages = (cover || (covers && covers.length > 0)) && coverType !== 'icon';
+  const usesCoverSet = hasMultipleCovers && (coverType === 'cycle' || coverType === 'collage');
+  const imageSources = coverType === 'icon' ? [] : usesCoverSet ? covers : cover ? [cover] : [];
+  const hasImages = imageSources.length > 0;
+  const coverSourceKey = JSON.stringify(imageSources);
+  const [coverLoadState, setCoverLoadState] = useState<{ sourceKey: string; failed: Set<string> }>({
+    sourceKey: '',
+    failed: new Set(),
+  });
+  const failedCoverSources = coverLoadState.sourceKey === coverSourceKey ? coverLoadState.failed : new Set<string>();
+  const showFallbackIcon = shouldShowPlaylistCoverFallback(coverType, imageSources, failedCoverSources);
+  const updateCoverLoadFailure = (source: string, failed: boolean) => {
+    setCoverLoadState(current => {
+      const nextFailed = current.sourceKey === coverSourceKey ? new Set(current.failed) : new Set<string>();
+      if (failed) nextFailed.add(source);
+      else nextFailed.delete(source);
+      return { sourceKey: coverSourceKey, failed: nextFailed };
+    });
+  };
+  const coverLoadHandlers = (source: string) => ({
+    onLoad: () => updateCoverLoadFailure(source, false),
+    onError: () => updateCoverLoadFailure(source, true),
+  });
 
   // Slideshow interval for cycling playlist covers with independent stagger and period
   useEffect(() => {
@@ -512,7 +534,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
       {/* Cover Art Container */}
       <div 
         className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest mb-3 shadow-inner pointer-events-none transition-all duration-300 border border-md3-outline-variant/20"
-        style={previewBg && !hasImages ? { background: previewBg } : undefined}
+        style={previewBg && showFallbackIcon ? { background: previewBg } : undefined}
       >
         {hasImages ? (
           coverType === 'cycle' && hasMultipleCovers ? (
@@ -521,6 +543,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
                 <FadeInImage
                   key={c + idx}
                   src={c}
+                  {...coverLoadHandlers(c)}
                   alt=""
                   draggable={false}
                   loading="lazy"
@@ -528,49 +551,46 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
                   isVisible={idx === cycleIndex}
                   fadeDurationMs={700}
                   className={`absolute inset-0 w-full h-full object-cover pointer-events-none ${idx === cycleIndex ? 'z-10' : 'z-0'}`}
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
                 />
               ))}
             </div>
           ) : coverType === 'collage' && hasMultipleCovers ? (
             covers.length === 2 ? (
               <div className="w-full h-full grid grid-cols-2 grid-rows-1 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-                <FadeInImage src={coverVariantUrl(covers[0], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={coverVariantUrl(covers[1], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[0], 256)} {...coverLoadHandlers(covers[0])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[1], 256)} {...coverLoadHandlers(covers[1])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
               </div>
             ) : covers.length === 3 ? (
               <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-                <FadeInImage src={coverVariantUrl(covers[0], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
-                <FadeInImage src={coverVariantUrl(covers[1], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={coverVariantUrl(covers[2], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[0], 256)} {...coverLoadHandlers(covers[0])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
+                <FadeInImage src={coverVariantUrl(covers[1], 256)} {...coverLoadHandlers(covers[1])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[2], 256)} {...coverLoadHandlers(covers[2])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
               </div>
             ) : (
               <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-                <FadeInImage src={coverVariantUrl(covers[0], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={coverVariantUrl(covers[1], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={coverVariantUrl(covers[2], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={coverVariantUrl(covers[3], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[0], 256)} {...coverLoadHandlers(covers[0])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[1], 256)} {...coverLoadHandlers(covers[1])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[2], 256)} {...coverLoadHandlers(covers[2])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[3], 256)} {...coverLoadHandlers(covers[3])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
               </div>
             )
           ) : cover ? (
             <FadeInImage
               src={coverVariantUrl(cover, 256)}
+              {...coverLoadHandlers(cover)}
               alt={playlist.name}
               draggable={false}
               loading="lazy"
               decoding="async"
               className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
             />
           ) : null
-        ) : (
-          <div className="w-full h-full flex items-center justify-center pointer-events-none transition-transform duration-300 group-hover:scale-105">
-            <IconComponent 
-              className="w-16 h-16 drop-shadow-md transition-all duration-300"
+        ) : null}
+
+        {showFallbackIcon && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center transition-transform duration-300 group-hover:scale-105">
+            <IconComponent
+              className="h-16 w-16 drop-shadow-md transition-all duration-300"
               style={{ color: baseColor || 'rgb(var(--md-sys-color-primary-rgb))' }}
             />
           </div>
@@ -592,13 +612,6 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
           >
             <Play className="w-5 h-5 fill-current ml-0.5" />
           </button>
-        )}
-
-        {/* Small playlist icon badge in top-left when images are shown and icon is custom */}
-        {hasImages && playlist.icon && playlist.icon !== 'none' && playlist.icon !== 'list' && (
-          <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/60 text-white/95 backdrop-blur-xs flex items-center justify-center shadow-xs z-20 pointer-events-none">
-            <IconComponent className="w-3.5 h-3.5" />
-          </div>
         )}
 
         {/* System Badge */}

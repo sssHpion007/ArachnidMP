@@ -86,6 +86,12 @@ const waitForAnimationFrames = async (count: number) => {
   }
 };
 
+const waitForWindowModeFade = async () => {
+  // Let React commit and the browser start the CSS transition before the matching timer.
+  await waitForAnimationFrames(2);
+  await waitForDelay(WINDOW_MODE_FADE_MS);
+};
+
 const getCenteredBounds = async (width: number, height: number) => {
   const monitor = await currentMonitor().catch(() => null);
   if (!monitor) return null;
@@ -513,7 +519,7 @@ export const App: React.FC = () => {
     }
     windowModeTransitionRef.current = true;
     setIsWindowModeTransitioning(true);
-    await waitForDelay(WINDOW_MODE_FADE_MS);
+    await waitForWindowModeFade();
 
     if (isTauri()) {
       try {
@@ -561,7 +567,7 @@ export const App: React.FC = () => {
       }
     }
     setIsWindowModeTransitioning(false);
-    await waitForDelay(WINDOW_MODE_FADE_MS);
+    await waitForWindowModeFade();
     windowModeTransitionRef.current = false;
     if (isTauri()) {
       await invoke('sample_memory_diagnostics', { reason: 'mode-mini-settled' }).catch(() => {});
@@ -582,7 +588,7 @@ export const App: React.FC = () => {
         console.warn('Unable to restore the normal WebView memory target:', error);
       }
     }
-    await waitForDelay(WINDOW_MODE_FADE_MS);
+    await waitForWindowModeFade();
 
     if (isTauri()) {
       try {
@@ -644,7 +650,7 @@ export const App: React.FC = () => {
     miniWindowRestoreRef.current = null;
     await waitForAnimationFrames(2);
     setIsWindowModeTransitioning(false);
-    await waitForDelay(WINDOW_MODE_FADE_MS);
+    await waitForWindowModeFade();
     windowModeTransitionRef.current = false;
     if (isTauri()) {
       await invoke('sample_memory_diagnostics', { reason: 'mode-full-settled' }).catch(() => {});
