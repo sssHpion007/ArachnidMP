@@ -253,6 +253,11 @@ interface MiniPlayerProps {
     offset: number,
     limit: number,
   ) => Promise<{ items: Track[]; total: number }>;
+  onLoadMiniLibraryTrackPage?: (
+    favoriteOnly: boolean,
+    offset: number,
+    limit: number,
+  ) => Promise<{ items: Track[]; total: number }>;
   onPlayMiniCollectionTrack?: (track: Track, kind: LibraryCollectionType, name: string) => void;
   onClearQueue: () => void;
   onToggleLyrics: () => void;
@@ -314,6 +319,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   onResolveTracksByIds,
   onLoadMiniCollectionGroups,
   onLoadMiniCollectionTrackPage,
+  onLoadMiniLibraryTrackPage,
   onPlayMiniCollectionTrack,
   onClearQueue,
   onToggleLyrics,
@@ -349,8 +355,18 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     isLoading: boolean;
     error?: boolean;
   } | null>(null);
+  const [miniLibraryTrackPage, setMiniLibraryTrackPage] = useState<{
+    key: 'tracks' | 'favorites';
+    items: Track[];
+    total: number;
+    isLoading: boolean;
+    error?: boolean;
+  } | null>(null);
   const collectionPageRequestRef = useRef<{ key: string; offset: number } | null>(null);
   const activeCollectionPageKeyRef = useRef<string | null>(null);
+  const miniLibraryPageRequestRef = useRef<{ key: 'tracks' | 'favorites'; offset: number; generation: number } | null>(null);
+  const activeMiniLibraryPageKeyRef = useRef<'tracks' | 'favorites' | null>(null);
+  const miniLibraryPageGenerationRef = useRef(0);
   const currentPlaylist = playlists.find(playlist => playlist.id === selectedPlaylistId) || null;
   const [isCompactVolHovered, setIsCompactVolHovered] = useState(false);
   const [queueSelectedIndex, setQueueSelectedIndex] = useState(queueIndex);
@@ -900,6 +916,86 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     }
   }, [selectedCollection, selectedCollectionPageKey, collectionTrackPage, onLoadMiniCollectionTrackPage]);
 
+  const miniLibraryTrackTab = libraryTab === 'tracks' || libraryTab === 'favorites' ? libraryTab : null;
+  const shouldLoadMiniLibraryTracks = bottomPanel === 'library'
+    && isPanelContentRendered
+    && !currentPlaylist
+    && !selectedCollection
+    && miniLibraryTrackTab !== null
+    && Boolean(onLoadMiniLibraryTrackPage);
+
+  useEffect(() => {
+    if (!shouldLoadMiniLibraryTracks || !miniLibraryTrackTab || !onLoadMiniLibraryTrackPage) {
+      miniLibraryPageGenerationRef.current += 1;
+      activeMiniLibraryPageKeyRef.current = null;
+      miniLibraryPageRequestRef.current = null;
+      setMiniLibraryTrackPage(null);
+      return;
+    }
+
+    const key = miniLibraryTrackTab;
+    const generation = ++miniLibraryPageGenerationRef.current;
+    let active = true;
+    activeMiniLibraryPageKeyRef.current = key;
+    miniLibraryPageRequestRef.current = null;
+    setMiniLibraryTrackPage({ key, items: [], total: 0, isLoading: true, error: false });
+    void onLoadMiniLibraryTrackPage(key === 'favorites', 0, 100).then(page => {
+      if (active && miniLibraryPageGenerationRef.current === generation && activeMiniLibraryPageKeyRef.current === key) {
+        setMiniLibraryTrackPage({ key, items: page.items, total: page.total, isLoading: false, error: false });
+      }
+    }).catch(error => {
+      console.warn(`Mini-player failed to load ${key} from the library database:`, error);
+      if (active && miniLibraryPageGenerationRef.current === generation && activeMiniLibraryPageKeyRef.current === key) {
+        setMiniLibraryTrackPage({ key, items: [], total: 0, isLoading: false, error: true });
+      }
+    });
+    return () => {
+      active = false;
+      if (miniLibraryPageGenerationRef.current === generation) miniLibraryPageGenerationRef.current += 1;
+      if (activeMiniLibraryPageKeyRef.current === key) activeMiniLibraryPageKeyRef.current = null;
+    };
+  }, [shouldLoadMiniLibraryTracks, miniLibraryTrackTab, onLoadMiniLibraryTrackPage]);
+
+  const loadMoreMiniLibraryTracks = useCallback(async () => {
+    if (!miniLibraryTrackTab || !onLoadMiniLibraryTrackPage) return;
+    const key = miniLibraryTrackTab;
+    const generation = miniLibraryPageGenerationRef.current;
+    const current = miniLibraryTrackPage?.key === key ? miniLibraryTrackPage : null;
+    if (!current || current.isLoading || current.items.length >= current.total) return;
+    const offset = current.items.length;
+    if (miniLibraryPageRequestRef.current?.key === key
+      && miniLibraryPageRequestRef.current.offset === offset
+      && miniLibraryPageRequestRef.current.generation === generation) return;
+    miniLibraryPageRequestRef.current = { key, offset, generation };
+    setMiniLibraryTrackPage(previous => previous?.key === key ? { ...previous, isLoading: true } : previous);
+    try {
+      const page = await onLoadMiniLibraryTrackPage(key === 'favorites', offset, 100);
+      if (miniLibraryPageGenerationRef.current !== generation || activeMiniLibraryPageKeyRef.current !== key) return;
+      setMiniLibraryTrackPage(previous => {
+        if (previous?.key !== key) return previous;
+        const knownIds = new Set(previous.items.map(track => track.id));
+        return {
+          key,
+          items: [...previous.items, ...page.items.filter(track => !knownIds.has(track.id))],
+          total: page.total,
+          isLoading: false,
+          error: false,
+        };
+      });
+    } catch (error) {
+      console.warn(`Mini-player failed to load the next ${key} page:`, error);
+      if (miniLibraryPageGenerationRef.current === generation && activeMiniLibraryPageKeyRef.current === key) {
+        setMiniLibraryTrackPage(previous => previous?.key === key ? { ...previous, isLoading: false } : previous);
+      }
+    } finally {
+      if (miniLibraryPageRequestRef.current?.key === key
+        && miniLibraryPageRequestRef.current.offset === offset
+        && miniLibraryPageRequestRef.current.generation === generation) {
+        miniLibraryPageRequestRef.current = null;
+      }
+    }
+  }, [miniLibraryTrackTab, miniLibraryTrackPage, onLoadMiniLibraryTrackPage]);
+
   const libraryTracks = useMemo(() => {
     if (currentPlaylist) {
       const resolved = resolvedPlaylistTracks;
@@ -915,10 +1011,13 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         ? selectedCollectionTracks
         : collectionTrackPage.items;
     }
+    if ((libraryTab === 'favorites' || libraryTab === 'tracks') && onLoadMiniLibraryTrackPage) {
+      return miniLibraryTrackPage?.key === libraryTab ? miniLibraryTrackPage.items : [];
+    }
     if (libraryTab === 'favorites') return visibleTracks.filter(track => track.isFavorite);
     if (libraryTab === 'tracks') return visibleTracks;
     return [];
-  }, [currentPlaylist, libraryTab, resolvedPlaylistTracks, selectedCollection, selectedCollectionTracks, collectionTrackPage, selectedCollectionPageKey, onLoadMiniCollectionTrackPage, tracks, visibleTracks]);
+  }, [currentPlaylist, libraryTab, resolvedPlaylistTracks, selectedCollection, selectedCollectionTracks, collectionTrackPage, selectedCollectionPageKey, onLoadMiniCollectionTrackPage, onLoadMiniLibraryTrackPage, miniLibraryTrackPage, tracks, visibleTracks]);
   libraryTracksRef.current = libraryTracks;
   const visibleQueueRows = getFixedRowRange(queue, queueScrollTop, queueViewportHeight);
   const visibleLibraryRows = getFixedRowRange(libraryTracks, libraryScrollTop, libraryViewportHeight);
@@ -1432,9 +1531,13 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                   onScroll={event => {
                     const container = event.currentTarget;
                     setLibraryScrollTop(container.scrollTop);
-                    if (selectedCollection && onLoadMiniCollectionTrackPage
-                      && container.scrollHeight - (container.scrollTop + container.clientHeight) < 800) {
-                      void loadMoreCollectionTracks();
+                    if (container.scrollHeight - (container.scrollTop + container.clientHeight) < 800) {
+                      if (selectedCollection && onLoadMiniCollectionTrackPage) {
+                        void loadMoreCollectionTracks();
+                      } else if (!currentPlaylist && !selectedCollection && onLoadMiniLibraryTrackPage
+                        && (libraryTab === 'tracks' || libraryTab === 'favorites')) {
+                        void loadMoreMiniLibraryTracks();
+                      }
                     }
                   }}
                   className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2"
@@ -1610,6 +1713,10 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                       null
                     ) : selectedCollection && collectionTrackPage?.key === selectedCollectionPageKey && collectionTrackPage.error ? (
                       <p role="alert" className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Не удалось загрузить треки коллекции', 'Unable to load collection tracks')}</p>
+                    ) : shouldLoadMiniLibraryTracks && (!miniLibraryTrackPage || miniLibraryTrackPage.key !== miniLibraryTrackTab || miniLibraryTrackPage.isLoading) ? (
+                      null
+                    ) : shouldLoadMiniLibraryTracks && miniLibraryTrackPage?.key === miniLibraryTrackTab && miniLibraryTrackPage.error ? (
+                      <p role="alert" className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Не удалось загрузить треки медиатеки', 'Unable to load library tracks')}</p>
                     ) : isLibraryDataLoading && (libraryTab === 'tracks' || libraryTab === 'favorites') ? (
                       null
                     ) : <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, libraryTab === 'favorites' ? 'В избранном пока нет треков' : 'В этом списке нет треков', libraryTab === 'favorites' ? 'No favorite tracks yet' : 'No tracks in this list')}</p>

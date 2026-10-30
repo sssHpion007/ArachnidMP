@@ -251,6 +251,7 @@ export const App: React.FC = () => {
   const [nativeTrackTotal, setNativeTrackTotal] = useState(0);
   const [nativeTrackIndices, setNativeTrackIndices] = useState<number[]>([]);
   const [nativePlaylistCovers, setNativePlaylistCovers] = useState<Record<string, string[]>>({});
+  const [nativePlaylistCoverResolution, setNativePlaylistCoverResolution] = useState<{ key: string; loaded: boolean } | null>(null);
   const [nativeFavoriteOrderIds, setNativeFavoriteOrderIds] = useState<string[] | null>(null);
   const [filteredOrderedTrackIds, setFilteredOrderedTrackIds] = useState<{
     source: string[];
@@ -281,6 +282,13 @@ export const App: React.FC = () => {
   const skipNextNativePageResetRef = useRef(false);
   const missingCheckRunningRef = useRef(false);
   const [playlists, setPlaylists] = useState<Playlist[]>(INITIAL_PLAYLISTS);
+  const nativePlaylistCoverRequests = useMemo(() => playlists
+    .filter(playlist => !playlist.coverArt && playlist.trackIds.length > 0)
+    .map(playlist => ({ playlistId: playlist.id, trackIds: playlist.trackIds, limit: 8 }))
+    .sort((left, right) => left.playlistId.localeCompare(right.playlistId)), [playlists]);
+  const nativePlaylistCoverRequestKey = useMemo(() => JSON.stringify(nativePlaylistCoverRequests), [nativePlaylistCoverRequests]);
+  const nativePlaylistCoversLoaded = nativePlaylistCoverResolution?.key === nativePlaylistCoverRequestKey
+    && nativePlaylistCoverResolution.loaded;
   const systemFavoritesPlaylist = useMemo(() => playlists.find(playlist => playlist.id === 'pl_favorites'), [playlists]);
   const [playlistFolders, setPlaylistFolders] = useState<PlaylistFolder[]>([]);
   const [playlistGroups, setPlaylistGroups] = useState<PlaylistGroup[]>([]);
@@ -4650,16 +4658,13 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!isTauri() || !startupDataLoaded || currentView !== 'playlists') return;
     let active = true;
-    const requests = playlists
-      .filter(playlist => !playlist.coverArt && playlist.trackIds.length > 0)
-      .map(playlist => ({
-        playlistId: playlist.id,
-        trackIds: playlist.trackIds,
-        limit: 8,
-      }));
+    const requestKey = nativePlaylistCoverRequestKey;
+    const requests = nativePlaylistCoverRequests;
+    setNativePlaylistCoverResolution({ key: requestKey, loaded: false });
     if (requests.length === 0) {
       setNativePlaylistCovers({});
-      return;
+      setNativePlaylistCoverResolution({ key: requestKey, loaded: true });
+      return () => { active = false; };
     }
 
     void libraryRepository.playlistCovers(requests).then(results => {
@@ -4673,12 +4678,17 @@ export const App: React.FC = () => {
         );
       }
       setNativePlaylistCovers(coversByPlaylist);
+      setNativePlaylistCoverResolution({ key: requestKey, loaded: true });
     }).catch(error => {
       console.warn('Unable to load native playlist cover previews:', error);
+      if (active) {
+        setNativePlaylistCovers({});
+        setNativePlaylistCoverResolution({ key: requestKey, loaded: true });
+      }
     });
 
     return () => { active = false; };
-  }, [startupDataLoaded, currentView, playlists]);
+  }, [startupDataLoaded, currentView, nativePlaylistCoverRequestKey]);
 
   const loadMiniCollectionGroups = useCallback(async (kind: LibraryCollectionKind): Promise<LibraryCollectionGroup[]> => {
     const groups = await libraryRepository.collectionGroups(kind, language, undefined, [...isolatedTrackIds], false);
@@ -4714,6 +4724,22 @@ export const App: React.FC = () => {
     });
     return { items: hydrateNativeSummaryRows(page.items), total: page.total };
   }, [language, isolatedTrackIds]);
+
+  const loadMiniLibraryTrackPage = useCallback(async (
+    favoriteOnly: boolean,
+    offset: number,
+    limit: number,
+  ): Promise<{ items: Track[]; total: number }> => {
+    const page = await libraryRepository.page({
+      sortBy: sortBy === 'custom' ? 'title' : sortBy,
+      descending: sortBy === 'custom' ? false : sortOrder === 'desc',
+      offset,
+      limit,
+      favoriteOnly,
+      excludedIds: [...isolatedTrackIds],
+    });
+    return { items: hydrateNativeSummaryRows(page.items), total: page.total };
+  }, [isolatedTrackIds, sortBy, sortOrder]);
 
   const handlePlayNativeGroupByIds = async (trackIds: string[]) => {
     if (trackIds.length === 0) return;
@@ -5263,6 +5289,7 @@ export const App: React.FC = () => {
           onResolveTracksByIds={loadNativeTracksByIds}
           onLoadMiniCollectionGroups={isTauri() ? loadMiniCollectionGroups : undefined}
           onLoadMiniCollectionTrackPage={isTauri() ? loadMiniCollectionTrackPage : undefined}
+          onLoadMiniLibraryTrackPage={isTauri() ? loadMiniLibraryTrackPage : undefined}
           onPlayMiniCollectionTrack={isTauri() ? (track, kind, name) => {
             void playTrackWithContext(track, [track], false, undefined, { kind, name });
           } : undefined}
@@ -5432,7 +5459,8 @@ export const App: React.FC = () => {
               folders={playlistFolders}
               groups={playlistGroups}
               tracks={tracks}
-              playlistCovers={isTauri() ? nativePlaylistCovers : undefined}
+              playlistCovers={isTauri() && nativePlaylistCoversLoaded ? nativePlaylistCovers : undefined}
+              playlistCoversLoaded={!isTauri() || nativePlaylistCoversLoaded}
               searchQuery={searchQuery}
               language={language}
               onSelectPlaylist={handleSelectPlaylist}

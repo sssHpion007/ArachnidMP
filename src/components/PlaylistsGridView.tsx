@@ -32,6 +32,7 @@ interface PlaylistsGridViewProps {
   groups: PlaylistGroup[];
   tracks: Track[];
   playlistCovers?: Record<string, string[]>;
+  playlistCoversLoaded?: boolean;
   searchQuery?: string;
   language?: AppLanguage;
   onSelectPlaylist: (id: string) => void;
@@ -373,6 +374,7 @@ interface PlaylistCardItemProps {
   playlist: Playlist;
   cover: string | null;
   covers: string[];
+  isCoverResolutionPending: boolean;
   totalDuration: number;
   isTarget: boolean;
   dropPosition?: 'before' | 'after' | null;
@@ -389,6 +391,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
   playlist,
   cover,
   covers,
+  isCoverResolutionPending,
   totalDuration,
   isTarget,
   dropPosition,
@@ -424,7 +427,12 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
     failed: new Set(),
   });
   const failedCoverSources = coverLoadState.sourceKey === coverSourceKey ? coverLoadState.failed : new Set<string>();
-  const showFallbackIcon = shouldShowPlaylistCoverFallback(coverType, imageSources, failedCoverSources);
+  const showFallbackIcon = shouldShowPlaylistCoverFallback(
+    coverType,
+    imageSources,
+    failedCoverSources,
+    isCoverResolutionPending,
+  );
   const updateCoverLoadFailure = (source: string, failed: boolean) => {
     setCoverLoadState(current => {
       const nextFailed = current.sourceKey === coverSourceKey ? new Set(current.failed) : new Set<string>();
@@ -645,6 +653,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   groups,
   tracks,
   playlistCovers,
+  playlistCoversLoaded = true,
   searchQuery = '',
   language = 'ru',
   onSelectPlaylist,
@@ -1268,6 +1277,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         playlist={playlist}
         cover={cover}
         covers={covers}
+        isCoverResolutionPending={!playlistCoversLoaded && !playlist.coverArt && playlist.trackIds.length > 0}
         totalDuration={totalDuration}
         isTarget={isTarget}
         dropPosition={dropPosition}

@@ -6,5 +6,8 @@ assert.equal(shouldShowPlaylistCoverFallback('first_playlist', [], new Set()), t
 assert.equal(shouldShowPlaylistCoverFallback('first_playlist', ['cover.jpg'], new Set()), false);
 assert.equal(shouldShowPlaylistCoverFallback('collage', ['one.jpg', 'two.jpg'], new Set(['one.jpg'])), false);
 assert.equal(shouldShowPlaylistCoverFallback('collage', ['one.jpg', 'two.jpg'], new Set(['one.jpg', 'two.jpg'])), true);
+assert.equal(shouldShowPlaylistCoverFallback('first_playlist', [], new Set(), true), false);
+assert.equal(shouldShowPlaylistCoverFallback('first_playlist', ['cover.jpg'], new Set(['cover.jpg']), true), false);
+assert.equal(shouldShowPlaylistCoverFallback('first_playlist', [], new Set(), false), true);
 
 console.log('Playlist cover fallback tests passed.');
