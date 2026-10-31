@@ -54,6 +54,8 @@ interface TrackTableProps {
   isLoadingMoreTracks?: boolean;
   isLoading?: boolean;
   resetScrollKey?: string;
+  /** Lets callers preserve the current viewport across a deliberate sort-key change. */
+  scrollPreserveToken?: number;
 }
 
 interface TrackDragState {
@@ -110,6 +112,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   isLoadingMoreTracks = false,
   isLoading = false,
   resetScrollKey = '',
+  scrollPreserveToken = 0,
 }) => {
   const [hoveredTrackId, setHoveredTrackId] = useState<string | null>(null);
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -160,12 +163,14 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   const rafIdRef = useRef<number | null>(null);
   const previousTrackWindowRef = useRef<{ firstId: string | null; length: number }>({ firstId: null, length: 0 });
   const previousResetScrollKeyRef = useRef(resetScrollKey);
+  const previousScrollPreserveTokenRef = useRef(scrollPreserveToken);
 
   useEffect(() => {
     const firstId = tracks[0]?.id ?? null;
     const previous = previousTrackWindowRef.current;
     const queryChanged = previousResetScrollKeyRef.current !== resetScrollKey;
-    if (queryChanged || (!trackIndices && previous.firstId && firstId && previous.firstId !== firstId)) {
+    const preserveScrollForReset = previousScrollPreserveTokenRef.current !== scrollPreserveToken;
+    if ((queryChanged && !preserveScrollForReset) || (!trackIndices && previous.firstId && firstId && previous.firstId !== firstId)) {
       if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
       setScrollTop(0);
     }
@@ -175,7 +180,8 @@ export const TrackTable: React.FC<TrackTableProps> = ({
     }
     previousTrackWindowRef.current = { firstId, length: tracks.length };
     previousResetScrollKeyRef.current = resetScrollKey;
-  }, [tracks, resetScrollKey]);
+    previousScrollPreserveTokenRef.current = scrollPreserveToken;
+  }, [tracks, resetScrollKey, scrollPreserveToken]);
 
   useEffect(() => {
     const el = scrollContainerRef.current;

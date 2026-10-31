@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback, startTransition } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, startTransition } from 'react';
 import { Track, TrackDetails, TrackSummary, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode, FadeMode, FolderCoverType } from './types/music';
 import { TitleBar } from './components/TitleBar';
 import { TopBar, MainViewType } from './components/TopBar';
@@ -305,6 +305,7 @@ export const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortBy, setSortBy] = useState<string>('title');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [playlistReorderScrollPreserveToken, setPlaylistReorderScrollPreserveToken] = useState(0);
   const orderedNativeTrackIds = useMemo(() => {
     if (selectedPlaylistId) return playlists.find(playlist => playlist.id === selectedPlaylistId)?.trackIds ?? [];
     if (currentView === 'favorites' && sortBy === 'custom') return systemFavoritesPlaylist?.trackIds ?? [];
@@ -1237,7 +1238,9 @@ export const App: React.FC = () => {
     });
   }, [isNativeBoundedTrackView, nativeTrackTotal, loadNativeTracksRange]);
 
-  useEffect(() => {
+  // Invalidate/reload the native range cache before TrackTable's passive range effect runs.
+  // Otherwise that child can read the old order, then this reset clears its just-loaded range.
+  useLayoutEffect(() => {
     if (!isTauri() || !startupDataLoaded || !isNativeBoundedTrackView) return;
     if (orderedNativeTrackIds !== null && readyOrderedNativeTrackIds === null) return;
     if (skipNextNativePageResetRef.current) {
@@ -4420,6 +4423,7 @@ export const App: React.FC = () => {
     if (!selectedPlaylist || reorderedTrackIds.length !== selectedPlaylist.trackIds.length) return;
     if (reorderedTrackIds.every((trackId, index) => trackId === selectedPlaylist.trackIds[index])) return;
     logger.info('PLAYLIST_REORDER', `playlist=${selectedPlaylistId} tracks=${reorderedTrackIds.length} native=${isTauri()}`);
+    setPlaylistReorderScrollPreserveToken(token => token + 1);
     if (isTauri()) preserveViewportOnNextNativeResetRef.current = true;
     setPlaylists(prev => prev.map(p => {
       if (p.id === selectedPlaylistId) {
@@ -5473,6 +5477,7 @@ export const App: React.FC = () => {
               isLoadingMoreTracks={nativePageLoading}
               isLoading={!startupDataLoaded || (isTauri() && nativePageLoading) || (isNativeBoundedTrackView && !nativeTrackPageLoaded)}
               resetScrollKey={`${currentView}:${selectedPlaylistId ?? ''}:${selectedAlbum ?? ''}:${selectedArtist ?? ''}:${selectedGenre ?? ''}:${searchQuery}:${sortBy}:${sortOrder}`}
+              scrollPreserveToken={playlistReorderScrollPreserveToken}
             />
           </div>
         ) : currentView === 'playlists' ? (
