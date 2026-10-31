@@ -9,7 +9,6 @@ import {
   Info,
   Layers,
   Mic2,
-  Library,
   ListMusic,
   Music2,
   Pause,
@@ -34,6 +33,7 @@ import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups'
 import type { LibraryCollectionGroup } from '../services/libraryCollectionIndex';
 import { coverVariantUrl } from '../utils/coverArt';
 import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
+import { MiniPanelLibraryButton } from './MiniPanelLibraryButton';
 import { FadeInImage } from './FadeInImage';
 import { CrossfadeImage } from './CrossfadeImage';
 import { getFolderTrackIds } from '../services/folderPlayback';
@@ -1333,15 +1333,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
             renderedPanel === 'queue' ? (
               <>
                 <header className="flex h-12 shrink-0 items-center gap-1.5 border-b border-md3-outline-variant/15 px-3">
-                  <button
-                    type="button"
+                  <MiniPanelLibraryButton
+                    language={language}
+                    isActive={bottomPanel === 'library'}
                     onClick={openLibraryPanel}
-                    title={text(language, 'Открыть библиотеку', 'Open library')}
-                    className="flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[10px] font-semibold text-md3-primary hover:bg-md3-primary/10"
-                  >
-                    <Library size={14} />
-                    <span>{text(language, 'Библиотека', 'Library')}</span>
-                  </button>
+                  />
                   <span className="min-w-0 flex-1" />
                   <span className="flex h-6 min-w-[58px] shrink-0 items-center justify-center rounded-full bg-md3-surface-container-high px-2 text-[9px] font-semibold tabular-nums text-md3-on-surface-variant">{queueTrackCount(queue.length, language)}</span>
                   <button
@@ -1395,15 +1391,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
             ) : (
               <>
                 <header className="flex h-12 shrink-0 items-center gap-1.5 border-b border-md3-outline-variant/15 px-3">
-                  <button
-                    type="button"
+                  <MiniPanelLibraryButton
+                    language={language}
+                    isActive={bottomPanel === 'library'}
                     onClick={openLibraryPanel}
-                    title={text(language, 'Открыть библиотеку', 'Open library')}
-                    className="flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[10px] font-semibold text-md3-primary hover:bg-md3-primary/10"
-                  >
-                    <Library size={14} />
-                    <span>{text(language, 'Библиотека', 'Library')}</span>
-                  </button>
+                  />
                   {(currentPlaylist || selectedCollection || selectedPlaylistFolder || selectedPlaylistGroup) && (
                     <>
                       <button
@@ -1495,7 +1487,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                     const label = tab === 'tracks' ? text(language, 'Треки', 'Tracks')
                       : tab === 'playlists' ? text(language, 'Плейлисты', 'Playlists')
                         : tab === 'albums' ? text(language, 'Альбомы', 'Albums')
-                          : tab === 'artists' ? text(language, 'Артисты', 'Artists')
+                          : tab === 'artists' ? text(language, 'Исполнители', 'Artists')
                             : tab === 'favorites' ? text(language, 'Избранное', 'Favorites')
                               : text(language, 'Жанры', 'Genres');
                     const active = libraryTab === tab;

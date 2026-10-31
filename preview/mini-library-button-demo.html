@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Превью кнопки библиотеки мини-плеера</title>
+    <style>
+      :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f4f1fa; background: #111318; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(ellipse at 15% 0%, rgba(72, 89, 139, .22), transparent 52%), #111318; }
+      button { color: inherit; font: inherit; }
+      .mini-nav-demo { max-width: 900px; margin: 0 auto; padding: 58px 32px 40px; }
+      .mini-nav-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:24px; margin-bottom:32px; }
+      .mini-nav-heading h1 { margin:9px 0 8px; font-size:clamp(25px,4vw,36px); letter-spacing:-.04em; line-height:1.1; }
+      .mini-nav-heading p { max-width:570px; margin:0; color:#a9abb6; font-size:14px; line-height:1.55; }
+      .mini-nav-eyebrow { color:#a9b7ff; font-size:10px; font-weight:800; letter-spacing:.15em; }
+      .mini-nav-live { display:inline-flex; align-items:center; gap:8px; padding:8px 11px; border:1px solid rgba(255,255,255,.12); border-radius:99px; color:#c7c9d2; font-size:10px; font-weight:800; letter-spacing:.12em; }
+      .mini-nav-live i { width:7px; height:7px; border-radius:50%; background:#53d69a; box-shadow:0 0 12px #53d69a; }
+      .mini-nav-frame { width:min(100%,390px); height:600px; margin:0 auto; overflow:hidden; position:relative; border:1px solid rgba(255,255,255,.13); border-radius:30px; background:#17191f; box-shadow:0 28px 90px rgba(0,0,0,.45); }
+      .mini-nav-player { height:100%; display:flex; flex-direction:column; align-items:center; padding:26px 22px; background:linear-gradient(145deg,#20232c,#15171d 70%); }
+      .mini-nav-art { display:grid; place-items:center; width:210px; aspect-ratio:1; border-radius:22px; background:linear-gradient(145deg,#43529a,#1c233d); box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 16px 36px rgba(0,0,0,.32); }
+      .mini-nav-art span { color:rgba(255,255,255,.76); font-size:84px; font-weight:200; }
+      .mini-nav-track { width:100%; display:flex; flex-direction:column; gap:5px; margin:20px 0 17px; }
+      .mini-nav-track strong { font-size:15px; }
+      .mini-nav-track span { color:#a9abb6; font-size:12px; }
+      .mini-nav-controls { display:flex; align-items:center; justify-content:center; gap:28px; color:#c5c7d1; font-size:23px; }
+      .mini-nav-controls b { display:grid; place-items:center; width:43px; height:43px; border-radius:50%; background:#bdc7ff; color:#242a45; font-size:17px; }
+      .mini-nav-panel-toggle { display:flex; align-items:center; gap:8px; width:100%; height:36px; margin-top:20px; padding:0 15px; border:1px solid rgba(255,255,255,.11); border-radius:99px; background:#22252e; color:#aeb0bd; cursor:pointer; font-size:12px; transition:all 160ms ease; }
+      .mini-nav-panel-toggle small { margin-left:auto; padding:2px 7px; border-radius:99px; background:rgba(255,255,255,.08); font-size:10px; }
+      .mini-nav-panel-toggle.is-active { border-color:rgba(169,183,255,.35); background:rgba(169,183,255,.12); color:#c2cbff; }
+      .mini-nav-panel { position:absolute; inset:auto 0 0; height:62%; min-height:270px; overflow:hidden; border-top:1px solid rgba(255,255,255,.13); border-radius:22px 22px 0 0; background:#252831; box-shadow:0 -16px 45px rgba(0,0,0,.4); animation:panel-in 280ms cubic-bezier(.2,.75,.25,1); }
+      @keyframes panel-in { from { transform:translateY(14px); opacity:.6; } to { transform:translateY(0); opacity:1; } }
+      .mini-nav-panel-header { height:49px; display:flex; align-items:center; gap:7px; padding:0 12px; border-bottom:1px solid rgba(255,255,255,.08); }
+      .mini-nav-panel-header .mini-nav-library-button { min-width:0; display:flex; align-items:center; gap:6px; height:32px; padding:0 10px; border:0; border-radius:99px; background:transparent; color:#aaaeba; cursor:pointer; font-size:10px; font-weight:700; transition:all 160ms ease; }
+      .mini-nav-panel-header .mini-nav-library-button:hover { background:rgba(255,255,255,.06); color:#f0f1f6; }
+      .mini-nav-panel-header .mini-nav-library-button[aria-pressed="true"] { background:rgba(169,183,255,.15); color:#bdc8ff; }
+      .mini-nav-spacer { flex:1; }
+      .mini-nav-count { padding:5px 9px; border-radius:99px; background:#343741; color:#aeb0bd; font-size:9px; }
+      .mini-nav-current { min-width:0; flex:1; overflow:hidden; color:#e3e4eb; font-size:11px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+      .mini-nav-icon-button { display:grid; place-items:center; width:31px; height:31px; border:0; border-radius:50%; background:transparent; color:#aeb0bd; }
+      .mini-nav-icon-button.is-active { background:rgba(169,183,255,.14); color:#bdc8ff; }
+      .mini-nav-content { padding:22px 16px; }
+      .mini-nav-content h2 { margin:5px 0 17px; font-size:17px; }
+      .mini-nav-row { display:flex; align-items:center; gap:11px; height:45px; border-bottom:1px solid rgba(255,255,255,.06); color:#dddfe7; font-size:11px; }
+      .mini-nav-row-art { width:28px; height:28px; border-radius:8px; background:linear-gradient(135deg,#bd7e53,#654a6e); }
+      .mini-nav-row-art.alt { background:linear-gradient(135deg,#528ba5,#405185); }
+      .mini-nav-note { max-width:580px; margin:22px auto 0; color:#8d909c; font-size:12px; line-height:1.6; text-align:center; }
+      @media (max-width:540px) { .mini-nav-demo { padding:32px 16px; } .mini-nav-heading { flex-direction:column; gap:15px; margin-bottom:23px; } .mini-nav-frame { height:min(600px,72vh); min-height:520px; } }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/previews/MiniPanelLibraryButtonDemo.tsx"></script>
+  </body>
+</html>
