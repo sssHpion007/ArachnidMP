@@ -33,6 +33,8 @@ interface PlaylistsGridViewProps {
   tracks: Track[];
   playlistCovers?: Record<string, string[]>;
   playlistCoversLoaded?: boolean;
+  playlistDurations?: Record<string, number>;
+  playlistDurationsLoaded?: boolean;
   searchQuery?: string;
   language?: AppLanguage;
   onSelectPlaylist: (id: string) => void;
@@ -654,6 +656,8 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   tracks,
   playlistCovers,
   playlistCoversLoaded = true,
+  playlistDurations,
+  playlistDurationsLoaded = true,
   searchQuery = '',
   language = 'ru',
   onSelectPlaylist,
@@ -755,8 +759,8 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   // Helpers to get cover art and duration
   const getPlaylistCover = (playlist: Playlist): string | null => {
     if (playlist.coverArt) return playlist.coverArt;
-    const resolvedCovers = playlistCovers?.[playlist.id];
-    if (resolvedCovers) return resolvedCovers[0] ?? null;
+    if (!playlistCoversLoaded && playlist.trackIds.length > 0) return null;
+    if (playlistCoversLoaded && playlistCovers) return playlistCovers[playlist.id]?.[0] ?? null;
     for (const id of playlist.trackIds) {
       const cover = trackMap.get(id)?.coverArt;
       if (cover) return cover;
@@ -765,10 +769,13 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   };
 
   const getPlaylistCovers = (playlist: Playlist): string[] => {
-    const resolvedCovers = playlistCovers?.[playlist.id];
-    if (resolvedCovers) {
-      if (!playlist.coverArt || resolvedCovers.includes(playlist.coverArt)) return resolvedCovers;
-      return [playlist.coverArt, ...resolvedCovers].slice(0, 8);
+    if (playlistCoversLoaded && playlistCovers) {
+      const resolvedCovers = playlistCovers[playlist.id] ?? [];
+      if (!playlist.coverArt) return resolvedCovers;
+      return [playlist.coverArt, ...resolvedCovers.filter(cover => cover !== playlist.coverArt)].slice(0, 8);
+    }
+    if (!playlistCoversLoaded && playlist.trackIds.length > 0) {
+      return playlist.coverArt ? [playlist.coverArt] : [];
     }
     const covers: string[] = [];
     for (const id of playlist.trackIds) {
@@ -782,6 +789,9 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   };
 
   const getPlaylistDuration = (playlist: Playlist): number => {
+    if (!playlistDurationsLoaded) return 0;
+    const resolvedDuration = playlistDurations?.[playlist.id];
+    if (resolvedDuration !== undefined) return resolvedDuration;
     let total = 0;
     for (const id of playlist.trackIds) {
       const t = trackMap.get(id);

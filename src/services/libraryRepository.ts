@@ -11,6 +11,7 @@ export interface PlaylistCoverQuery {
 export interface PlaylistCoverResult {
   playlistId: string;
   covers: string[];
+  totalDuration: number;
 }
 
 export interface LibraryPageQuery {

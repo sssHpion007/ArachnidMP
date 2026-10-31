@@ -251,7 +251,8 @@ export const App: React.FC = () => {
   const [nativeTrackTotal, setNativeTrackTotal] = useState(0);
   const [nativeTrackIndices, setNativeTrackIndices] = useState<number[]>([]);
   const [nativePlaylistCovers, setNativePlaylistCovers] = useState<Record<string, string[]>>({});
-  const [nativePlaylistCoverResolution, setNativePlaylistCoverResolution] = useState<{ key: string; loaded: boolean } | null>(null);
+  const [nativePlaylistDurations, setNativePlaylistDurations] = useState<Record<string, number>>({});
+  const [nativePlaylistCoverResolution, setNativePlaylistCoverResolution] = useState<{ key: string; loaded: boolean; error?: boolean } | null>(null);
   const [nativeFavoriteOrderIds, setNativeFavoriteOrderIds] = useState<string[] | null>(null);
   const [filteredOrderedTrackIds, setFilteredOrderedTrackIds] = useState<{
     source: string[];
@@ -283,12 +284,13 @@ export const App: React.FC = () => {
   const missingCheckRunningRef = useRef(false);
   const [playlists, setPlaylists] = useState<Playlist[]>(INITIAL_PLAYLISTS);
   const nativePlaylistCoverRequests = useMemo(() => playlists
-    .filter(playlist => !playlist.coverArt && playlist.trackIds.length > 0)
+    .filter(playlist => playlist.trackIds.length > 0)
     .map(playlist => ({ playlistId: playlist.id, trackIds: playlist.trackIds, limit: 8 }))
     .sort((left, right) => left.playlistId.localeCompare(right.playlistId)), [playlists]);
   const nativePlaylistCoverRequestKey = useMemo(() => JSON.stringify(nativePlaylistCoverRequests), [nativePlaylistCoverRequests]);
   const nativePlaylistCoversLoaded = nativePlaylistCoverResolution?.key === nativePlaylistCoverRequestKey
     && nativePlaylistCoverResolution.loaded;
+  const nativePlaylistDurationsLoaded = nativePlaylistCoversLoaded && !nativePlaylistCoverResolution?.error;
   const systemFavoritesPlaylist = useMemo(() => playlists.find(playlist => playlist.id === 'pl_favorites'), [playlists]);
   const [playlistFolders, setPlaylistFolders] = useState<PlaylistFolder[]>([]);
   const [playlistGroups, setPlaylistGroups] = useState<PlaylistGroup[]>([]);
@@ -2464,17 +2466,20 @@ export const App: React.FC = () => {
       const pl = playlists.find(p => p.id === selectedPlaylistId);
       if (!pl) return null;
       const count = pl.trackIds.length;
-      let firstCover: string | undefined = undefined;
+      let firstCover: string | undefined = pl.coverArt;
       let totalDuration = 0;
-      const trackMap = new Map(tracks.map(t => [t.id, t]));
-      for (const tid of pl.trackIds) {
-        const t = trackMap.get(tid);
-        if (t) {
-          if (!firstCover && t.coverArt) {
-            firstCover = t.coverArt;
-          }
-          if (t.duration && !isNaN(t.duration)) {
-            totalDuration += t.duration;
+      if (isTauri() && currentView === 'playlists') {
+        if (nativePlaylistDurationsLoaded) {
+          if (!firstCover) firstCover = nativePlaylistCovers[pl.id]?.[0];
+          totalDuration = nativePlaylistDurations[pl.id] ?? 0;
+        }
+      } else {
+        const trackMap = new Map(tracks.map(t => [t.id, t]));
+        for (const tid of pl.trackIds) {
+          const t = trackMap.get(tid);
+          if (t) {
+            if (!firstCover && t.coverArt) firstCover = t.coverArt;
+            if (t.duration && Number.isFinite(t.duration)) totalDuration += t.duration;
           }
         }
       }
@@ -2550,7 +2555,7 @@ export const App: React.FC = () => {
       };
     }
     return null;
-  }, [selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, playlists, tracks, nonIsolatedTracks, language, databaseCollectionGroups]);
+  }, [selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, playlists, tracks, nonIsolatedTracks, language, databaseCollectionGroups, currentView, nativePlaylistDurationsLoaded, nativePlaylistDurations, nativePlaylistCovers]);
 
   const searchPlaceholder = useMemo(() => {
     if (currentDetail) {
@@ -4663,27 +4668,32 @@ export const App: React.FC = () => {
     setNativePlaylistCoverResolution({ key: requestKey, loaded: false });
     if (requests.length === 0) {
       setNativePlaylistCovers({});
-      setNativePlaylistCoverResolution({ key: requestKey, loaded: true });
+      setNativePlaylistDurations({});
+      setNativePlaylistCoverResolution({ key: requestKey, loaded: true, error: false });
       return () => { active = false; };
     }
 
     void libraryRepository.playlistCovers(requests).then(results => {
       if (!active) return;
       const coversByPlaylist: Record<string, string[]> = {};
+      const durationsByPlaylist: Record<string, number> = {};
       for (const result of results) {
         coversByPlaylist[result.playlistId] = result.covers.map(cover =>
           cover && !cover.startsWith('http') && !cover.startsWith('data:') && !isCachedCoverUrl(cover)
             ? convertFileSrc(cover)
             : cover,
         );
+        durationsByPlaylist[result.playlistId] = result.totalDuration;
       }
       setNativePlaylistCovers(coversByPlaylist);
-      setNativePlaylistCoverResolution({ key: requestKey, loaded: true });
+      setNativePlaylistDurations(durationsByPlaylist);
+      setNativePlaylistCoverResolution({ key: requestKey, loaded: true, error: false });
     }).catch(error => {
       console.warn('Unable to load native playlist cover previews:', error);
       if (active) {
         setNativePlaylistCovers({});
-        setNativePlaylistCoverResolution({ key: requestKey, loaded: true });
+        setNativePlaylistDurations({});
+        setNativePlaylistCoverResolution({ key: requestKey, loaded: true, error: true });
       }
     });
 
@@ -5461,6 +5471,8 @@ export const App: React.FC = () => {
               tracks={tracks}
               playlistCovers={isTauri() && nativePlaylistCoversLoaded ? nativePlaylistCovers : undefined}
               playlistCoversLoaded={!isTauri() || nativePlaylistCoversLoaded}
+              playlistDurations={isTauri() && nativePlaylistDurationsLoaded ? nativePlaylistDurations : undefined}
+              playlistDurationsLoaded={!isTauri() || nativePlaylistDurationsLoaded}
               searchQuery={searchQuery}
               language={language}
               onSelectPlaylist={handleSelectPlaylist}

@@ -86,6 +86,7 @@ pub struct PlaylistCoverRequest {
 pub struct PlaylistCoverResult {
     pub playlist_id: String,
     pub covers: Vec<String>,
+    pub total_duration: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -609,6 +610,38 @@ impl LibraryDb {
         }
 
         Ok(covers)
+    }
+
+    pub fn total_duration_by_ids(&self, ids: &[String]) -> Result<f64, String> {
+        use std::collections::HashMap;
+
+        if ids.is_empty() {
+            return Ok(0.0);
+        }
+
+        let mut multiplicities = HashMap::<&str, u64>::new();
+        for id in ids {
+            *multiplicities.entry(id.as_str()).or_default() += 1;
+        }
+        let unique_ids = multiplicities.keys().copied().collect::<Vec<_>>();
+        let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let mut total = 0.0;
+        for id_chunk in unique_ids.chunks(500) {
+            let placeholders = (1..=id_chunk.len()).map(|index| format!("?{index}")).collect::<Vec<_>>().join(",");
+            let sql = format!("SELECT id, duration FROM tracks WHERE id IN ({placeholders})");
+            let values = id_chunk.iter().map(|id| rusqlite::types::Value::Text((*id).to_string())).collect::<Vec<_>>();
+            let mut statement = connection.prepare(&sql).map_err(|e| e.to_string())?;
+            let rows = statement.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+            }).map_err(|e| e.to_string())?;
+            for row in rows {
+                let (id, duration) = row.map_err(|e| e.to_string())?;
+                if duration.is_finite() && duration > 0.0 {
+                    total += duration * multiplicities.get(id.as_str()).copied().unwrap_or(0) as f64;
+                }
+            }
+        }
+        Ok(if total.is_finite() { total } else { 0.0 })
     }
 
     pub fn seed_playlist_track_map(&self, tracks: &[PlaylistTrackReference]) -> Result<usize, String> {
@@ -1150,6 +1183,9 @@ mod tests {
         assert_eq!(db.cover_art_by_ids(&ids, 8).unwrap(), vec!["covers/a.jpg", "covers/b.jpg"]);
         assert_eq!(db.cover_art_by_ids(&ids, 1).unwrap(), vec!["covers/a.jpg"]);
         assert!(db.cover_art_by_ids(&ids, 0).unwrap().is_empty());
+        let duration_ids = vec!["cover-1", "cover-2", "cover-2", "cover-4", "missing"]
+            .into_iter().map(str::to_string).collect::<Vec<_>>();
+        assert_eq!(db.total_duration_by_ids(&duration_ids).unwrap(), 90.0);
     }
 
     #[test]

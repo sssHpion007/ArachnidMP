@@ -666,7 +666,8 @@ fn library_db_get_playlist_covers(
                 }
             })
             .collect();
-        Ok(library_db::PlaylistCoverResult { playlist_id: playlist.playlist_id, covers })
+        let total_duration = state.total_duration_by_ids(&playlist.track_ids)?;
+        Ok(library_db::PlaylistCoverResult { playlist_id: playlist.playlist_id, covers, total_duration })
     }).collect()
 }
 
