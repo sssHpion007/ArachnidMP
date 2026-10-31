@@ -48,6 +48,7 @@ import { isNewerVersion, CURRENT_APP_VERSION } from './utils/version';
 import { getFolderIconComponent } from './theme/folderIcons';
 import { getFolderTrackIds } from './services/folderPlayback';
 import { BoundedIndexedCache } from './services/boundedIndexedCache';
+import { logger } from './services/logger';
 import { coverVariantUrl, isCachedCoverUrl } from './utils/coverArt';
 import { buildLibraryScanPathPlan } from './services/libraryScanPaths';
 import { getTrackTableRangeForViewport, preserveTrackTableScrollAfterDelete } from './utils/trackTableScroll';
@@ -278,9 +279,10 @@ export const App: React.FC = () => {
   const nativeTrackTotalRef = useRef(0);
   const nativeTrackTotalGenerationRef = useRef(-1);
   const nativeTrackTotalRequestGenerationRef = useRef(-1);
-  const loadNativeTracksPageRef = useRef<((reset?: boolean) => Promise<void>) | null>(null);
+  const loadNativeTracksPageRef = useRef<((reset?: boolean, preserveViewport?: boolean) => Promise<void>) | null>(null);
   const loadNativeTracksRangeRef = useRef<((startIndex: number, endIndex: number, reset?: boolean, preserveViewport?: boolean) => Promise<void>) | null>(null);
   const skipNextNativePageResetRef = useRef(false);
+  const preserveViewportOnNextNativeResetRef = useRef(false);
   const missingCheckRunningRef = useRef(false);
   const [playlists, setPlaylists] = useState<Playlist[]>(INITIAL_PLAYLISTS);
   const nativePlaylistCoverRequests = useMemo(() => playlists
@@ -1070,8 +1072,8 @@ export const App: React.FC = () => {
         setNativeTrackPageLoaded(false);
         tracksRef.current = [];
       }
-      // Keep the existing spacer and rendered rows while refreshing after a delete.
-      // Collapsing the virtual list would clamp scrollTop to zero before the new range arrives.
+      // Keep the existing virtual spacer while refreshing an ordered view in place.
+      // Collapsing it would clamp the viewport before the new range arrives.
       setNativePageLoading(true);
     }
     if (rangeEnd <= rangeStart) {
@@ -1154,8 +1156,14 @@ export const App: React.FC = () => {
       setNativeTrackIndices(nextIndices);
       setNativeTrackPageLoaded(true);
       nativePageOffsetRef.current = Math.min(nativeTrackTotalRef.current, rangeEnd);
+      if (reset && orderedNativeTrackIds !== null) {
+        logger.info('PLAYLIST_VIEW', `Reloaded ordered view range=${rangeStart}-${rangeEnd} rows=${nextRows.length} total=${nativeTrackTotalRef.current} generation=${generation}`);
+      }
     } catch (error) {
       console.warn('Unable to load a SQLite track range:', error);
+      if (orderedNativeTrackIds !== null) {
+        logger.warn('PLAYLIST_VIEW', `Unable to load ordered range=${rangeStart}-${rangeEnd}: ${String(error)}`);
+      }
     } finally {
       if (generation === nativePageGenerationRef.current && requestId === nativeRangeRequestRef.current) {
         setNativePageLoading(false);
@@ -1163,9 +1171,9 @@ export const App: React.FC = () => {
     }
   }, [startupDataLoaded, isNativeBoundedTrackView, selectedAlbum, selectedArtist, selectedGenre, language, searchQuery, sortBy, sortOrder, currentView, isolatedTrackIds, orderedNativeTrackIds, filteredOrderedTrackIds]);
 
-  const loadNativeTracksPage = useCallback(async (reset = false) => {
+  const loadNativeTracksPage = useCallback(async (reset = false, preserveViewport = false) => {
     if (!isTauri() || !startupDataLoaded || !isNativeBoundedTrackView) return;
-    if (reset) await loadNativeTracksRange(0, 1, true);
+    if (reset) await loadNativeTracksRange(0, 1, true, preserveViewport);
     else await loadNativeTracksRange(nativePageOffsetRef.current, nativePageOffsetRef.current + 1);
   }, [startupDataLoaded, isNativeBoundedTrackView, loadNativeTracksRange]);
 
@@ -1236,7 +1244,9 @@ export const App: React.FC = () => {
       skipNextNativePageResetRef.current = false;
       return;
     }
-    void loadNativeTracksPageRef.current?.(true);
+    const preserveViewport = preserveViewportOnNextNativeResetRef.current;
+    preserveViewportOnNextNativeResetRef.current = false;
+    void loadNativeTracksPageRef.current?.(true, preserveViewport);
   }, [
     startupDataLoaded,
     isNativeBoundedTrackView,
@@ -4407,7 +4417,10 @@ export const App: React.FC = () => {
   const handleReorderPlaylistTracks = (reorderedTrackIds: string[]) => {
     if (!selectedPlaylistId) return;
     const selectedPlaylist = playlists.find(playlist => playlist.id === selectedPlaylistId);
-    if (selectedPlaylist && reorderedTrackIds.length !== selectedPlaylist.trackIds.length) return;
+    if (!selectedPlaylist || reorderedTrackIds.length !== selectedPlaylist.trackIds.length) return;
+    if (reorderedTrackIds.every((trackId, index) => trackId === selectedPlaylist.trackIds[index])) return;
+    logger.info('PLAYLIST_REORDER', `playlist=${selectedPlaylistId} tracks=${reorderedTrackIds.length} native=${isTauri()}`);
+    if (isTauri()) preserveViewportOnNextNativeResetRef.current = true;
     setPlaylists(prev => prev.map(p => {
       if (p.id === selectedPlaylistId) {
         return { ...p, trackIds: reorderedTrackIds };
