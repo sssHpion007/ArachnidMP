@@ -335,6 +335,8 @@ export const App: React.FC = () => {
   // Multi-Selection State
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set());
   const [selectedTracksList, setSelectedTracksList] = useState<Track[]>([]);
+  const [pendingKeyboardTrackIndex, setPendingKeyboardTrackIndex] = useState<number | null>(null);
+  const pendingKeyboardTrackIndexRef = useRef<number | null>(null);
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
   const lastSelectedIndexRef = useRef<number | null>(null);
   const selectedTrackIdsRef = useRef<Set<string>>(selectedTrackIds);
@@ -1066,6 +1068,8 @@ export const App: React.FC = () => {
       nativePageOffsetRef.current = 0;
       lastSelectedIndexRef.current = null;
       setLastSelectedIndex(null);
+      pendingKeyboardTrackIndexRef.current = null;
+      setPendingKeyboardTrackIndex(null);
       nativeTrackTotalGenerationRef.current = -1;
       nativeTrackTotalRequestGenerationRef.current = -1;
       if (!preserveViewport) {
@@ -1242,23 +1246,35 @@ export const App: React.FC = () => {
 
   const selectNativeTrackAtIndex = useCallback(async (index: number) => {
     if (!isNativeBoundedTrackView || index < 0 || index >= nativeTrackTotal) return;
+    lastSelectedIndexRef.current = index;
+    setLastSelectedIndex(index);
+    pendingKeyboardTrackIndexRef.current = index;
+    setPendingKeyboardTrackIndex(index);
+    selectedTrackIdsRef.current = new Set();
+    setSelectedTrackIds(new Set());
     const rangeStart = Math.max(0, index - 12);
     const rangeEnd = Math.min(nativeTrackTotal, index + 13);
-    await loadNativeTracksRange(rangeStart, rangeEnd);
-    const track = nativeTrackRangeCacheRef.current.get(index);
-    if (!track) return;
-    const nextSelection = new Set([track.id]);
-    selectedTrackIdsRef.current = nextSelection;
-    lastSelectedIndexRef.current = index;
-    setSelectedTrackIds(nextSelection);
-    setLastSelectedIndex(index);
-    requestAnimationFrame(() => {
-      const container = document.querySelector('[data-track-table-scroll]') as HTMLDivElement | null;
-      if (!container) return;
-      const renderedRow = container.querySelector('[data-track-row-index]') as HTMLElement | null;
-      const rowHeight = Number.parseFloat(renderedRow?.style.height ?? '') || 54;
-      container.scrollTop = index * rowHeight;
-    });
+    try {
+      await loadNativeTracksRange(rangeStart, rangeEnd);
+      if (pendingKeyboardTrackIndexRef.current !== index) return;
+      const track = nativeTrackRangeCacheRef.current.get(index);
+      if (!track) return;
+      const nextSelection = new Set([track.id]);
+      selectedTrackIdsRef.current = nextSelection;
+      setSelectedTrackIds(nextSelection);
+      requestAnimationFrame(() => {
+        const container = document.querySelector('[data-track-table-scroll]') as HTMLDivElement | null;
+        if (!container) return;
+        const renderedRow = container.querySelector('[data-track-row-index]') as HTMLElement | null;
+        const rowHeight = Number.parseFloat(renderedRow?.style.height ?? '') || 54;
+        container.scrollTop = index * rowHeight;
+      });
+    } finally {
+      if (pendingKeyboardTrackIndexRef.current === index) {
+        pendingKeyboardTrackIndexRef.current = null;
+        setPendingKeyboardTrackIndex(null);
+      }
+    }
   }, [isNativeBoundedTrackView, nativeTrackTotal, loadNativeTracksRange]);
 
   // Invalidate/reload the native range cache before TrackTable's passive range effect runs.
@@ -2660,6 +2676,7 @@ export const App: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const keyboardTarget = e.target as HTMLElement | null;
       const focusedInput = keyboardTarget?.closest('input') as HTMLInputElement | null;
+      const isRangeInput = focusedInput?.type === 'range';
       const isTextInput = !!focusedInput && !['range', 'checkbox', 'radio', 'button', 'submit', 'file', 'color'].includes(focusedInput.type);
       const isTypingTarget = isTextInput || !!keyboardTarget?.closest('textarea, select, [contenteditable="true"]');
       if (e.shiftKey && (e.code === 'KeyT' || e.key.toLowerCase() === 't') && isTauri()) {
@@ -2729,7 +2746,11 @@ export const App: React.FC = () => {
       }
 
       const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+      const isNativeRangeAdjustmentKey = ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'End', 'Home', 'PageDown', 'PageUp'].includes(e.key);
+      if (isTypingTarget || (target.tagName === 'INPUT' && !isRangeInput)) return;
+      // Keep keyboard-based range adjustment native, but allow player shortcuts
+      // such as R while a volume slider still has focus after dragging it.
+      if (isRangeInput && isNativeRangeAdjustmentKey) return;
 
       // Immediately clear button focus if any element was focused
       if (document.activeElement && document.activeElement instanceof HTMLElement && document.activeElement.tagName === 'BUTTON') {
@@ -3485,6 +3506,8 @@ export const App: React.FC = () => {
   }, [tracks]);
 
   const handleSelectTrack = (trackId: string, e: React.MouseEvent, index: number) => {
+    pendingKeyboardTrackIndexRef.current = null;
+    setPendingKeyboardTrackIndex(null);
     if (e.shiftKey && lastSelectedIndexRef.current !== null) {
       const start = Math.min(lastSelectedIndexRef.current, index);
       const end = Math.max(lastSelectedIndexRef.current, index);
@@ -5474,6 +5497,7 @@ export const App: React.FC = () => {
               currentTrack={currentTrack}
               isPlaying={isPlaying}
               selectedTrackIds={selectedTrackIds}
+              pendingSelectionIndex={pendingKeyboardTrackIndex}
               onSelectTrack={handleSelectTrack}
               onPlayTrack={(t) => playTrackWithContext(t, filteredTracks)}
               onTogglePlayPause={handlePlayPause}
@@ -5619,6 +5643,7 @@ export const App: React.FC = () => {
             currentTrack={currentTrack}
             isPlaying={isPlaying}
             selectedTrackIds={selectedTrackIds}
+            pendingSelectionIndex={pendingKeyboardTrackIndex}
             onSelectTrack={handleSelectTrack}
             onPlayTrack={(t) => playTrackWithContext(t, filteredTracks)}
             onTogglePlayPause={handlePlayPause}

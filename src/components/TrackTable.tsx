@@ -23,6 +23,8 @@ interface TrackTableProps {
   tracks: Track[];
   /** Absolute filtered-list index for each cached track. Omit for a complete array starting at zero. */
   trackIndices?: number[];
+  /** Temporary keyboard focus while a native track page is being fetched. */
+  pendingSelectionIndex?: number | null;
   totalTrackCount?: number;
   onLoadRange?: (startIndex: number, endIndex: number) => void;
   currentTrack: Track | null;
@@ -81,6 +83,7 @@ interface DropTargetState {
 export const TrackTable: React.FC<TrackTableProps> = ({
   tracks,
   trackIndices,
+  pendingSelectionIndex = null,
   totalTrackCount = tracks.length,
   onLoadRange,
   currentTrack,
@@ -613,7 +616,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                     <div
                       key={`loading-row-${idx}`}
                       aria-busy="true"
-                      className="flex items-center px-4 border-b border-md3-outline-variant/10"
+                      className={`flex items-center px-4 border-b border-md3-outline-variant/10 transition-[background-color,box-shadow] duration-150 ease-out ${pendingSelectionIndex === idx ? 'bg-md3-primary/10 ring-1 ring-inset ring-md3-primary/50' : ''}`}
                       style={{ height: `${rowHeight}px` }}
                     >
                       <div className="h-3 w-40 max-w-[45%] rounded bg-md3-surface-container-high animate-pulse" />
@@ -621,6 +624,8 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                   );
                 }
                 const isSelected = selectedTrackIds.has(track.id);
+            const isPendingSelection = pendingSelectionIndex === idx;
+            const isVisualSelected = isSelected || isPendingSelection;
             const isCurrent = currentTrack?.id === track.id;
             const isHovered = hoveredTrackId === track.id;
             const isDropAbove = dropTarget?.trackId === track.id && dropTarget.position === 'above';
@@ -653,14 +658,14 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                   }
                 }}
                 onContextMenu={(e) => onOpenContextMenu(e, track)}
-                className={`relative group grid ${gridCols} items-center px-4 cursor-pointer box-border ${
+                className={`relative group grid ${gridCols} items-center px-4 cursor-pointer box-border transition-[background-color,color,box-shadow] duration-150 ease-out ${
                   isBeingDragged
                     ? 'opacity-30 bg-md3-primary-container/20 border-dashed border border-md3-primary/30'
-                    : isSelected
+                    : isVisualSelected
                     ? 'bg-md3-primary/15 text-md3-on-surface ring-1 ring-inset ring-md3-primary/30 font-medium'
                     : isCurrent
-                    ? 'bg-md3-surface-container-high text-md3-primary hover:bg-md3-surface-container-highest transition-colors duration-75'
-                    : 'hover:bg-md3-surface-container/60 text-md3-on-surface transition-colors duration-75'
+                    ? 'text-md3-on-surface hover:bg-md3-surface-container/60'
+                    : 'hover:bg-md3-surface-container/60 text-md3-on-surface'
                 }`}
               >
                 {/* Drop insertion line indicators */}
@@ -736,7 +741,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                       }}
                       title={isCurrent && isPlaying ? (language === 'ru' ? 'Пауза' : 'Pause') : (language === 'ru' ? 'Слушать' : 'Play')}
                       className={`absolute inset-0 z-10 flex items-center justify-center transition-all cursor-pointer ${
-                        isHovered || isSelected || isCurrent
+                        isHovered || isSelected
                           ? 'bg-black/45 opacity-100 backdrop-blur-[1px]'
                           : 'opacity-0 group-hover:opacity-100 group-hover:bg-black/45 group-hover:backdrop-blur-[1px] pointer-events-none group-hover:pointer-events-auto'
                       }`}

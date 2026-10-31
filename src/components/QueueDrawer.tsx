@@ -42,7 +42,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
   const [internalIsCompact, setInternalIsCompact] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth < 780 : false
   );
-  const [selectedIndex, setSelectedIndex] = useState(queueIndex);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
   const pendingSelectionScrollRef = useRef<number | null>(null);
@@ -108,14 +108,15 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
         e.stopPropagation();
         const direction = e.key === 'ArrowDown' ? 1 : -1;
         setSelectedIndex(current => {
-          const next = Math.max(0, Math.min(queue.length - 1, current + direction));
-          if (next !== current) pendingSelectionScrollRef.current = next;
+          const baseIndex = Math.max(0, Math.min(queue.length - 1, current ?? queueIndex));
+          const next = Math.max(0, Math.min(queue.length - 1, baseIndex + direction));
+          if (current === null || next !== current) pendingSelectionScrollRef.current = next;
           return next;
         });
       } else if (e.key === 'Enter' && queue.length > 0) {
         e.preventDefault();
         e.stopPropagation();
-        if (!e.repeat) onPlayQueueTrack(Math.max(0, Math.min(queue.length - 1, selectedIndex)));
+        if (!e.repeat) onPlayQueueTrack(Math.max(0, Math.min(queue.length - 1, selectedIndex ?? queueIndex)));
       }
     };
 
@@ -134,15 +135,17 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
       wasOpenRef.current = true;
       pendingSelectionScrollRef.current = null;
       setScrollTop(0);
-      setSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
+      setSelectedIndex(null);
       return;
     }
 
-    setSelectedIndex(current => queue.length > 0 ? Math.max(0, Math.min(current, queue.length - 1)) : 0);
+    setSelectedIndex(current => current === null
+      ? null
+      : queue.length > 0 ? Math.max(0, Math.min(current, queue.length - 1)) : null);
   }, [isOpen, queueIndex, queue.length]);
 
   useEffect(() => {
-    if (!isOpen || pendingSelectionScrollRef.current !== selectedIndex) return;
+    if (!isOpen || selectedIndex === null || pendingSelectionScrollRef.current !== selectedIndex) return;
     pendingSelectionScrollRef.current = null;
     const frameId = requestAnimationFrame(() => {
       const container = listContainerRef.current;
@@ -400,6 +403,8 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                   role="listitem"
                   aria-posinset={idx + 1}
                   aria-setsize={queue.length}
+                  aria-current={isCurrent ? 'true' : undefined}
+                  aria-selected={idx === selectedIndex ? true : undefined}
                   data-queue-row-index={idx}
                   onPointerDown={(e) => handlePointerDown(e, idx)}
                   style={{
@@ -409,11 +414,9 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                     right: 0,
                     height: QUEUE_ROW_CONTENT_HEIGHT,
                   }}
-                  className={`group flex items-center justify-between p-2 rounded-2xl transition-all select-none ${
+                  className={`group flex items-center justify-between p-2 rounded-2xl transition-[background-color,color,box-shadow] duration-150 ease-out select-none ${
                     isBeingDragged
                       ? 'opacity-30 bg-md3-primary/10 border-dashed border border-md3-primary/40'
-                      : isCurrent
-                      ? `bg-md3-primary-container text-md3-on-primary-container font-semibold shadow-sm ${idx === selectedIndex ? 'ring-2 ring-inset ring-md3-primary/70' : ''}`
                       : idx === selectedIndex
                       ? 'bg-md3-primary/10 ring-2 ring-inset ring-md3-primary/60 text-md3-on-surface'
                       : 'hover:bg-md3-surface-container-high text-md3-on-surface'
@@ -471,7 +474,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                           track.isMissing
                             ? 'text-amber-500/90 dark:text-amber-400/90'
                             : isCurrent
-                            ? 'text-md3-on-primary-container'
+                            ? 'text-md3-primary'
                             : 'text-md3-on-surface'
                         }`}>
                           {track.title}

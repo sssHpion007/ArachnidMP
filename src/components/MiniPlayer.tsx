@@ -3,14 +3,12 @@ import { isTauri } from '@tauri-apps/api/core';
 import {
   ChevronDown,
   ChevronLeft,
-  AlertTriangle,
   Disc3,
   Heart,
   Info,
   Layers,
   Mic2,
   ListMusic,
-  Music2,
   Pause,
   Play,
   Repeat,
@@ -34,6 +32,7 @@ import type { LibraryCollectionGroup } from '../services/libraryCollectionIndex'
 import { coverVariantUrl } from '../utils/coverArt';
 import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
 import { MiniPanelLibraryButton } from './MiniPanelLibraryButton';
+import { MiniTrackRow } from './MiniTrackRow';
 import { FadeInImage } from './FadeInImage';
 import { CrossfadeImage } from './CrossfadeImage';
 import { getFolderTrackIds } from '../services/folderPlayback';
@@ -85,53 +84,6 @@ const scrollFixedRowIntoView = (
   const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
   container.scrollTo({ top: Math.max(0, Math.min(maxScrollTop, targetTop)), behavior });
 };
-
-interface MiniTrackRowProps {
-  track: Track;
-  active?: boolean;
-  selected?: boolean;
-  language: AppLanguage;
-  index?: number;
-  totalCount?: number;
-  style?: React.CSSProperties;
-  onClick: () => void;
-}
-
-const MiniTrackRow: React.FC<MiniTrackRowProps> = ({ track, active = false, selected = false, language, index, totalCount, style, onClick }) => (
-  <button
-    type="button"
-    role={index !== undefined ? 'listitem' : undefined}
-    aria-posinset={index !== undefined ? index + 1 : undefined}
-    aria-setsize={totalCount}
-    style={style}
-    aria-current={active ? 'true' : undefined}
-    aria-selected={selected ? true : undefined}
-    onClick={onClick}
-    className={`group flex w-full min-w-0 items-center gap-2.5 rounded-2xl p-2 text-left transition-colors ${
-      active
-        ? 'bg-md3-primary-container font-semibold text-md3-on-primary-container shadow-sm'
-        : selected
-          ? 'bg-md3-primary/10 ring-1 ring-inset ring-md3-primary/50 text-md3-on-surface'
-          : 'text-md3-on-surface hover:bg-md3-surface-container-high'
-    }`}
-  >
-    <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-md3-surface-container-highest shadow-sm">
-      {track.coverArt ? (
-        <img src={coverVariantUrl(track.coverArt, 96)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
-      ) : (
-        <span className="flex h-full w-full items-center justify-center bg-md3-primary/10 text-md3-primary/70"><Music2 size={16} /></span>
-      )}
-    </span>
-    <span className="min-w-0 flex-1">
-      <span className={`flex items-center gap-1.5 truncate text-[11px] font-bold ${track.isMissing ? 'text-amber-500 dark:text-amber-400' : ''}`}>
-        <span className="truncate">{track.title}</span>
-        {track.isMissing && <span title={text(language, 'Файл не найден', 'File not found')}><AlertTriangle size={12} className="shrink-0" /></span>}
-      </span>
-      <span className="block truncate text-[10px] text-md3-on-surface-variant">{track.artist}</span>
-    </span>
-    <span className="shrink-0 text-[10px] tabular-nums text-md3-on-surface-variant">{formatTime(track.duration)}</span>
-  </button>
-);
 
 interface MiniLibraryCardProps {
   title: string;
@@ -369,8 +321,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const miniLibraryPageGenerationRef = useRef(0);
   const currentPlaylist = playlists.find(playlist => playlist.id === selectedPlaylistId) || null;
   const [isCompactVolHovered, setIsCompactVolHovered] = useState(false);
-  const [queueSelectedIndex, setQueueSelectedIndex] = useState(queueIndex);
-  const [libraryTrackSelectedIndex, setLibraryTrackSelectedIndex] = useState(0);
+  const [queueSelectedIndex, setQueueSelectedIndex] = useState<number | null>(null);
+  const [libraryTrackSelectedIndex, setLibraryTrackSelectedIndex] = useState<number | null>(null);
   const [libraryTabIndicator, setLibraryTabIndicator] = useState({ left: 0, top: 0, width: 0, height: 0, opacity: 0 });
   const [queueScrollTop, setQueueScrollTop] = useState(0);
   const [queueViewportHeight, setQueueViewportHeight] = useState(0);
@@ -401,8 +353,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     if (panel !== null) {
       setRenderedPanel(panel);
       setIsPanelContentRendered(true);
-      if (panel === 'queue') setQueueScrollTop(0);
-      if (panel === 'library') setLibraryScrollTop(0);
+      if (panel === 'queue') {
+        setQueueScrollTop(0);
+        setQueueSelectedIndex(null);
+      }
+      if (panel === 'library') {
+        setLibraryScrollTop(0);
+        setLibraryTrackSelectedIndex(null);
+      }
     }
     setBottomPanel(panel);
   };
@@ -476,7 +434,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   useEffect(() => {
     const handleMiniPlayerKeyboard = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      const isEditing = Boolean(target?.closest('input, textarea, select, [contenteditable="true"]'));
+      const isRangeInput = Boolean(target?.closest('input[type="range"]'));
+      const isEditing = Boolean(target?.closest('input:not([type="range"]), textarea, select, [contenteditable="true"]'));
+      const isNativeRangeAdjustmentKey = ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'End', 'Home', 'PageDown', 'PageUp'].includes(event.key);
 
       if (event.key === 'Escape' || event.code === 'Escape') {
         if (bottomPanel) {
@@ -487,7 +447,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         return;
       }
 
-      if (isEditing) return;
+      if (isEditing || (isRangeInput && isNativeRangeAdjustmentKey)) return;
 
       if (event.key === 'Tab' || event.code === 'Tab') {
         event.preventDefault();
@@ -520,7 +480,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         event.stopPropagation();
         if (event.repeat) return;
         if (bottomPanel !== 'queue') {
-          setQueueSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
+          setQueueSelectedIndex(null);
           setMiniPanel('queue');
         } else {
           setMiniPanel(null);
@@ -537,9 +497,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         event.preventDefault();
         event.stopPropagation();
         const direction = isArrowDown ? 1 : -1;
+        const activeTrackIndex = currentTrack ? listTracks.findIndex(track => track.id === currentTrack.id) : -1;
         setLibraryTrackSelectedIndex(current => {
-          const next = Math.max(0, Math.min(listTracks.length - 1, current + direction));
-          if (next !== current) libraryPendingScrollIndexRef.current = next;
+          const baseIndex = current ?? (activeTrackIndex >= 0 ? activeTrackIndex : direction > 0 ? -1 : listTracks.length);
+          const next = Math.max(0, Math.min(listTracks.length - 1, baseIndex + direction));
+          if (current === null || next !== current) libraryPendingScrollIndexRef.current = next;
           return next;
         });
         return;
@@ -551,7 +513,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         event.preventDefault();
         event.stopPropagation();
         if (event.repeat) return;
-        const selectedIndex = Math.max(0, Math.min(listTracks.length - 1, libraryTrackSelectedIndex));
+        const activeTrackIndex = currentTrack ? listTracks.findIndex(track => track.id === currentTrack.id) : -1;
+        const selectedIndex = Math.max(0, Math.min(listTracks.length - 1, libraryTrackSelectedIndex ?? (activeTrackIndex >= 0 ? activeTrackIndex : 0)));
         onPlayTrack(listTracks[selectedIndex], listTracks, currentPlaylist?.id);
         return;
       }
@@ -564,8 +527,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         event.stopPropagation();
         const direction = event.key === 'ArrowDown' || event.code === 'ArrowDown' ? 1 : -1;
         setQueueSelectedIndex(current => {
-          const next = Math.max(0, Math.min(queue.length - 1, current + direction));
-          if (next !== current) queuePendingScrollIndexRef.current = next;
+          const baseIndex = Math.max(0, Math.min(queue.length - 1, current ?? queueIndex));
+          const next = Math.max(0, Math.min(queue.length - 1, baseIndex + direction));
+          if (current === null || next !== current) queuePendingScrollIndexRef.current = next;
           return next;
         });
         return;
@@ -575,15 +539,17 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         event.preventDefault();
         event.stopPropagation();
         if (event.repeat) return;
-        onPlayQueueTrack(Math.max(0, Math.min(queue.length - 1, queueSelectedIndex)));
+        onPlayQueueTrack(Math.max(0, Math.min(queue.length - 1, queueSelectedIndex ?? queueIndex)));
       }
     };
     window.addEventListener('keydown', handleMiniPlayerKeyboard, true);
     return () => window.removeEventListener('keydown', handleMiniPlayerKeyboard, true);
-  }, [bottomPanel, libraryTab, libraryTrackSelectedIndex, currentPlaylist?.id, onPlayQueueTrack, onPlayTrack, queue.length, queueIndex, queueSelectedIndex]);
+  }, [bottomPanel, libraryTab, libraryTrackSelectedIndex, currentPlaylist?.id, currentTrack?.id, onPlayQueueTrack, onPlayTrack, queue.length, queueIndex, queueSelectedIndex]);
 
   useEffect(() => {
-    setQueueSelectedIndex(current => queue.length > 0 ? Math.max(0, Math.min(current, queue.length - 1)) : 0);
+    setQueueSelectedIndex(current => current === null
+      ? null
+      : queue.length > 0 ? Math.max(0, Math.min(current, queue.length - 1)) : null);
   }, [queue.length]);
 
   useEffect(() => {
@@ -609,7 +575,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   }, [bottomPanel]);
 
   useEffect(() => {
-    if (bottomPanel !== 'queue' || queuePendingScrollIndexRef.current !== queueSelectedIndex) return;
+    if (bottomPanel !== 'queue' || queueSelectedIndex === null || queuePendingScrollIndexRef.current !== queueSelectedIndex) return;
     queuePendingScrollIndexRef.current = null;
     const frame = requestAnimationFrame(() => {
       scrollFixedRowIntoView(queueListRef.current, queueSelectedIndex, 'nearest', 'smooth');
@@ -1020,9 +986,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const visibleLibraryRows = getFixedRowRange(libraryTracks, libraryScrollTop, libraryViewportHeight);
 
   useEffect(() => {
-    const currentTrackIndex = currentTrack ? libraryTracks.findIndex(track => track.id === currentTrack.id) : -1;
-    setLibraryTrackSelectedIndex(currentTrackIndex >= 0 ? currentTrackIndex : 0);
-  }, [currentPlaylist?.id, selectedCollection?.name, libraryTab, libraryTracks, currentTrack?.id]);
+    setLibraryTrackSelectedIndex(null);
+    libraryPendingScrollIndexRef.current = null;
+  }, [libraryTab, currentPlaylist?.id, selectedPlaylistId, selectedPlaylistFolderId, selectedPlaylistGroupId, selectedCollection?.name]);
 
   useEffect(() => {
     const list = libraryListRef.current;
@@ -1049,7 +1015,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   }, [bottomPanel]);
 
   useEffect(() => {
-    if (bottomPanel !== 'library' || libraryPendingScrollIndexRef.current !== libraryTrackSelectedIndex) return;
+    if (bottomPanel !== 'library' || libraryTrackSelectedIndex === null || libraryPendingScrollIndexRef.current !== libraryTrackSelectedIndex) return;
     libraryPendingScrollIndexRef.current = null;
     const frame = requestAnimationFrame(() => {
       scrollFixedRowIntoView(libraryListRef.current, libraryTrackSelectedIndex, 'nearest', 'smooth');
@@ -1073,9 +1039,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       setMiniPanel(null);
       return;
     }
-    if (panel === 'queue') {
-      setQueueSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
-    }
+    if (panel === 'queue') setQueueSelectedIndex(null);
+    if (panel === 'library') setLibraryTrackSelectedIndex(null);
     setMiniPanel(panel);
   };
 
@@ -1380,7 +1345,10 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                             index={index}
                             totalCount={queue.length}
                             style={{ position: 'absolute', top: index * MINI_TRACK_ROW_HEIGHT, left: 0, right: 0, height: MINI_TRACK_ROW_HEIGHT }}
-                            onClick={() => onPlayQueueTrack(index)}
+                            onClick={() => {
+                              setQueueSelectedIndex(index);
+                              onPlayQueueTrack(index);
+                            }}
                           />
                         );
                       })}
