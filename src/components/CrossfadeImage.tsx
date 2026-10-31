@@ -10,6 +10,7 @@ interface CrossfadeImageProps {
   alt?: string;
   className?: string;
   fadeDurationMs?: number;
+  preserveCurrentWhileSourceMissing?: boolean;
   onSourceLoad?: (src: string) => void;
   onSourceError?: (src: string) => void;
 }
@@ -32,6 +33,7 @@ export const CrossfadeImage: React.FC<CrossfadeImageProps> = ({
   alt = '',
   className = '',
   fadeDurationMs = 450,
+  preserveCurrentWhileSourceMissing = false,
   onSourceLoad,
   onSourceError,
 }) => {
@@ -45,6 +47,8 @@ export const CrossfadeImage: React.FC<CrossfadeImageProps> = ({
   useEffect(() => {
     if (cleanupTimerRef.current) clearTimeout(cleanupTimerRef.current);
     cleanupTimerRef.current = null;
+
+    if (!src && preserveCurrentWhileSourceMissing) return;
 
     setLayers(current => {
       const visibleLayer = current.reduce<ImageLayer | null>(
@@ -66,7 +70,7 @@ export const CrossfadeImage: React.FC<CrossfadeImageProps> = ({
       if (cleanupTimerRef.current) clearTimeout(cleanupTimerRef.current);
       cleanupTimerRef.current = null;
     };
-  }, [src, fadeDurationMs]);
+  }, [src, fadeDurationMs, preserveCurrentWhileSourceMissing]);
 
   useEffect(() => () => {
     if (cleanupTimerRef.current) clearTimeout(cleanupTimerRef.current);

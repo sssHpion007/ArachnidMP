@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Превью обложки плейлиста при перетаскивании</title>
+    <style>
+      :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f4f1fa; background: #111318; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(ellipse at 15% 0%, rgba(72, 89, 139, .22), transparent 52%), #111318; }
+      .demo-page { max-width: 1120px; margin: 0 auto; padding: 56px 32px 36px; }
+      .demo-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 32px; }
+      .demo-heading h1 { margin: 9px 0 8px; font-size: clamp(25px, 4vw, 38px); letter-spacing: -.04em; line-height: 1.12; }
+      .demo-heading p { margin: 0; color: #a9abb6; font-size: 14px; }
+      .demo-eyebrow { color: #a9b7ff; font-size: 10px; font-weight: 800; letter-spacing: .15em; }
+      .demo-live { display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid rgba(255,255,255,.12); border-radius: 99px; color: #c7c9d2; font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+      .demo-live span { width: 7px; height: 7px; border-radius: 50%; background: #53d69a; box-shadow: 0 0 12px #53d69a; }
+      .demo-layout { display: grid; grid-template-columns: minmax(230px, .82fr) minmax(350px, 1.18fr); gap: 20px; align-items: start; }
+      .demo-playlist-card, .demo-track-panel { border: 1px solid rgba(255,255,255,.09); border-radius: 24px; background: rgba(30,32,39,.88); box-shadow: 0 18px 60px rgba(0,0,0,.2); }
+      .demo-playlist-card { padding: 18px; }
+      .demo-cover { width: 100%; aspect-ratio: 1; border-radius: 17px; background: #242731; box-shadow: inset 0 0 0 1px rgba(255,255,255,.1); }
+      .demo-playlist-info { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; padding: 17px 2px 4px; }
+      .demo-playlist-info h2, .demo-list-heading h2 { margin: 0; font-size: 19px; letter-spacing: -.025em; }
+      .demo-playlist-info > span:last-child { color: #a9abb6; font-size: 12px; }
+      .demo-track-panel { padding: 20px; }
+      .demo-list-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+      .demo-list-heading h2 { margin-top: 5px; }
+      .demo-hint { color: #989ba7; font-size: 11px; white-space: nowrap; }
+      .demo-track-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+      .demo-track { min-width: 0; display: flex; align-items: center; gap: 11px; min-height: 60px; padding: 8px 10px; border: 1px solid transparent; border-radius: 14px; background: #25272f; cursor: grab; transition: background 150ms ease, border-color 150ms ease, opacity 150ms ease; }
+      .demo-track:hover { background: #2c2f39; }
+      .demo-track.is-first { border-color: rgba(169,183,255,.45); background: rgba(105,123,197,.13); }
+      .demo-track.is-dragged { opacity: .35; cursor: grabbing; }
+      .demo-grip { flex: none; color: #777b88; }
+      .demo-track-art { width: 34px; height: 34px; display: grid; place-items: center; flex: none; border-radius: 9px; color: white; }
+      .demo-track-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 3px; }
+      .demo-track-copy b { overflow: hidden; color: #f3f1f7; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+      .demo-track-copy small { color: #a1a3ae; font-size: 10px; }
+      .demo-first-badge { flex: none; padding: 5px 7px; border-radius: 99px; background: rgba(169,183,255,.14); color: #bdc8ff; font-size: 8px; font-weight: 800; letter-spacing: .08em; }
+      .demo-status { min-height: 42px; margin-top: 13px; padding: 11px 12px; border-radius: 12px; background: rgba(255,255,255,.045); color: #c3c5ce; font-size: 11px; line-height: 1.5; }
+      .demo-note { margin-top: 20px; color: #747783; font-size: 11px; text-align: center; }
+      @media (max-width: 720px) { .demo-page { padding: 28px 16px; } .demo-heading { margin-bottom: 22px; } .demo-layout { grid-template-columns: 1fr; } .demo-playlist-card { display: grid; grid-template-columns: minmax(120px, 38%) 1fr; gap: 14px; align-items: center; } .demo-playlist-info { padding: 12px 2px; } }
+      @media (max-width: 430px) { .demo-heading { flex-direction: column; gap: 14px; } .demo-track-panel { padding: 14px; } .demo-hint { display: none; } }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/previews/PlaylistCoverDragDemo.tsx"></script>
+  </body>
+</html>

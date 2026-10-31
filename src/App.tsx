@@ -5,6 +5,7 @@ import { TopBar, MainViewType } from './components/TopBar';
 import { TrackTable } from './components/TrackTable';
 import { NowPlayingBar } from './components/NowPlayingBar';
 import { PlaylistsGridView } from './components/PlaylistsGridView';
+import { PlaylistDetailCover } from './components/PlaylistDetailCover';
 import { AlbumsGridView } from './components/AlbumsGridView';
 import { ArtistsGridView } from './components/ArtistsGridView';
 import { GenresGridView } from './components/GenresGridView';
@@ -2481,11 +2482,10 @@ export const App: React.FC = () => {
       const count = pl.trackIds.length;
       let firstCover: string | undefined = pl.coverArt;
       let totalDuration = 0;
+      const isPlaylistCoverPending = isTauri() && currentView === 'playlists' && !nativePlaylistCoversLoaded;
       if (isTauri() && currentView === 'playlists') {
-        if (nativePlaylistDurationsLoaded) {
-          if (!firstCover) firstCover = nativePlaylistCovers[pl.id]?.[0];
-          totalDuration = nativePlaylistDurations[pl.id] ?? 0;
-        }
+        if (nativePlaylistCoversLoaded && !firstCover) firstCover = nativePlaylistCovers[pl.id]?.[0];
+        if (nativePlaylistDurationsLoaded) totalDuration = nativePlaylistDurations[pl.id] ?? 0;
       } else {
         const trackMap = new Map(tracks.map(t => [t.id, t]));
         for (const tid of pl.trackIds) {
@@ -2510,6 +2510,7 @@ export const App: React.FC = () => {
         title: pl.name,
         subtitle: pl.description ? `${stats} — ${pl.description}` : stats,
         coverArt: firstCover,
+        coverArtPending: isPlaylistCoverPending,
         icon: <PlaylistIconComp className="w-8 h-8" />,
         playlist: pl,
       };
@@ -2568,7 +2569,7 @@ export const App: React.FC = () => {
       };
     }
     return null;
-  }, [selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, playlists, tracks, nonIsolatedTracks, language, databaseCollectionGroups, currentView, nativePlaylistDurationsLoaded, nativePlaylistDurations, nativePlaylistCovers]);
+  }, [selectedPlaylistId, selectedAlbum, selectedArtist, selectedGenre, playlists, tracks, nonIsolatedTracks, language, databaseCollectionGroups, currentView, nativePlaylistCoversLoaded, nativePlaylistDurationsLoaded, nativePlaylistDurations, nativePlaylistCovers]);
 
   const searchPlaceholder = useMemo(() => {
     if (currentDetail) {
@@ -5392,23 +5393,13 @@ export const App: React.FC = () => {
                 </button>
 
                 {/* Cover art (clean presentation without back overlay) */}
-                <div 
-                  className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden shadow-md shrink-0 border border-md3-outline-variant/20 select-none bg-md3-surface-container-high"
-                >
-                  <div className="w-full h-full bg-md3-primary/10 text-md3-primary flex items-center justify-center absolute inset-0 z-0">
-                    {currentDetail.icon}
-                  </div>
-                  {currentDetail.coverArt && (
-                    <img 
-                      src={coverVariantUrl(currentDetail.coverArt, 96)}
-                      alt={currentDetail.title} 
-                      className="w-full h-full object-cover relative z-0" 
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                      }}
-                    />
-                  )}
-                </div>
+                <PlaylistDetailCover
+                  className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl shadow-md shrink-0 border border-md3-outline-variant/20 select-none bg-md3-surface-container-high"
+                  coverArt={currentDetail.coverArt}
+                  isResolutionPending={Boolean(currentDetail.coverArtPending)}
+                  title={currentDetail.title}
+                  icon={currentDetail.icon}
+                />
 
                 <div className="min-w-0 flex-1">
                   <h2 className="text-lg sm:text-xl md:text-2xl font-extrabold text-md3-on-surface truncate leading-tight">
