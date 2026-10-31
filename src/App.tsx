@@ -53,6 +53,7 @@ import { logger } from './services/logger';
 import { coverVariantUrl, isCachedCoverUrl } from './utils/coverArt';
 import { buildLibraryScanPathPlan } from './services/libraryScanPaths';
 import { getTrackTableRangeForViewport, preserveTrackTableScrollAfterDelete } from './utils/trackTableScroll';
+import { arePlaylistDurationMapsEqual } from './utils/playlistDurations';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { LYRICS_WINDOW_EVENTS } from './utils/lyricsWindowEvents';
@@ -307,6 +308,7 @@ export const App: React.FC = () => {
   const [sortBy, setSortBy] = useState<string>('title');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [playlistReorderScrollPreserveToken, setPlaylistReorderScrollPreserveToken] = useState(0);
+  const optimisticReorderedPlaylistIdsRef = useRef<string[] | null>(null);
   const orderedNativeTrackIds = useMemo(() => {
     if (selectedPlaylistId) return playlists.find(playlist => playlist.id === selectedPlaylistId)?.trackIds ?? [];
     if (currentView === 'favorites' && sortBy === 'custom') return systemFavoritesPlaylist?.trackIds ?? [];
@@ -1175,21 +1177,41 @@ export const App: React.FC = () => {
 
   const loadNativeTracksPage = useCallback(async (reset = false, preserveViewport = false) => {
     if (!isTauri() || !startupDataLoaded || !isNativeBoundedTrackView) return;
-    if (reset) await loadNativeTracksRange(0, 1, true, preserveViewport);
-    else await loadNativeTracksRange(nativePageOffsetRef.current, nativePageOffsetRef.current + 1);
-  }, [startupDataLoaded, isNativeBoundedTrackView, loadNativeTracksRange]);
+    if (reset && preserveViewport) {
+      const container = document.querySelector('[data-track-table-scroll]') as HTMLDivElement | null;
+      const range = getTrackTableRangeForViewport(
+        container?.scrollTop ?? 0,
+        container?.clientHeight ?? 600,
+        isCompact ? 60 : 54,
+      );
+      await loadNativeTracksRange(range.start, range.end, true, true);
+    } else if (reset) {
+      await loadNativeTracksRange(0, 1, true, false);
+    } else {
+      await loadNativeTracksRange(nativePageOffsetRef.current, nativePageOffsetRef.current + 1);
+    }
+  }, [startupDataLoaded, isNativeBoundedTrackView, isCompact, loadNativeTracksRange]);
 
   loadNativeTracksPageRef.current = loadNativeTracksPage;
   loadNativeTracksRangeRef.current = loadNativeTracksRange;
 
   useEffect(() => {
     if (!isTauri() || orderedNativeTrackIds === null) {
+      optimisticReorderedPlaylistIdsRef.current = null;
       setFilteredOrderedTrackIds(null);
       return;
     }
-    let active = true;
     const query = searchQuery.trim();
     const descending = sortOrder === 'desc';
+    if (optimisticReorderedPlaylistIdsRef.current === orderedNativeTrackIds
+      && !query
+      && sortBy === 'custom'
+      && !descending) {
+      optimisticReorderedPlaylistIdsRef.current = null;
+      return;
+    }
+    optimisticReorderedPlaylistIdsRef.current = null;
+    let active = true;
     setFilteredOrderedTrackIds(null);
     void libraryRepository.orderedSubsetIds(orderedNativeTrackIds, query, sortBy, descending)
       .then(ids => {
@@ -2485,7 +2507,7 @@ export const App: React.FC = () => {
       const isPlaylistCoverPending = isTauri() && currentView === 'playlists' && !nativePlaylistCoversLoaded;
       if (isTauri() && currentView === 'playlists') {
         if (nativePlaylistCoversLoaded && !firstCover) firstCover = nativePlaylistCovers[pl.id]?.[0];
-        if (nativePlaylistDurationsLoaded) totalDuration = nativePlaylistDurations[pl.id] ?? 0;
+        totalDuration = nativePlaylistDurations[pl.id] ?? 0;
       } else {
         const trackMap = new Map(tracks.map(t => [t.id, t]));
         for (const tid of pl.trackIds) {
@@ -4425,7 +4447,19 @@ export const App: React.FC = () => {
     if (reorderedTrackIds.every((trackId, index) => trackId === selectedPlaylist.trackIds[index])) return;
     logger.info('PLAYLIST_REORDER', `playlist=${selectedPlaylistId} tracks=${reorderedTrackIds.length} native=${isTauri()}`);
     setPlaylistReorderScrollPreserveToken(token => token + 1);
-    if (isTauri()) preserveViewportOnNextNativeResetRef.current = true;
+    if (isTauri()) {
+      preserveViewportOnNextNativeResetRef.current = true;
+      if (!searchQuery.trim()) {
+        optimisticReorderedPlaylistIdsRef.current = reorderedTrackIds;
+        setFilteredOrderedTrackIds({
+          source: reorderedTrackIds,
+          query: '',
+          sortBy: 'custom',
+          descending: false,
+          ids: reorderedTrackIds,
+        });
+      }
+    }
     setPlaylists(prev => prev.map(p => {
       if (p.id === selectedPlaylistId) {
         return { ...p, trackIds: reorderedTrackIds };
@@ -4686,7 +4720,7 @@ export const App: React.FC = () => {
     setNativePlaylistCoverResolution({ key: requestKey, loaded: false });
     if (requests.length === 0) {
       setNativePlaylistCovers({});
-      setNativePlaylistDurations({});
+      setNativePlaylistDurations(previous => arePlaylistDurationMapsEqual(previous, {}) ? previous : {});
       setNativePlaylistCoverResolution({ key: requestKey, loaded: true, error: false });
       return () => { active = false; };
     }
@@ -4704,13 +4738,14 @@ export const App: React.FC = () => {
         durationsByPlaylist[result.playlistId] = result.totalDuration;
       }
       setNativePlaylistCovers(coversByPlaylist);
-      setNativePlaylistDurations(durationsByPlaylist);
+      setNativePlaylistDurations(previous => arePlaylistDurationMapsEqual(previous, durationsByPlaylist)
+        ? previous
+        : durationsByPlaylist);
       setNativePlaylistCoverResolution({ key: requestKey, loaded: true, error: false });
     }).catch(error => {
       console.warn('Unable to load native playlist cover previews:', error);
       if (active) {
         setNativePlaylistCovers({});
-        setNativePlaylistDurations({});
         setNativePlaylistCoverResolution({ key: requestKey, loaded: true, error: true });
       }
     });
@@ -5480,7 +5515,7 @@ export const App: React.FC = () => {
               tracks={tracks}
               playlistCovers={isTauri() && nativePlaylistCoversLoaded ? nativePlaylistCovers : undefined}
               playlistCoversLoaded={!isTauri() || nativePlaylistCoversLoaded}
-              playlistDurations={isTauri() && nativePlaylistDurationsLoaded ? nativePlaylistDurations : undefined}
+              playlistDurations={isTauri() ? nativePlaylistDurations : undefined}
               playlistDurationsLoaded={!isTauri() || nativePlaylistDurationsLoaded}
               searchQuery={searchQuery}
               language={language}

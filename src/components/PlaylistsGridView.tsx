@@ -788,9 +788,9 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   };
 
   const getPlaylistDuration = (playlist: Playlist): number => {
-    if (!playlistDurationsLoaded) return 0;
     const resolvedDuration = playlistDurations?.[playlist.id];
     if (resolvedDuration !== undefined) return resolvedDuration;
+    if (!playlistDurationsLoaded) return 0;
     let total = 0;
     for (const id of playlist.trackIds) {
       const t = trackMap.get(id);
