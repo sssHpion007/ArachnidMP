@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   ChevronDown,
   ChevronLeft,
@@ -1101,14 +1100,6 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     onVolumeChange(nextVolume);
   };
 
-  const handleCoverMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || bottomPanel !== null || !isTauri()) return;
-    event.preventDefault();
-    void getCurrentWindow().startDragging().catch(error => {
-      console.warn('Unable to drag the mini-player window:', error);
-    });
-  };
-
   const handleVolumeStepClick = (event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1128,7 +1119,6 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         <div className="flex min-h-0 flex-1 flex-col items-center gap-3 px-5 pb-3 pt-4">
           <div
             data-tauri-drag-region={bottomPanel ? undefined : ''}
-            onMouseDown={handleCoverMouseDown}
             onClick={() => { if (bottomPanel) setMiniPanel(null); }}
             onDragStart={event => event.preventDefault()}
             aria-label={bottomPanel

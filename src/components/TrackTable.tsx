@@ -57,6 +57,7 @@ interface TrackTableProps {
 }
 
 interface TrackDragState {
+  pointerId: number;
   trackId: string;
   title: string;
   artist: string;
@@ -145,6 +146,12 @@ export const TrackTable: React.FC<TrackTableProps> = ({
   const [dropTarget, setDropTarget] = useState<DropTargetState | null>(null);
   const dropTargetRef = useRef<DropTargetState | null>(null);
   const hasDraggedRef = useRef<boolean>(false);
+  const activePointerIdRef = useRef<number | null>(null);
+  const dragUpdateFrameRef = useRef<number | null>(null);
+  const previousBodyDragStylesRef = useRef<{ cursor: string; userSelect: string } | null>(null);
+  const previousInternalDragRef = useRef<boolean>(false);
+  const dragConfigRef = useRef({ tracks, selectedTrackIds, isReorderable, reorderableTrackIds, onReorderTracks });
+  dragConfigRef.current = { tracks, selectedTrackIds, isReorderable, reorderableTrackIds, onReorderTracks };
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // High-performance virtual scrolling engine
@@ -243,7 +250,10 @@ export const TrackTable: React.FC<TrackTableProps> = ({
     const isSelected = selectedTrackIds.has(track.id);
     const count = isSelected ? Math.max(1, selectedTrackIds.size) : 1;
 
+    if (activePointerIdRef.current !== null) return;
+
     const initial: TrackDragState = {
+      pointerId: e.pointerId,
       trackId: track.id,
       title: track.title,
       artist: track.artist,
@@ -256,43 +266,107 @@ export const TrackTable: React.FC<TrackTableProps> = ({
       isDragging: false,
     };
 
+    activePointerIdRef.current = e.pointerId;
     setDragState(initial);
     dragStateRef.current = initial;
     hasDraggedRef.current = false;
   };
 
   useEffect(() => {
-    if (!dragState) return;
+    const resetDrag = (pointerId: number, updateReactState = true) => {
+      if (activePointerIdRef.current !== pointerId) return;
+
+      activePointerIdRef.current = null;
+      if (dragUpdateFrameRef.current !== null) {
+        cancelAnimationFrame(dragUpdateFrameRef.current);
+        dragUpdateFrameRef.current = null;
+      }
+
+      const container = scrollContainerRef.current;
+      try {
+        if (container?.hasPointerCapture(pointerId)) container.releasePointerCapture(pointerId);
+      } catch {
+        // The browser can release pointer capture before cleanup runs.
+      }
+
+      dragStateRef.current = null;
+      dropTargetRef.current = null;
+      if (updateReactState) {
+        setDragState(null);
+        setDropTarget(null);
+        setTimeout(() => { hasDraggedRef.current = false; }, 80);
+      }
+
+      if (previousBodyDragStylesRef.current) {
+        document.body.style.cursor = previousBodyDragStylesRef.current.cursor;
+        document.body.style.userSelect = previousBodyDragStylesRef.current.userSelect;
+        (window as any).__isInternalDragging = previousInternalDragRef.current;
+      }
+      previousBodyDragStylesRef.current = null;
+    };
+
+    const resolveDropTarget = (x: number, y: number): DropTargetState | null => {
+      const element = document.elementFromPoint(x, y);
+      const rowEl = element?.closest('[data-track-row-id]');
+      const targetId = rowEl?.getAttribute('data-track-row-id');
+      const targetIndexText = rowEl?.getAttribute('data-track-row-index');
+      const targetIndex = targetIndexText ? Number.parseInt(targetIndexText, 10) : -1;
+      if (!rowEl || !targetId || !Number.isFinite(targetIndex) || targetIndex < 0) return null;
+
+      const rect = rowEl.getBoundingClientRect();
+      return {
+        trackId: targetId,
+        position: y < rect.top + rect.height / 2 ? 'above' : 'below',
+        index: targetIndex,
+      };
+    };
 
     const handlePointerMove = (e: PointerEvent) => {
+      if (e.pointerId !== activePointerIdRef.current) return;
       const current = dragStateRef.current;
       if (!current) return;
 
       const deltaX = Math.abs(e.clientX - current.startX);
       const deltaY = Math.abs(e.clientY - current.startY);
       const isDraggingNow = current.isDragging || deltaX > 5 || deltaY > 5;
+      if (!isDraggingNow) return;
 
-      if (isDraggingNow) {
+      if (!current.isDragging) {
         hasDraggedRef.current = true;
+        previousBodyDragStylesRef.current = {
+          cursor: document.body.style.cursor,
+          userSelect: document.body.style.userSelect,
+        };
+        previousInternalDragRef.current = Boolean((window as any).__isInternalDragging);
         (window as any).__isInternalDragging = true;
         document.body.style.cursor = 'grabbing';
         document.body.style.userSelect = 'none';
+        try {
+          scrollContainerRef.current?.setPointerCapture(e.pointerId);
+        } catch {
+          // Global pointer listeners and blur cleanup remain as a fallback.
+        }
       }
 
       const updated: TrackDragState = {
         ...current,
         currentX: e.clientX,
         currentY: e.clientY,
-        isDragging: isDraggingNow,
+        isDragging: true,
       };
-      setDragState(updated);
       dragStateRef.current = updated;
+      if (dragUpdateFrameRef.current === null) {
+        dragUpdateFrameRef.current = requestAnimationFrame(() => {
+          dragUpdateFrameRef.current = null;
+          const latest = dragStateRef.current;
+          if (latest?.pointerId === e.pointerId && activePointerIdRef.current === e.pointerId) {
+            setDragState({ ...latest });
+          }
+        });
+      }
 
-      if (!isDraggingNow) return;
-
-      // Auto-scroll list if dragging near edges
-      if (scrollContainerRef.current) {
-        const container = scrollContainerRef.current;
+      const container = scrollContainerRef.current;
+      if (container) {
         const rect = container.getBoundingClientRect();
         const edgeThreshold = 50;
         if (e.clientY < rect.top + edgeThreshold && container.scrollTop > 0) {
@@ -304,87 +378,88 @@ export const TrackTable: React.FC<TrackTableProps> = ({
         }
       }
 
-      // Find row under cursor
-      const element = document.elementFromPoint(e.clientX, e.clientY);
-      const rowEl = element?.closest('[data-track-row-id]');
-      if (rowEl) {
-        const targetId = rowEl.getAttribute('data-track-row-id');
-        const targetIdxStr = rowEl.getAttribute('data-track-row-index');
-        const targetIndex = targetIdxStr ? parseInt(targetIdxStr, 10) : -1;
-        if (targetId && targetIndex !== -1) {
-          const rect = rowEl.getBoundingClientRect();
-          const position = e.clientY < rect.top + rect.height / 2 ? 'above' : 'below';
-          const newDrop: DropTargetState = { trackId: targetId, position, index: targetIndex };
-          setDropTarget(newDrop);
-          dropTargetRef.current = newDrop;
-          return;
-        }
+      const nextDrop = resolveDropTarget(e.clientX, e.clientY);
+      const previousDrop = dropTargetRef.current;
+      if (previousDrop?.trackId !== nextDrop?.trackId
+        || previousDrop?.position !== nextDrop?.position
+        || previousDrop?.index !== nextDrop?.index) {
+        dropTargetRef.current = nextDrop;
+        setDropTarget(nextDrop);
       }
-      setDropTarget(null);
-      dropTargetRef.current = null;
     };
 
-    const handlePointerUp = (e?: PointerEvent) => {
+    const finishPointer = (e: PointerEvent, shouldCommit: boolean) => {
+      const pointerId = activePointerIdRef.current;
+      if (pointerId === null || e.pointerId !== pointerId) return;
+
       const current = dragStateRef.current;
-      const drop = dropTargetRef.current;
-
-      const cleanup = () => {
-        setDragState(null);
-        dragStateRef.current = null;
-        setDropTarget(null);
+      const finalDrop = current?.isDragging ? resolveDropTarget(e.clientX, e.clientY) : null;
+      if (finalDrop) {
+        dropTargetRef.current = finalDrop;
+      } else if (current?.isDragging) {
         dropTargetRef.current = null;
-        (window as any).__isInternalDragging = false;
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-        setTimeout(() => {
-          hasDraggedRef.current = false;
-        }, 80);
-      };
-
-      if (!current || !current.isDragging) {
-        cleanup();
-        return;
       }
 
-      const draggedTrackId = current.trackId;
-      const currentIds = reorderableTrackIds ?? tracks.map(track => track.id);
-      let idsToMove: string[] = [];
-      if (selectedTrackIds.has(draggedTrackId)) {
-        idsToMove = currentIds.filter(id => selectedTrackIds.has(id));
-      } else {
-        idsToMove = [draggedTrackId];
-      }
+      try {
+        if (shouldCommit && current?.isDragging && finalDrop) {
+          const { tracks: latestTracks, selectedTrackIds: latestSelectedIds, isReorderable: latestIsReorderable,
+            reorderableTrackIds: latestReorderableIds, onReorderTracks: latestOnReorder } = dragConfigRef.current;
+          const currentIds = latestReorderableIds ?? latestTracks.map(track => track.id);
+          const idsToMove = latestSelectedIds.has(current.trackId)
+            ? currentIds.filter(id => latestSelectedIds.has(id))
+            : [current.trackId];
 
-      // Reordering within a playlist or favorites
-      if (isReorderable && onReorderTracks && drop) {
-        if (!idsToMove.includes(drop.trackId)) {
-          const remaining = currentIds.filter(id => !idsToMove.includes(id));
-          let targetIdx = remaining.indexOf(drop.trackId);
-          if (targetIdx !== -1) {
-            if (drop.position === 'below') {
-              targetIdx += 1;
+          if (latestIsReorderable && latestOnReorder && !idsToMove.includes(finalDrop.trackId)) {
+            const remaining = currentIds.filter(id => !idsToMove.includes(id));
+            let targetIndex = remaining.indexOf(finalDrop.trackId);
+            if (targetIndex !== -1) {
+              if (finalDrop.position === 'below') targetIndex += 1;
+              remaining.splice(targetIndex, 0, ...idsToMove);
+              latestOnReorder(remaining);
             }
-            remaining.splice(targetIdx, 0, ...idsToMove);
-            onReorderTracks(remaining);
           }
         }
-        cleanup();
-        return;
+      } finally {
+        resetDrag(pointerId);
       }
+    };
 
-      cleanup();
+    const handlePointerUp = (e: PointerEvent) => finishPointer(e, true);
+    const handlePointerCancel = (e: PointerEvent) => finishPointer(e, false);
+    const handleLostPointerCapture = (e: PointerEvent) => finishPointer(e, false);
+    const handlePointerOut = (e: PointerEvent) => {
+      if (e.pointerId === activePointerIdRef.current && e.relatedTarget === null && !dragStateRef.current?.isDragging) {
+        resetDrag(e.pointerId);
+      }
+    };
+    const handleWindowBlur = () => {
+      const pointerId = activePointerIdRef.current;
+      if (pointerId !== null) resetDrag(pointerId);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') handleWindowBlur();
     };
 
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
-    window.addEventListener('pointercancel', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerCancel);
+    window.addEventListener('lostpointercapture', handleLostPointerCapture);
+    window.addEventListener('pointerout', handlePointerOut);
+    window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointercancel', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerCancel);
+      window.removeEventListener('lostpointercapture', handleLostPointerCapture);
+      window.removeEventListener('pointerout', handlePointerOut);
+      window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      const pointerId = activePointerIdRef.current;
+      if (pointerId !== null) resetDrag(pointerId, false);
     };
-  }, [dragState, tracks, selectedTrackIds, isReorderable, reorderableTrackIds, onReorderTracks]);
+  }, []);
 
   const handleTableDragOver = (e: React.DragEvent) => {
     e.preventDefault();
