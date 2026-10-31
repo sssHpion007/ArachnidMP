@@ -1545,7 +1545,10 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                   className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2"
                 >
                   {libraryTab === 'playlists' && !currentPlaylist && !selectedCollection && (
-                    <div className="space-y-3">
+                    <div
+                      key={`mini-playlists:${selectedPlaylistFolderId ?? ''}:${selectedPlaylistGroupId ?? ''}`}
+                      className="space-y-3 mini-library-content-enter"
+                    >
                       {!selectedPlaylistFolder && !selectedPlaylistGroup && playlistGroups.length > 0 && (
                         <section className="space-y-1.5">
                           <h3 className="px-1 text-[9px] font-bold uppercase tracking-wider text-md3-on-surface-variant/75">
@@ -1676,7 +1679,12 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                   )}
                   {(libraryTab === 'tracks' || libraryTab === 'favorites' || currentPlaylist || selectedCollection) && (
                     libraryTracks.length > 0 ? (
-                      <div role="list" style={{ position: 'relative', height: visibleLibraryRows.totalHeight }}>
+                      <div
+                        key={`mini-track-list:${libraryTab}:${currentPlaylist?.id ?? ''}:${selectedCollectionPageKey ?? ''}`}
+                        role="list"
+                        className="mini-library-content-enter"
+                        style={{ position: 'relative', height: visibleLibraryRows.totalHeight }}
+                      >
                         {visibleLibraryRows.items.map((track, offset) => {
                           const index = visibleLibraryRows.startIndex + offset;
                           return (

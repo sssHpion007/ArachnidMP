@@ -437,20 +437,15 @@ input.mini-player-timeline::-moz-range-thumb {
   contain-intrinsic-size: 180px 240px;
 }
 
-@keyframes collectionCardEnter {
-  from {
-    opacity: 0;
-    transform: translateY(10px) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+@keyframes miniLibraryContentEnter {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-.collection-card-enter {
-  animation: collectionCardEnter 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  will-change: opacity, transform;
+.collection-card-enter,
+.mini-library-content-enter {
+  animation: miniLibraryContentEnter 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: opacity;
 }
 
 .mini-panel-surface {
@@ -464,7 +459,8 @@ input.mini-player-timeline::-moz-range-thumb {
     will-change: auto;
   }
 
-  .collection-card-enter {
+  .collection-card-enter,
+  .mini-library-content-enter {
     animation: none;
     will-change: auto;
   }

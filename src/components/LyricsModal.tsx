@@ -264,8 +264,8 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
       >
         {/* Header actions stay compact; the complete action list is available via the menu or right-click. */}
         <div className="shrink-0 border-b border-md3-outline-variant/15 bg-md3-surface-container-high/50">
-          <div className="flex items-start gap-3 px-4 pt-4">
-            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-md3-primary/15 text-md3-primary shadow-sm">
+          <div className="flex items-center gap-3 px-4 py-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-md3-primary/15 text-md3-primary shadow-sm">
               <Mic2 className="h-5 w-5" />
             </div>
             <div className="min-w-0 flex-1">
@@ -286,7 +286,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
                 )}
               </div>
             </div>
-            <div className="-mr-1 -mt-1 flex shrink-0 items-center gap-0.5">
+            <div className="-mr-1 flex shrink-0 items-center gap-0.5">
               <LyricsActionsMenu
                 actions={lyricsActions}
                 language={language}
