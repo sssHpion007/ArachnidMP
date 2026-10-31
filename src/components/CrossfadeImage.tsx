@@ -10,8 +10,21 @@ interface CrossfadeImageProps {
   alt?: string;
   className?: string;
   fadeDurationMs?: number;
+  onSourceLoad?: (src: string) => void;
   onSourceError?: (src: string) => void;
 }
+
+const loadedImageSources = new Map<string, true>();
+const MAX_REMEMBERED_IMAGE_SOURCES = 512;
+
+const rememberLoadedImage = (source: string) => {
+  loadedImageSources.delete(source);
+  loadedImageSources.set(source, true);
+  if (loadedImageSources.size > MAX_REMEMBERED_IMAGE_SOURCES) {
+    const oldestSource = loadedImageSources.keys().next().value;
+    if (oldestSource !== undefined) loadedImageSources.delete(oldestSource);
+  }
+};
 
 /** Keeps the previous cover visible until the next track's cover has loaded. */
 export const CrossfadeImage: React.FC<CrossfadeImageProps> = ({
@@ -19,9 +32,12 @@ export const CrossfadeImage: React.FC<CrossfadeImageProps> = ({
   alt = '',
   className = '',
   fadeDurationMs = 450,
+  onSourceLoad,
   onSourceError,
 }) => {
-  const [layers, setLayers] = useState<ImageLayer[]>(() => src ? [{ src, opacity: 0 }] : []);
+  const [layers, setLayers] = useState<ImageLayer[]>(() => src
+    ? [{ src, opacity: loadedImageSources.has(src) ? 1 : 0 }]
+    : []);
   const latestSourceRef = useRef(src);
   const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   latestSourceRef.current = src;
@@ -57,7 +73,9 @@ export const CrossfadeImage: React.FC<CrossfadeImageProps> = ({
   }, []);
 
   const handleLoad = (loadedSource: string) => {
+    rememberLoadedImage(loadedSource);
     if (latestSourceRef.current !== loadedSource) return;
+    onSourceLoad?.(loadedSource);
     setLayers(current => current.map(layer => ({
       ...layer,
       opacity: layer.src === loadedSource ? 1 : 0,
@@ -90,7 +108,7 @@ export const CrossfadeImage: React.FC<CrossfadeImageProps> = ({
                 : current.filter(candidate => candidate.src !== layer.src);
             });
           }}
-          style={{ opacity: layer.opacity, transition: `opacity ${fadeDurationMs}ms ease` }}
+          style={{ opacity: layer.opacity, transition: `opacity ${fadeDurationMs}ms ease, transform 300ms ease` }}
         />
       ))}
     </>

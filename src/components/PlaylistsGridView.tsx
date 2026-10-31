@@ -24,6 +24,7 @@ import { shouldShowPlaylistCoverFallback } from '../utils/playlistCoverFallback'
 import { formatTime } from '../services/tagEditor';
 import { getFolderIconComponent, getFolderColorHex, getThemedPlayIconColor } from '../theme/folderIcons';
 import { AppLanguage } from '../i18n';
+import { CrossfadeImage } from './CrossfadeImage';
 import { FadeInImage } from './FadeInImage';
 
 interface PlaylistsGridViewProps {
@@ -585,14 +586,12 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
               </div>
             )
           ) : cover ? (
-            <FadeInImage
+            <CrossfadeImage
               src={coverVariantUrl(cover, 256)}
-              {...coverLoadHandlers(cover)}
+              onSourceLoad={() => updateCoverLoadFailure(cover, false)}
+              onSourceError={() => updateCoverLoadFailure(cover, true)}
               alt={playlist.name}
-              draggable={false}
-              loading="lazy"
-              decoding="async"
-              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]"
+              className="absolute inset-0 z-[1] h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
             />
           ) : null
         ) : null}
