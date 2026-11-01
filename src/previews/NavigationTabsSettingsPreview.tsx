@@ -179,8 +179,8 @@ const NavigationTabsSettingsPreview: React.FC = () => {
     return next.every((id, index) => id === baseOrder[index]) ? null : next;
   };
 
-  const startTabDrag = (event: React.PointerEvent<SVGSVGElement>) => {
-    if (event.button !== 0) return;
+  const startTabDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || (event.target instanceof Element && event.target.closest('button'))) return;
     const tabElement = event.currentTarget.closest('[data-navigation-tab-id]') as HTMLElement | null;
     const listElement = event.currentTarget.closest('[data-navigation-tab-list]') as HTMLElement | null;
     const tabId = tabElement?.dataset.navigationTabId;
@@ -303,9 +303,10 @@ const NavigationTabsSettingsPreview: React.FC = () => {
                           key={tab.id}
                           draggable={false}
                           data-navigation-tab-id={tab.id}
+                          onPointerDown={startTabDrag}
                           className={`flex max-w-full items-center gap-1 rounded-full border bg-md3-surface py-1 pl-2 pr-1 transition-all ${draggedTabId === tab.id ? 'opacity-40' : ''} ${dragOverTabId === tab.id ? 'border-md3-primary/50 bg-md3-primary/5 ring-1 ring-md3-primary/20' : 'border-md3-outline-variant/15 hover:border-md3-outline-variant/30'} ${visibleTabs.length > 1 ? 'cursor-grab active:cursor-grabbing' : ''}`}
                         >
-                          <GripVertical onPointerDown={startTabDrag} className="h-3 w-3 shrink-0 cursor-grab touch-none select-none text-md3-on-surface-variant/60" />
+                          <GripVertical className="h-3 w-3 shrink-0 select-none text-md3-on-surface-variant/60" />
                           <Icon className="h-3.5 w-3.5 shrink-0 text-md3-primary" />
                           <span className="max-w-32 truncate text-[11px] font-semibold">{tab.label}</span>
                           <div className="flex shrink-0 items-center gap-0.5">
