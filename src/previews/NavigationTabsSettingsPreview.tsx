@@ -179,6 +179,49 @@ const NavigationTabsSettingsPreview: React.FC = () => {
     return next.every((id, index) => id === baseOrder[index]) ? null : next;
   };
 
+  const startTabDrag = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (event.button !== 0) return;
+    const tabElement = event.currentTarget.closest('[data-navigation-tab-id]') as HTMLElement | null;
+    const listElement = event.currentTarget.closest('[data-navigation-tab-list]') as HTMLElement | null;
+    const tabId = tabElement?.dataset.navigationTabId;
+    if (!tabId || !listElement) return;
+    event.preventDefault();
+    event.stopPropagation();
+    listElement.setPointerCapture(event.pointerId);
+    draggedTabIdRef.current = tabId;
+    dragOrderRef.current = [...order];
+    setDraggedTabId(tabId);
+  };
+
+  const moveTabDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const sourceId = draggedTabIdRef.current;
+    if (!sourceId) return;
+    event.preventDefault();
+    const targetElement = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-navigation-tab-id]') as HTMLElement | null;
+    const targetId = targetElement?.dataset.navigationTabId;
+    if (!targetElement || !targetId || targetId === sourceId) {
+      setDragOverTabId(null);
+      return;
+    }
+    setDragOverTabId(targetId);
+    const bounds = targetElement.getBoundingClientRect();
+    const afterTarget = event.clientX >= bounds.left + bounds.width / 2;
+    const nextOrder = getReorderedTabOrder(sourceId, targetId, afterTarget, dragOrderRef.current ?? order);
+    if (nextOrder) {
+      dragOrderRef.current = nextOrder;
+      setOrder(nextOrder);
+    }
+  };
+
+  const finishTabDrag = (event: React.PointerEvent<HTMLDivElement>, commit: boolean) => {
+    if (commit && draggedTabIdRef.current && dragOrderRef.current) setOrder(dragOrderRef.current);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    draggedTabIdRef.current = null;
+    dragOrderRef.current = null;
+    setDraggedTabId(null);
+    setDragOverTabId(null);
+  };
+
   const removeTab = (tabId: string) => {
     if (order.length <= 1) return;
     const next = order.filter(id => id !== tabId);
@@ -246,56 +289,23 @@ const NavigationTabsSettingsPreview: React.FC = () => {
                     <div className="text-[10px] font-extrabold uppercase tracking-wider text-md3-on-surface-variant">Показываются в панели</div>
                     <span className="text-[10px] tabular-nums text-md3-on-surface-variant/70">{visibleTabs.length}</span>
                   </div>
-                  <div className="flex flex-wrap gap-1.5 rounded-2xl border border-md3-outline-variant/20 bg-md3-surface/40 p-2">
+                  <div
+                    data-navigation-tab-list
+                    onPointerMove={moveTabDrag}
+                    onPointerUp={event => finishTabDrag(event, true)}
+                    onPointerCancel={event => finishTabDrag(event, false)}
+                    className="flex flex-wrap gap-1.5 rounded-2xl border border-md3-outline-variant/20 bg-md3-surface/40 p-2"
+                  >
                     {visibleTabs.map(tab => {
                       const Icon = tab.icon;
                       return (
                         <div
                           key={tab.id}
-                          draggable={visibleTabs.length > 1}
-                          onDragStart={event => {
-                            draggedTabIdRef.current = tab.id;
-                            dragOrderRef.current = [...order];
-                            setDraggedTabId(tab.id);
-                            event.dataTransfer.effectAllowed = 'move';
-                            event.dataTransfer.setData('text/plain', tab.id);
-                          }}
-                          onDragOver={event => {
-                            const sourceId = draggedTabIdRef.current;
-                            if (!sourceId || sourceId === tab.id) return;
-                            event.preventDefault();
-                            event.dataTransfer.dropEffect = 'move';
-                            setDragOverTabId(tab.id);
-                            const bounds = event.currentTarget.getBoundingClientRect();
-                            const afterTarget = event.clientX >= bounds.left + bounds.width / 2;
-                            const nextOrder = getReorderedTabOrder(sourceId, tab.id, afterTarget, dragOrderRef.current ?? order);
-                            if (nextOrder) {
-                              dragOrderRef.current = nextOrder;
-                              setOrder(nextOrder);
-                            }
-                          }}
-                          onDrop={event => {
-                            event.preventDefault();
-                            const sourceId = draggedTabIdRef.current || event.dataTransfer.getData('text/plain');
-                            const bounds = event.currentTarget.getBoundingClientRect();
-                            const afterTarget = event.clientX >= bounds.left + bounds.width / 2;
-                            const nextOrder = sourceId ? getReorderedTabOrder(sourceId, tab.id, afterTarget, dragOrderRef.current ?? order) : null;
-                            if (nextOrder) setOrder(nextOrder);
-                            else if (dragOrderRef.current) setOrder(dragOrderRef.current);
-                            draggedTabIdRef.current = null;
-                            dragOrderRef.current = null;
-                            setDraggedTabId(null);
-                            setDragOverTabId(null);
-                          }}
-                          onDragEnd={() => {
-                            draggedTabIdRef.current = null;
-                            dragOrderRef.current = null;
-                            setDraggedTabId(null);
-                            setDragOverTabId(null);
-                          }}
+                          draggable={false}
+                          data-navigation-tab-id={tab.id}
                           className={`flex max-w-full items-center gap-1 rounded-full border bg-md3-surface py-1 pl-2 pr-1 transition-all ${draggedTabId === tab.id ? 'opacity-40' : ''} ${dragOverTabId === tab.id ? 'border-md3-primary/50 bg-md3-primary/5 ring-1 ring-md3-primary/20' : 'border-md3-outline-variant/15 hover:border-md3-outline-variant/30'} ${visibleTabs.length > 1 ? 'cursor-grab active:cursor-grabbing' : ''}`}
                         >
-                          <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-md3-on-surface-variant/60" />
+                          <GripVertical onPointerDown={startTabDrag} className="h-3 w-3 shrink-0 cursor-grab touch-none select-none text-md3-on-surface-variant/60" />
                           <Icon className="h-3.5 w-3.5 shrink-0 text-md3-primary" />
                           <span className="max-w-32 truncate text-[11px] font-semibold">{tab.label}</span>
                           <div className="flex shrink-0 items-center gap-0.5">
