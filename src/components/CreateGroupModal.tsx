@@ -4,11 +4,12 @@ import { PlaylistGroup } from '../types/music';
 import { AppLanguage } from '../i18n';
 import { useModalAnimation } from '../utils/useModalAnimation';
 import { HexColorInput } from './HexColorInput';
+import { FOLDER_ICONS, FolderIconOption } from '../theme/folderIcons';
 
 interface CreateGroupModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (name: string, color?: string, isIsolated?: boolean) => void;
+  onCreate: (name: string, color?: string, isIsolated?: boolean, icon?: string) => void;
   groupToEdit?: PlaylistGroup | null;
   language?: AppLanguage;
 }
@@ -32,6 +33,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [color, setColor] = useState('');
+  const [icon, setIcon] = useState('');
   const [isIsolated, setIsIsolated] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -42,10 +44,12 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
       if (groupToEdit) {
         setName(groupToEdit.name);
         setColor(groupToEdit.color || '');
+        setIcon(groupToEdit.icon || '');
         setIsIsolated(!!groupToEdit.isIsolated);
       } else {
         setName('');
         setColor('');
+        setIcon('');
         setIsIsolated(false);
       }
       setTimeout(() => {
@@ -78,7 +82,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!name.trim()) return;
-    onCreate(name.trim(), color || undefined, isIsolated);
+    onCreate(name.trim(), color || undefined, isIsolated, icon || undefined);
     onClose();
   };
 
@@ -88,7 +92,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
       className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md select-none cursor-default ${backdropClass}`}
     >
       <div
-        className={`w-full max-w-md bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col cursor-default ${dialogClass}`}
+        className={`w-full max-w-md max-h-[92vh] bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col cursor-default ${dialogClass}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -120,7 +124,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-5 flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="overflow-y-auto p-5 flex flex-col gap-4 custom-scrollbar">
           <div>
             <label className="block text-xs font-semibold text-md3-on-surface-variant mb-1.5">
               {language === 'ru' ? 'Название группы' : 'Group Name'} <span className="text-md3-error">*</span>
@@ -134,6 +138,48 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
               maxLength={60}
               className="w-full px-3.5 py-2.5 rounded-2xl bg-md3-surface-container-highest border border-md3-outline-variant/30 text-md3-on-surface placeholder:text-md3-on-surface-variant/50 text-sm focus:outline-none focus:border-md3-primary transition-colors"
             />
+          </div>
+
+          {/* Group Icon Picker */}
+          <div>
+            <label className="block text-xs font-semibold text-md3-on-surface-variant mb-2">
+              {language === 'ru' ? 'Значок группы' : 'Group Icon'}
+            </label>
+            <div className="grid grid-cols-6 sm:grid-cols-8 gap-2 rounded-2xl border border-md3-outline-variant/20 bg-md3-surface-container-highest/60 p-3">
+              <button
+                type="button"
+                onClick={() => setIcon('')}
+                title={language === 'ru' ? 'Значок по умолчанию' : 'Default icon'}
+                aria-label={language === 'ru' ? 'Значок группы по умолчанию' : 'Default group icon'}
+                className={`mx-auto flex h-10 w-10 items-center justify-center rounded-2xl transition-all ${
+                  !icon
+                    ? 'scale-110 bg-md3-primary text-md3-on-primary shadow-md ring-2 ring-offset-2 ring-offset-md3-surface-container ring-md3-primary'
+                    : 'text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface hover:scale-105'
+                }`}
+              >
+                <Layers className="h-5 w-5" />
+              </button>
+              {FOLDER_ICONS.map((option: FolderIconOption) => {
+                const IconComponent = option.icon;
+                const selected = icon === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setIcon(option.id)}
+                    title={option.label}
+                    aria-label={option.label}
+                    className={`mx-auto flex h-10 w-10 items-center justify-center rounded-2xl transition-all ${
+                      selected
+                        ? 'scale-110 bg-md3-primary text-md3-on-primary shadow-md ring-2 ring-offset-2 ring-offset-md3-surface-container ring-md3-primary'
+                        : 'text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface hover:scale-105'
+                    }`}
+                  >
+                    <IconComponent className="h-5 w-5" />
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Color Accent Picker */}

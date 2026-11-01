@@ -92,6 +92,7 @@ interface MiniLibraryCardProps {
   coverArt?: string;
   icon: React.ReactNode;
   accentColor?: string;
+  accentFill?: boolean;
   onPlay?: () => void;
   playLabel?: string;
   onResolveCover?: () => Promise<string | null>;
@@ -104,6 +105,7 @@ const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
   coverArt,
   icon,
   accentColor,
+  accentFill = false,
   onPlay,
   playLabel,
   onResolveCover,
@@ -125,13 +127,22 @@ const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
   return (
   <div
     className="group relative aspect-square min-w-0 overflow-hidden rounded-xl border border-md3-outline-variant/15 bg-md3-surface-container-high transition-transform hover:scale-[1.02]"
-    style={accentColor ? { borderColor: accentColor } : undefined}
+    style={accentColor ? {
+      borderColor: accentColor,
+      ...(accentFill ? { backgroundColor: accentColor } : {}),
+    } : undefined}
   >
     {displayedCover ? (
       <FadeInImage src={coverVariantUrl(displayedCover, 256)} alt="" loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" />
     ) : (
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high text-md3-primary/70">
-        {icon}
+      <div className={`pointer-events-none absolute inset-0 flex items-center justify-center ${
+        accentFill && accentColor
+          ? 'text-white'
+          : 'bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high text-md3-primary/70'
+      }`}>
+        {accentFill && accentColor ? (
+          <span className="rounded-2xl bg-black/10 p-4 drop-shadow-md">{icon}</span>
+        ) : icon}
       </div>
     )}
     <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
@@ -1513,12 +1524,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                               const itemCount = playlistFolders.filter(folder => !folder.parentId && folder.groupId === group.id).length
                                 + playlists.filter(playlist => !playlist.folderId && playlist.groupId === group.id).length;
                               const color = group.color ? getFolderColorHex(group.color) : undefined;
+                              const GroupIcon = group.icon ? getFolderIconComponent(group.icon) : Layers;
                               return (
                                 <MiniLibraryCard
                                   title={group.name}
                                   subtitle={`${itemCount} ${text(language, 'элементов', 'items')}${group.isIsolated ? ` · ${text(language, 'изолированная', 'isolated')}` : ''}`}
-                                  icon={<Layers size={28} />}
+                                  icon={<GroupIcon className="h-7 w-7" />}
                                   accentColor={color}
+                                  accentFill
                                   onClick={() => {
                                     setSelectedPlaylistGroupId(group.id);
                                     setSelectedPlaylistFolderId(null);

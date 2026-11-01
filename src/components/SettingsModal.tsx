@@ -2174,6 +2174,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             label={language === 'ru' ? 'Акцентный цвет темы' : 'Theme accent color'}
                             language={language}
                             compact
+                            showHexInput={false}
                           />
                         </div>
                       </div>

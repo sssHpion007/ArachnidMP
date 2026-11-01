@@ -4656,20 +4656,21 @@ export const App: React.FC = () => {
     return null;
   }, [editingFolderTarget, playlists, tracks]);
 
-  const handleCreateGroupSubmit = (name: string, color?: string, isIsolated?: boolean) => {
+  const handleCreateGroupSubmit = (name: string, color?: string, isIsolated?: boolean, icon?: string) => {
     const newGroup: PlaylistGroup = {
       id: `grp_${Date.now()}`,
       name: name.trim(),
       order: playlistGroups.length,
       isCollapsed: false,
       color: color || undefined,
+      icon: icon || undefined,
       isIsolated: !!isIsolated,
     };
     setPlaylistGroups(prev => [...prev, newGroup]);
     setIsCreateGroupOpen(false);
   };
 
-  const handleSaveEditGroup = (name: string, color?: string, isIsolated?: boolean) => {
+  const handleSaveEditGroup = (name: string, color?: string, isIsolated?: boolean, icon?: string) => {
     if (!editingGroupTarget) return;
     setPlaylistGroups(prev => prev.map(g => {
       if (g.id === editingGroupTarget.id) {
@@ -4677,6 +4678,7 @@ export const App: React.FC = () => {
           ...g,
           name: name.trim(),
           color: color || undefined,
+          icon: icon || undefined,
           isIsolated: !!isIsolated,
         };
       }
@@ -6051,11 +6053,11 @@ export const App: React.FC = () => {
           setIsCreateGroupOpen(false);
           setEditingGroupTarget(null);
         }}
-        onCreate={(name, color, isIsolated) => {
+        onCreate={(name, color, isIsolated, icon) => {
           if (editingGroupTarget) {
-            handleSaveEditGroup(name, color, isIsolated);
+            handleSaveEditGroup(name, color, isIsolated, icon);
           } else {
-            handleCreateGroupSubmit(name, color, isIsolated);
+            handleCreateGroupSubmit(name, color, isIsolated, icon);
           }
         }}
         groupToEdit={editingGroupTarget}

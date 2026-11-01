@@ -688,12 +688,10 @@ export const PlaylistContextMenu: React.FC<PlaylistContextMenuProps> = ({
                     }`}
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      {grp.color && (
-                        <span 
-                          className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/20" 
-                          style={{ backgroundColor: grp.color.startsWith('#') ? grp.color : undefined }}
-                        />
-                      )}
+                      {React.createElement(grp.icon ? getFolderIconComponent(grp.icon) : Layers, {
+                        className: 'h-3.5 w-3.5 shrink-0',
+                        style: { color: grp.color || undefined },
+                      })}
                       <span className="truncate">{grp.name}</span>
                     </div>
                     {isCurrent && <Check className="w-3.5 h-3.5 text-md3-primary shrink-0 ml-1" />}

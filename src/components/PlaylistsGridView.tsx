@@ -1709,6 +1709,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
             const isTargetGroup = dropTargetGroup?.id === group.id;
 
             const groupColor = group.color ? getFolderColorHex(group.color) : undefined;
+            const GroupIcon = group.icon ? getFolderIconComponent(group.icon) : Layers;
             const groupHeaderBg = group.color ? getFolderColorRgba(group.color, 0.14) : undefined;
             const groupBorderColor = group.color ? getFolderColorRgba(group.color, 0.35) : undefined;
 
@@ -1761,7 +1762,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                       />
                     </button>
                     <GripVertical className="w-3.5 h-3.5 text-md3-on-surface-variant/40" />
-                    <Layers
+                    <GroupIcon
                       className="w-4 h-4 flex-shrink-0"
                       style={{ color: groupColor || 'var(--md-sys-color-primary)' }}
                     />
