@@ -2628,7 +2628,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'mini' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
                   >
                     <Music className="w-4 h-4 shrink-0" />
-                    <span className="min-w-0 truncate">{language === 'ru' ? 'Мини-плеер' : 'Mini player'}</span>
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'Мини' : 'Mini'}</span>
                   </button>
                 </div>
               </section>

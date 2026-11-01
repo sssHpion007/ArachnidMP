@@ -11,7 +11,7 @@ mod portable_updater;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use base64::prelude::*;
 use lofty::config::{ParseOptions, ParsingMode, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
@@ -86,6 +86,10 @@ pub struct AppState {
 
 struct TrayMenuState {
     open_item: tauri::menu::MenuItem<tauri::Wry>,
+    help_submenu: tauri::menu::Submenu<tauri::Wry>,
+    reset_theme_item: tauri::menu::MenuItem<tauri::Wry>,
+    scan_library_item: tauri::menu::MenuItem<tauri::Wry>,
+    github_item: tauri::menu::MenuItem<tauri::Wry>,
     quit_item: tauri::menu::MenuItem<tauri::Wry>,
 }
 
@@ -96,13 +100,17 @@ fn set_close_to_tray(enabled: bool, state: State<'_, AppState>) {
 
 #[tauri::command]
 fn set_tray_language(language: String, state: State<'_, TrayMenuState>) -> Result<(), String> {
-    let (open_label, quit_label) = if language == "ru" {
-        ("Открыть", "Выход")
+    let (open_label, help_label, reset_theme_label, scan_library_label, github_label, quit_label) = if language == "ru" {
+        ("Открыть", "Помощь", "Сброс темы", "Сканирование медиатеки", "Страница на GitHub", "Выход")
     } else {
-        ("Open", "Quit")
+        ("Open", "Help", "Reset theme", "Scan media library", "GitHub page", "Quit")
     };
 
     state.open_item.set_text(open_label).map_err(|error| error.to_string())?;
+    state.help_submenu.set_text(help_label).map_err(|error| error.to_string())?;
+    state.reset_theme_item.set_text(reset_theme_label).map_err(|error| error.to_string())?;
+    state.scan_library_item.set_text(scan_library_label).map_err(|error| error.to_string())?;
+    state.github_item.set_text(github_label).map_err(|error| error.to_string())?;
     state.quit_item.set_text(quit_label).map_err(|error| error.to_string())?;
     Ok(())
 }
@@ -3034,7 +3042,7 @@ pub fn run() {
         })
         .setup(|app| {
             use tauri::{
-                menu::{Menu, MenuItem},
+                menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
                 tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
             };
 
@@ -3059,12 +3067,32 @@ pub fn run() {
             app.manage(cover_cache);
 
             let is_russian = saved_tray_language_is_russian();
-            let open_label = if is_russian { "Открыть" } else { "Open" };
-            let quit_label = if is_russian { "Выход" } else { "Quit" };
+            let (open_label, help_label, reset_theme_label, scan_library_label, github_label, quit_label) = if is_russian {
+                ("Открыть", "Помощь", "Сброс темы", "Сканирование медиатеки", "Страница на GitHub", "Выход")
+            } else {
+                ("Open", "Help", "Reset theme", "Scan media library", "GitHub page", "Quit")
+            };
             let open_item = MenuItem::with_id(app, "open", open_label, true, None::<&str>)?;
+            let reset_theme_item = MenuItem::with_id(app, "help-reset-theme", reset_theme_label, true, None::<&str>)?;
+            let scan_library_item = MenuItem::with_id(app, "help-scan-library", scan_library_label, true, None::<&str>)?;
+            let github_item = MenuItem::with_id(app, "help-github", github_label, true, None::<&str>)?;
+            let help_submenu = Submenu::with_items(
+                app,
+                help_label,
+                true,
+                &[&reset_theme_item, &scan_library_item, &github_item],
+            )?;
+            let separator = PredefinedMenuItem::separator(app)?;
             let quit_item = MenuItem::with_id(app, "quit", quit_label, true, None::<&str>)?;
-            let tray_menu = Menu::with_items(app, &[&open_item, &quit_item])?;
-            app.manage(TrayMenuState { open_item, quit_item });
+            let tray_menu = Menu::with_items(app, &[&open_item, &help_submenu, &separator, &quit_item])?;
+            app.manage(TrayMenuState {
+                open_item,
+                help_submenu,
+                reset_theme_item,
+                scan_library_item,
+                github_item,
+                quit_item,
+            });
             let tray_icon = app
                 .default_window_icon()
                 .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Default window icon is missing"))?
@@ -3077,6 +3105,23 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => show_main_window(app),
+                    "help-reset-theme" => {
+                        show_main_window(app);
+                        if let Err(error) = app.emit_to("main", "tray-action", "reset-theme") {
+                            logger::log("WARN", "TRAY_MENU", &format!("Unable to dispatch theme reset: {error}"));
+                        }
+                    }
+                    "help-scan-library" => {
+                        show_main_window(app);
+                        if let Err(error) = app.emit_to("main", "tray-action", "scan-library") {
+                            logger::log("WARN", "TRAY_MENU", &format!("Unable to dispatch library scan: {error}"));
+                        }
+                    }
+                    "help-github" => {
+                        if let Err(error) = open_url("https://github.com/sssHpion007/ArachnidMP".to_string()) {
+                            logger::log("WARN", "TRAY_MENU", &format!("Unable to open GitHub page: {error}"));
+                        }
+                    }
                     "quit" => clean_exit(),
                     _ => {}
                 })

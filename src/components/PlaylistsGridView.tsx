@@ -616,8 +616,8 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
 
         {/* Custom playlist icon in the corner, shown only after cover art is visible. */}
         {hasLoadedCover && playlist.icon && playlist.icon !== 'none' && playlist.icon !== 'list' && (
-          <div className="pointer-events-none absolute top-2 left-2 z-20 flex h-6 w-6 items-center justify-center text-white/95 drop-shadow-md">
-            <IconComponent className="h-3.5 w-3.5" />
+          <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/60 text-white/95 backdrop-blur-xs flex items-center justify-center shadow-xs z-20 pointer-events-none">
+            <IconComponent className="w-3.5 h-3.5" />
           </div>
         )}
 

@@ -4379,6 +4379,57 @@ export const App: React.FC = () => {
     }
   }, [watchedFolders, loadNativeTracksPage, applyNativeTrackIdReplacements]);
 
+  const pendingTrayActionRef = useRef<'reset-theme' | 'scan-library' | null>(null);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    const runTrayAction = (action: 'reset-theme' | 'scan-library') => {
+      if (!startupDataLoaded) {
+        pendingTrayActionRef.current = action;
+        return;
+      }
+      if (action === 'reset-theme') {
+        setAppTheme('default');
+        setThemeMode('dark');
+        setColorSchemeMode('dynamic');
+        setSeedColor(DEFAULT_SEED_COLOR);
+        setSecondarySeedColor('#f72585');
+        setThemePaletteColors({});
+        setThemeToggles({});
+        injectCustomThemeCss(null);
+        logger.info('TRAY_MENU', 'Theme reset to defaults.');
+        return;
+      }
+      void handleScanLibrary().then(scanned => {
+        logger.info('TRAY_MENU', `Media library scan completed; processed ${scanned} audio tracks.`);
+      }).catch(error => {
+        logger.warn('TRAY_MENU', `Media library scan failed: ${String(error)}`);
+      });
+    };
+
+    if (startupDataLoaded && pendingTrayActionRef.current) {
+      const pendingAction = pendingTrayActionRef.current;
+      pendingTrayActionRef.current = null;
+      runTrayAction(pendingAction);
+    }
+
+    void listen<string>('tray-action', event => {
+      if (event.payload === 'reset-theme' || event.payload === 'scan-library') {
+        runTrayAction(event.payload);
+      }
+    }).then(unlistenHandler => {
+      if (disposed) unlistenHandler();
+      else unlisten = unlistenHandler;
+    }).catch(error => console.error('Unable to listen for system tray actions:', error));
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [startupDataLoaded, handleScanLibrary]);
+
   // Missing tracks relocation and cleanup
   const handleRelocateMissingInFolder = async (): Promise<{ total: number; found: number } | null> => {
     if (!isTauri() || missingTracksForModal.length === 0) return null;
