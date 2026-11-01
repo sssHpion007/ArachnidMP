@@ -143,12 +143,11 @@ export const CoverColorEyedropper: React.FC<CoverColorEyedropperProps> = ({ cove
         type="button"
         onClick={openPicker}
         disabled={!imageSrc}
-        title={imageSrc ? (isRussian ? 'Выбрать цвет с обложки первого трека' : 'Pick a color from the first track cover') : (isRussian ? 'Нет обложки первого трека' : 'No first-track cover available')}
-        aria-label={isRussian ? 'Пипетка: выбрать цвет с обложки' : 'Eyedropper: pick from cover'}
-        className="inline-flex h-7 items-center gap-1.5 rounded-full border border-md3-outline-variant/25 bg-md3-surface px-2.5 text-[11px] font-semibold text-md3-on-surface-variant transition-colors hover:border-md3-primary/50 hover:bg-md3-primary/5 hover:text-md3-primary disabled:cursor-not-allowed disabled:opacity-40"
+        title={isRussian ? 'Взять из обложки' : 'Pick from cover'}
+        aria-label={isRussian ? 'Взять цвет из обложки первого трека' : 'Pick a color from the first track cover'}
+        className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-md3-outline-variant/25 bg-md3-surface text-md3-on-surface-variant transition-colors hover:border-md3-primary/50 hover:bg-md3-primary/5 hover:text-md3-primary disabled:cursor-not-allowed disabled:opacity-40"
       >
         <Pipette className="h-3.5 w-3.5" />
-        <span>{isRussian ? 'Пипетка' : 'Eyedropper'}</span>
       </button>
       {picker}
     </>

@@ -4692,11 +4692,13 @@ export const App: React.FC = () => {
     const pl = editingPlaylistTarget;
     const trackMap = new Map(tracks.map(t => [t.id, t]));
     if (pl) {
+      const nativeFirstCover = nativePlaylistCovers[pl.id]?.[0];
+      if (nativeFirstCover) return nativeFirstCover;
       for (const tid of pl.trackIds) {
         const t = trackMap.get(tid);
         if (t?.coverArt) return t.coverArt;
       }
-      return null;
+      return pl.coverArt || null;
     }
     if (playlistCreationTarget?.initialTrackIds) {
       for (const tid of playlistCreationTarget.initialTrackIds) {
@@ -4705,20 +4707,23 @@ export const App: React.FC = () => {
       }
     }
     return null;
-  }, [editingPlaylistTarget, playlistCreationTarget, tracks]);
+  }, [editingPlaylistTarget, playlistCreationTarget, tracks, nativePlaylistCovers]);
 
   const activeFolderCover = useMemo(() => {
     if (!editingFolderTarget) return null;
     const folderPlaylists = playlists.filter(p => p.folderId === editingFolderTarget.id);
     const trackMap = new Map(tracks.map(t => [t.id, t]));
     for (const pl of folderPlaylists) {
+      const nativeFirstCover = nativePlaylistCovers[pl.id]?.[0];
+      if (nativeFirstCover) return nativeFirstCover;
       for (const tid of pl.trackIds) {
         const t = trackMap.get(tid);
         if (t?.coverArt) return t.coverArt;
       }
+      if (pl.coverArt) return pl.coverArt;
     }
     return null;
-  }, [editingFolderTarget, playlists, tracks]);
+  }, [editingFolderTarget, playlists, tracks, nativePlaylistCovers]);
 
   const handleCreateGroupSubmit = (name: string, color?: string, isIsolated?: boolean, icon?: string) => {
     const newGroup: PlaylistGroup = {

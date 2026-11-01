@@ -371,7 +371,6 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
                   <span>{language === 'ru' ? 'Цвет по обложке' : 'From Cover'}</span>
                 </button>
               )}
-              <CoverColorEyedropper coverArt={initialCoverArt} onPickColor={setSelectedColor} language={language} />
               </div>
             </div>
 
@@ -406,6 +405,8 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
                   <Sparkles className="w-3.5 h-3.5 text-white drop-shadow-md" />
                 </button>
               )}
+
+              <CoverColorEyedropper coverArt={initialCoverArt} onPickColor={setSelectedColor} language={language} />
 
               <HexColorInput
                 color={selectedColor || extractedCoverColor || '#a855f7'}
