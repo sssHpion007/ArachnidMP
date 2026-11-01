@@ -127,25 +127,28 @@ const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
   return (
   <div
     className="group relative aspect-square min-w-0 overflow-hidden rounded-xl border border-md3-outline-variant/15 bg-md3-surface-container-high transition-transform hover:scale-[1.02]"
-    style={accentColor ? {
-      borderColor: accentColor,
-      ...(accentFill ? { backgroundColor: accentColor } : {}),
-    } : undefined}
+    style={accentFill && accentColor ? {
+      borderColor: 'transparent',
+      backgroundColor: `color-mix(in srgb, ${accentColor} 35%, #111614)`,
+    } : accentColor ? { borderColor: accentColor } : undefined}
   >
     {displayedCover ? (
       <FadeInImage src={coverVariantUrl(displayedCover, 256)} alt="" loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" />
     ) : (
-      <div className={`pointer-events-none absolute inset-0 flex items-center justify-center ${
-        accentFill && accentColor
-          ? 'text-white'
-          : 'bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high text-md3-primary/70'
-      }`}>
-        {accentFill && accentColor ? (
-          <span className="rounded-2xl bg-black/10 p-4 drop-shadow-md">{icon}</span>
-        ) : icon}
+      <div
+        className={`pointer-events-none absolute inset-0 flex items-center justify-center ${
+          accentFill && accentColor
+            ? ''
+            : 'bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high text-md3-primary/70'
+        }`}
+        style={accentFill && accentColor ? { color: accentColor } : undefined}
+      >
+        {icon}
       </div>
     )}
-    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
+    {!(accentFill && accentColor) && (
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
+    )}
     <button
       type="button"
       onClick={onClick}
@@ -1523,7 +1526,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                             renderItem={group => {
                               const itemCount = playlistFolders.filter(folder => !folder.parentId && folder.groupId === group.id).length
                                 + playlists.filter(playlist => !playlist.folderId && playlist.groupId === group.id).length;
-                              const color = group.color ? getFolderColorHex(group.color) : undefined;
+                              const color = getFolderColorHex(group.color);
                               const GroupIcon = group.icon ? getFolderIconComponent(group.icon) : Layers;
                               return (
                                 <MiniLibraryCard
