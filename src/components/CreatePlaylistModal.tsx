@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ListMusic, X, Check, Image, LayoutGrid, Images, Folder, Sparkles, Pipette, Ban } from 'lucide-react';
+import { ListMusic, X, Check, Image, LayoutGrid, Images, Folder, Sparkles, Ban } from 'lucide-react';
 import { FolderCoverType, Playlist } from '../types/music';
 import { FOLDER_ICONS, FolderIconOption } from '../theme/folderIcons';
 import { extractDominantColor } from '../theme/material3';
 import { AppLanguage } from '../i18n';
 import { useModalAnimation } from '../utils/useModalAnimation';
+import { HexColorInput } from './HexColorInput';
 
 interface CreatePlaylistModalProps {
   isOpen: boolean;
@@ -42,7 +43,6 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
   const [selectedIcon, setSelectedIcon] = useState('');
   const [extractedCoverColor, setExtractedCoverColor] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const colorInputRef = useRef<HTMLInputElement>(null);
 
   // Segmented control indicator state for Playlist Cover Display
   const coverTypeContainerRef = useRef<HTMLDivElement>(null);
@@ -119,6 +119,7 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
     if (!isOpen) return;
 
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && e.target instanceof Element && e.target.closest('[data-hex-color-picker]')) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
@@ -417,24 +418,14 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
                 </button>
               )}
 
-              {/* Custom Color Pipette Button */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => colorInputRef.current?.click()}
-                  title={language === 'ru' ? 'Выбрать свой цвет' : 'Custom Color'}
-                  className="w-7 h-7 rounded-full flex items-center justify-center bg-md3-surface-container-highest border border-md3-outline-variant/40 text-md3-on-surface-variant hover:text-md3-on-surface transition-transform hover:scale-110 cursor-pointer"
-                >
-                  <Pipette className="w-3.5 h-3.5" />
-                </button>
-                <input
-                  ref={colorInputRef}
-                  type="color"
-                  value={selectedColor && selectedColor.startsWith('#') ? selectedColor : '#a855f7'}
-                  onChange={(e) => setSelectedColor(e.target.value)}
-                  className="sr-only"
-                />
-              </div>
+              <HexColorInput
+                color={selectedColor || extractedCoverColor || '#a855f7'}
+                onChange={setSelectedColor}
+                label={language === 'ru' ? 'Свой цвет плейлиста' : 'Custom playlist color'}
+                language={language}
+                compact
+                showHexInput={false}
+              />
 
               {selectedColor && !playlistColors.some(c => c.hex === selectedColor) && selectedColor !== extractedCoverColor && (
                 <div

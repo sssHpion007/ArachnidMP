@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FolderPlus, X, Check, Folder, Image, LayoutGrid, Images, Sparkles, Pipette, Ban } from 'lucide-react';
+import { FolderPlus, X, Check, Folder, Image, LayoutGrid, Images, Sparkles, Ban } from 'lucide-react';
 import { FOLDER_ICONS, FolderIconOption } from '../theme/folderIcons';
 import { PlaylistFolder, FolderCoverType } from '../types/music';
 import { extractDominantColor } from '../theme/material3';
 import { AppLanguage } from '../i18n';
 import { useModalAnimation } from '../utils/useModalAnimation';
+import { HexColorInput } from './HexColorInput';
 
 interface CreateFolderModalProps {
   isOpen: boolean;
@@ -41,7 +42,6 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
   const [coverType, setCoverType] = useState<FolderCoverType>('icon');
   const [extractedCoverColor, setExtractedCoverColor] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const colorInputRef = useRef<HTMLInputElement>(null);
 
   // Segmented control indicator state for Folder Cover Display
   const coverTypeContainerRef = useRef<HTMLDivElement>(null);
@@ -118,6 +118,7 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
     if (!isOpen) return;
 
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && e.target instanceof Element && e.target.closest('[data-hex-color-picker]')) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
@@ -402,24 +403,14 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
                 </button>
               )}
 
-              {/* Custom Color Pipette Button */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => colorInputRef.current?.click()}
-                  title={language === 'ru' ? 'Выбрать свой цвет' : 'Custom Color'}
-                  className="w-7 h-7 rounded-full flex items-center justify-center bg-md3-surface-container-highest border border-md3-outline-variant/40 text-md3-on-surface-variant hover:text-md3-on-surface transition-transform hover:scale-110 cursor-pointer"
-                >
-                  <Pipette className="w-3.5 h-3.5" />
-                </button>
-                <input
-                  ref={colorInputRef}
-                  type="color"
-                  value={selectedColor && selectedColor.startsWith('#') ? selectedColor : '#a855f7'}
-                  onChange={(e) => setSelectedColor(e.target.value)}
-                  className="sr-only"
-                />
-              </div>
+              <HexColorInput
+                color={selectedColor || extractedCoverColor || '#a855f7'}
+                onChange={setSelectedColor}
+                label={language === 'ru' ? 'Свой цвет папки' : 'Custom folder color'}
+                language={language}
+                compact
+                showHexInput={false}
+              />
 
               {selectedColor && !folderColors.some(c => c.hex === selectedColor) && selectedColor !== extractedCoverColor && (
                 <div

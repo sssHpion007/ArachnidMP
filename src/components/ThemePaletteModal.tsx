@@ -31,6 +31,7 @@ export const ThemePaletteModal: React.FC<ThemePaletteModalProps> = ({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && e.target instanceof Element && e.target.closest('[data-hex-color-picker]')) return;
       if (e.key === 'Escape' && isOpen) {
         onClose();
       }
@@ -169,6 +170,7 @@ export const ThemePaletteModal: React.FC<ThemePaletteModalProps> = ({
                       color={currentColor}
                       onChange={hex => onUpdateColor(item.id, hex)}
                       label={language === 'ru' ? `Цвет: ${item.label}` : `${item.label} color`}
+                      showHexInput={false}
                       language={language}
                     />
                     {!isDefault && (

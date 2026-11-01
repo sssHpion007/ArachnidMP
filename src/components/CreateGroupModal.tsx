@@ -3,6 +3,7 @@ import { Layers, X, Check, Shield, ShieldAlert } from 'lucide-react';
 import { PlaylistGroup } from '../types/music';
 import { AppLanguage } from '../i18n';
 import { useModalAnimation } from '../utils/useModalAnimation';
+import { HexColorInput } from './HexColorInput';
 
 interface CreateGroupModalProps {
   isOpen: boolean;
@@ -58,6 +59,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
     if (!isOpen) return;
 
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && e.target instanceof Element && e.target.closest('[data-hex-color-picker]')) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
@@ -155,6 +157,14 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                   )}
                 </button>
               ))}
+              <HexColorInput
+                color={color || '#a855f7'}
+                onChange={setColor}
+                label={language === 'ru' ? 'Свой цвет группы' : 'Custom group color'}
+                language={language}
+                compact
+                showHexInput={false}
+              />
             </div>
           </div>
 

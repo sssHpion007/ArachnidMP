@@ -17,6 +17,7 @@ interface HexColorInputProps {
   onChange: (color: string) => void;
   label: string;
   compact?: boolean;
+  showHexInput?: boolean;
   language?: AppLanguage;
 }
 
@@ -44,7 +45,7 @@ const formatRgbDraft = (rgb: RgbColor): RgbDraft => ({
   b: String(rgb.b),
 });
 
-export const HexColorInput: React.FC<HexColorInputProps> = ({ color, onChange, label, compact = false, language = 'ru' }) => {
+export const HexColorInput: React.FC<HexColorInputProps> = ({ color, onChange, label, compact = false, showHexInput = true, language = 'ru' }) => {
   const normalizedColor = normalizeHexColor(color) || '#ffffff';
   const [draft, setDraft] = useState(normalizedColor.toUpperCase());
   const [rgbDraft, setRgbDraft] = useState<RgbDraft>(() => formatRgbDraft(hexToRgb(normalizedColor)));
@@ -183,6 +184,7 @@ export const HexColorInput: React.FC<HexColorInputProps> = ({ color, onChange, l
         ref={pickerRef}
         role="dialog"
         aria-label={label}
+        data-hex-color-picker="true"
         className="fixed z-[80] w-[280px] select-none rounded-2xl border border-md3-outline-variant/30 bg-md3-surface-container-high/95 p-3.5 text-md3-on-surface shadow-2xl backdrop-blur-xl"
         style={{ top: pickerPosition.top, left: pickerPosition.left, ...themeVariables() }}
         onPointerDown={event => event.stopPropagation()}
@@ -360,31 +362,33 @@ export const HexColorInput: React.FC<HexColorInputProps> = ({ color, onChange, l
         <span className="pointer-events-none h-3 w-3 rounded-full border border-white/50 bg-white/15 shadow-inner" />
       </button>
 
-      <label className={`flex ${sizeClass} min-w-0 items-center gap-2 rounded-xl border border-md3-outline-variant/25 bg-md3-surface px-2.5 transition-colors focus-within:border-md3-primary focus-within:ring-2 focus-within:ring-md3-primary/15`}>
-        <span className="select-none text-[9px] font-bold tracking-wider text-md3-on-surface-variant/70">HEX</span>
-        <input
-          type="text"
-          value={draft}
-          onChange={event => changeDraft(event.target.value)}
-          onBlur={commitDraft}
-          onKeyDown={event => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              event.currentTarget.blur();
-            } else if (event.key === 'Escape') {
-              setDraft(normalizedColor.toUpperCase());
-              event.currentTarget.blur();
-            }
-          }}
-          aria-label={`${label} HEX`}
-          autoComplete="off"
-          autoCapitalize="characters"
-          spellCheck={false}
-          maxLength={7}
-          placeholder="#8B5CF6"
-          className={`w-[5.5rem] bg-transparent font-mono font-semibold uppercase tracking-wide text-md3-on-surface outline-none ${compact ? 'text-[11px]' : 'text-xs'}`}
-        />
-      </label>
+      {showHexInput && (
+        <label className={`flex ${sizeClass} min-w-0 items-center gap-2 rounded-xl border border-md3-outline-variant/25 bg-md3-surface px-2.5 transition-colors focus-within:border-md3-primary focus-within:ring-2 focus-within:ring-md3-primary/15`}>
+          <span className="select-none text-[9px] font-bold tracking-wider text-md3-on-surface-variant/70">HEX</span>
+          <input
+            type="text"
+            value={draft}
+            onChange={event => changeDraft(event.target.value)}
+            onBlur={commitDraft}
+            onKeyDown={event => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                event.currentTarget.blur();
+              } else if (event.key === 'Escape') {
+                setDraft(normalizedColor.toUpperCase());
+                event.currentTarget.blur();
+              }
+            }}
+            aria-label={`${label} HEX`}
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+            maxLength={7}
+            placeholder="#8B5CF6"
+            className={`w-[5.5rem] bg-transparent font-mono font-semibold uppercase tracking-wide text-md3-on-surface outline-none ${compact ? 'text-[11px]' : 'text-xs'}`}
+          />
+        </label>
+      )}
 
       {picker}
     </div>

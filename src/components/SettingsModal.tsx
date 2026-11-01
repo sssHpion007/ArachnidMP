@@ -793,6 +793,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && e.target instanceof Element && e.target.closest('[data-hex-color-picker]')) return;
       if (e.key === 'Escape') {
         if (isThemeCurtainOpen) {
           setIsThemeCurtainOpen(false);
