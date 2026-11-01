@@ -130,7 +130,7 @@ export const TrackDetailsModal: React.FC<TrackDetailsModalProps> = ({
       onClick={standaloneWindow ? undefined : onClose}
       className={standaloneWindow
         ? `fixed inset-0 z-50 flex h-full w-full select-none bg-md3-surface-container ${backdropClass}`
-        : `fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md select-none cursor-pointer ${backdropClass}`}
+        : `fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md select-none cursor-default ${backdropClass}`}
     >
       <div
         className={standaloneWindow

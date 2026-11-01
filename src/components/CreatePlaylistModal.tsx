@@ -152,7 +152,7 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
   return (
     <div 
       onClick={onClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md select-none cursor-pointer ${backdropClass}`}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md select-none cursor-default ${backdropClass}`}
     >
       <div 
         className={`w-full max-w-lg bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col max-h-[90vh] cursor-default ${dialogClass}`}

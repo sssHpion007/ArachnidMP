@@ -917,7 +917,8 @@ export const NowPlayingBar: React.FC<NowPlayingBarProps> = ({
             onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
             onInput={(e) => onVolumeChange(parseFloat((e.target as HTMLInputElement).value))}
             title={`${t.controls.volume}: ${Math.round((isMuted ? 0 : volume) * 100)}% [↑/↓]`}
-            className="w-16 sm:w-20 lg:w-24 accent-md3-primary h-1.5 rounded-full bg-md3-surface-container-highest cursor-pointer outline-none focus:outline-none focus-visible:outline-none"
+            style={{ '--volume-progress': `${Math.round((isMuted ? 0 : volume) * 100)}%` } as React.CSSProperties}
+            className="main-volume-slider w-16 sm:w-20 lg:w-24 accent-md3-primary h-1.5 rounded-full bg-md3-surface-container-highest cursor-pointer outline-none focus:outline-none focus-visible:outline-none"
           />
         </div>
 

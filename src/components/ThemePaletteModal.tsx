@@ -49,7 +49,7 @@ export const ThemePaletteModal: React.FC<ThemePaletteModalProps> = ({
 
   return (
     <div
-      className={`fixed inset-0 z-[60] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 select-none cursor-pointer ${backdropClass}`}
+      className={`fixed inset-0 z-[60] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 select-none cursor-default ${backdropClass}`}
       onClick={(e) => {
         if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
           onClose();

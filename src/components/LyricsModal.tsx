@@ -255,7 +255,7 @@ export const LyricsModal: React.FC<LyricsModalProps> = ({
   return (
     <div
       onClick={onClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md select-none cursor-pointer ${backdropClass}`}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md select-none cursor-default ${backdropClass}`}
     >
       <div
         ref={contextTargetRef}

@@ -425,28 +425,37 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
   const imageSources = coverType === 'icon' ? [] : usesCoverSet ? covers : cover ? [cover] : [];
   const hasImages = imageSources.length > 0;
   const coverSourceKey = JSON.stringify(imageSources);
-  const [coverLoadState, setCoverLoadState] = useState<{ sourceKey: string; failed: Set<string> }>({
+  const [coverLoadState, setCoverLoadState] = useState<{ sourceKey: string; failed: Set<string>; loaded: Set<string> }>({
     sourceKey: '',
     failed: new Set(),
+    loaded: new Set(),
   });
   const failedCoverSources = coverLoadState.sourceKey === coverSourceKey ? coverLoadState.failed : new Set<string>();
+  const loadedCoverSources = coverLoadState.sourceKey === coverSourceKey ? coverLoadState.loaded : new Set<string>();
+  const hasLoadedCover = imageSources.some(source => loadedCoverSources.has(source));
   const showFallbackIcon = shouldShowPlaylistCoverFallback(
     coverType,
     imageSources,
     failedCoverSources,
     isCoverResolutionPending,
   );
-  const updateCoverLoadFailure = (source: string, failed: boolean) => {
+  const updateCoverLoadState = (source: string, loaded: boolean) => {
     setCoverLoadState(current => {
       const nextFailed = current.sourceKey === coverSourceKey ? new Set(current.failed) : new Set<string>();
-      if (failed) nextFailed.add(source);
-      else nextFailed.delete(source);
-      return { sourceKey: coverSourceKey, failed: nextFailed };
+      const nextLoaded = current.sourceKey === coverSourceKey ? new Set(current.loaded) : new Set<string>();
+      if (loaded) {
+        nextFailed.delete(source);
+        nextLoaded.add(source);
+      } else {
+        nextFailed.add(source);
+        nextLoaded.delete(source);
+      }
+      return { sourceKey: coverSourceKey, failed: nextFailed, loaded: nextLoaded };
     });
   };
   const coverLoadHandlers = (source: string) => ({
-    onLoad: () => updateCoverLoadFailure(source, false),
-    onError: () => updateCoverLoadFailure(source, true),
+    onLoad: () => updateCoverLoadState(source, true),
+    onError: () => updateCoverLoadState(source, false),
   });
 
   // Slideshow interval for cycling playlist covers with independent stagger and period
@@ -588,8 +597,8 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
           ) : cover ? (
             <CrossfadeImage
               src={coverVariantUrl(cover, 256)}
-              onSourceLoad={() => updateCoverLoadFailure(cover, false)}
-              onSourceError={() => updateCoverLoadFailure(cover, true)}
+              onSourceLoad={() => updateCoverLoadState(cover, true)}
+              onSourceError={() => updateCoverLoadState(cover, false)}
               alt={playlist.name}
               className="absolute inset-0 z-[1] h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
             />
@@ -602,6 +611,13 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
               className="h-16 w-16 drop-shadow-md transition-all duration-300"
               style={{ color: baseColor || 'rgb(var(--md-sys-color-primary-rgb))' }}
             />
+          </div>
+        )}
+
+        {/* Custom playlist icon in the corner, shown only after cover art is visible. */}
+        {hasLoadedCover && playlist.icon && playlist.icon !== 'none' && playlist.icon !== 'list' && (
+          <div className="pointer-events-none absolute top-2 left-2 z-20 flex h-6 w-6 items-center justify-center text-white/95 drop-shadow-md">
+            <IconComponent className="h-3.5 w-3.5" />
           </div>
         )}
 
