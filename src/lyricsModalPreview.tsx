@@ -75,6 +75,7 @@ const PreviewPage: React.FC = () => {
         playlistFolders={[]}
         playlistGroups={[]}
         language="ru"
+        navigationTabOrder={['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres']}
         isLibraryDataLoading={false}
         lyricsMode="closed"
         discordEnabled={false}

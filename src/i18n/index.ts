@@ -92,6 +92,13 @@ export interface Translations {
     fadeDuration: string;
     navigationTabs: string;
     navigationTabsDesc: string;
+    visibleNavigationTabs: string;
+    availableNavigationTabs: string;
+    addNavigationTab: string;
+    removeNavigationTab: string;
+    moveNavigationTabUp: string;
+    moveNavigationTabDown: string;
+    noAvailableNavigationTabs: string;
     discordRpc: string;
     discordEnabled: string;
     discordDisabled: string;
@@ -312,8 +319,15 @@ export const RU_TRANSLATIONS: Translations = {
     crossfadeAlways: 'Всегда',
     crossfadeAlwaysDesc: 'Затухание при переключении, паузе и повторе трека',
     fadeDuration: 'Длительность затухания',
-    navigationTabs: 'Отображение вкладок',
-    navigationTabsDesc: 'Включите или отключите разделы в верхней навигационной панели:',
+    navigationTabs: 'Вкладки навигации',
+    navigationTabsDesc: 'Добавляйте вкладки из списка, убирайте ненужные и меняйте порядок. В панели должна остаться хотя бы одна вкладка.',
+    visibleNavigationTabs: 'Показываются в панели',
+    availableNavigationTabs: 'Можно добавить',
+    addNavigationTab: 'Добавить вкладку',
+    removeNavigationTab: 'Убрать вкладку',
+    moveNavigationTabUp: 'Переместить выше',
+    moveNavigationTabDown: 'Переместить ниже',
+    noAvailableNavigationTabs: 'Все доступные вкладки уже добавлены.',
     discordRpc: 'Интеграция с Discord',
     discordEnabled: 'Включено',
     discordDisabled: 'Выключено',
@@ -535,7 +549,14 @@ export const EN_TRANSLATIONS: Translations = {
     crossfadeAlwaysDesc: 'Fade on manual switches, pause, and repeat-one loops',
     fadeDuration: 'Fade Duration',
     navigationTabs: 'Navigation Tabs',
-    navigationTabsDesc: 'Show or hide sections in the top navigation bar:',
+    navigationTabsDesc: 'Add tabs from the list, remove the ones you do not need, and reorder them. Keep at least one tab in the bar.',
+    visibleNavigationTabs: 'Shown in the navigation bar',
+    availableNavigationTabs: 'Available to add',
+    addNavigationTab: 'Add tab',
+    removeNavigationTab: 'Remove tab',
+    moveNavigationTabUp: 'Move up',
+    moveNavigationTabDown: 'Move down',
+    noAvailableNavigationTabs: 'All available tabs have been added.',
     discordRpc: 'Discord Integration',
     discordEnabled: 'Enabled',
     discordDisabled: 'Disabled',

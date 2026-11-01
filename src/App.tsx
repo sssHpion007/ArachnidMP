@@ -150,13 +150,16 @@ const INITIAL_PLAYLISTS: Playlist[] = [
   },
 ];
 
-const DEFAULT_VISIBLE_TABS: Record<MainViewType, boolean> = {
-  tracks: true,
-  playlists: true,
-  albums: true,
-  artists: true,
-  favorites: true,
-  genres: true,
+const DEFAULT_NAVIGATION_TAB_ORDER: MainViewType[] = ['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'];
+const isMainViewType = (id: string): id is MainViewType => DEFAULT_NAVIGATION_TAB_ORDER.includes(id as MainViewType);
+
+const normalizeNavigationTabOrder = (value: unknown): string[] => {
+  const ids = Array.isArray(value)
+    ? Array.from(new Set(value.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)))
+    : [...DEFAULT_NAVIGATION_TAB_ORDER];
+  if (ids.length === 0) return [...DEFAULT_NAVIGATION_TAB_ORDER];
+  if (!ids.some(isMainViewType)) ids.unshift('tracks');
+  return ids;
 };
 
 interface StoredThemeCache {
@@ -463,7 +466,24 @@ export const App: React.FC = () => {
   const [discordShowPauseIcon, setDiscordShowPauseIcon] = useState<boolean>(true);
   const [discordStatusMode, setDiscordStatusMode] = useState<'listening' | 'listening_app'>('listening_app');
   const [discordCustomClientId, setDiscordCustomClientId] = useState<string>('');
-  const [visibleTabs, setVisibleTabs] = useState<Record<MainViewType, boolean>>(DEFAULT_VISIBLE_TABS);
+  const [navigationTabOrder, setNavigationTabOrder] = useState<string[]>(DEFAULT_NAVIGATION_TAB_ORDER);
+  const visibleTabs = useMemo<Record<MainViewType, boolean>>(() => ({
+    tracks: navigationTabOrder.includes('tracks'),
+    playlists: navigationTabOrder.includes('playlists'),
+    albums: navigationTabOrder.includes('albums'),
+    artists: navigationTabOrder.includes('artists'),
+    favorites: navigationTabOrder.includes('favorites'),
+    genres: navigationTabOrder.includes('genres'),
+  }), [navigationTabOrder]);
+  useEffect(() => {
+    if (navigationTabOrder.includes(currentView)) return;
+    const firstAvailable = navigationTabOrder.find(isMainViewType) || 'tracks';
+    setCurrentView(firstAvailable);
+    setSelectedPlaylistId(null);
+    setSelectedAlbum(null);
+    setSelectedArtist(null);
+    setSelectedGenre(null);
+  }, [navigationTabOrder, currentView]);
   const [watchedFolders, setWatchedFolders] = useState<string[]>([]);
   const [autoScanOnStartup, setAutoScanOnStartup] = useState<boolean>(true);
   const [isMissingTracksModalOpen, setIsMissingTracksModalOpen] = useState<boolean>(false);
@@ -1614,8 +1634,17 @@ export const App: React.FC = () => {
             setDiscordStatusMode(parsed.discordStatusMode);
           }
           if (typeof parsed.discordCustomClientId === 'string') setDiscordCustomClientId(parsed.discordCustomClientId);
-          if (parsed.visibleTabs && typeof parsed.visibleTabs === 'object') {
-            setVisibleTabs({ ...DEFAULT_VISIBLE_TABS, ...parsed.visibleTabs });
+          if (Array.isArray(parsed.navigationTabOrder)) {
+            setNavigationTabOrder(normalizeNavigationTabOrder(parsed.navigationTabOrder));
+          } else if (parsed.visibleTabs && typeof parsed.visibleTabs === 'object') {
+            const legacyVisibleTabs = parsed.visibleTabs as Record<string, unknown>;
+            const migratedOrder = [
+              ...DEFAULT_NAVIGATION_TAB_ORDER.filter(id => legacyVisibleTabs[id] ?? true),
+              ...Object.entries(legacyVisibleTabs)
+                .filter(([id, visible]) => !isMainViewType(id) && visible === true)
+                .map(([id]) => id),
+            ];
+            setNavigationTabOrder(normalizeNavigationTabOrder(migratedOrder));
           }
           if (parsed.colorSchemeMode) {
             setColorSchemeMode(parsed.colorSchemeMode);
@@ -1721,6 +1750,7 @@ export const App: React.FC = () => {
       discordStatusMode,
       discordCustomClientId,
       visibleTabs,
+      navigationTabOrder,
       colorSchemeMode,
       isDynamicColor: colorSchemeMode === 'dynamic',
       fadeMode,
@@ -1733,7 +1763,7 @@ export const App: React.FC = () => {
     invoke('save_portable_settings', { data: JSON.stringify(settings) }).catch(error => {
       console.warn('Failed to save settings:', error);
     });
-  }, [themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface, startupDataLoaded]);
+  }, [themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface, startupDataLoaded]);
 
   // Browser-only fallback retains its existing single localStorage document format.
   useEffect(() => {
@@ -1755,6 +1785,7 @@ export const App: React.FC = () => {
       discordStatusMode,
       discordCustomClientId,
       visibleTabs,
+      navigationTabOrder,
       colorSchemeMode,
       isDynamicColor: colorSchemeMode === 'dynamic',
       fadeMode,
@@ -1769,7 +1800,7 @@ export const App: React.FC = () => {
     } catch (error) {
       console.warn('Failed to save browser library data:', error);
     }
-  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface]);
+  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface]);
 
   // Reveal the native window only after portable preferences have loaded, so the
   // selected startup layout is already active when the user sees it.
@@ -2831,8 +2862,7 @@ export const App: React.FC = () => {
         if (document.activeElement && document.activeElement instanceof HTMLElement) {
           document.activeElement.blur();
         }
-        const ALL_TABS: MainViewType[] = ['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'];
-        const activeTabs = ALL_TABS.filter(tabId => visibleTabs[tabId] ?? true);
+        const activeTabs = navigationTabOrder.filter(isMainViewType);
         if (activeTabs.length > 0) {
           const currentIdx = activeTabs.indexOf(currentView);
           let nextIdx: number;
@@ -3224,6 +3254,7 @@ export const App: React.FC = () => {
     selectedPlaylistId,
     currentView,
     visibleTabs,
+    navigationTabOrder,
     isMiniMode,
     toggleMiniMode,
     openLyricsWindow,
@@ -4158,23 +4189,30 @@ export const App: React.FC = () => {
     }));
   };
 
-  const handleToggleTabVisibility = (tabId: MainViewType) => {
-    setVisibleTabs(prev => {
-      const visibleCount = Object.values(prev).filter(Boolean).length;
-      if (prev[tabId] && visibleCount <= 1) return prev;
+  const handleAddNavigationTab = (tabId: string) => {
+    if (navigationTabOrder.includes(tabId)) return;
+    setNavigationTabOrder([...navigationTabOrder, tabId]);
+  };
 
-      const next = { ...prev, [tabId]: !prev[tabId] };
-      if (prev[tabId] && currentView === tabId) {
-        const order: MainViewType[] = ['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'];
-        const firstAvailable = order.find(id => next[id]) || 'tracks';
-        setCurrentView(firstAvailable);
-        setSelectedPlaylistId(null);
-        setSelectedAlbum(null);
-        setSelectedArtist(null);
-        setSelectedGenre(null);
-      }
-      return next;
-    });
+  const handleRemoveNavigationTab = (tabId: string) => {
+    const knownVisibleTabs = navigationTabOrder.filter(isMainViewType);
+    if (isMainViewType(tabId) && knownVisibleTabs.length <= 1) return;
+    const nextOrder = navigationTabOrder.filter(id => id !== tabId);
+    if (nextOrder.length === 0) return;
+    setNavigationTabOrder(nextOrder);
+
+    if (currentView === tabId && isMainViewType(currentView)) {
+      const firstAvailable = nextOrder.find(isMainViewType) || 'tracks';
+      setCurrentView(firstAvailable);
+      setSelectedPlaylistId(null);
+      setSelectedAlbum(null);
+      setSelectedArtist(null);
+      setSelectedGenre(null);
+    }
+  };
+
+  const handleReorderNavigationTabs = (tabOrder: string[]) => {
+    setNavigationTabOrder(normalizeNavigationTabOrder(tabOrder));
   };
 
   const handlePlaySelected = async () => {
@@ -5463,6 +5501,7 @@ export const App: React.FC = () => {
           playlistFolders={playlistFolders}
           playlistGroups={playlistGroups}
           language={language}
+          navigationTabOrder={navigationTabOrder}
           isDarkTheme={themeMode !== 'light'}
           isLibraryDataLoading={!startupDataLoaded || (isTauri() && nativePageLoading)}
           lyricsMode={miniLyricsMode}
@@ -5533,7 +5572,7 @@ export const App: React.FC = () => {
         discordEnabled={discordEnabled}
         onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
         showDiscordButton={showDiscordButton}
-        visibleTabs={visibleTabs}
+        navigationTabOrder={navigationTabOrder}
         language={language}
         hasUpdate={hasUpdate}
       />
@@ -5914,8 +5953,10 @@ export const App: React.FC = () => {
         onSetDiscordStatusMode={setDiscordStatusMode}
         discordCustomClientId={discordCustomClientId}
         onSetDiscordCustomClientId={setDiscordCustomClientId}
-        visibleTabs={visibleTabs}
-        onToggleTabVisibility={handleToggleTabVisibility}
+        navigationTabOrder={navigationTabOrder}
+        onAddNavigationTab={handleAddNavigationTab}
+        onRemoveNavigationTab={handleRemoveNavigationTab}
+        onReorderNavigationTabs={handleReorderNavigationTabs}
         currentTrack={currentTrack}
         isPlaying={isPlaying}
         currentTime={currentTime}

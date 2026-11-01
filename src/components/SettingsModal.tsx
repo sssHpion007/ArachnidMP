@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { 
   X, 
   Settings, 
@@ -21,6 +21,7 @@ import {
   Tag,
   Keyboard,
   ArrowLeft,
+  Plus,
   ChevronRight,
   ChevronDown,
   Globe,
@@ -41,6 +42,7 @@ import {
   Calendar,
   FolderKanban,
   FolderPlus,
+  GripVertical,
   Search
 } from 'lucide-react';
 import { marked } from 'marked';
@@ -50,7 +52,7 @@ import { CustomThemeInfo } from '../types/theme';
 import { ThemePaletteModal } from './ThemePaletteModal';
 import { HexColorInput } from './HexColorInput';
 import { ConfirmationModal } from './ConfirmationModal';
-import { MainViewType } from './TopBar';
+import { getMainNavigationTabs } from './TopBar';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage, getTranslations } from '../i18n';
 import { isTauri, invoke } from '@tauri-apps/api/core';
@@ -88,8 +90,10 @@ interface SettingsModalProps {
   onSetDiscordStatusMode: (mode: 'listening' | 'listening_app') => void;
   discordCustomClientId: string;
   onSetDiscordCustomClientId: (id: string) => void;
-  visibleTabs: Record<MainViewType, boolean>;
-  onToggleTabVisibility: (tab: MainViewType) => void;
+  navigationTabOrder: string[];
+  onAddNavigationTab: (tabId: string) => void;
+  onRemoveNavigationTab: (tabId: string) => void;
+  onReorderNavigationTabs: (tabOrder: string[]) => void;
   currentTrack: Track | null;
   isPlaying: boolean;
   currentTime: number;
@@ -163,8 +167,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSetDiscordStatusMode,
   discordCustomClientId,
   onSetDiscordCustomClientId,
-  visibleTabs,
-  onToggleTabVisibility,
+  navigationTabOrder,
+  onAddNavigationTab,
+  onRemoveNavigationTab,
+  onReorderNavigationTabs,
   currentTrack,
   isPlaying,
   currentTime,
@@ -212,6 +218,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const releaseNotesContainerRef = useRef<HTMLDivElement>(null);
   const mainSettingsContainerRef = useRef<HTMLDivElement>(null);
   const mainScrollTopRef = useRef<number>(0);
+  const draggedNavigationTabIdRef = useRef<string | null>(null);
+  const navigationTabDragOrderRef = useRef<string[] | null>(null);
+  const [draggedNavigationTabId, setDraggedNavigationTabId] = useState<string | null>(null);
+  const [navigationTabDragOrder, setNavigationTabDragOrder] = useState<string[] | null>(null);
+  const [dragOverNavigationTabId, setDragOverNavigationTabId] = useState<string | null>(null);
+  const wasSettingsOpenRef = useRef(false);
+  const shouldResetMainScrollOnOpenRef = useRef(false);
 
   const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen, 200);
 
@@ -228,12 +241,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const themeModeContainerRef = useRef<HTMLDivElement>(null);
   const themeModeRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
   const [indicatorTransitionsEnabled, setIndicatorTransitionsEnabled] = useState(false);
-  const hasPositionedIndicatorRef = useRef(false);
-  const enableIndicatorTransitionsAfterInitialPosition = () => {
-    if (hasPositionedIndicatorRef.current) return;
-    hasPositionedIndicatorRef.current = true;
-    window.requestAnimationFrame(() => setIndicatorTransitionsEnabled(true));
-  };
+  const enableIndicatorTransitions = () => setIndicatorTransitionsEnabled(true);
   const indicatorTransitionClass = indicatorTransitionsEnabled
     ? 'transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)]'
     : 'transition-none';
@@ -247,7 +255,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const updateThemeModeIndicator = () => {
     const el = themeModeRefs.current[themeMode];
     if (el) {
-      enableIndicatorTransitionsAfterInitialPosition();
       setThemeModeIndicatorStyle({
         left: el.offsetLeft,
         width: el.offsetWidth,
@@ -278,7 +285,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const updateCloseBehaviorIndicator = () => {
     const el = closeBehaviorRefs.current[closeBehavior];
     if (el) {
-      enableIndicatorTransitionsAfterInitialPosition();
       setCloseBehaviorIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, opacity: 1 });
     }
   };
@@ -289,7 +295,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const updateStartupInterfaceIndicator = () => {
     const el = startupInterfaceRefs.current[startupInterface];
     if (el) {
-      enableIndicatorTransitionsAfterInitialPosition();
       setStartupInterfaceIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, opacity: 1 });
     }
   };
@@ -328,7 +333,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const updateColorSchemeIndicator = () => {
     const el = colorSchemeRefs.current[colorSchemeMode];
     if (el) {
-      enableIndicatorTransitionsAfterInitialPosition();
       setColorSchemeIndicatorStyle({
         left: el.offsetLeft,
         width: el.offsetWidth,
@@ -365,7 +369,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const updateFadeModeIndicator = () => {
     const el = fadeModeRefs.current[fadeMode];
     if (el) {
-      enableIndicatorTransitionsAfterInitialPosition();
       setFadeModeIndicatorStyle({
         left: el.offsetLeft,
         width: el.offsetWidth,
@@ -430,6 +433,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       }
     }
   }, [currentView, latestRelease]);
+
+  useLayoutEffect(() => {
+    const justOpened = isOpen && !wasSettingsOpenRef.current;
+    wasSettingsOpenRef.current = isOpen;
+    if (justOpened) {
+      mainScrollTopRef.current = 0;
+      shouldResetMainScrollOnOpenRef.current = true;
+    }
+
+    if (!isOpen || !isRendered || currentView !== 'main' || !shouldResetMainScrollOnOpenRef.current) return;
+    mainSettingsContainerRef.current?.scrollTo({ top: 0, behavior: 'instant' });
+    shouldResetMainScrollOnOpenRef.current = false;
+  }, [isOpen, isRendered, currentView]);
 
   // Real-time logs subscriber and initial fetch
   useEffect(() => {
@@ -777,6 +793,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setIsLangCurtainOpen(false);
       onRefreshCustomThemes();
     } else {
+      setIndicatorTransitionsEnabled(false);
       setIsThemeCurtainOpen(false);
       setIsLangCurtainOpen(false);
     }
@@ -845,14 +862,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const navTabConfigs = [
-    { id: 'tracks' as MainViewType, label: t.nav.tracks, icon: Music },
-    { id: 'playlists' as MainViewType, label: t.nav.playlists, icon: ListMusic },
-    { id: 'albums' as MainViewType, label: t.nav.albums, icon: Disc },
-    { id: 'artists' as MainViewType, label: t.nav.artists, icon: Mic2 },
-    { id: 'favorites' as MainViewType, label: t.nav.favorites, icon: Heart },
-    { id: 'genres' as MainViewType, label: t.nav.genres, icon: Tag },
-  ];
+  const navTabConfigs = getMainNavigationTabs(t);
+  const getReorderedNavigationTabOrder = (sourceId: string, targetId: string, afterTarget: boolean, baseOrder: string[]) => {
+    if (sourceId === targetId) return null;
+    const registeredIds = new Set<string>(navTabConfigs.map(tab => tab.id));
+    const reorderedVisibleIds = baseOrder.filter(id => registeredIds.has(id));
+    const sourceIndex = reorderedVisibleIds.indexOf(sourceId);
+    const targetIndex = reorderedVisibleIds.indexOf(targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return null;
+    const [movingId] = reorderedVisibleIds.splice(sourceIndex, 1);
+    let insertIndex = targetIndex + (afterTarget ? 1 : 0);
+    if (sourceIndex < insertIndex) insertIndex -= 1;
+    reorderedVisibleIds.splice(insertIndex, 0, movingId);
+    let visibleIndex = 0;
+    const nextOrder = baseOrder.map(id => registeredIds.has(id) ? reorderedVisibleIds[visibleIndex++] : id);
+    return nextOrder.every((id, index) => id === baseOrder[index]) ? null : nextOrder;
+  };
+  const visibleNavigationTabs = (navigationTabDragOrder ?? navigationTabOrder)
+    .map(id => navTabConfigs.find(tab => tab.id === id))
+    .filter((tab): tab is (typeof navTabConfigs)[number] => Boolean(tab));
+  const availableNavigationTabs = navTabConfigs.filter(tab => !navigationTabOrder.includes(tab.id));
 
   // Helper to get active theme object
   const activeCustomTheme = (() => {
@@ -2093,7 +2122,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       ref={(el) => { themeModeRefs.current['dark'] = el; }}
                       tabIndex={-1}
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => onSetThemeMode('dark')}
+                      onClick={() => { enableIndicatorTransitions(); onSetThemeMode('dark'); }}
                       className={`relative z-10 flex-1 py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                         themeMode === 'dark'
                           ? 'text-md3-on-primary font-bold'
@@ -2109,7 +2138,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       ref={(el) => { themeModeRefs.current['amoled'] = el; }}
                       tabIndex={-1}
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => onSetThemeMode('amoled')}
+                      onClick={() => { enableIndicatorTransitions(); onSetThemeMode('amoled'); }}
                       className={`relative z-10 flex-1 py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                         themeMode === 'amoled'
                           ? 'text-md3-on-primary font-bold'
@@ -2129,7 +2158,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       ref={(el) => { themeModeRefs.current['light'] = el; }}
                       tabIndex={-1}
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => onSetThemeMode('light')}
+                      onClick={() => { enableIndicatorTransitions(); onSetThemeMode('light'); }}
                       className={`relative z-10 flex-1 py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                         themeMode === 'light'
                           ? 'text-md3-on-primary font-bold'
@@ -2167,7 +2196,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         ref={(el) => { colorSchemeRefs.current['dynamic'] = el; }}
                         tabIndex={-1}
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => onSetColorSchemeMode('dynamic')}
+                        onClick={() => { enableIndicatorTransitions(); onSetColorSchemeMode('dynamic'); }}
                         className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                           colorSchemeMode === 'dynamic'
                             ? 'text-md3-on-primary font-bold'
@@ -2184,7 +2213,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         ref={(el) => { colorSchemeRefs.current['system'] = el; }}
                         tabIndex={-1}
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => onSetColorSchemeMode('system')}
+                        onClick={() => { enableIndicatorTransitions(); onSetColorSchemeMode('system'); }}
                         className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                           colorSchemeMode === 'system'
                             ? 'text-md3-on-primary font-bold'
@@ -2201,7 +2230,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         ref={(el) => { colorSchemeRefs.current['custom'] = el; }}
                         tabIndex={-1}
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => onSetColorSchemeMode('custom')}
+                        onClick={() => { enableIndicatorTransitions(); onSetColorSchemeMode('custom'); }}
                         className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                           colorSchemeMode === 'custom'
                             ? 'text-md3-on-primary font-bold'
@@ -2437,7 +2466,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ref={(el) => { fadeModeRefs.current['off'] = el; }}
                   tabIndex={-1}
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => onSetFadeMode('off')}
+                  onClick={() => { enableIndicatorTransitions(); onSetFadeMode('off'); }}
                   className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                     fadeMode === 'off'
                       ? 'text-md3-on-primary font-bold'
@@ -2454,7 +2483,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ref={(el) => { fadeModeRefs.current['track_change_and_pause'] = el; }}
                   tabIndex={-1}
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => onSetFadeMode('track_change_and_pause')}
+                  onClick={() => { enableIndicatorTransitions(); onSetFadeMode('track_change_and_pause'); }}
                   className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                     fadeMode === 'track_change_and_pause'
                       ? 'text-md3-on-primary font-bold'
@@ -2471,7 +2500,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ref={(el) => { fadeModeRefs.current['always'] = el; }}
                   tabIndex={-1}
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => onSetFadeMode('always')}
+                  onClick={() => { enableIndicatorTransitions(); onSetFadeMode('always'); }}
                   className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                     fadeMode === 'always'
                       ? 'text-md3-on-primary font-bold'
@@ -2514,41 +2543,129 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             {/* 3. Section: Navigation Tabs Visibility */}
-            <div className="space-y-3 pt-4 border-t border-md3-outline-variant/20">
+            <div className="space-y-2.5 pt-3 border-t border-md3-outline-variant/20">
               <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
                 <LayoutGrid className="w-4 h-4 text-md3-primary" />
                 <span>{t.settings.navigationTabs}</span>
               </div>
-              <p className="text-xs text-md3-on-surface-variant">
+              <p className="text-[11px] leading-relaxed text-md3-on-surface-variant">
                 {t.settings.navigationTabsDesc}
               </p>
-              <div className="grid grid-cols-2 gap-2">
-                {navTabConfigs.map((tab) => {
-                  const Icon = tab.icon;
-                  const isVisible = visibleTabs[tab.id] ?? true;
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => onToggleTabVisibility(tab.id)}
-                      className={`p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer ${
-                        isVisible
-                          ? 'border-md3-primary/40 bg-md3-primary/10 text-md3-on-surface font-medium'
-                          : 'border-md3-outline-variant/20 bg-md3-surface/40 text-md3-on-surface-variant/60'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <Icon className={`w-4 h-4 ${isVisible ? 'text-md3-primary' : 'opacity-40'}`} />
-                        <span className="text-xs">{tab.label}</span>
+              <div className="space-y-2">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between px-1">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-md3-on-surface-variant">
+                      {t.settings.visibleNavigationTabs}
+                    </div>
+                    <span className="text-[10px] font-medium tabular-nums text-md3-on-surface-variant/70">{visibleNavigationTabs.length}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 rounded-2xl border border-md3-outline-variant/20 bg-md3-surface/40 p-2">
+                  {visibleNavigationTabs.map(tab => {
+                    const Icon = tab.icon;
+                    return (
+                      <div
+                        key={tab.id}
+                        draggable={visibleNavigationTabs.length > 1}
+                        onDragStart={event => {
+                          draggedNavigationTabIdRef.current = tab.id;
+                          navigationTabDragOrderRef.current = [...navigationTabOrder];
+                          setDraggedNavigationTabId(tab.id);
+                          setNavigationTabDragOrder([...navigationTabOrder]);
+                          event.dataTransfer.effectAllowed = 'move';
+                          event.dataTransfer.setData('text/plain', tab.id);
+                        }}
+                        onDragOver={event => {
+                          const sourceId = draggedNavigationTabIdRef.current;
+                          if (!sourceId || sourceId === tab.id) return;
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = 'move';
+                          setDragOverNavigationTabId(tab.id);
+                          const bounds = event.currentTarget.getBoundingClientRect();
+                          const afterTarget = event.clientX >= bounds.left + bounds.width / 2;
+                          const baseOrder = navigationTabDragOrderRef.current ?? navigationTabOrder;
+                          const nextOrder = getReorderedNavigationTabOrder(sourceId, tab.id, afterTarget, baseOrder);
+                          if (nextOrder) {
+                            navigationTabDragOrderRef.current = nextOrder;
+                            setNavigationTabDragOrder(nextOrder);
+                          }
+                        }}
+                        onDrop={event => {
+                          event.preventDefault();
+                          const sourceId = draggedNavigationTabIdRef.current || event.dataTransfer.getData('text/plain');
+                          const bounds = event.currentTarget.getBoundingClientRect();
+                          const afterTarget = event.clientX >= bounds.left + bounds.width / 2;
+                          const baseOrder = navigationTabDragOrderRef.current ?? navigationTabOrder;
+                          const nextOrder = sourceId ? getReorderedNavigationTabOrder(sourceId, tab.id, afterTarget, baseOrder) : null;
+                          if (nextOrder) onReorderNavigationTabs(nextOrder);
+                          else if (sourceId && navigationTabDragOrderRef.current) onReorderNavigationTabs(navigationTabDragOrderRef.current);
+                          draggedNavigationTabIdRef.current = null;
+                          navigationTabDragOrderRef.current = null;
+                          setDraggedNavigationTabId(null);
+                          setNavigationTabDragOrder(null);
+                          setDragOverNavigationTabId(null);
+                        }}
+                        onDragEnd={() => {
+                          draggedNavigationTabIdRef.current = null;
+                          navigationTabDragOrderRef.current = null;
+                          setDraggedNavigationTabId(null);
+                          setNavigationTabDragOrder(null);
+                          setDragOverNavigationTabId(null);
+                        }}
+                        className={`flex max-w-full items-center gap-1 rounded-full border bg-md3-surface py-1 pl-2 pr-1 transition-all ${
+                          draggedNavigationTabId === tab.id ? 'opacity-40' : ''
+                        } ${
+                          dragOverNavigationTabId === tab.id ? 'border-md3-primary/50 bg-md3-primary/5 ring-1 ring-md3-primary/20' : 'border-md3-outline-variant/15 hover:border-md3-outline-variant/30'
+                        } ${visibleNavigationTabs.length > 1 ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                      >
+                        <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-md3-on-surface-variant/60" />
+                        <Icon className="h-3.5 w-3.5 shrink-0 text-md3-primary" />
+                        <span className="min-w-0 max-w-36 truncate text-[11px] font-medium text-md3-on-surface">{tab.label}</span>
+                        <div className="flex shrink-0 items-center gap-0.5">
+                          <button
+                            type="button"
+                            title={`${t.settings.removeNavigationTab}: ${tab.label}`}
+                            aria-label={`${t.settings.removeNavigationTab}: ${tab.label}`}
+                            disabled={visibleNavigationTabs.length <= 1}
+                            onClick={() => onRemoveNavigationTab(tab.id)}
+                            className="rounded-md p-0.5 text-md3-on-surface-variant transition-colors hover:bg-red-500/10 hover:text-red-400 disabled:cursor-default disabled:opacity-30"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
                       </div>
-                      <input
-                        type="checkbox"
-                        checked={isVisible}
-                        onChange={() => {}}
-                        className="w-4 h-4 rounded accent-md3-primary pointer-events-none"
-                      />
-                    </button>
-                  );
-                })}
+                    );
+                  })}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="px-1 text-[10px] font-bold uppercase tracking-wider text-md3-on-surface-variant">
+                    {t.settings.availableNavigationTabs}
+                  </div>
+                  {availableNavigationTabs.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                    {availableNavigationTabs.map(tab => {
+                    const Icon = tab.icon;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => onAddNavigationTab(tab.id)}
+                        className="flex max-w-full items-center gap-1.5 rounded-full border border-md3-outline-variant/15 bg-md3-surface/50 px-2.5 py-1.5 text-left text-md3-on-surface-variant transition-colors hover:border-md3-primary/30 hover:bg-md3-primary/5 hover:text-md3-on-surface"
+                      >
+                        <Icon className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate text-[11px]">{tab.label}</span>
+                        <Plus className="h-3.5 w-3.5 shrink-0 text-md3-primary" />
+                      </button>
+                    );
+                  })}
+                    </div>
+                  ) : (
+                    <p className="rounded-xl bg-md3-surface/50 p-2 text-[11px] text-md3-on-surface-variant">
+                      {t.settings.noAvailableNavigationTabs}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -2624,7 +2741,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     aria-checked={closeBehavior === 'exit'}
                     tabIndex={-1}
                     onMouseDown={event => event.preventDefault()}
-                    onClick={() => onSetCloseBehavior?.('exit')}
+                    onClick={() => { enableIndicatorTransitions(); onSetCloseBehavior?.('exit'); }}
                     className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'exit' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
                   >
                     <X className="w-4 h-4 shrink-0" />
@@ -2637,7 +2754,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     aria-checked={closeBehavior === 'tray'}
                     tabIndex={-1}
                     onMouseDown={event => event.preventDefault()}
-                    onClick={() => onSetCloseBehavior?.('tray')}
+                    onClick={() => { enableIndicatorTransitions(); onSetCloseBehavior?.('tray'); }}
                     className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'tray' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
                   >
                     <Radio className="w-4 h-4 shrink-0" />
@@ -2675,7 +2792,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     aria-checked={startupInterface === 'full'}
                     tabIndex={-1}
                     onMouseDown={event => event.preventDefault()}
-                    onClick={() => onSetStartupInterface?.('full')}
+                    onClick={() => { enableIndicatorTransitions(); onSetStartupInterface?.('full'); }}
                     className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'full' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
                   >
                     <Monitor className="w-4 h-4 shrink-0" />
@@ -2688,7 +2805,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     aria-checked={startupInterface === 'mini'}
                     tabIndex={-1}
                     onMouseDown={event => event.preventDefault()}
-                    onClick={() => onSetStartupInterface?.('mini')}
+                    onClick={() => { enableIndicatorTransitions(); onSetStartupInterface?.('mini'); }}
                     className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'mini' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
                   >
                     <Music className="w-4 h-4 shrink-0" />

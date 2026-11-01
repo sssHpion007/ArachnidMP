@@ -41,6 +41,8 @@ import { logger } from '../services/logger';
 type LyricsMode = 'closed' | 'attached' | 'detached';
 type BottomPanel = 'queue' | 'library' | null;
 type LibraryTab = 'tracks' | 'playlists' | 'albums' | 'artists' | 'favorites' | 'genres';
+const ALL_LIBRARY_TABS: LibraryTab[] = ['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'];
+const isLibraryTab = (tab: string): tab is LibraryTab => ALL_LIBRARY_TABS.includes(tab as LibraryTab);
 type LibraryCollectionType = 'albums' | 'artists' | 'genres';
 type MiniPlaylistEntry =
   | { type: 'folder'; item: PlaylistFolder; order: number }
@@ -204,6 +206,7 @@ interface MiniPlayerProps {
   playlistFolders: PlaylistFolder[];
   playlistGroups: PlaylistGroup[];
   language: AppLanguage;
+  navigationTabOrder: string[];
   isDarkTheme?: boolean;
   isLibraryDataLoading?: boolean;
   lyricsMode: LyricsMode;
@@ -276,6 +279,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   playlistFolders,
   playlistGroups,
   language,
+  navigationTabOrder,
   isDarkTheme = true,
   isLibraryDataLoading = false,
   lyricsMode,
@@ -346,6 +350,18 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const activeMiniLibraryPageKeyRef = useRef<'tracks' | 'favorites' | null>(null);
   const miniLibraryPageGenerationRef = useRef(0);
   const currentPlaylist = playlists.find(playlist => playlist.id === selectedPlaylistId) || null;
+  const visibleLibraryTabs = useMemo<LibraryTab[]>(() => {
+    const tabs = navigationTabOrder.filter(isLibraryTab);
+    return tabs.length > 0 ? tabs : ALL_LIBRARY_TABS;
+  }, [navigationTabOrder]);
+  useEffect(() => {
+    if (visibleLibraryTabs.includes(libraryTab)) return;
+    setLibraryTab(visibleLibraryTabs[0] ?? 'tracks');
+    setSelectedPlaylistId(null);
+    setSelectedPlaylistFolderId(null);
+    setSelectedPlaylistGroupId(null);
+    setSelectedCollection(null);
+  }, [visibleLibraryTabs, libraryTab]);
   const [isCompactVolHovered, setIsCompactVolHovered] = useState(false);
   const [queueSelectedIndex, setQueueSelectedIndex] = useState<number | null>(null);
   const [libraryTrackSelectedIndex, setLibraryTrackSelectedIndex] = useState<number | null>(null);
@@ -392,7 +408,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   };
 
   const openLibraryPanel = () => {
-    setLibraryTab('tracks');
+    setLibraryTab(visibleLibraryTabs[0] ?? 'tracks');
     setSelectedPlaylistId(null);
     setSelectedPlaylistFolderId(null);
     setSelectedPlaylistGroupId(null);
@@ -504,7 +520,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
           return;
         }
 
-        const tabs: LibraryTab[] = ['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'];
+        const tabs = visibleLibraryTabs;
+        if (tabs.length === 0) return;
         const currentIndex = tabs.indexOf(libraryTab);
         const nextIndex = event.shiftKey
           ? (currentIndex <= 0 ? tabs.length - 1 : currentIndex - 1)
@@ -587,7 +604,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     };
     window.addEventListener('keydown', handleMiniPlayerKeyboard, true);
     return () => window.removeEventListener('keydown', handleMiniPlayerKeyboard, true);
-  }, [bottomPanel, libraryTab, libraryTrackSelectedIndex, currentPlaylist?.id, currentTrack?.id, onPlayQueueTrack, onPlayTrack, queue.length, queueIndex, queueSelectedIndex]);
+  }, [bottomPanel, libraryTab, visibleLibraryTabs, libraryTrackSelectedIndex, currentPlaylist?.id, currentTrack?.id, onPlayQueueTrack, onPlayTrack, queue.length, queueIndex, queueSelectedIndex]);
 
   useEffect(() => {
     setQueueSelectedIndex(current => current === null
@@ -668,7 +685,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       cancelAnimationFrame(frame);
       resizeObserver?.disconnect();
     };
-  }, [bottomPanel, libraryTab]);
+  }, [bottomPanel, libraryTab, visibleLibraryTabs]);
 
   const safeDuration = duration > 0 ? duration : (currentTrack?.duration || 0);
   const safeTime = Math.max(0, Math.min(safeDuration || 0, currentTime));
@@ -1494,7 +1511,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                       boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
                     }}
                   />
-                  {(['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'] as LibraryTab[]).map(tab => {
+                  {visibleLibraryTabs.map(tab => {
                     const label = tab === 'tracks' ? text(language, 'Треки', 'Tracks')
                       : tab === 'playlists' ? text(language, 'Плейлисты', 'Playlists')
                         : tab === 'albums' ? text(language, 'Альбомы', 'Albums')
