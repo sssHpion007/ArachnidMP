@@ -664,7 +664,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
                     : isVisualSelected
                     ? 'bg-md3-primary/15 text-md3-on-surface ring-1 ring-inset ring-md3-primary/30 font-medium'
                     : isCurrent
-                    ? 'text-md3-on-surface hover:bg-md3-surface-container/60'
+                    ? 'bg-md3-surface-container-high text-md3-primary hover:bg-md3-surface-container-highest'
                     : 'hover:bg-md3-surface-container/60 text-md3-on-surface'
                 }`}
               >

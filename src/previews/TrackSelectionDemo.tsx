@@ -97,7 +97,12 @@ const TrackSelectionDemo: React.FC = () => {
       lastSelectedIndexRef.current = nextIndex;
       setSelectedTrackIds(new Set([nextTrack.id]));
       setLastSelectedIndex(nextIndex);
-      requestAnimationFrame(() => document.querySelector(`[data-track-row-id="${nextTrack.id}"]`)?.scrollIntoView({ block: 'nearest' }));
+      requestAnimationFrame(() => {
+        const container = document.querySelector('[data-track-table-scroll]') as HTMLDivElement | null;
+        const row = (container?.querySelector(`[data-track-row-index="${nextIndex}"]`)
+          || container?.querySelector('[data-track-row-index]')) as HTMLElement | null;
+        if (container) container.scrollTop = nextIndex * (Number.parseFloat(row?.style.height ?? '') || 54);
+      });
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -243,7 +248,7 @@ const TrackSelectionDemo: React.FC = () => {
       </section>
 
       <footer className="selection-demo-legend">
-        <span><i className="legend-current" /> Активный трек — только индикатор воспроизведения</span>
+        <span><i className="legend-current" /> Активный трек — отдельная подсветка без рамки выбора</span>
         <span><i className="legend-selected" /> Выбор пользователя — появляется после стрелок или клика</span>
         <span className="selection-demo-tip">Для очереди нажмите ↑ / ↓, затем Enter — выбранная композиция включится.</span>
       </footer>

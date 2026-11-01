@@ -36,11 +36,13 @@ export const MiniTrackRow: React.FC<MiniTrackRowProps> = ({
     aria-selected={selected ? true : undefined}
     onClick={onClick}
     className={`group flex w-full min-w-0 items-center gap-2.5 rounded-2xl p-2 text-left transition-[background-color,color,box-shadow] duration-150 ease-out ${
-      selected
-        ? 'bg-md3-primary/10 ring-1 ring-inset ring-md3-primary/50 text-md3-on-surface'
-        : active
-          ? 'text-md3-on-surface'
-          : 'text-md3-on-surface hover:bg-md3-surface-container-high'
+      selected && active
+        ? 'bg-md3-primary-container font-semibold text-md3-on-primary-container shadow-sm ring-2 ring-inset ring-md3-primary/70'
+        : selected
+          ? 'bg-md3-primary/10 ring-1 ring-inset ring-md3-primary/50 text-md3-on-surface'
+          : active
+            ? 'bg-md3-primary-container font-semibold text-md3-on-primary-container shadow-sm'
+            : 'text-md3-on-surface hover:bg-md3-surface-container-high'
     }`}
   >
     <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-md3-surface-container-highest shadow-sm">
@@ -51,7 +53,7 @@ export const MiniTrackRow: React.FC<MiniTrackRowProps> = ({
       )}
     </span>
     <span className="min-w-0 flex-1">
-      <span className={`flex items-center gap-1.5 truncate text-[11px] font-bold ${track.isMissing ? 'text-amber-500 dark:text-amber-400' : active ? 'text-md3-primary' : ''}`}>
+      <span className={`flex items-center gap-1.5 truncate text-[11px] font-bold ${track.isMissing ? 'text-amber-500 dark:text-amber-400' : active ? 'text-md3-on-primary-container' : ''}`}>
         <span className="truncate">{track.title}</span>
         {track.isMissing && <span title={language === 'ru' ? 'Файл не найден' : 'File not found'}><AlertTriangle size={12} className="shrink-0" /></span>}
       </span>

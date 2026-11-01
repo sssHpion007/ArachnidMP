@@ -337,6 +337,8 @@ export const App: React.FC = () => {
   const [selectedTracksList, setSelectedTracksList] = useState<Track[]>([]);
   const [pendingKeyboardTrackIndex, setPendingKeyboardTrackIndex] = useState<number | null>(null);
   const pendingKeyboardTrackIndexRef = useRef<number | null>(null);
+  const pendingKeyboardScrollIndexRef = useRef<number | null>(null);
+  const keyboardScrollFrameRef = useRef<number | null>(null);
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
   const lastSelectedIndexRef = useRef<number | null>(null);
   const selectedTrackIdsRef = useRef<Set<string>>(selectedTrackIds);
@@ -2655,6 +2657,27 @@ export const App: React.FC = () => {
     });
   };
 
+  const scrollKeyboardSelectedTrackToTop = useCallback((index: number) => {
+    pendingKeyboardScrollIndexRef.current = index;
+    if (keyboardScrollFrameRef.current !== null) return;
+    keyboardScrollFrameRef.current = requestAnimationFrame(() => {
+      keyboardScrollFrameRef.current = null;
+      const targetIndex = pendingKeyboardScrollIndexRef.current;
+      pendingKeyboardScrollIndexRef.current = null;
+      if (targetIndex === null) return;
+      const container = document.querySelector('[data-track-table-scroll]') as HTMLDivElement | null;
+      if (!container) return;
+      const row = (container.querySelector(`[data-track-row-index="${targetIndex}"]`)
+        || container.querySelector('[data-track-row-index]')) as HTMLElement | null;
+      const rowHeight = Number.parseFloat(row?.style.height ?? '') || 54;
+      container.scrollTop = Math.max(0, targetIndex * rowHeight);
+    });
+  }, []);
+
+  useEffect(() => () => {
+    if (keyboardScrollFrameRef.current !== null) cancelAnimationFrame(keyboardScrollFrameRef.current);
+  }, []);
+
   // Prevent buttons from retaining focus on click so keyboard shortcuts never highlight or re-trigger them
   useEffect(() => {
     const handleGlobalMouseDown = (e: MouseEvent) => {
@@ -2872,10 +2895,7 @@ export const App: React.FC = () => {
             lastSelectedIndexRef.current = nextIdx;
             setSelectedTrackIds(newSet);
             setLastSelectedIndex(nextIdx);
-            requestAnimationFrame(() => {
-              const el = document.querySelector(`[data-track-row-id="${nextTrack.id}"]`);
-              el?.scrollIntoView({ block: 'nearest' });
-            });
+            scrollKeyboardSelectedTrackToTop(nextIdx);
           }
         }
       } else if ((e.code === 'ArrowUp' || e.key === 'ArrowUp') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
@@ -2913,10 +2933,7 @@ export const App: React.FC = () => {
             lastSelectedIndexRef.current = prevIdx;
             setSelectedTrackIds(newSet);
             setLastSelectedIndex(prevIdx);
-            requestAnimationFrame(() => {
-              const el = document.querySelector(`[data-track-row-id="${prevTrack.id}"]`);
-              el?.scrollIntoView({ block: 'nearest' });
-            });
+            scrollKeyboardSelectedTrackToTop(prevIdx);
           }
         }
       // Shift + Enter: Edit tags of selected track(s)
@@ -3181,6 +3198,7 @@ export const App: React.FC = () => {
     nativeTrackIndices,
     nativeTrackTotal,
     selectNativeTrackAtIndex,
+    scrollKeyboardSelectedTrackToTop,
   ]);
 
   const pendingTauriPathsRef = useRef<Set<string>>(new Set());

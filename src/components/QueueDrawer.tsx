@@ -150,14 +150,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
     const frameId = requestAnimationFrame(() => {
       const container = listContainerRef.current;
       if (!container) return;
-      const rowTop = selectedIndex * QUEUE_ROW_HEIGHT;
-      const rowBottom = rowTop + QUEUE_ROW_CONTENT_HEIGHT;
-      const viewportTop = container.scrollTop;
-      const viewportBottom = viewportTop + container.clientHeight;
-      if (rowTop < viewportTop) container.scrollTo({ top: rowTop, behavior: 'smooth' });
-      else if (rowBottom > viewportBottom) {
-        container.scrollTo({ top: rowBottom - container.clientHeight, behavior: 'smooth' });
-      }
+      container.scrollTop = selectedIndex * QUEUE_ROW_HEIGHT;
     });
     return () => cancelAnimationFrame(frameId);
   }, [isOpen, selectedIndex]);
@@ -417,8 +410,12 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                   className={`group flex items-center justify-between p-2 rounded-2xl transition-[background-color,color,box-shadow] duration-150 ease-out select-none ${
                     isBeingDragged
                       ? 'opacity-30 bg-md3-primary/10 border-dashed border border-md3-primary/40'
+                      : idx === selectedIndex && isCurrent
+                      ? 'bg-md3-primary-container text-md3-on-primary-container font-semibold shadow-sm ring-2 ring-inset ring-md3-primary/70'
                       : idx === selectedIndex
                       ? 'bg-md3-primary/10 ring-2 ring-inset ring-md3-primary/60 text-md3-on-surface'
+                      : isCurrent
+                      ? 'bg-md3-primary-container text-md3-on-primary-container font-semibold shadow-sm'
                       : 'hover:bg-md3-surface-container-high text-md3-on-surface'
                   }`}
                 >
@@ -474,7 +471,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                           track.isMissing
                             ? 'text-amber-500/90 dark:text-amber-400/90'
                             : isCurrent
-                            ? 'text-md3-primary'
+                            ? 'text-md3-on-primary-container'
                             : 'text-md3-on-surface'
                         }`}>
                           {track.title}

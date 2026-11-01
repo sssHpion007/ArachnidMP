@@ -67,7 +67,7 @@ const getFixedRowRange = <T,>(items: T[], scrollTop: number, viewportHeight: num
 const scrollFixedRowIntoView = (
   container: HTMLDivElement | null,
   index: number,
-  align: 'nearest' | 'center' = 'nearest',
+  align: 'nearest' | 'center' | 'start' = 'nearest',
   behavior: ScrollBehavior = 'auto',
 ) => {
   if (!container || index < 0) return;
@@ -76,6 +76,8 @@ const scrollFixedRowIntoView = (
   let targetTop = container.scrollTop;
   if (align === 'center') {
     targetTop = rowTop - (container.clientHeight - MINI_TRACK_ROW_HEIGHT) / 2;
+  } else if (align === 'start') {
+    targetTop = rowTop;
   } else if (rowTop < container.scrollTop) {
     targetTop = rowTop;
   } else if (rowBottom > container.scrollTop + container.clientHeight) {
@@ -578,7 +580,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     if (bottomPanel !== 'queue' || queueSelectedIndex === null || queuePendingScrollIndexRef.current !== queueSelectedIndex) return;
     queuePendingScrollIndexRef.current = null;
     const frame = requestAnimationFrame(() => {
-      scrollFixedRowIntoView(queueListRef.current, queueSelectedIndex, 'nearest', 'smooth');
+      scrollFixedRowIntoView(queueListRef.current, queueSelectedIndex, 'start', 'auto');
     });
     return () => cancelAnimationFrame(frame);
   }, [bottomPanel, queueSelectedIndex, queue.length]);
@@ -1018,7 +1020,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     if (bottomPanel !== 'library' || libraryTrackSelectedIndex === null || libraryPendingScrollIndexRef.current !== libraryTrackSelectedIndex) return;
     libraryPendingScrollIndexRef.current = null;
     const frame = requestAnimationFrame(() => {
-      scrollFixedRowIntoView(libraryListRef.current, libraryTrackSelectedIndex, 'nearest', 'smooth');
+      scrollFixedRowIntoView(libraryListRef.current, libraryTrackSelectedIndex, 'start', 'auto');
     });
     return () => cancelAnimationFrame(frame);
   }, [bottomPanel, libraryTrackSelectedIndex, libraryTracks.length]);
