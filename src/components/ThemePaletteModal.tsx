@@ -3,6 +3,9 @@ import { Palette, X, RotateCcw, Check, SlidersHorizontal } from 'lucide-react';
 import { CustomThemeInfo, ThemePaletteItem } from '../types/theme';
 import { AppLanguage, getTranslations } from '../i18n';
 import { useModalAnimation } from '../utils/useModalAnimation';
+import { hexToRgbString } from '../theme/material3';
+import { normalizeHexColor } from '../utils/hexColor';
+import { HexColorInput } from './HexColorInput';
 
 interface ThemePaletteModalProps {
   isOpen: boolean;
@@ -46,6 +49,17 @@ export const ThemePaletteModal: React.FC<ThemePaletteModalProps> = ({
 
   if (!isRendered || !activeTheme) return null;
   const themeData = activeTheme;
+  const themePaletteVariables = {} as React.CSSProperties;
+  const themePaletteVariableMap = themePaletteVariables as Record<string, string>;
+  for (const item of themeData.palette || []) {
+    if (!item.cssVar.startsWith('--md-sys-color-')) continue;
+    const color = normalizeHexColor(paletteColors[item.id] || item.default);
+    if (!color) continue;
+    themePaletteVariableMap[item.cssVar] = color;
+    if (!item.cssVar.endsWith('-rgb')) {
+      themePaletteVariableMap[`${item.cssVar}-rgb`] = hexToRgbString(color);
+    }
+  }
 
   return (
     <div
@@ -59,7 +73,8 @@ export const ThemePaletteModal: React.FC<ThemePaletteModalProps> = ({
       <div
         ref={modalRef}
         onClick={(e) => e.stopPropagation()}
-        className={`max-w-xl w-full max-h-[85vh] rounded-3xl bg-md3-surface border border-md3-outline-variant/30 shadow-2xl flex flex-col overflow-hidden cursor-default ${dialogClass}`}
+        style={themePaletteVariables}
+        className={`max-w-2xl w-full max-h-[88vh] rounded-3xl bg-md3-surface border border-md3-outline-variant/30 shadow-2xl flex flex-col overflow-hidden cursor-default ${dialogClass}`}
       >
         {/* Header */}
         <div className="p-5 border-b border-md3-outline-variant/15 flex items-center justify-between shrink-0 bg-md3-surface-container-low">
@@ -93,8 +108,32 @@ export const ThemePaletteModal: React.FC<ThemePaletteModalProps> = ({
           </button>
         </div>
 
+        <div className="mx-5 mt-4 flex items-center justify-between gap-4 rounded-2xl border border-md3-outline-variant/20 bg-md3-surface-container-low px-4 py-3">
+          <div className="min-w-0">
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-md3-primary">
+              {language === 'ru' ? 'Предпросмотр палитры' : 'Palette preview'}
+            </div>
+            <p className="mt-1 text-[11px] text-md3-on-surface-variant">
+              {language === 'ru' ? 'Вставьте HEX-код — цвет применится сразу.' : 'Paste a HEX value; the color applies immediately.'}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {themeData.palette.slice(0, 6).map(item => {
+              const color = (paletteColors[item.id] || item.default || '#ffffff').toLowerCase();
+              return (
+                <span
+                  key={item.id}
+                  className="h-7 w-7 rounded-lg border border-white/15 shadow-sm"
+                  style={{ backgroundColor: color }}
+                  title={`${item.label}: ${color.toUpperCase()}`}
+                />
+              );
+            })}
+          </div>
+        </div>
+
         {/* Content: List of customizable palette items */}
-        <div className="p-5 overflow-y-auto space-y-3 custom-scrollbar flex-1">
+        <div className="space-y-3 overflow-y-auto p-5 custom-scrollbar flex-1">
           {theme.palette && theme.palette.length > 0 ? (
             theme.palette.map((item: ThemePaletteItem) => {
               const currentColor = (paletteColors[item.id] || item.default || '#ffffff').toLowerCase();
@@ -103,57 +142,47 @@ export const ThemePaletteModal: React.FC<ThemePaletteModalProps> = ({
               return (
                 <div
                   key={item.id}
-                  className="p-3.5 rounded-2xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex items-center justify-between gap-4 hover:border-md3-outline-variant/40 transition-colors"
+                  className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] items-center gap-3.5 rounded-2xl border border-l-4 border-md3-outline-variant/20 bg-md3-surface-container-low p-3.5 transition-colors hover:border-md3-outline-variant/40"
+                  style={{ borderLeftColor: currentColor }}
                 >
-                  {/* Left: Info */}
-                  <div className="space-y-0.5 min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-bold text-md3-on-surface">
-                        {item.label}
-                      </span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-md3-surface text-md3-on-surface-variant/70 border border-md3-outline-variant/10">
-                        {item.cssVar}
-                      </span>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div
+                      className="h-10 w-10 shrink-0 rounded-xl border border-white/15 shadow-inner"
+                      style={{ backgroundColor: currentColor }}
+                      aria-hidden="true"
+                    />
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-bold text-md3-on-surface">{item.label}</span>
+                        <code className="max-w-full truncate rounded-md border border-md3-outline-variant/10 bg-md3-surface px-1.5 py-0.5 font-mono text-[10px] text-md3-on-surface-variant/70">
+                          {item.cssVar}
+                        </code>
+                      </div>
+                      {item.description && (
+                        <p className="text-[11px] text-md3-on-surface-variant">{item.description}</p>
+                      )}
                     </div>
-                    {item.description && (
-                      <p className="text-[11px] text-md3-on-surface-variant">
-                        {item.description}
-                      </p>
-                    )}
                   </div>
 
-                  {/* Right: Color Controls */}
-                  <div className="flex items-center gap-2.5 shrink-0">
-                    {/* Reset button for single color */}
+                  <div className="flex items-center justify-between gap-2 sm:justify-end">
+                    <HexColorInput
+                      color={currentColor}
+                      onChange={hex => onUpdateColor(item.id, hex)}
+                      label={language === 'ru' ? `Цвет: ${item.label}` : `${item.label} color`}
+                      language={language}
+                    />
                     {!isDefault && (
                       <button
+                        type="button"
                         tabIndex={-1}
                         onClick={() => onUpdateColor(item.id, item.default)}
-                        className="w-7 h-7 rounded-xl bg-md3-surface hover:bg-md3-surface-container-high text-md3-on-surface-variant hover:text-md3-primary flex items-center justify-center transition-colors cursor-pointer border border-md3-outline-variant/20"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant transition-colors hover:bg-md3-surface-container-high hover:text-md3-primary cursor-pointer"
                         title={language === 'ru' ? 'Сбросить к исходному цвету темы' : 'Reset to theme default'}
+                        aria-label={language === 'ru' ? `Сбросить цвет: ${item.label}` : `Reset ${item.label} color`}
                       >
-                        <RotateCcw className="w-3.5 h-3.5" />
+                        <RotateCcw className="h-3.5 w-3.5" />
                       </button>
                     )}
-
-                    {/* HEX string display / input */}
-                    <div className="flex items-center bg-md3-surface rounded-xl border border-md3-outline-variant/25 px-2 py-1 text-xs font-mono font-semibold text-md3-on-surface">
-                      {currentColor.toUpperCase()}
-                    </div>
-
-                    {/* Interactive color picker button */}
-                    <label
-                      className="relative w-8 h-8 rounded-xl shadow-sm border border-white/20 cursor-pointer overflow-hidden flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
-                      style={{ backgroundColor: currentColor }}
-                      title={language === 'ru' ? 'Выбрать цвет' : 'Pick color'}
-                    >
-                      <input
-                        type="color"
-                        value={currentColor}
-                        onChange={(e) => onUpdateColor(item.id, e.target.value)}
-                        className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
-                      />
-                    </label>
                   </div>
                 </div>
               );

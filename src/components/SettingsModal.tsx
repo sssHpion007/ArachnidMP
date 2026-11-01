@@ -48,6 +48,7 @@ import { ThemeMode, Track, FadeMode } from '../types/music';
 import { coverVariantUrl } from '../utils/coverArt';
 import { CustomThemeInfo } from '../types/theme';
 import { ThemePaletteModal } from './ThemePaletteModal';
+import { HexColorInput } from './HexColorInput';
 import { ConfirmationModal } from './ConfirmationModal';
 import { MainViewType } from './TopBar';
 import { formatTime } from '../services/tagEditor';
@@ -2166,18 +2167,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               )}
                             </button>
                           ))}
-                          <label
-                            className="relative w-8 h-8 rounded-full shadow-md hover:scale-110 active:scale-95 transition-transform cursor-pointer flex items-center justify-center border-2 border-white/40 overflow-hidden"
-                            style={{ backgroundColor: seedColor }}
-                            title={t.settings.paletteCustom}
-                          >
-                            <input
-                              type="color"
-                              value={seedColor}
-                              onChange={(e) => onSetSeedColor(e.target.value)}
-                              className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
-                            />
-                          </label>
+                          <HexColorInput
+                            color={seedColor}
+                            onChange={onSetSeedColor}
+                            label={language === 'ru' ? 'Акцентный цвет темы' : 'Theme accent color'}
+                            language={language}
+                            compact
+                          />
                         </div>
                       </div>
                     )}

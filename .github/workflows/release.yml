@@ -60,6 +60,7 @@ jobs:
           npm run test:playlist-cover-fallback
           npm run test:playlist-detail-cover
           npm run test:playlist-durations
+          npm run test:hex-color
 
       - name: Build Tauri Desktop Portable
         shell: pwsh
