@@ -1267,9 +1267,15 @@ export const App: React.FC = () => {
       requestAnimationFrame(() => {
         const container = document.querySelector('[data-track-table-scroll]') as HTMLDivElement | null;
         if (!container) return;
-        const renderedRow = container.querySelector('[data-track-row-index]') as HTMLElement | null;
-        const rowHeight = Number.parseFloat(renderedRow?.style.height ?? '') || 54;
-        container.scrollTop = index * rowHeight;
+        const renderedRow = container.querySelector(`[data-track-row-index="${index}"]`)
+          || container.querySelector('[data-track-row-index]');
+        const rowHeight = Number.parseFloat((renderedRow as HTMLElement | null)?.style.height ?? '') || 54;
+        const rowTop = index * rowHeight;
+        const rowBottom = rowTop + rowHeight;
+        const viewportTop = container.scrollTop;
+        const viewportBottom = viewportTop + container.clientHeight;
+        if (rowTop < viewportTop) container.scrollTop = rowTop;
+        else if (rowBottom > viewportBottom) container.scrollTop = rowBottom - container.clientHeight;
       });
     } finally {
       if (pendingKeyboardTrackIndexRef.current === index) {
@@ -2657,7 +2663,7 @@ export const App: React.FC = () => {
     });
   };
 
-  const scrollKeyboardSelectedTrackToTop = useCallback((index: number) => {
+  const scrollKeyboardSelectedTrackIntoView = useCallback((index: number) => {
     pendingKeyboardScrollIndexRef.current = index;
     if (keyboardScrollFrameRef.current !== null) return;
     keyboardScrollFrameRef.current = requestAnimationFrame(() => {
@@ -2670,7 +2676,12 @@ export const App: React.FC = () => {
       const row = (container.querySelector(`[data-track-row-index="${targetIndex}"]`)
         || container.querySelector('[data-track-row-index]')) as HTMLElement | null;
       const rowHeight = Number.parseFloat(row?.style.height ?? '') || 54;
-      container.scrollTop = Math.max(0, targetIndex * rowHeight);
+      const rowTop = targetIndex * rowHeight;
+      const rowBottom = rowTop + rowHeight;
+      const viewportTop = container.scrollTop;
+      const viewportBottom = viewportTop + container.clientHeight;
+      if (rowTop < viewportTop) container.scrollTop = rowTop;
+      else if (rowBottom > viewportBottom) container.scrollTop = rowBottom - container.clientHeight;
     });
   }, []);
 
@@ -2895,7 +2906,7 @@ export const App: React.FC = () => {
             lastSelectedIndexRef.current = nextIdx;
             setSelectedTrackIds(newSet);
             setLastSelectedIndex(nextIdx);
-            scrollKeyboardSelectedTrackToTop(nextIdx);
+            scrollKeyboardSelectedTrackIntoView(nextIdx);
           }
         }
       } else if ((e.code === 'ArrowUp' || e.key === 'ArrowUp') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
@@ -2933,7 +2944,7 @@ export const App: React.FC = () => {
             lastSelectedIndexRef.current = prevIdx;
             setSelectedTrackIds(newSet);
             setLastSelectedIndex(prevIdx);
-            scrollKeyboardSelectedTrackToTop(prevIdx);
+            scrollKeyboardSelectedTrackIntoView(prevIdx);
           }
         }
       // Shift + Enter: Edit tags of selected track(s)
@@ -3198,7 +3209,7 @@ export const App: React.FC = () => {
     nativeTrackIndices,
     nativeTrackTotal,
     selectNativeTrackAtIndex,
-    scrollKeyboardSelectedTrackToTop,
+    scrollKeyboardSelectedTrackIntoView,
   ]);
 
   const pendingTauriPathsRef = useRef<Set<string>>(new Set());

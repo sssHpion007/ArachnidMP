@@ -150,7 +150,12 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
     const frameId = requestAnimationFrame(() => {
       const container = listContainerRef.current;
       if (!container) return;
-      container.scrollTop = selectedIndex * QUEUE_ROW_HEIGHT;
+      const rowTop = selectedIndex * QUEUE_ROW_HEIGHT;
+      const rowBottom = rowTop + QUEUE_ROW_CONTENT_HEIGHT;
+      const viewportTop = container.scrollTop;
+      const viewportBottom = viewportTop + container.clientHeight;
+      if (rowTop < viewportTop) container.scrollTop = rowTop;
+      else if (rowBottom > viewportBottom) container.scrollTop = rowBottom - container.clientHeight;
     });
     return () => cancelAnimationFrame(frameId);
   }, [isOpen, selectedIndex]);

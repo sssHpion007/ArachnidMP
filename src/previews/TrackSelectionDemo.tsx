@@ -101,7 +101,15 @@ const TrackSelectionDemo: React.FC = () => {
         const container = document.querySelector('[data-track-table-scroll]') as HTMLDivElement | null;
         const row = (container?.querySelector(`[data-track-row-index="${nextIndex}"]`)
           || container?.querySelector('[data-track-row-index]')) as HTMLElement | null;
-        if (container) container.scrollTop = nextIndex * (Number.parseFloat(row?.style.height ?? '') || 54);
+        if (container) {
+          const rowHeight = Number.parseFloat(row?.style.height ?? '') || 54;
+          const rowTop = nextIndex * rowHeight;
+          const rowBottom = rowTop + rowHeight;
+          const viewportTop = container.scrollTop;
+          const viewportBottom = viewportTop + container.clientHeight;
+          if (rowTop < viewportTop) container.scrollTop = rowTop;
+          else if (rowBottom > viewportBottom) container.scrollTop = rowBottom - container.clientHeight;
+        }
       });
     };
     window.addEventListener('keydown', handleKeyDown);
