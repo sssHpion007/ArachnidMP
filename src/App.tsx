@@ -5463,6 +5463,7 @@ export const App: React.FC = () => {
           playlistFolders={playlistFolders}
           playlistGroups={playlistGroups}
           language={language}
+          isDarkTheme={themeMode !== 'light'}
           isLibraryDataLoading={!startupDataLoaded || (isTauri() && nativePageLoading)}
           lyricsMode={miniLyricsMode}
           discordEnabled={discordEnabled}

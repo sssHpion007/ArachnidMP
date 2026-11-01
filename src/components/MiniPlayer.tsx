@@ -23,7 +23,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { Playlist, PlaylistFolder, PlaylistGroup, Track } from '../types/music';
-import { getFolderColorHex, getFolderIconComponent } from '../theme/folderIcons';
+import { getFolderColorHex, getFolderIconComponent, getThemedPlayIconColor } from '../theme/folderIcons';
 import { AppLanguage } from '../i18n';
 import { formatTime } from '../services/tagEditor';
 import { MiniLyricsPane, MiniLyricsTrack } from './MiniLyricsPane';
@@ -92,6 +92,7 @@ interface MiniLibraryCardProps {
   coverArt?: string;
   icon: React.ReactNode;
   accentColor?: string;
+  isDarkTheme?: boolean;
   accentFill?: boolean;
   onPlay?: () => void;
   playLabel?: string;
@@ -105,6 +106,7 @@ const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
   coverArt,
   icon,
   accentColor,
+  isDarkTheme = true,
   accentFill = false,
   onPlay,
   playLabel,
@@ -123,6 +125,7 @@ const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
     return () => { active = false; };
   }, [coverArt, onResolveCover]);
   const displayedCover = coverArt || resolvedCover;
+  const playIconColor = accentColor ? getThemedPlayIconColor(accentColor, isDarkTheme) : undefined;
 
   return (
   <div
@@ -171,6 +174,10 @@ const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
         }}
         aria-label={playLabel}
         title={playLabel}
+        style={accentColor ? {
+          backgroundColor: accentColor,
+          ...(playIconColor ? { color: playIconColor } : {}),
+        } : undefined}
         className="absolute bottom-2 right-2 z-20 flex h-8 w-8 items-center justify-center rounded-full bg-md3-primary text-md3-on-primary shadow-lg transition-transform hover:scale-110 active:scale-95 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
       >
         <Play size={14} className="ml-0.5 fill-current" />
@@ -197,6 +204,7 @@ interface MiniPlayerProps {
   playlistFolders: PlaylistFolder[];
   playlistGroups: PlaylistGroup[];
   language: AppLanguage;
+  isDarkTheme?: boolean;
   isLibraryDataLoading?: boolean;
   lyricsMode: LyricsMode;
   discordEnabled: boolean;
@@ -268,6 +276,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   playlistFolders,
   playlistGroups,
   language,
+  isDarkTheme = true,
   isLibraryDataLoading = false,
   lyricsMode,
   discordEnabled,
@@ -1554,6 +1563,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                                   subtitle={`${itemCount} ${text(language, 'элементов', 'items')}${group.isIsolated ? ` · ${text(language, 'изолированная', 'isolated')}` : ''}`}
                                   icon={<GroupIcon className="h-7 w-7" />}
                                   accentColor={color}
+                                  isDarkTheme={isDarkTheme}
                                   accentFill
                                   onClick={() => {
                                     setSelectedPlaylistGroupId(group.id);
@@ -1597,6 +1607,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                                     onResolveCover={folder.coverType && folder.coverType !== 'icon' ? () => resolveFolderCover(folder.id) : undefined}
                                     icon={<FolderIcon size={28} />}
                                     accentColor={folder.color ? getFolderColorHex(folder.color) : undefined}
+                                    isDarkTheme={isDarkTheme}
                                     onClick={() => {
                                       setSelectedPlaylistFolderId(folder.id);
                                       setSelectedPlaylistId(null);
@@ -1618,6 +1629,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                                   coverArt={cover}
                                   icon={<PlaylistIcon size={28} />}
                                   accentColor={playlist.color ? getFolderColorHex(playlist.color) : undefined}
+                                  isDarkTheme={isDarkTheme}
                                   onClick={() => setSelectedPlaylistId(playlist.id)}
                                   onPlay={playlist.trackIds.length > 0 ? () => onPlayPlaylist(playlist) : undefined}
                                   onResolveCover={() => resolvePlaylistCover(playlist.id)}

@@ -227,6 +227,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Theme Mode segmented control indicator
   const themeModeContainerRef = useRef<HTMLDivElement>(null);
   const themeModeRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+  const [indicatorTransitionsEnabled, setIndicatorTransitionsEnabled] = useState(false);
+  const hasPositionedIndicatorRef = useRef(false);
+  const enableIndicatorTransitionsAfterInitialPosition = () => {
+    if (hasPositionedIndicatorRef.current) return;
+    hasPositionedIndicatorRef.current = true;
+    window.requestAnimationFrame(() => setIndicatorTransitionsEnabled(true));
+  };
+  const indicatorTransitionClass = indicatorTransitionsEnabled
+    ? 'transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)]'
+    : 'transition-none';
   const [themeModeIndicatorStyle, setThemeModeIndicatorStyle] = useState<{ left: number; width: number; height: number; opacity: number }>({
     left: 0,
     width: 0,
@@ -237,6 +247,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const updateThemeModeIndicator = () => {
     const el = themeModeRefs.current[themeMode];
     if (el) {
+      enableIndicatorTransitionsAfterInitialPosition();
       setThemeModeIndicatorStyle({
         left: el.offsetLeft,
         width: el.offsetWidth,
@@ -266,7 +277,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [closeBehaviorIndicatorStyle, setCloseBehaviorIndicatorStyle] = useState({ left: 0, width: 0, height: 0, opacity: 0 });
   const updateCloseBehaviorIndicator = () => {
     const el = closeBehaviorRefs.current[closeBehavior];
-    if (el) setCloseBehaviorIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, opacity: 1 });
+    if (el) {
+      enableIndicatorTransitionsAfterInitialPosition();
+      setCloseBehaviorIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, opacity: 1 });
+    }
   };
 
   const startupInterfaceContainerRef = useRef<HTMLDivElement>(null);
@@ -274,7 +288,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [startupInterfaceIndicatorStyle, setStartupInterfaceIndicatorStyle] = useState({ left: 0, width: 0, height: 0, opacity: 0 });
   const updateStartupInterfaceIndicator = () => {
     const el = startupInterfaceRefs.current[startupInterface];
-    if (el) setStartupInterfaceIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, opacity: 1 });
+    if (el) {
+      enableIndicatorTransitionsAfterInitialPosition();
+      setStartupInterfaceIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, opacity: 1 });
+    }
   };
 
   useEffect(() => {
@@ -311,6 +328,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const updateColorSchemeIndicator = () => {
     const el = colorSchemeRefs.current[colorSchemeMode];
     if (el) {
+      enableIndicatorTransitionsAfterInitialPosition();
       setColorSchemeIndicatorStyle({
         left: el.offsetLeft,
         width: el.offsetWidth,
@@ -347,6 +365,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const updateFadeModeIndicator = () => {
     const el = fadeModeRefs.current[fadeMode];
     if (el) {
+      enableIndicatorTransitionsAfterInitialPosition();
       setFadeModeIndicatorStyle({
         left: el.offsetLeft,
         width: el.offsetWidth,
@@ -567,7 +586,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleClose = () => {
-    setCurrentView('main');
     setIsThemeCurtainOpen(false);
     setIsLangCurtainOpen(false);
     setIsUpdateSettingsOpen(false);
@@ -759,7 +777,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setIsLangCurtainOpen(false);
       onRefreshCustomThemes();
     } else {
-      setCurrentView('main');
       setIsThemeCurtainOpen(false);
       setIsLangCurtainOpen(false);
     }
@@ -2061,7 +2078,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   >
                     {/* Smooth sliding glow pill indicator */}
                     <div
-                      className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                      className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
                       style={{
                         left: `${themeModeIndicatorStyle.left}px`,
                         width: `${themeModeIndicatorStyle.width}px`,
@@ -2135,7 +2152,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     >
                       {/* Smooth sliding glow pill indicator */}
                       <div
-                        className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                        className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
                         style={{
                           left: `${colorSchemeIndicatorStyle.left}px`,
                           width: `${colorSchemeIndicatorStyle.width}px`,
@@ -2405,7 +2422,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 {/* Smooth sliding glow pill indicator */}
                 <div
-                  className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                  className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
                   style={{
                     left: `${fadeModeIndicatorStyle.left}px`,
                     width: `${fadeModeIndicatorStyle.width}px`,
@@ -2591,7 +2608,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
                 >
                   <div
-                    className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                    className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
                     style={{
                       left: `${closeBehaviorIndicatorStyle.left}px`,
                       width: `${closeBehaviorIndicatorStyle.width}px`,
@@ -2642,7 +2659,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
                 >
                   <div
-                    className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                    className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
                     style={{
                       left: `${startupInterfaceIndicatorStyle.left}px`,
                       width: `${startupInterfaceIndicatorStyle.width}px`,
