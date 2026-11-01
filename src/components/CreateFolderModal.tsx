@@ -6,6 +6,7 @@ import { extractDominantColor } from '../theme/material3';
 import { AppLanguage } from '../i18n';
 import { useModalAnimation } from '../utils/useModalAnimation';
 import { HexColorInput } from './HexColorInput';
+import { CoverColorEyedropper } from './CoverColorEyedropper';
 
 interface CreateFolderModalProps {
   isOpen: boolean;
@@ -118,7 +119,7 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
     if (!isOpen) return;
 
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && e.target instanceof Element && e.target.closest('[data-hex-color-picker]')) return;
+      if (e.key === 'Escape' && e.target instanceof Element && e.target.closest('[data-hex-color-picker], [data-cover-color-picker]')) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
@@ -354,7 +355,8 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
                 {language === 'ru' ? 'Цветовой акцент' : 'Color Accent'}
               </label>
 
-              {/* Extract from Cover Art Button */}
+              <div className="flex items-center gap-1.5">
+              {/* Extract dominant color from the cover */}
               {extractedCoverColor && (
                 <button
                   type="button"
@@ -369,6 +371,8 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
                   <span>{language === 'ru' ? 'Цвет по обложке' : 'From Cover'}</span>
                 </button>
               )}
+              <CoverColorEyedropper coverArt={initialCoverArt} onPickColor={setSelectedColor} language={language} />
+              </div>
             </div>
 
             <div className="flex items-center gap-2.5 flex-wrap">

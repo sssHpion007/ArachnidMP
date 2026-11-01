@@ -2740,6 +2740,7 @@ export const App: React.FC = () => {
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && e.target instanceof Element && e.target.closest('[data-cover-color-picker], [data-hex-color-picker]')) return;
       const keyboardTarget = e.target as HTMLElement | null;
       const focusedInput = keyboardTarget?.closest('input') as HTMLInputElement | null;
       const isRangeInput = focusedInput?.type === 'range';
