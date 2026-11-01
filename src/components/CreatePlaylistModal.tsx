@@ -365,29 +365,9 @@ export const CreatePlaylistModal: React.FC<CreatePlaylistModalProps> = ({
 
           {/* Playlist Color Accent & Cover Color Extraction */}
           <div>
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <label className="block text-xs font-semibold text-md3-on-surface-variant">
-                {language === 'ru' ? 'Цветовой акцент' : 'Color Accent'}
-              </label>
-
-              <div className="flex items-center gap-1.5">
-              {/* Extract dominant color from the cover */}
-              {extractedCoverColor && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedColor(extractedCoverColor)}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-md3-surface border border-md3-outline-variant/30 hover:border-md3-primary/60 text-md3-on-surface transition-all cursor-pointer shadow-xs"
-                >
-                  <span
-                    className="w-2.5 h-2.5 rounded-full ring-1 ring-black/20"
-                    style={{ backgroundColor: extractedCoverColor }}
-                  />
-                  <Sparkles className="w-3 h-3 text-md3-primary" />
-                  <span>{language === 'ru' ? 'Цвет по обложке' : 'From Cover'}</span>
-                </button>
-              )}
-              </div>
-            </div>
+            <label className="mb-2 block text-xs font-semibold text-md3-on-surface-variant">
+              {language === 'ru' ? 'Цветовой акцент' : 'Color Accent'}
+            </label>
 
             <div className="flex items-center gap-2.5 flex-wrap">
               {playlistColors.map((col) => (
