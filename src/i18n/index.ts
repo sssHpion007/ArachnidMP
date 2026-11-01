@@ -194,10 +194,15 @@ export interface Translations {
     nextTrack: string;
     prevTrack: string;
     seek: string;
+    mediaKeys: string;
     volumeAdj: string;
     trackNav: string;
+    scrollToTop: string;
+    scrollToBottom: string;
+    scrollByPage: string;
     playSelected: string;
     editTags: string;
+    saveTags: string;
     mute: string;
     shuffle: string;
     repeat: string;
@@ -208,6 +213,8 @@ export interface Translations {
     queue: string;
     clearQueue: string;
     lyrics: string;
+    lyricsWindow: string;
+    miniPlayer: string;
     discord: string;
     settings: string;
     switchTabs: string;
@@ -409,10 +416,15 @@ export const RU_TRANSLATIONS: Translations = {
     nextTrack: 'Следующий трек',
     prevTrack: 'Предыдущий трек',
     seek: 'Перемотка (±5 сек)',
+    mediaKeys: 'Мультимедийные клавиши',
     volumeAdj: 'Громкость (±5%)',
     trackNav: 'Навигация по трекам',
+    scrollToTop: 'Прокрутить список в начало',
+    scrollToBottom: 'Прокрутить список в конец',
+    scrollByPage: 'Прокрутить на страницу вверх / вниз',
     playSelected: 'Воспроизвести выбранный',
     editTags: 'Редактировать теги',
+    saveTags: 'Сохранить изменения тегов',
     mute: 'Без звука (Mute)',
     shuffle: 'Случайный порядок',
     repeat: 'Режим зацикливания',
@@ -423,6 +435,8 @@ export const RU_TRANSLATIONS: Translations = {
     queue: 'Открыть / закрыть очередь',
     clearQueue: 'Очистить очередь воспроизведения',
     lyrics: 'Открыть / закрыть текст песни',
+    lyricsWindow: 'Открыть текст песни в отдельном окне',
+    miniPlayer: 'Переключить режим мини-плеера',
     discord: 'Переключить статус Discord RPC',
     settings: 'Открыть настройки',
     switchTabs: 'Переключение вкладок навигации',
@@ -624,10 +638,15 @@ export const EN_TRANSLATIONS: Translations = {
     nextTrack: 'Next Track',
     prevTrack: 'Previous Track',
     seek: 'Seek (±5 sec)',
+    mediaKeys: 'Media Keys',
     volumeAdj: 'Volume (±5%)',
     trackNav: 'Navigate Tracks',
+    scrollToTop: 'Scroll List to Top',
+    scrollToBottom: 'Scroll List to Bottom',
+    scrollByPage: 'Scroll Up / Down by a Page',
     playSelected: 'Play Selected Track',
     editTags: 'Edit Tags',
+    saveTags: 'Save Tag Changes',
     mute: 'Mute / Unmute',
     shuffle: 'Shuffle Mode',
     repeat: 'Repeat Mode',
@@ -638,6 +657,8 @@ export const EN_TRANSLATIONS: Translations = {
     queue: 'Open / Close Queue',
     clearQueue: 'Clear Playback Queue',
     lyrics: 'Open / Close Lyrics Panel',
+    lyricsWindow: 'Open Lyrics in Separate Window',
+    miniPlayer: 'Toggle Mini Player Mode',
     discord: 'Toggle Discord RPC Status',
     settings: 'Open Settings',
     switchTabs: 'Switch Navigation Tabs',

@@ -577,6 +577,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({
       <div
         ref={scrollContainerRef}
         data-track-table-scroll
+        data-home-scroll="main"
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto min-h-0 custom-scrollbar relative"
       >

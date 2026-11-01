@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Plus, 
   Play, 
+  Heart,
   ListMusic, 
   FolderPlus, 
   Layers, 
@@ -411,7 +412,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
   const coversRef = useRef(covers || []);
   coversRef.current = covers || [];
 
-  const IconComponent = getFolderIconComponent(playlist.icon);
+  const IconComponent = playlist.id === 'pl_favorites' ? Heart : getFolderIconComponent(playlist.icon);
   const baseColor = getFolderColorHex(playlist.color);
   // Play icon shade absorbs the playlist color hue and follows the theme direction
   const playIconColor = getThemedPlayIconColor(playlist.color, isDarkTheme);
@@ -1363,7 +1364,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     const hasResults = searchFilteredFolders.length > 0 || searchFilteredPlaylists.length > 0;
 
     return (
-      <div className="flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none">
+      <div data-home-scroll="main" className="flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none">
         <div className="flex items-center justify-between mb-6 pb-4 border-b border-md3-outline-variant/15">
           <div>
             <h2 className="text-xl font-bold text-md3-on-surface">
@@ -1431,7 +1432,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     const CurrentFolderIcon = getFolderIconComponent(currentFolder.icon);
 
     return (
-      <div key={`folder-view-${currentFolderId}`} className={`flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none ${folderNavDirection === 'forward' ? 'anim-view-slide-right' : 'anim-view-slide-left'}`}>
+      <div key={`folder-view-${currentFolderId}`} data-home-scroll="main" className={`flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none ${folderNavDirection === 'forward' ? 'anim-view-slide-right' : 'anim-view-slide-left'}`}>
         {/* Floating Drag Ghost element */}
         {dragState && dragState.isDragging && (
           <div
@@ -1590,7 +1591,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   const hasGroups = groups.length > 0;
 
   return (
-    <div key="playlists-root-view" className={`flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none ${folderNavDirection === 'backward' ? 'anim-view-slide-left' : ''}`}>
+    <div key="playlists-root-view" data-home-scroll="main" className={`flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none ${folderNavDirection === 'backward' ? 'anim-view-slide-left' : ''}`}>
       {/* Floating Drag Ghost element */}
       {dragState && dragState.isDragging && (
         <div

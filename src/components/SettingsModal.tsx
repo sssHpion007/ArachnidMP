@@ -982,6 +982,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.mediaKeys}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    ⏮ / ⏯ / ⏭ / ⏹
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
                   <span className="text-md3-on-surface-variant">{t.shortcuts.volumeAdj}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     Ctrl + ↑ / ↓
@@ -1033,6 +1040,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.scrollToTop}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    Home
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.scrollToBottom}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    End
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.scrollByPage}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    Page Up / Page Down
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
                   <span className="text-md3-on-surface-variant">{t.shortcuts.playSelected}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     Enter
@@ -1043,6 +1071,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span className="text-md3-on-surface-variant">{t.shortcuts.editTags}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     Shift + Enter
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.saveTags}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    Ctrl / ⌘ + Enter
                   </kbd>
                 </div>
 
@@ -1084,6 +1119,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.miniPlayer}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    F
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
                   <span className="text-md3-on-surface-variant">{t.shortcuts.search}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     Ctrl + F
@@ -1115,6 +1157,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span className="text-md3-on-surface-variant">{t.shortcuts.lyrics}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     T / L
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.lyricsWindow}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    Shift + T
                   </kbd>
                 </div>
 

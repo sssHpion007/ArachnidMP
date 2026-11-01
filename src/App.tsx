@@ -144,6 +144,7 @@ const INITIAL_PLAYLISTS: Playlist[] = [
     id: 'pl_favorites',
     name: 'Избранное',
     description: 'Треки, отмеченные сердечком',
+    icon: 'heart',
     trackIds: [],
     isSystem: true,
   },
@@ -1585,7 +1586,7 @@ export const App: React.FC = () => {
               const remapped = (p.trackIds || []).map(id => validIdMap.get(id) || id);
               const uniqueTrackIds = Array.from(new Set(remapped));
               if (p.id === 'pl_favorites') {
-                return { ...p, name: 'Избранное', coverArt, trackIds: uniqueTrackIds };
+                return { ...p, name: 'Избранное', icon: p.icon || 'heart', coverArt, trackIds: uniqueTrackIds };
               }
               return { ...p, coverArt, trackIds: uniqueTrackIds };
             }));
@@ -2720,7 +2721,7 @@ export const App: React.FC = () => {
           focusedId: (document.activeElement as HTMLElement | null)?.id || '',
         }).catch(() => {});
       }
-      const repeatableCodes = new Set(['Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
+      const repeatableCodes = new Set(['Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
       if (e.repeat && !repeatableCodes.has(e.code) && (!isTypingTarget || e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         e.stopPropagation();
@@ -2785,6 +2786,30 @@ export const App: React.FC = () => {
       // Keep keyboard-based range adjustment native, but allow player shortcuts
       // such as R while a volume slider still has focus after dragging it.
       if (isRangeInput && isNativeRangeAdjustmentKey) return;
+
+      const listScrollKey = ['Home', 'End', 'PageUp', 'PageDown'].find(key => e.key === key || e.code === key);
+      if (listScrollKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        if (isMiniMode) return;
+        const hasBlockingModal = isSettingsOpen || isEQOpen || isLyricsOpen || isBatchTagEditorOpen ||
+          isCreatePlaylistOpen || isCreateFolderOpen || isCreateGroupOpen || renameItemTarget ||
+          renamePlaylistTarget || deleteFolderTarget || clearPlaylistTarget || deletePlaylistTarget ||
+          deleteTracksTarget || deleteFromDiskTarget || trackDetailsTarget;
+        if (hasBlockingModal) return;
+        const selector = isQueueOpen ? '[data-home-scroll="queue"]' : '[data-home-scroll="main"]';
+        const list = document.querySelector<HTMLElement>(selector);
+        if (list) {
+          const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+          const pageDistance = list.clientHeight;
+          const targetScrollTop = listScrollKey === 'Home' ? 0
+            : listScrollKey === 'End' ? maxScrollTop
+              : listScrollKey === 'PageUp' ? Math.max(0, list.scrollTop - pageDistance)
+                : Math.min(maxScrollTop, list.scrollTop + pageDistance);
+          e.preventDefault();
+          e.stopPropagation();
+          list.scrollTo({ top: targetScrollTop, behavior: 'auto' });
+        }
+        return;
+      }
 
       // Immediately clear button focus if any element was focused
       if (document.activeElement && document.activeElement instanceof HTMLElement && document.activeElement.tagName === 'BUTTON') {

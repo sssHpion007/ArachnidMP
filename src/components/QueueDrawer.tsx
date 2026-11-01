@@ -373,6 +373,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
       {/* Queue items list */}
       <div
         ref={listContainerRef}
+        data-home-scroll="queue"
         onScroll={event => setScrollTop(event.currentTarget.scrollTop)}
         className="flex-1 overflow-y-auto p-2 custom-scrollbar"
       >

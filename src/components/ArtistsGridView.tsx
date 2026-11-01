@@ -173,7 +173,7 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
   }
 
   return (
-    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
+    <div ref={scrollContainerRef} data-home-scroll="main" className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-md3-on-surface">

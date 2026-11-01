@@ -464,7 +464,24 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         return;
       }
 
-      if (isEditing || (isRangeInput && isNativeRangeAdjustmentKey)) return;
+      if (isEditing) return;
+      const listScrollKey = ['Home', 'End', 'PageUp', 'PageDown'].find(key => event.key === key || event.code === key);
+      if (listScrollKey && !isRangeInput && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && bottomPanel) {
+        const list = bottomPanel === 'queue' ? queueListRef.current : libraryListRef.current;
+        if (list) {
+          const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+          const pageDistance = list.clientHeight;
+          const targetScrollTop = listScrollKey === 'Home' ? 0
+            : listScrollKey === 'End' ? maxScrollTop
+              : listScrollKey === 'PageUp' ? Math.max(0, list.scrollTop - pageDistance)
+                : Math.min(maxScrollTop, list.scrollTop + pageDistance);
+          event.preventDefault();
+          event.stopPropagation();
+          list.scrollTo({ top: targetScrollTop, behavior: 'auto' });
+        }
+        return;
+      }
+      if (isRangeInput && isNativeRangeAdjustmentKey) return;
 
       if (event.key === 'Tab' || event.code === 'Tab') {
         event.preventDefault();
@@ -1591,7 +1608,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                               }
                               const playlist = entry.item;
                               const cover = playlist.coverArt || tracks.find(track => playlist.trackIds.includes(track.id) && track.coverArt)?.coverArt;
-                              const PlaylistIcon = playlist.icon ? getFolderIconComponent(playlist.icon) : ListMusic;
+                              const PlaylistIcon = playlist.id === 'pl_favorites'
+                                ? Heart
+                                : playlist.icon ? getFolderIconComponent(playlist.icon) : ListMusic;
                               return (
                                 <MiniLibraryCard
                                   title={playlist.name}
