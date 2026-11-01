@@ -146,6 +146,9 @@ const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
         {icon}
       </div>
     )}
+    {accentFill && accentColor && (
+      <div className="pointer-events-none absolute inset-0 shadow-[inset_0_-34px_32px_-12px_rgba(0,0,0,0.62)]" />
+    )}
     {!(accentFill && accentColor) && (
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
     )}
