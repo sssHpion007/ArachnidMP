@@ -909,13 +909,47 @@ fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+fn prepare_discord_cover(cover: Option<String>, covers: &cover_cache::CoverCache) -> Option<String> {
+    let cover = cover?;
+    let path = cover
+        .strip_prefix("http://cover.localhost")
+        .or_else(|| cover.strip_prefix("https://cover.localhost"))
+        .or_else(|| cover.strip_prefix("cover://localhost"));
+    let Some(path) = path else { return Some(cover) };
+    let Some((hash, size)) = cover_cache::parse_cover_request(path) else {
+        logger::log("WARN", "DISCORD_COVER", "Rejected malformed cached cover URL.");
+        return None;
+    };
+
+    match covers.get_image(&hash, size) {
+        Ok(Some(image)) => Some(format!(
+            "data:{};base64,{}",
+            image.mime,
+            BASE64_STANDARD.encode(image.bytes),
+        )),
+        Ok(None) => {
+            logger::log("WARN", "DISCORD_COVER", &format!("Cached cover not found for Discord: hash={hash} size={size:?}"));
+            None
+        }
+        Err(error) => {
+            logger::log("ERROR", "DISCORD_COVER", &format!("Failed to read cached cover for Discord: {error}"));
+            None
+        }
+    }
+}
+
 #[tauri::command]
-fn update_discord_presence(presence: DiscordPresenceState, state: State<'_, AppState>) -> Result<String, String> {
+fn update_discord_presence(
+    presence: DiscordPresenceState,
+    state: State<'_, AppState>,
+    covers: State<'_, cover_cache::CoverCache>,
+) -> Result<String, String> {
+    let large_image = prepare_discord_cover(presence.large_image, covers.inner());
     state.discord.update(discord::ActivityData {
         enabled: presence.enabled,
         details: presence.details,
         state: presence.state,
-        large_image: presence.large_image,
+        large_image,
         large_text: presence.large_text,
         small_image: presence.small_image,
         small_text: presence.small_text,

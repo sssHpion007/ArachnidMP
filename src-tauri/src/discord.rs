@@ -259,9 +259,8 @@ fn upload_to_imgur(image_bytes: &[u8]) -> Option<String> {
  * Uploads local embedded track artwork using multi-tier hosting strategy
  */
 fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
-    if let Some(url) = upload_to_catbox(image_bytes) {
-        return Some(url);
-    }
+    // Keep the same provider order as main: the RPC client is known to accept these
+    // direct image URLs. Catbox remains a last-resort fallback only.
     if let Some(url) = upload_to_img24(image_bytes) {
         return Some(url);
     }
@@ -271,7 +270,7 @@ fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
     if let Some(url) = upload_to_imgur(image_bytes) {
         return Some(url);
     }
-    None
+    upload_to_catbox(image_bytes)
 }
 
 impl DiscordService {

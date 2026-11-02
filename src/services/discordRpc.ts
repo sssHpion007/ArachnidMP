@@ -1,5 +1,5 @@
 import { DiscordPresenceInfo } from '../types/music';
-import { coverVariantUrl, isCachedCoverUrl } from '../utils/coverArt';
+import { isCachedCoverUrl } from '../utils/coverArt';
 
 const DEFAULT_LOGO_URL = 'https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png';
 const PLAYING_ICON_URL = 'https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png';
@@ -114,10 +114,9 @@ class DiscordRpcService {
     if (info.coverArt && info.coverArt.trim().length > 0) {
       const sourceCover = info.coverArt.trim();
       if (isCachedCoverUrl(sourceCover)) {
-        // Discord cannot access the app's private cover.localhost URI. Read only the
-        // bounded SQLite thumbnail in WebView, then upload the compressed data to Discord.
-        const thumbnail = coverVariantUrl(sourceCover, 256) || sourceCover;
-        coverArt = await compressCoverForDiscord(thumbnail, 384);
+        // Keep cached artwork local: the native RPC command reads the bounded SQLite
+        // thumbnail directly, avoiding WebView CORS/custom-protocol canvas restrictions.
+        coverArt = sourceCover;
       } else if (sourceCover.startsWith('http://') || sourceCover.startsWith('https://')) {
         if (sourceCover.includes('asset.localhost')) {
           coverArt = await compressCoverForDiscord(sourceCover, 384);
