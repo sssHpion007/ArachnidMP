@@ -124,6 +124,7 @@ export const PluginManagerView: React.FC<PluginManagerViewProps> = ({
 
         {externalPlugins.map(plugin => {
           const preference = preferences.plugins[plugin.id] ?? { enabled: false, trustedFingerprint: null, settings: {} };
+          const trustedCurrentFiles = preference.enabled && preference.trustedFingerprint === plugin.fingerprint;
           const runtime = runtimeStates[plugin.id];
           const isExpanded = expandedPluginId === plugin.id;
           const hasSettings = plugin.settings.length > 0;
@@ -135,19 +136,18 @@ export const PluginManagerView: React.FC<PluginManagerViewProps> = ({
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-bold text-md3-on-surface">{plugin.name}</span>
                     <span className="rounded-full bg-md3-surface-container-high px-2 py-0.5 text-[10px] text-md3-on-surface-variant">v{plugin.version}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${preference.enabled && preference.trustedFingerprint === plugin.fingerprint ? 'bg-emerald-500/10 text-emerald-400' : 'bg-md3-surface-container-high text-md3-on-surface-variant'}`}>
-                      {preference.enabled && preference.trustedFingerprint === plugin.fingerprint ? getRuntimeLabel(language, runtime) : disabledText}
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${trustedCurrentFiles ? 'bg-emerald-500/10 text-emerald-400' : 'bg-md3-surface-container-high text-md3-on-surface-variant'}`}>
+                      {trustedCurrentFiles ? getRuntimeLabel(language, runtime) : preference.enabled ? text(language, 'Код изменён — проверьте', 'Code changed — review') : disabledText}
                     </span>
                   </div>
                   <p className="mt-1 text-xs leading-relaxed text-md3-on-surface-variant">{plugin.description || text(language, 'Нет описания.', 'No description.')}</p>
                   <p className="mt-1 text-[10px] text-md3-on-surface-variant/70">ID: <code>{plugin.id}</code> · API {plugin.apiVersion}</p>
                 </div>
-                <button type="button" role="switch" aria-label={`${text(language, 'Включить плагин', 'Enable plugin')}: ${plugin.name}`} aria-checked={preference.enabled && preference.trustedFingerprint === plugin.fingerprint} onClick={() => {
-                  const isEnabled = preference.enabled && preference.trustedFingerprint === plugin.fingerprint;
-                  if (isEnabled) void onToggleExternalPlugin(plugin, false);
+                <button type="button" role="switch" aria-label={`${text(language, 'Включить плагин', 'Enable plugin')}: ${plugin.name}`} aria-checked={trustedCurrentFiles} onClick={() => {
+                  if (preference.enabled) void onToggleExternalPlugin(plugin, false);
                   else setPendingEnable(plugin);
-                }} className={`relative mt-1 h-6 w-11 shrink-0 rounded-full transition-colors ${preference.enabled && preference.trustedFingerprint === plugin.fingerprint ? 'bg-md3-primary' : 'bg-md3-surface-container-highest'}`}>
-                  <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${preference.enabled && preference.trustedFingerprint === plugin.fingerprint ? 'left-6' : 'left-1'}`} />
+                }} className={`relative mt-1 h-6 w-11 shrink-0 rounded-full transition-colors ${trustedCurrentFiles ? 'bg-md3-primary' : 'bg-md3-surface-container-highest'}`}>
+                  <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${trustedCurrentFiles ? 'left-6' : 'left-1'}`} />
                 </button>
                 <button type="button" onClick={() => setExpandedPluginId(isExpanded ? null : plugin.id)} title={text(language, 'Настройки плагина', 'Plugin settings')} aria-label={text(language, `Настройки: ${plugin.name}`, `Settings: ${plugin.name}`)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface">
                   <Settings className="h-4 w-4" />
