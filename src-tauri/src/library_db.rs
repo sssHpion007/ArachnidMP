@@ -1254,8 +1254,8 @@ mod tests {
         let remaining = db.page_filtered_excluding(
             None, "title", false, 0, 10, Some("album"), Some("Album"), false, &excluded,
         ).unwrap();
-        assert_eq!(remaining.total, 1);
-        assert_eq!(remaining.items.iter().map(|track| track.id.as_str()).collect::<Vec<_>>(), vec!["2"]);
+        assert_eq!(remaining.total, 2);
+        assert_eq!(remaining.items.iter().map(|track| track.id.as_str()).collect::<Vec<_>>(), vec!["2", "4"]);
     }
 
     #[test]
