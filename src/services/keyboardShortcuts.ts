@@ -69,10 +69,26 @@ export const normalizeKeyboardShortcuts = (value: unknown): KeyboardShortcuts =>
   return result;
 };
 
-export const matchesShortcut = (event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>, shortcut: ShortcutBinding): boolean => {
-  const modifierCtrl = shortcut.ctrl ? (event.ctrlKey || event.metaKey) : (event.ctrlKey || event.metaKey);
-  return event.code === shortcut.code &&
-    modifierCtrl === shortcut.ctrl &&
+export const matchesShortcut = (event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'> & Partial<Pick<KeyboardEvent, 'key'>>, shortcut: ShortcutBinding): boolean => {
+  const hasCtrlModifier = event.ctrlKey || event.metaKey;
+  const expectedKey = shortcut.code.startsWith('Key') ? shortcut.code.slice(3).toLowerCase()
+    : shortcut.code.startsWith('Digit') ? shortcut.code.slice(5)
+      : shortcut.code === 'Comma' ? ','
+        : shortcut.code === 'Period' ? '.'
+          : shortcut.code === 'Slash' ? '/'
+            : shortcut.code === 'Semicolon' ? ';'
+              : shortcut.code === 'Quote' ? "'"
+                : shortcut.code === 'BracketLeft' ? '['
+                  : shortcut.code === 'BracketRight' ? ']'
+                    : shortcut.code === 'Backslash' ? '\\'
+                      : shortcut.code === 'Minus' ? '-'
+                        : shortcut.code === 'Equal' ? '='
+                          : shortcut.code === 'Backquote' ? '`'
+                            : shortcut.code === 'Space' ? ' '
+                              : null;
+  const keyMatches = event.code === shortcut.code || (!!expectedKey && event.key?.toLowerCase() === expectedKey);
+  return keyMatches &&
+    hasCtrlModifier === shortcut.ctrl &&
     event.altKey === shortcut.alt &&
     event.shiftKey === shortcut.shift;
 };
