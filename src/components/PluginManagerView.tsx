@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { isTauri } from '@tauri-apps/api/core';
-import { AlertTriangle, Check, FolderOpen, Puzzle, RefreshCw, Settings, Shield } from 'lucide-react';
+import { AlertTriangle, Check, CircleHelp, Puzzle, Settings, Shield } from 'lucide-react';
 import {
   ExternalPluginManifest,
   PluginPreferencesFile,
@@ -16,18 +15,17 @@ interface PluginManagerViewProps {
   loading: boolean;
   error: string | null;
   discordEnabled: boolean;
+  discordShortcutLabel: string;
   onToggleDiscord: () => void;
   onOpenDiscordSettings: () => void;
   onToggleExternalPlugin: (plugin: ExternalPluginManifest, enabled: boolean) => Promise<void>;
   onUpdatePluginSettings: (pluginId: string, settings: Record<string, unknown>) => void;
-  onRefresh: () => void;
-  onOpenFolder: () => void;
 }
 
 const text = (language: AppLanguage, ru: string, en: string) => language === 'ru' ? ru : en;
 
 const getRuntimeLabel = (language: AppLanguage, event?: PluginRuntimeEvent) => {
-  if (!event || event.state === 'stopped') return text(language, 'Отключён', 'Stopped');
+  if (!event || event.state === 'stopped') return null;
   if (event.state === 'starting') return text(language, 'Запуск…', 'Starting…');
   if (event.state === 'running') return text(language, 'Работает', 'Running');
   return event.message || text(language, 'Ошибка плагина', 'Plugin error');
@@ -41,19 +39,31 @@ export const PluginManagerView: React.FC<PluginManagerViewProps> = ({
   loading,
   error,
   discordEnabled,
+  discordShortcutLabel,
   onToggleDiscord,
   onOpenDiscordSettings,
   onToggleExternalPlugin,
   onUpdatePluginSettings,
-  onRefresh,
-  onOpenFolder,
 }) => {
   const [expandedPluginId, setExpandedPluginId] = useState<string | null>(null);
   const [pendingEnable, setPendingEnable] = useState<ExternalPluginManifest | null>(null);
   const [enabling, setEnabling] = useState(false);
-  const desktopAppAvailable = isTauri();
-  const enabledText = text(language, 'Включён', 'Enabled');
-  const disabledText = text(language, 'Отключён', 'Disabled');
+  const [securityNoticeOpen, setSecurityNoticeOpen] = useState(() => {
+    try {
+      return localStorage.getItem('arachnid_plugin_security_notice_acknowledged') !== 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  const dismissSecurityNotice = () => {
+    try {
+      localStorage.setItem('arachnid_plugin_security_notice_acknowledged', 'true');
+    } catch {
+      // The notice can still be dismissed for the current view if storage is unavailable.
+    }
+    setSecurityNoticeOpen(false);
+  };
 
   const confirmEnable = async () => {
     if (!pendingEnable) return;
@@ -68,39 +78,47 @@ export const PluginManagerView: React.FC<PluginManagerViewProps> = ({
 
   return (
     <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-5 anim-view-slide-right">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-md3-outline-variant/20 bg-md3-surface-container-low p-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
-            <Puzzle className="h-4 w-4 text-md3-primary" />
-            {text(language, 'Менеджер плагинов', 'Plugin manager')}
-          </div>
-          <p className="mt-1 text-xs text-md3-on-surface-variant">
-            {text(language, 'Сторонние плагины: папка plugins рядом с Arachnid-Portable.exe.', 'Third-party plugins: the plugins folder next to Arachnid-Portable.exe.')}
-          </p>
+      {securityNoticeOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-5 backdrop-blur-sm" role="presentation">
+          <section role="dialog" aria-modal="true" aria-labelledby="plugin-security-title" className="w-full max-w-md rounded-3xl border border-md3-outline-variant/30 bg-md3-surface-container p-5 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500"><Shield className="h-5 w-5" /></div>
+              <div className="min-w-0">
+                <h3 id="plugin-security-title" className="text-sm font-bold text-md3-on-surface">{text(language, 'Безопасность плагинов', 'Plugin security')}</h3>
+                <p className="mt-2 text-xs leading-relaxed text-md3-on-surface-variant">
+                  {text(language, 'Включайте только плагины из источников, которым доверяете. Код плагина может выполнять сетевые запросы, но не получает прямого доступа к файловой системе или командам Tauri.', 'Only enable plugins from sources you trust. Plugin code can make network requests, but it has no direct access to the filesystem or Tauri commands.')}
+                </p>
+                <div className="mt-3 rounded-xl border border-md3-outline-variant/20 bg-md3-surface-container-low px-3 py-2.5 text-xs text-md3-on-surface-variant">
+                  {text(language, 'Горячая клавиша Discord RPC: ', 'Discord RPC shortcut: ')}<kbd className="rounded-md bg-md3-surface-container-high px-1.5 py-0.5 font-mono font-bold text-md3-primary">{discordShortcutLabel}</kbd>
+                  <span className="mt-1 block">{text(language, 'Изменить сочетания можно в разделе «Горячие клавиши».', 'Customize shortcuts in the Keyboard Shortcuts section.')}</span>
+                </div>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end">
+              <button type="button" onClick={dismissSecurityNotice} className="rounded-full bg-md3-primary px-4 py-2 text-xs font-bold text-md3-on-primary hover:brightness-110">
+                {text(language, 'Понятно', 'Got it')}
+              </button>
+            </div>
+          </section>
         </div>
-        <div className="flex shrink-0 gap-2">
-          <button type="button" onClick={onRefresh} disabled={loading} title={text(language, 'Пересканировать папку', 'Rescan plugins folder')} className="flex h-9 items-center gap-2 rounded-full border border-md3-outline-variant/20 bg-md3-surface-container px-3 text-xs font-semibold text-md3-on-surface-variant hover:text-md3-on-surface disabled:opacity-50">
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-            {text(language, 'Обновить', 'Refresh')}
-          </button>
-          <button type="button" onClick={onOpenFolder} disabled={!desktopAppAvailable} className="flex h-9 items-center gap-2 rounded-full bg-md3-primary/10 px-3 text-xs font-semibold text-md3-primary hover:bg-md3-primary/15 disabled:cursor-not-allowed disabled:opacity-40">
-            <FolderOpen className="h-3.5 w-3.5" />
-            {text(language, 'Открыть папку', 'Open folder')}
-          </button>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3.5 py-3 text-xs leading-relaxed text-md3-on-surface-variant">
-        <span className="font-bold text-amber-500">{text(language, 'Безопасность: ', 'Security: ')}</span>
-        {text(language, 'включайте только плагины из источников, которым доверяете. Код плагина может выполнять сетевые запросы. Плеер не передаёт ему доступ к файловой системе или командам Tauri.', 'only enable plugins from sources you trust. Plugin code can make network requests. The player does not give it direct filesystem or Tauri-command access.')}
-      </div>
-
+      )}
       {error && <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">{error}</div>}
 
       <section className="space-y-3">
-        <h4 className="px-1 text-xs font-bold uppercase tracking-wider text-md3-on-surface-variant">
-          {text(language, 'Установленные плагины', 'Installed plugins')}
-        </h4>
+        <div className="flex items-center justify-between px-1">
+          <h4 className="text-xs font-bold uppercase tracking-wider text-md3-on-surface-variant">
+            {text(language, 'Установленные плагины', 'Installed plugins')}
+          </h4>
+          <button
+            type="button"
+            onClick={() => setSecurityNoticeOpen(true)}
+            title={text(language, 'Сведения о безопасности и горячих клавишах', 'Security and keyboard shortcut information')}
+            aria-label={text(language, 'Сведения о безопасности и горячих клавишах', 'Security and keyboard shortcut information')}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface"
+          >
+            <CircleHelp className="h-4 w-4" />
+          </button>
+        </div>
 
         <article className="rounded-2xl border border-md3-outline-variant/20 bg-md3-surface-container-low p-4">
           <div className="flex items-center gap-3">
@@ -111,7 +129,6 @@ export const PluginManagerView: React.FC<PluginManagerViewProps> = ({
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-bold text-md3-on-surface">Discord RPC</span>
                 <span className="rounded-full bg-md3-primary/10 px-2 py-0.5 text-[10px] font-semibold text-md3-primary">{text(language, 'Встроенный', 'Built-in')}</span>
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${discordEnabled ? 'bg-[#5865F2]/15 text-[#7289da]' : 'bg-md3-surface-container-high text-md3-on-surface-variant'}`}>{discordEnabled ? enabledText : disabledText}</span>
               </div>
               <p className="mt-1 text-xs text-md3-on-surface-variant">{text(language, 'Публикует текущий трек и состояние воспроизведения в Discord. Использует встроенную нативную интеграцию.', 'Shares the current track and playback state with Discord using the existing native integration.')}</p>
             </div>
@@ -126,6 +143,7 @@ export const PluginManagerView: React.FC<PluginManagerViewProps> = ({
           const preference = preferences.plugins[plugin.id] ?? { enabled: false, trustedFingerprint: null, settings: {} };
           const trustedCurrentFiles = preference.enabled && preference.trustedFingerprint === plugin.fingerprint;
           const runtime = runtimeStates[plugin.id];
+          const runtimeLabel = trustedCurrentFiles ? getRuntimeLabel(language, runtime) : null;
           const isExpanded = expandedPluginId === plugin.id;
           const hasSettings = plugin.settings.length > 0;
           return (
@@ -136,9 +154,16 @@ export const PluginManagerView: React.FC<PluginManagerViewProps> = ({
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-bold text-md3-on-surface">{plugin.name}</span>
                     <span className="rounded-full bg-md3-surface-container-high px-2 py-0.5 text-[10px] text-md3-on-surface-variant">v{plugin.version}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${trustedCurrentFiles ? 'bg-emerald-500/10 text-emerald-400' : 'bg-md3-surface-container-high text-md3-on-surface-variant'}`}>
-                      {trustedCurrentFiles ? getRuntimeLabel(language, runtime) : preference.enabled ? text(language, 'Код изменён — проверьте', 'Code changed — review') : disabledText}
-                    </span>
+                    {runtimeLabel && (
+                      <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                        {runtimeLabel}
+                      </span>
+                    )}
+                    {preference.enabled && !trustedCurrentFiles && (
+                      <span className="rounded-full bg-md3-surface-container-high px-2 py-0.5 text-[10px] font-semibold text-md3-on-surface-variant">
+                        {text(language, 'Код изменён — проверьте', 'Code changed — review')}
+                      </span>
+                    )}
                   </div>
                   <p className="mt-1 text-xs leading-relaxed text-md3-on-surface-variant">{plugin.description || text(language, 'Нет описания.', 'No description.')}</p>
                   <p className="mt-1 text-[10px] text-md3-on-surface-variant/70">ID: <code>{plugin.id}</code> · API {plugin.apiVersion}</p>

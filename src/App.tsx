@@ -54,6 +54,7 @@ import { coverVariantUrl, isCachedCoverUrl } from './utils/coverArt';
 import { buildLibraryScanPathPlan } from './services/libraryScanPaths';
 import { getTrackTableRangeForViewport, preserveTrackTableScrollAfterDelete } from './utils/trackTableScroll';
 import { arePlaylistDurationMapsEqual } from './utils/playlistDurations';
+import { DEFAULT_KEYBOARD_SHORTCUTS, KeyboardShortcuts, matchesShortcut, normalizeKeyboardShortcuts } from './services/keyboardShortcuts';
 import { isTauri, convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { emitTo, listen } from '@tauri-apps/api/event';
 import { LYRICS_WINDOW_EVENTS } from './utils/lyricsWindowEvents';
@@ -467,6 +468,7 @@ export const App: React.FC = () => {
   const [folderContextMenu, setFolderContextMenu] = useState<{ x: number; y: number; folder: PlaylistFolder } | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
   const [discordEnabled, setDiscordEnabled] = useState<boolean>(true);
+  const [keyboardShortcuts, setKeyboardShortcuts] = useState<KeyboardShortcuts>(DEFAULT_KEYBOARD_SHORTCUTS);
   const [showDiscordButton, setShowDiscordButton] = useState<boolean>(true);
   const [discordShowPlayIcon, setDiscordShowPlayIcon] = useState<boolean>(true);
   const [discordShowPauseIcon, setDiscordShowPauseIcon] = useState<boolean>(true);
@@ -1638,6 +1640,7 @@ export const App: React.FC = () => {
             setLanguage(detectSystemLanguage());
           }
           if (typeof parsed.discordEnabled === 'boolean') setDiscordEnabled(parsed.discordEnabled);
+          if (parsed.keyboardShortcuts) setKeyboardShortcuts(normalizeKeyboardShortcuts(parsed.keyboardShortcuts));
           if (typeof parsed.showDiscordButton === 'boolean') setShowDiscordButton(parsed.showDiscordButton);
           if (typeof parsed.discordShowPlayIcon === 'boolean') setDiscordShowPlayIcon(parsed.discordShowPlayIcon);
           if (typeof parsed.discordShowPauseIcon === 'boolean') setDiscordShowPauseIcon(parsed.discordShowPauseIcon);
@@ -1755,6 +1758,7 @@ export const App: React.FC = () => {
       appTheme,
       language,
       discordEnabled,
+      keyboardShortcuts,
       showDiscordButton,
       discordShowPlayIcon,
       discordShowPauseIcon,
@@ -1774,7 +1778,7 @@ export const App: React.FC = () => {
     invoke('save_portable_settings', { data: JSON.stringify(settings) }).catch(error => {
       console.warn('Failed to save settings:', error);
     });
-  }, [themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface, startupDataLoaded]);
+  }, [themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface, startupDataLoaded]);
 
   // Browser-only fallback retains its existing single localStorage document format.
   useEffect(() => {
@@ -1790,6 +1794,7 @@ export const App: React.FC = () => {
       appTheme,
       language,
       discordEnabled,
+      keyboardShortcuts,
       showDiscordButton,
       discordShowPlayIcon,
       discordShowPauseIcon,
@@ -1811,7 +1816,7 @@ export const App: React.FC = () => {
     } catch (error) {
       console.warn('Failed to save browser library data:', error);
     }
-  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface]);
+  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface]);
 
   // Reveal the native window only after portable preferences have loaded, so the
   // selected startup layout is already active when the user sees it.
@@ -2751,6 +2756,10 @@ export const App: React.FC = () => {
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if ((document.activeElement as HTMLElement | null)?.closest('[data-shortcut-recorder="true"]')) {
+        e.preventDefault();
+        return;
+      }
       if (e.key === 'Escape' && e.target instanceof Element && e.target.closest('[data-cover-color-picker], [data-hex-color-picker]')) return;
       const keyboardTarget = e.target as HTMLElement | null;
       const focusedInput = keyboardTarget?.closest('input') as HTMLInputElement | null;
@@ -2773,7 +2782,7 @@ export const App: React.FC = () => {
 
       // 1. Universal Search Hotkey: Ctrl + F (or Cmd + F)
       // Disables native browser search dialog and activates player search bar
-      if ((e.code === 'KeyF' || e.key.toLowerCase() === 'f' || e.key.toLowerCase() === 'а') && (e.ctrlKey || e.metaKey)) {
+      if (matchesShortcut(e, keyboardShortcuts.search)) {
         e.preventDefault();
         e.stopPropagation();
         const searchInput = document.querySelector('input[data-search-input="true"]') as HTMLInputElement;
@@ -2785,13 +2794,13 @@ export const App: React.FC = () => {
       }
 
       // F toggles between the standard window and the mini-player.
-      if ((e.code === 'KeyT' || e.key.toLowerCase() === 't') && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !isTypingTarget) {
+      if (matchesShortcut(e, keyboardShortcuts.lyricsWindow) && !isTypingTarget) {
         e.preventDefault();
         e.stopPropagation();
         void openLyricsWindow();
         return;
       }
-      if (e.code === 'KeyF' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !isTypingTarget) {
+      if (matchesShortcut(e, keyboardShortcuts.miniPlayer) && !isTypingTarget) {
         e.preventDefault();
         toggleMiniMode();
         return;
@@ -2810,14 +2819,14 @@ export const App: React.FC = () => {
       }
 
       // Settings Hotkey: Ctrl + , (or Cmd + , or Cyrillic Ctrl + б)
-      if ((e.code === 'Comma' || e.key === ',' || e.key === '<' || e.key.toLowerCase() === 'б') && (e.ctrlKey || e.metaKey)) {
+      if (matchesShortcut(e, keyboardShortcuts.settings)) {
         e.preventDefault();
         setIsSettingsOpen(prev => !prev);
         return;
       }
 
       // Equalizer Hotkey: Ctrl + E (or Cmd + E or Cyrillic Ctrl + у)
-      if ((e.code === 'KeyE' || e.key.toLowerCase() === 'e' || e.key.toLowerCase() === 'у') && (e.ctrlKey || e.metaKey)) {
+      if (matchesShortcut(e, keyboardShortcuts.equalizer)) {
         e.preventDefault();
         setIsEQOpen(prev => !prev);
         return;
@@ -2885,7 +2894,7 @@ export const App: React.FC = () => {
           }
           handleSelectView(activeTabs[nextIdx]);
         }
-      } else if (e.code === 'Space' || e.code === 'MediaPlayPause' || e.key === 'MediaPlayPause') {
+      } else if (matchesShortcut(e, keyboardShortcuts.playPause) || e.code === 'MediaPlayPause' || e.key === 'MediaPlayPause') {
         e.preventDefault();
         handlePlayPause();
       } else if (e.code === 'MediaStop' || e.key === 'MediaStop') {
@@ -2900,20 +2909,20 @@ export const App: React.FC = () => {
       } else if (e.code === 'MediaTrackPrevious' || e.key === 'MediaTrackPrevious') {
         e.preventDefault();
         handlePrev();
-      } else if ((e.code === 'KeyQ' || e.key.toLowerCase() === 'q' || e.key.toLowerCase() === 'й') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      } else if (matchesShortcut(e, keyboardShortcuts.toggleQueue)) {
         e.preventDefault();
         if (isMiniMode) return;
         setIsQueueOpen(prev => !prev);
-      } else if ((e.code === 'KeyX' || e.key.toLowerCase() === 'x' || e.key.toLowerCase() === 'ч') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      } else if (matchesShortcut(e, keyboardShortcuts.clearQueue)) {
         e.preventDefault();
         handleClearQueue();
-      } else if ((e.code === 'KeyD' || e.key.toLowerCase() === 'd' || e.key.toLowerCase() === 'в') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      } else if (matchesShortcut(e, keyboardShortcuts.toggleDiscord)) {
         e.preventDefault();
         setDiscordEnabled(prev => !prev);
-      } else if ((e.code === 'KeyR' || e.key.toLowerCase() === 'r' || e.key.toLowerCase() === 'к') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      } else if (matchesShortcut(e, keyboardShortcuts.repeat)) {
         e.preventDefault();
         handleToggleRepeat();
-      } else if ((e.code === 'KeyT' || e.key.toLowerCase() === 't' || e.key.toLowerCase() === 'е' || e.code === 'KeyL' || e.key.toLowerCase() === 'l' || e.key.toLowerCase() === 'д') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      } else if (matchesShortcut(e, keyboardShortcuts.lyrics)) {
         e.preventDefault();
         if (isMiniMode) {
           if (miniLyricsMode === 'closed') void attachMiniLyrics();
@@ -2921,18 +2930,18 @@ export const App: React.FC = () => {
         } else if (currentTrackRef.current) {
           setIsLyricsOpen(prev => !prev);
         }
-      } else if ((e.code === 'KeyE' || e.key.toLowerCase() === 'e' || e.key.toLowerCase() === 'у') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      } else if (matchesShortcut(e, keyboardShortcuts.shuffle)) {
         e.preventDefault();
         setIsShuffled(prev => !prev);
-      } else if ((e.code === 'KeyM' || e.key.toLowerCase() === 'm' || e.key.toLowerCase() === 'ь') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      } else if (matchesShortcut(e, keyboardShortcuts.mute)) {
         e.preventDefault();
         handleToggleMute();
       // Volume Up / Down with Ctrl (Ctrl + ArrowUp / ArrowDown)
-      } else if ((e.code === 'ArrowUp' || e.key === 'ArrowUp') && (e.ctrlKey || e.metaKey)) {
+      } else if (matchesShortcut(e, keyboardShortcuts.volumeUp)) {
         e.preventDefault();
         const next = Math.min(1, Math.round((volumeRef.current + 0.05) * 100) / 100);
         handleVolumeChange(next);
-      } else if ((e.code === 'ArrowDown' || e.key === 'ArrowDown') && (e.ctrlKey || e.metaKey)) {
+      } else if (matchesShortcut(e, keyboardShortcuts.volumeDown)) {
         e.preventDefault();
         const next = Math.max(0, Math.round((volumeRef.current - 0.05) * 100) / 100);
         handleVolumeChange(next);
@@ -3015,7 +3024,7 @@ export const App: React.FC = () => {
           }
         }
       // Shift + Enter: Edit tags of selected track(s)
-      } else if ((e.code === 'Enter' || e.key === 'Enter') && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      } else if (matchesShortcut(e, keyboardShortcuts.editTags)) {
         if (isMiniMode) return;
         const anyModalOpen = isSettingsOpen || isEQOpen || isLyricsOpen || isQueueOpen || isBatchTagEditorOpen ||
           isCreatePlaylistOpen || isCreateFolderOpen || isCreateGroupOpen || renameItemTarget ||
@@ -3035,7 +3044,7 @@ export const App: React.FC = () => {
           }
         }
       // Plain Enter: Play selected track
-      } else if ((e.code === 'Enter' || e.key === 'Enter') && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      } else if (matchesShortcut(e, keyboardShortcuts.playSelected)) {
         if (isMiniMode) return;
         const anyModalOpen = isSettingsOpen || isEQOpen || isLyricsOpen || isQueueOpen || isBatchTagEditorOpen ||
           isCreatePlaylistOpen || isCreateFolderOpen || isCreateGroupOpen || renameItemTarget ||
@@ -3057,7 +3066,7 @@ export const App: React.FC = () => {
           }
         }
       // Plain Arrow Left / Right: Rewind / Fast-forward by 5 seconds (silent while holding, seeks when stopped)
-      } else if ((e.code === 'ArrowLeft' || e.key === 'ArrowLeft') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      } else if (matchesShortcut(e, keyboardShortcuts.seekBackward)) {
         e.preventDefault();
         const dur = duration > 0 ? duration : audioEngine.getDuration();
         const baseTime = pendingSeekTimeRef.current !== null ? pendingSeekTimeRef.current : audioEngine.getCurrentTime();
@@ -3084,7 +3093,7 @@ export const App: React.FC = () => {
           }
           audioEngine.setScrubbing(false);
         }, 220);
-      } else if ((e.code === 'ArrowRight' || e.key === 'ArrowRight') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      } else if (matchesShortcut(e, keyboardShortcuts.seekForward)) {
         e.preventDefault();
         const dur = duration > 0 ? duration : audioEngine.getDuration();
         const baseTime = pendingSeekTimeRef.current !== null ? pendingSeekTimeRef.current : audioEngine.getCurrentTime();
@@ -3112,13 +3121,13 @@ export const App: React.FC = () => {
           audioEngine.setScrubbing(false);
         }, 220);
       // Ctrl + Arrow Left / Right: Previous / Next track
-      } else if ((e.code === 'ArrowRight' || e.key === 'ArrowRight') && (e.ctrlKey || e.metaKey)) {
+      } else if (matchesShortcut(e, keyboardShortcuts.nextTrack)) {
         e.preventDefault();
         handleNext();
-      } else if ((e.code === 'ArrowLeft' || e.key === 'ArrowLeft') && (e.ctrlKey || e.metaKey)) {
+      } else if (matchesShortcut(e, keyboardShortcuts.previousTrack)) {
         e.preventDefault();
         handlePrev();
-      } else if (e.code === 'KeyA' && (e.ctrlKey || e.metaKey)) {
+      } else if (matchesShortcut(e, keyboardShortcuts.selectAll)) {
         e.preventDefault();
         if (isTauri()) {
           void loadFullNativePlaybackContext(filteredTracksRef.current).then(all => {
@@ -3131,13 +3140,14 @@ export const App: React.FC = () => {
           selectedTrackIdsRef.current = ids;
           setSelectedTrackIds(ids);
         }
-      } else if (e.code === 'Delete' || e.key === 'Delete') {
+      } else if (matchesShortcut(e, keyboardShortcuts.deleteFromDisk) || matchesShortcut(e, keyboardShortcuts.deleteSelected)) {
+        const deleteFromDisk = matchesShortcut(e, keyboardShortcuts.deleteFromDisk);
         const anyModalOpen = isSettingsOpen || isEQOpen || isLyricsOpen || isQueueOpen || isBatchTagEditorOpen ||
           isCreatePlaylistOpen || isCreateFolderOpen || isCreateGroupOpen || renameItemTarget ||
           renamePlaylistTarget || deleteFolderTarget || clearPlaylistTarget || deletePlaylistTarget ||
           deleteTracksTarget || deleteFromDiskTarget || trackDetailsTarget;
         if (!anyModalOpen) {
-          if (e.shiftKey) {
+          if (deleteFromDisk) {
             e.preventDefault();
             const currentSelection = selectedTrackIdsRef.current;
             if (currentSelection.size > 0) {
@@ -3243,6 +3253,7 @@ export const App: React.FC = () => {
     filteredTracks,
     selectedTrackIds,
     repeatMode,
+    keyboardShortcuts,
     isLyricsOpen,
     trackDetailsTarget,
     isSettingsOpen,
@@ -5597,7 +5608,7 @@ export const App: React.FC = () => {
           isLibraryDataLoading={!startupDataLoaded || (isTauri() && nativePageLoading)}
           lyricsMode={miniLyricsMode}
           discordEnabled={discordEnabled}
-          showDiscordButton={showDiscordButton}
+          showDiscordButton={showDiscordButton && discordEnabled}
           onPlayPause={handlePlayPause}
           onPrev={handlePrev}
           onNext={handleNext}
@@ -5662,7 +5673,7 @@ export const App: React.FC = () => {
         onOpenSettings={() => setIsSettingsOpen(true)}
         discordEnabled={discordEnabled}
         onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
-        showDiscordButton={showDiscordButton}
+        showDiscordButton={showDiscordButton && discordEnabled}
         navigationTabOrder={navigationTabOrder}
         language={language}
         hasUpdate={hasUpdate}
@@ -5939,7 +5950,7 @@ export const App: React.FC = () => {
         onOpenEQ={() => setIsEQOpen(true)}
         discordEnabled={discordEnabled}
         onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
-        showDiscordButton={showDiscordButton}
+        showDiscordButton={showDiscordButton && discordEnabled}
         onOpenTrackDetails={openTrackDetails}
         onOpenLyrics={() => {
           if (currentTrack) setIsLyricsOpen(true);
@@ -6032,6 +6043,8 @@ export const App: React.FC = () => {
         onSetSecondarySeedColor={setSecondarySeedColor}
         language={language}
         onSetLanguage={setLanguage}
+        keyboardShortcuts={keyboardShortcuts}
+        onSetKeyboardShortcuts={setKeyboardShortcuts}
         discordEnabled={discordEnabled}
         onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
         showDiscordButton={showDiscordButton}

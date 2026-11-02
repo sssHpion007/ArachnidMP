@@ -44,7 +44,8 @@ import {
   FolderPlus,
   GripVertical,
   Puzzle,
-  Search
+  Search,
+  RotateCcw
 } from 'lucide-react';
 import { marked } from 'marked';
 import { ThemeMode, Track, FadeMode } from '../types/music';
@@ -64,6 +65,7 @@ export type ColorSchemeMode = 'dynamic' | 'system' | 'custom';
 import { CURRENT_APP_VERSION, isNewerVersion } from '../utils/version';
 import { useModalAnimation, useCurtainAnimation } from '../utils/useModalAnimation';
 import { PluginManagerView } from './PluginManagerView';
+import { DEFAULT_KEYBOARD_SHORTCUTS, formatShortcut, getShortcutSignature, KeyboardShortcuts, ShortcutId, SHORTCUT_IDS } from '../services/keyboardShortcuts';
 import {
   ExternalPluginManifest,
   PluginPreferencesFile,
@@ -90,6 +92,8 @@ interface SettingsModalProps {
   onSetSecondarySeedColor: (color: string) => void;
   language: AppLanguage;
   onSetLanguage: (lang: AppLanguage) => void;
+  keyboardShortcuts: KeyboardShortcuts;
+  onSetKeyboardShortcuts: (shortcuts: KeyboardShortcuts) => void;
   discordEnabled: boolean;
   onToggleDiscord: () => void;
   showDiscordButton: boolean;
@@ -169,6 +173,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSetSecondarySeedColor,
   language,
   onSetLanguage,
+  keyboardShortcuts,
+  onSetKeyboardShortcuts,
   discordEnabled,
   onToggleDiscord,
   showDiscordButton,
@@ -224,6 +230,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onOpenMissingTracksModal,
 }) => {
   const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes' | 'discord' | 'logs' | 'library_folders' | 'plugins'>('main');
+  const [recordingShortcutId, setRecordingShortcutId] = useState<ShortcutId | null>(null);
+  const [shortcutCaptureError, setShortcutCaptureError] = useState<string | null>(null);
   const [navDirection, setNavDirection] = useState<'forward' | 'backward'>('forward');
   const [externalPlugins, setExternalPlugins] = useState<ExternalPluginManifest[]>([]);
   const [pluginPreferences, setPluginPreferences] = useState<PluginPreferencesFile>({ plugins: {} });
@@ -635,6 +643,78 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }, [logs, currentView, autoScroll]);
 
   const t = getTranslations(language);
+  const shortcutLabels: Record<ShortcutId, string> = {
+    playPause: t.shortcuts.space,
+    nextTrack: t.shortcuts.nextTrack,
+    previousTrack: t.shortcuts.prevTrack,
+    seekBackward: language === 'ru' ? 'Перемотать назад на 5 секунд' : 'Seek backward 5 seconds',
+    seekForward: language === 'ru' ? 'Перемотать вперёд на 5 секунд' : 'Seek forward 5 seconds',
+    volumeUp: language === 'ru' ? 'Увеличить громкость на 5%' : 'Increase volume by 5%',
+    volumeDown: language === 'ru' ? 'Уменьшить громкость на 5%' : 'Decrease volume by 5%',
+    mute: t.shortcuts.mute,
+    shuffle: t.shortcuts.shuffle,
+    repeat: t.shortcuts.repeat,
+    toggleQueue: t.shortcuts.queue,
+    clearQueue: t.shortcuts.clearQueue,
+    toggleDiscord: t.shortcuts.discord,
+    lyrics: t.shortcuts.lyrics,
+    lyricsWindow: t.shortcuts.lyricsWindow,
+    miniPlayer: t.shortcuts.miniPlayer,
+    search: t.shortcuts.search,
+    settings: t.shortcuts.settings,
+    equalizer: language === 'ru' ? 'Открыть эквалайзер' : 'Open equalizer',
+    selectAll: t.shortcuts.selectAll,
+    editTags: t.shortcuts.editTags,
+    playSelected: t.shortcuts.playSelected,
+    deleteSelected: t.shortcuts.deleteTracks,
+    deleteFromDisk: t.shortcuts.deleteTracksFromDisk,
+  };
+  const shortcutGroups: Array<{ title: string; icon: React.ElementType; ids: ShortcutId[] }> = [
+    { title: t.shortcuts.playbackAndSound, icon: Music, ids: ['playPause', 'nextTrack', 'previousTrack', 'seekBackward', 'seekForward', 'volumeUp', 'volumeDown', 'mute', 'shuffle', 'repeat'] },
+    { title: t.shortcuts.libraryAndManagement, icon: ListMusic, ids: ['toggleQueue', 'clearQueue', 'playSelected', 'editTags', 'selectAll', 'deleteSelected', 'deleteFromDisk'] },
+    { title: t.shortcuts.navigationAndPanels, icon: LayoutGrid, ids: ['miniPlayer', 'search', 'lyrics', 'lyricsWindow', 'toggleDiscord', 'settings', 'equalizer'] },
+  ];
+  const fixedShortcutRows = [
+    { label: t.shortcuts.trackNav, keys: '↑ / ↓' },
+    { label: t.shortcuts.scrollToTop, keys: 'Home' },
+    { label: t.shortcuts.scrollToBottom, keys: 'End' },
+    { label: t.shortcuts.scrollByPage, keys: 'Page Up / Page Down' },
+    { label: t.shortcuts.saveTags, keys: 'Ctrl / ⌘ + Enter' },
+    { label: t.shortcuts.switchTabs, keys: 'Tab / Shift + Tab' },
+    { label: t.shortcuts.dismiss, keys: 'Escape' },
+    { label: t.shortcuts.mediaKeys, keys: '⏮ / ⏯ / ⏭ / ⏹' },
+  ];
+  const captureShortcut = (event: React.KeyboardEvent<HTMLButtonElement>, id: ShortcutId) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === 'Escape') {
+      setRecordingShortcutId(null);
+      setShortcutCaptureError(null);
+      return;
+    }
+    if (['Control', 'Meta', 'Alt', 'Shift'].includes(event.key)) return;
+    const code = event.nativeEvent.code;
+    const allowedCode = /^(Key[A-Z]|Digit[0-9]|Numpad[0-9]|Arrow(Up|Down|Left|Right)|Space|Enter|Delete|Comma|Period|Slash|Semicolon|Quote|BracketLeft|BracketRight|Backslash|Minus|Equal|Backquote|Home|End|PageUp|PageDown|Insert)$/.test(code);
+    if (!allowedCode) {
+      setShortcutCaptureError(language === 'ru' ? 'Эту клавишу нельзя использовать. Попробуйте букву, цифру или клавишу навигации.' : 'That key cannot be used. Try a letter, number, or navigation key.');
+      return;
+    }
+    const next = { code, ctrl: event.ctrlKey || event.metaKey, alt: event.altKey, shift: event.shiftKey };
+    if (!next.ctrl && !next.alt && !next.shift && ['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(code)) {
+      setShortcutCaptureError(language === 'ru' ? 'Эта клавиша уже используется для навигации по списку.' : 'This key is reserved for list navigation.');
+      return;
+    }
+    const signature = getShortcutSignature(next);
+    const conflict = SHORTCUT_IDS.find(otherId => otherId !== id && getShortcutSignature(keyboardShortcuts[otherId]) === signature);
+    if (conflict) {
+      setShortcutCaptureError(language === 'ru' ? `Это сочетание уже назначено: «${shortcutLabels[conflict]}».` : `This shortcut is already assigned to “${shortcutLabels[conflict]}”.`);
+      return;
+    }
+    onSetKeyboardShortcuts({ ...keyboardShortcuts, [id]: next });
+    setRecordingShortcutId(null);
+    setShortcutCaptureError(null);
+  };
+
 
   const blobToBase64 = (blob: Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -1163,7 +1243,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   : currentView === 'library_folders'
                   ? t.settings.libraryFolders
                   : currentView === 'plugins'
-                  ? (language === 'ru' ? 'Плагины' : 'Plugins')
+                  ? (language === 'ru' ? 'Менеджер плагинов' : 'Plugin manager')
                   : t.settings.title}
               </h3>
               <p className="text-xs text-md3-on-surface-variant">
@@ -1178,7 +1258,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   : currentView === 'library_folders'
                   ? t.settings.libraryFoldersDesc
                   : currentView === 'plugins'
-                  ? (language === 'ru' ? 'Управление встроенными и сторонними расширениями' : 'Manage built-in and third-party extensions')
+                  ? (language === 'ru' ? 'Управление расширениями' : 'Manage extensions')
                   : t.settings.subtitle}
               </p>
             </div>
@@ -1186,6 +1266,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* Right side: Update button (if update is available) + Close button */}
           <div className="flex items-center gap-3.5 shrink-0">
+            {currentView === 'plugins' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => { void refreshExternalPlugins(); }}
+                  disabled={pluginManagerLoading}
+                  title={language === 'ru' ? 'Обновить список плагинов' : 'Refresh plugins'}
+                  aria-label={language === 'ru' ? 'Обновить список плагинов' : 'Refresh plugins'}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-4 w-4 ${pluginManagerLoading ? 'animate-spin' : ''}`} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void openPluginsFolder().catch(error => {
+                      setPluginManagerError(error instanceof Error ? error.message : String(error));
+                    });
+                  }}
+                  disabled={!isTauri()}
+                  title={language === 'ru' ? 'Открыть папку плагинов' : 'Open plugins folder'}
+                  aria-label={language === 'ru' ? 'Открыть папку плагинов' : 'Open plugins folder'}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <FolderOpen className="h-4 w-4" />
+                </button>
+              </>
+            )}
             {currentView === 'main' && (updateStatus === 'available' || hasUpdate) && (
               <button
                 tabIndex={-1}
@@ -1210,244 +1318,87 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Content */}
         {currentView === 'shortcuts' ? (
-          /* Keyboard Shortcuts View (100% Fully Localized) */
-          <div key="view-shortcuts" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 anim-view-slide-right">
-            {/* Playback & Volume */}
-            <div className="space-y-3">
-              <div className="text-xs font-bold uppercase tracking-wider text-md3-primary flex items-center gap-2">
-                <Music className="w-4 h-4" />
-                <span>{t.shortcuts.playbackAndSound}</span>
+          <div key="view-shortcuts" className="flex-1 space-y-5 overflow-y-auto p-6 custom-scrollbar anim-view-slide-right">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-md3-outline-variant/20 bg-md3-surface-container-low p-4">
+              <div>
+                <h4 className="text-sm font-bold text-md3-on-surface">{language === 'ru' ? 'Настраиваемые сочетания' : 'Customizable shortcuts'}</h4>
+                <p className="mt-1 text-xs text-md3-on-surface-variant">{language === 'ru' ? 'Нажмите на сочетание и затем нажмите нужную клавишу или комбинацию.' : 'Select a shortcut, then press the key or combination you want to assign.'}</p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.space}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    {t.shortcuts.spaceKey}
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.nextTrack}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Ctrl + →
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.prevTrack}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Ctrl + ←
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.seek}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    ← / →
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.mediaKeys}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    ⏮ / ⏯ / ⏭ / ⏹
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.volumeAdj}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Ctrl + ↑ / ↓
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.mute}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    M
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.shuffle}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    E
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.repeat}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    R
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{language === 'ru' ? '10-полосный эквалайзер' : '10-Band Equalizer'}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Ctrl + E
-                  </kbd>
-                </div>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onSetKeyboardShortcuts(DEFAULT_KEYBOARD_SHORTCUTS);
+                  setRecordingShortcutId(null);
+                  setShortcutCaptureError(null);
+                }}
+                className="flex h-9 shrink-0 items-center gap-2 rounded-full border border-md3-outline-variant/20 bg-md3-surface-container px-3 text-xs font-semibold text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                {language === 'ru' ? 'Сбросить по умолчанию' : 'Reset to defaults'}
+              </button>
             </div>
 
-            {/* Library & Track Management */}
-            <div className="space-y-3">
-              <div className="text-xs font-bold uppercase tracking-wider text-md3-primary flex items-center gap-2">
-                <SlidersHorizontal className="w-4 h-4" />
-                <span>{t.shortcuts.libraryAndManagement}</span>
+            {shortcutCaptureError && (
+              <div role="alert" className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-500">{shortcutCaptureError}</div>
+            )}
+
+            {shortcutGroups.map(group => {
+              const GroupIcon = group.icon;
+              return (
+                <section key={group.title} className="space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-md3-primary">
+                    <GroupIcon className="h-4 w-4" />
+                    <span>{group.title}</span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {group.ids.map(id => {
+                      const recording = recordingShortcutId === id;
+                      return (
+                        <div key={id} className="flex min-h-14 items-center justify-between gap-3 rounded-xl border border-md3-outline-variant/15 bg-md3-surface p-2.5">
+                          <span className="min-w-0 text-xs text-md3-on-surface-variant">{shortcutLabels[id]}</span>
+                          <button
+                            type="button"
+                            data-shortcut-recorder={recording ? 'true' : undefined}
+                            aria-label={recording
+                              ? (language === 'ru' ? `Нажмите новое сочетание для действия: ${shortcutLabels[id]}` : `Press a new shortcut for: ${shortcutLabels[id]}`)
+                              : (language === 'ru' ? `Изменить сочетание: ${shortcutLabels[id]}` : `Change shortcut: ${shortcutLabels[id]}`)}
+                            onClick={event => {
+                              setRecordingShortcutId(id);
+                              setShortcutCaptureError(null);
+                              event.currentTarget.focus();
+                            }}
+                            onKeyDown={event => recording && captureShortcut(event, id)}
+                            className={`min-w-[104px] shrink-0 rounded-lg border px-2.5 py-1.5 text-center font-mono text-[11px] font-bold transition-colors ${recording ? 'border-md3-primary bg-md3-primary/10 text-md3-primary ring-2 ring-md3-primary/20' : 'border-md3-outline-variant/30 bg-md3-surface-container-high text-md3-primary hover:border-md3-primary/50'}`}
+                          >
+                            {recording ? (language === 'ru' ? 'Нажмите клавиши…' : 'Press keys…') : formatShortcut(keyboardShortcuts[id], language)}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
+
+            <section className="space-y-3">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-md3-on-surface-variant">
+                <Keyboard className="h-4 w-4" />
+                <span>{language === 'ru' ? 'Фиксированные сочетания' : 'Fixed shortcuts'}</span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.trackNav}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    ↑ / ↓
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.scrollToTop}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Home
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.scrollToBottom}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    End
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.scrollByPage}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Page Up / Page Down
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.playSelected}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Enter
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.editTags}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Shift + Enter
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.saveTags}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Ctrl / ⌘ + Enter
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.selectAll}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Ctrl + A
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.deleteTracks}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Delete
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.deleteTracksFromDisk}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-red-400 shadow-xs">
-                    Shift + Delete
-                  </kbd>
-                </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {fixedShortcutRows.map(row => (
+                  <div key={row.label} className="flex min-h-14 items-center justify-between gap-3 rounded-xl border border-md3-outline-variant/15 bg-md3-surface p-2.5">
+                    <span className="min-w-0 text-xs text-md3-on-surface-variant">{row.label}</span>
+                    <kbd className="shrink-0 rounded-lg border border-md3-outline-variant/30 bg-md3-surface-container-high px-2.5 py-1.5 text-center font-mono text-[11px] font-bold text-md3-on-surface-variant">{row.keys}</kbd>
+                  </div>
+                ))}
               </div>
-            </div>
+            </section>
 
-            {/* Navigation & Panels */}
-            <div className="space-y-3">
-              <div className="text-xs font-bold uppercase tracking-wider text-md3-primary flex items-center gap-2">
-                <LayoutGrid className="w-4 h-4" />
-                <span>{t.shortcuts.navigationAndPanels}</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.switchTabs}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Tab / Shift + Tab
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.miniPlayer}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    F
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.search}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Ctrl + F
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.dismiss}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Escape
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.queue}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Q
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.clearQueue}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    X
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.lyrics}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    T / L
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.lyricsWindow}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Shift + T
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.discord}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    D
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.settings}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Ctrl + ,
-                  </kbd>
-                </div>
-
-              </div>
+            <div className="rounded-xl border border-md3-outline-variant/15 bg-md3-surface-container-low px-3.5 py-3 text-xs leading-relaxed text-md3-on-surface-variant">
+              {language === 'ru'
+                ? 'Фиксированные сочетания нужны для системной навигации и управления. Для назначаемых сочетаний с Ctrl на macOS также принимается Cmd.'
+                : 'Fixed shortcuts preserve system navigation and control. On macOS, Cmd also works for assignable shortcuts that use Ctrl.'}
             </div>
           </div>
         ) : currentView === 'plugins' ? (
@@ -1459,16 +1410,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             loading={pluginManagerLoading}
             error={pluginManagerError}
             discordEnabled={discordEnabled}
+            discordShortcutLabel={formatShortcut(keyboardShortcuts.toggleDiscord, language)}
             onToggleDiscord={onToggleDiscord}
             onOpenDiscordSettings={() => setCurrentView('discord')}
             onToggleExternalPlugin={handleToggleExternalPlugin}
             onUpdatePluginSettings={handleUpdatePluginSettings}
-            onRefresh={() => { void refreshExternalPlugins(); }}
-            onOpenFolder={() => {
-              void openPluginsFolder().catch(error => {
-                setPluginManagerError(error instanceof Error ? error.message : String(error));
-              });
-            }}
           />
         ) : currentView === 'discord' ? (
           /* Dedicated Discord Integration Settings View */
@@ -2880,40 +2826,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
-            {/* Open the plugin manager */}
-            <div className="pt-2">
-              <button
-                tabIndex={-1}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  if (mainSettingsContainerRef.current) {
-                    mainScrollTopRef.current = mainSettingsContainerRef.current.scrollTop;
-                  }
-                  setCurrentView('plugins');
-                }}
-                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-md3-surface-container-high/60 hover:bg-md3-surface-container-high border border-md3-outline-variant/20 hover:border-md3-primary/40 transition-all cursor-pointer group shadow-xs outline-none focus:outline-none"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center group-hover:scale-105 transition-transform">
-                    <Puzzle className="h-5 w-5" />
-                  </div>
-                  <div className="text-left">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-md3-on-surface group-hover:text-md3-primary transition-colors">
-                        {language === 'ru' ? 'Менеджер плагинов' : 'Plugin manager'}
-                      </span>
-                      <span className="rounded-full bg-md3-primary/10 px-2 py-0.5 text-[10px] font-semibold text-md3-primary">
-                        {externalPlugins.length + 1} {language === 'ru' ? 'плагинов' : 'plugins'}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-md3-on-surface-variant">
-                      {language === 'ru' ? 'Discord RPC и сторонние расширения' : 'Discord RPC and third-party extensions'}
-                    </div>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-md3-on-surface-variant group-hover:text-md3-primary group-hover:translate-x-0.5 transition-all" />
-              </button>
-            </div>
 
             {/* Window close and startup mode */}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
@@ -3140,6 +3052,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <ChevronRight className="w-4 h-4 text-md3-on-surface-variant group-hover:text-md3-primary group-hover:translate-x-0.5 transition-all" />
               </button>
             </div>
+
+            {/* Open the plugin manager */}
+            <div className="pt-2">
+              <button
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  if (mainSettingsContainerRef.current) {
+                    mainScrollTopRef.current = mainSettingsContainerRef.current.scrollTop;
+                  }
+                  setCurrentView('plugins');
+                }}
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-md3-surface-container-high/60 hover:bg-md3-surface-container-high border border-md3-outline-variant/20 hover:border-md3-primary/40 transition-all cursor-pointer group shadow-xs outline-none focus:outline-none"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <Puzzle className="h-5 w-5" />
+                  </div>
+                  <div className="text-left">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-md3-on-surface group-hover:text-md3-primary transition-colors">
+                        {language === 'ru' ? 'Менеджер плагинов' : 'Plugin manager'}
+                      </span>
+                      <span className="rounded-full bg-md3-primary/10 px-2 py-0.5 text-[10px] font-semibold text-md3-primary">
+                        {externalPlugins.length + 1} {language === 'ru' ? 'плагинов' : 'plugins'}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-md3-on-surface-variant">
+                      {language === 'ru' ? 'Discord RPC и сторонние расширения' : 'Discord RPC and third-party extensions'}
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-md3-on-surface-variant group-hover:text-md3-primary group-hover:translate-x-0.5 transition-all" />
+              </button>
+            </div>
+
 
             {/* 6b. Button to Open Keyboard Shortcuts Menu */}
             <div className="pt-2">

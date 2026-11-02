@@ -15,6 +15,7 @@
     "test:hex-color": "node --experimental-strip-types tests/hex-color.test.mjs",
     "test:play-icon-color": "node --experimental-strip-types tests/play-icon-color.test.mjs",
     "test:track-table-scroll": "node --experimental-strip-types tests/track-table-scroll.test.mjs",
+    "test:keyboard-shortcuts": "node --experimental-strip-types tests/keyboard-shortcuts.test.mjs",
     "test:bounded-page-cache": "node --experimental-strip-types tests/bounded-page-cache.test.mjs",
     "test:bounded-indexed-cache": "node --experimental-strip-types tests/bounded-indexed-cache.test.mjs",
     "preview": "vite preview",
