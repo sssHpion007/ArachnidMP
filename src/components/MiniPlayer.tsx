@@ -365,7 +365,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const [isCompactVolHovered, setIsCompactVolHovered] = useState(false);
   const [queueSelectedIndex, setQueueSelectedIndex] = useState<number | null>(null);
   const [libraryTrackSelectedIndex, setLibraryTrackSelectedIndex] = useState<number | null>(null);
-  const [libraryTabIndicator, setLibraryTabIndicator] = useState({ left: 0, top: 0, width: 0, height: 0, opacity: 0 });
+  const [libraryTabIndicator, setLibraryTabIndicator] = useState({ x: 0, y: 0, width: 0, height: 0, opacity: 0 });
   const [queueScrollTop, setQueueScrollTop] = useState(0);
   const [queueViewportHeight, setQueueViewportHeight] = useState(0);
   const [libraryScrollTop, setLibraryScrollTop] = useState(0);
@@ -646,15 +646,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   useEffect(() => {
     if (bottomPanel !== 'library') return;
     const nav = libraryTabsNavRef.current;
-    const activeTab = libraryTabRefs.current[libraryTab];
-    if (!nav || !activeTab) return;
+    if (!nav) return;
 
     const updateIndicator = () => {
       const tab = libraryTabRefs.current[libraryTab];
       if (!tab) return;
       setLibraryTabIndicator({
-        left: tab.offsetLeft,
-        top: tab.offsetTop,
+        x: tab.offsetLeft,
+        y: tab.offsetTop,
         width: tab.offsetWidth,
         height: tab.offsetHeight,
         opacity: 1,
@@ -679,7 +678,12 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       updateIndicator();
       ensureTabVisible();
     });
-    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateIndicator) : null;
+    const resizeObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => {
+        updateIndicator();
+        ensureTabVisible();
+      })
+      : null;
     resizeObserver?.observe(nav);
     return () => {
       cancelAnimationFrame(frame);
@@ -1501,14 +1505,12 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                 >
                   <div
                     aria-hidden="true"
-                    className="pointer-events-none absolute z-0 rounded-full bg-md3-primary transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)]"
+                    className="pointer-events-none absolute left-0 top-0 z-0 rounded-full bg-md3-primary transition-[transform,width,height,opacity] duration-300 ease-[cubic-bezier(0.2,0,0,1)]"
                     style={{
-                      left: libraryTabIndicator.left,
-                      top: libraryTabIndicator.top,
                       width: libraryTabIndicator.width,
                       height: libraryTabIndicator.height,
                       opacity: libraryTabIndicator.opacity,
-                      boxShadow: '0 0 12px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.28)',
+                      transform: `translate3d(${libraryTabIndicator.x}px, ${libraryTabIndicator.y}px, 0)`,
                     }}
                   />
                   {visibleLibraryTabs.map(tab => {
@@ -1534,7 +1536,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                           setSelectedCollection(null);
                         }}
                         aria-current={active ? 'page' : undefined}
-                        className={`relative z-10 shrink-0 rounded-full bg-transparent active:bg-transparent focus:bg-transparent focus-visible:bg-transparent active:shadow-none px-2.5 py-1 text-[9px] transition-colors duration-200 ${active ? 'font-semibold text-md3-on-primary' : 'text-md3-on-surface-variant hover:bg-md3-surface-container-high/60 hover:text-md3-on-surface'}`}
+                        className={`relative z-10 shrink-0 rounded-full bg-transparent px-2.5 py-1 text-[9px] transition-colors duration-150 ${active ? 'font-semibold text-md3-on-primary' : 'text-md3-on-surface-variant hover:text-md3-on-surface'}`}
                       >{label}</button>
                     );
                   })}
