@@ -48,6 +48,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import { ThemeMode, Track, FadeMode } from '../types/music';
 import { coverVariantUrl } from '../utils/coverArt';
 import { CustomThemeInfo } from '../types/theme';
@@ -1786,7 +1787,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className="markdown-body"
                     onClick={handleMarkdownClick}
                     dangerouslySetInnerHTML={{
-                      __html: marked.parse(latestRelease.body || '', { async: false }) as string,
+                      __html: DOMPurify.sanitize(marked.parse(latestRelease.body || '', { async: false }) as string),
                     }}
                   />
                 </div>

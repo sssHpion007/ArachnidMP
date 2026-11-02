@@ -470,7 +470,7 @@ impl LibraryDb {
             .filter(|group| query.is_empty() || group.name.to_lowercase().contains(&query) || matched.contains(&group.name))
             .collect();
         if kind == "genres" {
-            result.sort_by(|left, right| right.track_ids.len().cmp(&left.track_ids.len()).then_with(|| natural_compare(&left.name, &right.name)));
+            result.sort_by(|left, right| right.track_count.cmp(&left.track_count).then_with(|| natural_compare(&left.name, &right.name)));
         } else {
             result.sort_by(|left, right| natural_compare(&left.name, &right.name));
         }
@@ -1228,20 +1228,27 @@ mod tests {
             json!({"id":"1","title":"Song 1","artist":"Artist","album":"Album","genre":"Rock; Jazz","duration":10.0,"path":"/music/1.flac"}),
             json!({"id":"2","title":"Song 2","artist":"Artist","album":"Album","genre":"Rock","duration":20.0,"path":"/music/2.flac"}),
             json!({"id":"3","title":"Other","artist":"Other Artist","album":"Other Album","genre":"Jazz","duration":30.0,"path":"/music/3.flac"}),
+            json!({"id":"4","title":"Song 4","artist":"Artist","album":"Album","genre":"Rock","duration":40.0,"path":"/music/4.flac"}),
         ]).unwrap();
         let albums = db.collection_groups("albums", "en", None, &[], true).unwrap();
         assert_eq!(albums.len(), 2);
         assert_eq!(albums[0].name, "Album");
-        assert_eq!(albums[0].track_ids, vec!["1", "2"]);
-        assert_eq!(albums[0].total_duration, 30.0);
+        assert_eq!(albums[0].track_ids, vec!["1", "2", "4"]);
+        assert_eq!(albums[0].total_duration, 70.0);
         let mini_albums = db.collection_groups("albums", "en", None, &[], false).unwrap();
-        assert_eq!(mini_albums[0].track_count, 2);
+        assert_eq!(mini_albums[0].track_count, 3);
         assert!(mini_albums.iter().all(|group| group.track_ids.is_empty()));
         let genres = db.collection_groups("genres", "en", Some("song 1"), &[], true).unwrap();
         assert_eq!(genres.len(), 2);
+        let mini_genres = db.collection_groups("genres", "en", None, &[], false).unwrap();
+        assert_eq!(mini_genres[0].name, "Rock");
+        assert_eq!(mini_genres[0].track_count, 3);
+        assert_eq!(mini_genres[1].name, "Jazz");
+        assert_eq!(mini_genres[1].track_count, 2);
+        assert!(mini_genres.iter().all(|group| group.track_ids.is_empty()));
         let rock = genres.iter().find(|group| group.name == "Rock").unwrap();
         let jazz = genres.iter().find(|group| group.name == "Jazz").unwrap();
-        assert_eq!(rock.track_ids, vec!["1", "2"]);
+        assert_eq!(rock.track_ids, vec!["1", "2", "4"]);
         assert_eq!(jazz.track_ids, vec!["3", "1"]);
         let excluded = vec!["1".to_string()];
         let remaining = db.page_filtered_excluding(

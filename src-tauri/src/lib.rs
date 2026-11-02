@@ -1327,47 +1327,6 @@ fn build_id3v23_tag_bytes(frames: &[Vec<u8>]) -> Vec<u8> {
     tag
 }
 
-fn sync_folder_cover_art(folder: &Path, new_cover: Option<&[u8]>) {
-    if !folder.is_dir() {
-        return;
-    }
-
-    // Never delete user-provided folder cover files (Folder.jpg / cover.jpg) when editing track tags!
-    let make_writable = |p: &Path| {
-        if let Ok(meta) = std::fs::metadata(p) {
-            let mut perms = meta.permissions();
-            if perms.readonly() {
-                #[allow(clippy::permissions_set_readonly_false)]
-                perms.set_readonly(false);
-                let _ = std::fs::set_permissions(p, perms);
-            }
-        }
-    };
-
-    // If new cover is provided, write/overwrite Folder.jpg
-    if let Some(bytes) = new_cover {
-        if let Ok(entries) = std::fs::read_dir(folder) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() {
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        let name_lower = name.to_ascii_lowercase();
-                        // Match Windows Media Player generated cover files (AlbumArt*.jpg)
-                        if name_lower.starts_with("albumart") && name_lower.ends_with(".jpg") {
-                            make_writable(&path);
-                            let _ = std::fs::remove_file(&path);
-                        }
-                    }
-                }
-            }
-        }
-
-        let folder_jpg = folder.join("Folder.jpg");
-        make_writable(&folder_jpg);
-        let _ = std::fs::write(&folder_jpg, bytes);
-    }
-}
-
 fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(), String> {
     let base_dir = crate::storage::get_portable_base_dir();
     let mut file_path_buf = PathBuf::from(path_str);
@@ -1704,13 +1663,6 @@ fn apply_tag_updates_to_file(path_str: &str, updates: &TagUpdates) -> Result<(),
         let write_options = WriteOptions::default();
         tag.save_to_path(file_path, write_options)
             .map_err(|e| format!("Failed to save tags to {}: {}", path_str, e))?;
-    }
-
-    // Synchronize album art files in the parent folder only when an explicit new cover is set
-    if let Some(parent) = file_path.parent() {
-        if let Some((Some(ref bytes), _)) = parsed_cover_art {
-            sync_folder_cover_art(parent, Some(bytes));
-        }
     }
 
     notify_shell_file_changed(file_path);
@@ -3435,22 +3387,58 @@ fn open_app_folder(subfolder: Option<String>) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_external_http_url(input: &str) -> Result<&str, String> {
+    let url = input.trim();
+    if url.is_empty()
+        || url.chars().any(|character| character.is_control() || character.is_whitespace() || character == '\\')
+    {
+        return Err("The external URL contains invalid characters.".to_string());
+    }
+    let Some((scheme, remainder)) = url.split_once("://") else {
+        return Err("Only HTTP and HTTPS links can be opened.".to_string());
+    };
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+        return Err("Only HTTP and HTTPS links can be opened.".to_string());
+    }
+    let authority = remainder.split(|character| matches!(character, '/' | '?' | '#')).next().unwrap_or("");
+    if authority.is_empty() || authority.contains('@') {
+        return Err("The external URL has an invalid host.".to_string());
+    }
+    Ok(url)
+}
+
+#[cfg(test)]
+mod external_url_tests {
+    use super::validate_external_http_url;
+
+    #[test]
+    fn accepts_http_links_and_rejects_non_http_or_ambiguous_authorities() {
+        assert_eq!(validate_external_http_url("https://github.com/example/project").unwrap(), "https://github.com/example/project");
+        assert_eq!(validate_external_http_url(" http://example.org/path ").unwrap(), "http://example.org/path");
+        assert!(validate_external_http_url("file:///C:/Windows/win.ini").is_err());
+        assert!(validate_external_http_url("https://trusted.example@attacker.example/").is_err());
+        assert!(validate_external_http_url("https://example.org/\r\ncalc").is_err());
+        assert!(validate_external_http_url("https://example.org\\@attacker").is_err());
+    }
+}
+
 #[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
+    let url = validate_external_http_url(&url)?.to_string();
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        Command::new("cmd")
-            .args(&["/c", "start", "", &url])
-            .creation_flags(CREATE_NO_WINDOW)
+        // Pass the URL as a single process argument; never route external data through cmd.exe.
+        std::process::Command::new("explorer.exe")
+            .arg(&url)
             .spawn()
-            .map_err(|e| e.to_string())?;
+            .map_err(|error| format!("Open external URL: {error}"))?;
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+        std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|error| format!("Open external URL: {error}"))?;
     }
     Ok(())
 }

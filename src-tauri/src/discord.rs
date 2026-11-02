@@ -262,7 +262,6 @@ impl DiscordService {
             let mut cover_cache: HashMap<String, String> = HashMap::new();
             let mut last_had_timestamps = false;
             let mut last_had_small_image = false;
-            let mut last_track_details = String::new();
 
             while let Ok(data) = rx.recv() {
                 // Drain any extra pending messages to only process the latest state
@@ -289,7 +288,6 @@ impl DiscordService {
                     }
                     last_had_timestamps = false;
                     last_had_small_image = false;
-                    last_track_details.clear();
                     continue;
                 }
 
@@ -307,21 +305,17 @@ impl DiscordService {
                         active_client_id = connected_id;
                         last_had_timestamps = false;
                         last_had_small_image = false;
-                        last_track_details.clear();
                     }
                 }
 
                 if let Some(stream) = &mut active_stream {
                     let has_timestamps = latest.start_timestamp.is_some() || latest.end_timestamp.is_some();
                     let has_small_image = latest.small_image.as_ref().map_or(false, |s| !s.trim().is_empty());
-                    let track_changed = !last_track_details.is_empty() && last_track_details != latest.details;
 
-                    // Discord's IPC server performs shallow merges on activity objects and activity.assets.
-                    // If a field was present previously (such as small_image with Paused icon, or timestamps when playing),
-                    // but is omitted in the new state, Discord does NOT clear it from the client display unless
-                    // the activity is explicitly cleared first with activity: null.
-                    let should_clear = track_changed
-                        || (last_had_timestamps && !has_timestamps)
+                    // Send track changes as a single complete activity. Only clear first when a
+                    // previously-present optional field is being removed (pause or disabled badge),
+                    // because Discord may otherwise retain the old nested asset/timestamp value.
+                    let should_clear = (last_had_timestamps && !has_timestamps)
                         || (last_had_small_image && !has_small_image);
 
                     if should_clear {
@@ -342,7 +336,6 @@ impl DiscordService {
 
                     last_had_timestamps = has_timestamps;
                     last_had_small_image = has_small_image;
-                    last_track_details = latest.details.clone();
 
                     let is_listening_only = latest.status_mode.as_deref() == Some("listening");
 
