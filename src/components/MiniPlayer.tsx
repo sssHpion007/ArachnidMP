@@ -1508,7 +1508,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                       width: libraryTabIndicator.width,
                       height: libraryTabIndicator.height,
                       opacity: libraryTabIndicator.opacity,
-                      boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
+                      boxShadow: '0 0 12px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.28)',
                     }}
                   />
                   {visibleLibraryTabs.map(tab => {
@@ -1524,6 +1524,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                         key={tab}
                         ref={node => { libraryTabRefs.current[tab] = node; }}
                         type="button"
+                        onMouseDown={event => event.preventDefault()}
                         onClick={() => {
                           logger.info('MINI_COLLECTION', `tab selected: tab=${tab}, panel=${bottomPanel ?? 'closed'}`);
                           setLibraryTab(tab);
@@ -1533,7 +1534,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                           setSelectedCollection(null);
                         }}
                         aria-current={active ? 'page' : undefined}
-                        className={`relative z-10 shrink-0 rounded-full px-2.5 py-1 text-[9px] transition-colors duration-200 ${active ? 'font-semibold text-md3-on-primary' : 'text-md3-on-surface-variant hover:bg-md3-surface-container-high/60 hover:text-md3-on-surface'}`}
+                        className={`relative z-10 shrink-0 rounded-full bg-transparent active:bg-transparent focus:bg-transparent focus-visible:bg-transparent active:shadow-none px-2.5 py-1 text-[9px] transition-colors duration-200 ${active ? 'font-semibold text-md3-on-primary' : 'text-md3-on-surface-variant hover:bg-md3-surface-container-high/60 hover:text-md3-on-surface'}`}
                       >{label}</button>
                     );
                   })}

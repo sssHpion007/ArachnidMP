@@ -291,13 +291,13 @@ export const TopBar: React.FC<TopBarProps> = ({
         >
           {/* Smooth sliding glow pill indicator */}
           <div
-            className="absolute rounded-full bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+            className="absolute rounded-full bg-md3-primary pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
             style={{
               left: `${indicatorStyle.left}px`,
               width: `${indicatorStyle.width}px`,
               height: `${indicatorStyle.height}px`,
               opacity: indicatorStyle.opacity,
-              boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
+              boxShadow: '0 0 12px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.28)',
             }}
           />
 
@@ -326,7 +326,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 title={tab.label}
                 className={`relative z-10 flex items-center gap-1.5 h-full ${
                   isNarrow ? 'px-2.5 py-1' : isCompact ? 'px-2.5 py-1' : 'px-3.5 py-1'
-                } rounded-full text-xs font-medium transition-colors duration-200 shrink-0 cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
+                } rounded-full bg-transparent active:bg-transparent focus:bg-transparent focus-visible:bg-transparent active:shadow-none text-xs font-medium transition-colors duration-200 shrink-0 cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
                   isActive
                     ? 'text-md3-on-primary font-bold'
                     : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high/60'
