@@ -2773,7 +2773,11 @@ export const App: React.FC = () => {
           focusedId: (document.activeElement as HTMLElement | null)?.id || '',
           shortcutMatched: matchesShortcut(e, keyboardShortcuts.lyricsWindow),
           shortcutCode: keyboardShortcuts.lyricsWindow.code,
+          shortcutCtrl: keyboardShortcuts.lyricsWindow.ctrl,
+          shortcutAlt: keyboardShortcuts.lyricsWindow.alt,
           shortcutShift: keyboardShortcuts.lyricsWindow.shift,
+          eventCtrl: e.ctrlKey,
+          eventAlt: e.altKey,
         }).catch(() => {});
       }
       const repeatableCodes = new Set(['Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);

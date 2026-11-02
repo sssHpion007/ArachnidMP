@@ -131,14 +131,18 @@ fn log_keyboard_probe(
     focused_id: String,
     shortcut_matched: bool,
     shortcut_code: String,
+    shortcut_ctrl: bool,
+    shortcut_alt: bool,
     shortcut_shift: bool,
+    event_ctrl: bool,
+    event_alt: bool,
 ) {
     logger::log(
         "INFO",
         "KEYBOARD_PROBE",
         &format!(
-            "target={} typing_target={} focused_id={} shortcut_matched={} shortcut_code={} shortcut_shift={}",
-            target, typing_target, focused_id, shortcut_matched, shortcut_code, shortcut_shift
+            "target={} typing_target={} focused_id={} shortcut_matched={} shortcut_code={} shortcut_ctrl={} shortcut_alt={} shortcut_shift={} event_ctrl={} event_alt={}",
+            target, typing_target, focused_id, shortcut_matched, shortcut_code, shortcut_ctrl, shortcut_alt, shortcut_shift, event_ctrl, event_alt
         ),
     );
 }
