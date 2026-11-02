@@ -2,14 +2,14 @@
 
 **Обновлено:** 2026-11-03
 
-**Статус:** после добавления внешних плагинов выполнен повторный targeted-аудит. Подтверждённые риски вокруг release-note HTML, открытия URL/папок, соседних с музыкой обложек, очереди audio diagnostics и сортировки жанров исправлены. Windows Actions run `41518556996` успешно прошёл на `f8519ec` и опубликовал артефакт 383, но не включает последующие изменения в plugin TOCTOU/input-path checks, bounded glitch queue и переход на актуальный audio parser; эти изменения локально проверены frontend-сборкой/npm tests, а новый Windows run ещё ожидается. Полный production `npm audit --omit=dev` чист; отдельные dev-зависимости требуют планового обновления.
+**Статус:** повторный targeted-аудит завершён. Windows Actions run `41522166028` прошёл на `c6a3f0315175b63fa5e78d2c155b0cb9c0092a2a`: frontend audit/build/regressions, Tauri build/startup, SQLite/cache, plugin manifest/fingerprint, input path/URL validation, native updater и helper smoke test — success. Опубликован artifact `Arachnid-Windows-Test-385-c6a3f0315175b63fa5e78d2c155b0cb9c0092a2a` (7,702,363 bytes). Предыдущий run `41520822395` выявил нестабильную повторную проверку ready-файла updater-теста; лишний reread удалён, следующий run прошёл. Полный production `npm audit --omit=dev` чист; отдельные dev-зависимости требуют планового обновления.
 **Назначение:** сохранять подтверждённые находки, остаточные риски и необходимые проверки. Успешная сборка не заменяет интерактивную проверку Discord и WebView2.
 
 ## Границы и состояние проверки
 
-Просмотрены ключевые frontend- и Rust/Tauri-модули, конфигурация сборки/разрешений, SQLite-путь библиотеки, работа с обложками, аудио и внешними плагинами. Локальный `cargo` в окружении отсутствует, поэтому native-часть проверяется Windows GitHub Actions. Последняя полная Windows-проверка — run `41518556996` на `f8519ec`; Tauri build, smoke test, SQLite/cache, plugin, input-validation и updater tests прошли, создан artifact 383.
+Просмотрены ключевые frontend- и Rust/Tauri-модули, конфигурация сборки/разрешений, SQLite-путь библиотеки, работа с обложками, аудио и внешними плагинами. Локальный `cargo` в окружении отсутствует, поэтому native-часть проверяется Windows GitHub Actions. Полная проверка актуальных изменений прошла в run `41522166028` на `c6a3f03`; Tauri build, startup smoke, SQLite/cache, plugin, input-validation, updater и helper tests прошли, создан artifact 385.
 
-Подтверждённые проблемы, найденные при повторном аудите и устранённые в текущей ветке: неатомарный Discord-переход между треками, небезопасный HTML release notes и вызов `cmd.exe` с внешним URL, path traversal в открытии app-папок, изменение соседних музыкальных обложек при записи тегов, доверие к plugin fingerprint с повторным чтением источника, неограниченная audio diagnostic queue и сортировка жанров по кэшированным ID вместо `track_count`.
+Подтверждённые проблемы, найденные при повторном аудите и устранённые в текущей ветке: неатомарный Discord-переход между треками, небезопасный HTML release notes и вызов `cmd.exe` с внешним URL, path traversal в открытии app-папок, изменение соседних музыкальных обложек при записи тегов, plugin fingerprint TOCTOU, неограниченная audio diagnostic queue, production vulnerabilities в аудио-парсерах и сортировка жанров по кэшированным ID вместо `track_count`.
 
 Проверки, выполненные в текущем checkout:
 
@@ -24,7 +24,7 @@
 - `npm run test:library-scan-paths` — успешно.
 - `git diff --check` — успешно.
 - Production npm audit — 0 vulnerabilities; полный npm audit — 3 dev-only findings (2 moderate, 1 high).
-- Native changes after `f8519ec` ещё ожидают нового Windows Actions run; см. текущий статус выше.
+- `cargo` доступен только на Windows runner; актуальные native tests прошли в run `41522166028`.
 
 ## Сначала обсудить: безопасность и потенциальная потеря пользовательских данных
 
@@ -58,7 +58,7 @@
 
 ### A5. TOCTOU при проверке доверенного внешнего плагина
 
-**Статус 03.11.2026: исправлено.** Раньше source fingerprint и исполняемый JavaScript можно было читать отдельными операциями. Загрузка теперь один раз читает bounded manifest/source, вычисляет versioned fingerprint с разделением полей и возвращает именно эти проверенные source bytes; размер manifest и source ограничен. Rust test проверяет изменение fingerprint при изменении source. Windows Actions test для этого изменения добавлен в workflow; новый run ожидает push и пока не выполнен.
+**Статус 03.11.2026: исправлено.** Раньше source fingerprint и исполняемый JavaScript можно было читать отдельными операциями. Загрузка теперь один раз читает bounded manifest/source, вычисляет versioned fingerprint с разделением полей и возвращает именно эти проверенные source bytes; размер manifest и source ограничен. Rust test проверяет изменение fingerprint при изменении source. Plugin fingerprint/source regression test прошёл в Windows Actions run `41522166028`.
 
 Остаточный риск: внешний плагин остаётся пользовательским исполняемым кодом в Web Worker; Worker ограничивает доступ к DOM и Tauri bridge, но не является полноценным sandbox от сетевого доступа, высокой нагрузки CPU/памяти или browser-engine уязвимостей. Пользователь должен включать только доверенные плагины.
 
