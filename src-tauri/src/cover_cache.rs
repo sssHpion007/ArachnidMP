@@ -256,6 +256,23 @@ impl CoverCache {
         ).optional().map_err(|error| format!("Read original artwork: {error}"))
     }
 
+    /// Returns a bounded JPEG thumbnail for Discord's image-host upload pipeline.
+    /// The UI cache preserves PNG transparency, but the legacy RPC upload path is JPEG-only.
+    pub fn get_discord_jpeg(&self, hash: &str) -> Result<Option<CoverImage>, String> {
+        let Some(mut image) = self.get_image(hash, Some(256))? else { return Ok(None) };
+        let source_mime = image.mime.clone();
+        image.bytes = match source_mime.as_str() {
+            "image/jpeg" => decode_scaled_jpeg(Cursor::new(image.bytes), 256)?,
+            "image/png" => {
+                let bounded_png = decode_streamed_png(Cursor::new(image.bytes), 256)?;
+                png_thumbnail_to_jpeg(&bounded_png)?
+            }
+            mime => return Err(format!("Unsupported cached cover MIME for Discord: {mime}")),
+        };
+        image.mime = "image/jpeg".to_string();
+        Ok(Some(image))
+    }
+
     fn release_incremental_pages(&self) -> Result<(), String> {
         let connection = self.connection.lock().map_err(|_| "Cover cache lock is poisoned".to_string())?;
         connection.execute_batch("PRAGMA incremental_vacuum(64);").map_err(|error| error.to_string())
@@ -351,6 +368,49 @@ fn mime_from_extension(extension: &str) -> String {
         "bmp" => "image/bmp".to_string(),
         _ => "image/jpeg".to_string(),
     }
+}
+
+fn png_thumbnail_to_jpeg(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let mut decoder = png::Decoder::new(Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder.read_info().map_err(|error| format!("Read Discord PNG thumbnail: {error}"))?;
+    let mut decoded = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut decoded).map_err(|error| format!("Decode Discord PNG thumbnail: {error}"))?;
+    if info.width == 0 || info.height == 0 || info.width > 256 || info.height > 256 {
+        return Err("Discord PNG thumbnail exceeds 256px bounds".to_string());
+    }
+    let source = &decoded[..info.buffer_size()];
+    let channels = match info.color_type {
+        png::ColorType::Grayscale => 1,
+        png::ColorType::GrayscaleAlpha => 2,
+        png::ColorType::Rgb => 3,
+        png::ColorType::Rgba => 4,
+        png::ColorType::Indexed => return Err("Discord PNG thumbnail was not palette-expanded".to_string()),
+    };
+    let pixel_count = (info.width as usize).checked_mul(info.height as usize)
+        .ok_or("Invalid Discord PNG thumbnail dimensions")?;
+    if source.len() < pixel_count.saturating_mul(channels) {
+        return Err("Discord PNG thumbnail has an incomplete pixel buffer".to_string());
+    }
+    let mut rgb = Vec::with_capacity(pixel_count.saturating_mul(3));
+    for pixel in source[..pixel_count * channels].chunks_exact(channels) {
+        let (r, g, b, alpha) = match info.color_type {
+            png::ColorType::Grayscale => (pixel[0], pixel[0], pixel[0], 255u16),
+            png::ColorType::GrayscaleAlpha => (pixel[0], pixel[0], pixel[0], pixel[1] as u16),
+            png::ColorType::Rgb => (pixel[0], pixel[1], pixel[2], 255u16),
+            png::ColorType::Rgba => (pixel[0], pixel[1], pixel[2], pixel[3] as u16),
+            png::ColorType::Indexed => unreachable!(),
+        };
+        // Flatten transparent PNG artwork onto white, matching a regular JPEG canvas export.
+        for channel in [r, g, b] {
+            rgb.push(((channel as u16 * alpha + 255 * (255 - alpha)) / 255) as u8);
+        }
+    }
+    let mut jpeg = Vec::new();
+    JpegEncoder::new(&mut jpeg, JPEG_QUALITY)
+        .encode(&rgb, info.width as u16, info.height as u16, JpegColorType::Rgb)
+        .map_err(|error| format!("Encode Discord JPEG thumbnail: {error}"))?;
+    Ok(jpeg)
 }
 
 fn generate_variants_from_bytes(bytes: &[u8], mime: &str) -> Vec<(u32, String, Vec<u8>)> {
@@ -581,6 +641,10 @@ mod tests {
         let variant = cache.get_image(&hash, Some(96)).unwrap().unwrap();
         assert_eq!(variant.mime, "image/png");
         assert!(variant.bytes.starts_with(b"\x89PNG\r\n\x1A\n"));
+
+        let discord = cache.get_discord_jpeg(&hash).unwrap().unwrap();
+        assert_eq!(discord.mime, "image/jpeg");
+        assert!(discord.bytes.starts_with(b"\xFF\xD8\xFF"));
     }
 
     #[test]

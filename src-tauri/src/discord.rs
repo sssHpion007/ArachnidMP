@@ -58,6 +58,16 @@ fn read_packet(stream: &mut IpcStream) -> std::io::Result<(u32, String)> {
     Ok((op, s))
 }
 
+fn log_rpc_error_event(tag: &str, payload: &str) {
+    let Ok(response) = serde_json::from_str::<serde_json::Value>(payload) else { return };
+    if response.get("evt").and_then(serde_json::Value::as_str) != Some("ERROR") { return; }
+    let data = response.get("data").unwrap_or(&serde_json::Value::Null);
+    let code = data.get("code").and_then(serde_json::Value::as_i64)
+        .map(|value| value.to_string()).unwrap_or_else(|| "unknown".to_string());
+    let message = data.get("message").and_then(serde_json::Value::as_str).unwrap_or("unknown error");
+    crate::logger::log("WARN", tag, &format!("Discord RPC rejected activity: code={code}, message={message}"));
+}
+
 #[cfg(windows)]
 fn open_pipe(index: u8) -> std::io::Result<IpcStream> {
     let pipe_name = format!(r"\\.\pipe\discord-ipc-{}", index);
@@ -439,31 +449,53 @@ impl DiscordService {
                         "nonce": format!("arachnid_act_{}", nonce)
                     }).to_string();
 
-                    if send_packet(stream, 1, &set_activity).is_err() || read_packet(stream).is_err() {
+                    if send_packet(stream, 1, &set_activity).is_err() {
                         active_stream = None;
                         continue;
+                    }
+                    match read_packet(stream) {
+                        Ok((_, response)) => log_rpc_error_event("DISCORD_RPC", &response),
+                        Err(_) => {
+                            active_stream = None;
+                            continue;
+                        }
                     }
 
                     if let Some((cache_key, image_bytes)) = pending_cover_upload {
                         if let Some(uploaded_url) = upload_raw_cover(&image_bytes) {
                             cover_cache.insert(cache_key, uploaded_url.clone());
                             activity["assets"]["large_image"] = json!(uploaded_url);
+
+                            // Discord can retain a previously resolved large_image in its
+                            // shallow activity/assets merge. Clear the placeholder activity
+                            // before publishing the final artwork, as the known-good main path did.
                             nonce += 1;
-                            let cover_update = json!({
+                            let clear_pkt = json!({
                                 "cmd": "SET_ACTIVITY",
-                                "args": {
-                                    "pid": std::process::id(),
-                                    "activity": activity
-                                },
-                                "nonce": format!("arachnid_cover_{}", nonce)
+                                "args": { "pid": std::process::id(), "activity": null },
+                                "nonce": format!("arachnid_cover_clear_{}", nonce)
                             }).to_string();
-                            if send_packet(stream, 1, &cover_update).is_err() {
+                            if send_packet(stream, 1, &clear_pkt).is_err() {
+                                active_stream = None;
+                            } else if let Err(_) = read_packet(stream) {
                                 active_stream = None;
                             } else {
-                                match read_packet(stream) {
-                                    Ok((2, _)) => crate::logger::log("WARN", "DISCORD_COVER", "Discord rejected the cover asset update."),
-                                    Ok(_) => {}
-                                    Err(_) => active_stream = None,
+                                nonce += 1;
+                                let cover_update = json!({
+                                    "cmd": "SET_ACTIVITY",
+                                    "args": {
+                                        "pid": std::process::id(),
+                                        "activity": activity
+                                    },
+                                    "nonce": format!("arachnid_cover_{}", nonce)
+                                }).to_string();
+                                if send_packet(stream, 1, &cover_update).is_err() {
+                                    active_stream = None;
+                                } else {
+                                    match read_packet(stream) {
+                                        Ok((_, response)) => log_rpc_error_event("DISCORD_COVER", &response),
+                                        Err(_) => active_stream = None,
+                                    }
                                 }
                             }
                         } else {

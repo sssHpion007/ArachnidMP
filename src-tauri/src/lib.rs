@@ -923,12 +923,15 @@ fn prepare_discord_cover(cover: Option<String>, covers: &cover_cache::CoverCache
 
     // Always send the generated 256px JPEG rather than the original cover blob. The
     // original may be a large PNG/embedded image that image hosts reject or time out on.
-    match covers.get_image(&hash, Some(256)) {
-        Ok(Some(image)) => Some(format!(
-            "data:{};base64,{}",
-            image.mime,
-            BASE64_STANDARD.encode(image.bytes),
-        )),
+    match covers.get_discord_jpeg(&hash) {
+        Ok(Some(image)) => {
+            logger::log("INFO", "DISCORD_COVER", &format!("Prepared cached JPEG thumbnail: {} bytes.", image.bytes.len()));
+            Some(format!(
+                "data:{};base64,{}",
+                image.mime,
+                BASE64_STANDARD.encode(image.bytes),
+            ))
+        }
         Ok(None) => {
             logger::log("WARN", "DISCORD_COVER", &format!("Cached cover thumbnail not found for Discord: hash={hash} size=256"));
             None
