@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { 
   X, 
   Settings, 
@@ -43,6 +43,7 @@ import {
   FolderKanban,
   FolderPlus,
   GripVertical,
+  Puzzle,
   Search
 } from 'lucide-react';
 import { marked } from 'marked';
@@ -62,6 +63,17 @@ export type ColorSchemeMode = 'dynamic' | 'system' | 'custom';
 
 import { CURRENT_APP_VERSION, isNewerVersion } from '../utils/version';
 import { useModalAnimation, useCurtainAnimation } from '../utils/useModalAnimation';
+import { PluginManagerView } from './PluginManagerView';
+import {
+  ExternalPluginManifest,
+  PluginPreferencesFile,
+  PluginRuntimeEvent,
+  externalPluginRuntime,
+  listExternalPlugins,
+  loadPluginPreferences,
+  openPluginsFolder,
+  savePluginPreferences,
+} from '../services/pluginManager';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -211,8 +223,137 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   missingTracksCount = 0,
   onOpenMissingTracksModal,
 }) => {
-  const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes' | 'discord' | 'logs' | 'library_folders'>('main');
+  const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes' | 'discord' | 'logs' | 'library_folders' | 'plugins'>('main');
   const [navDirection, setNavDirection] = useState<'forward' | 'backward'>('forward');
+  const [externalPlugins, setExternalPlugins] = useState<ExternalPluginManifest[]>([]);
+  const [pluginPreferences, setPluginPreferences] = useState<PluginPreferencesFile>({ plugins: {} });
+  const [pluginRuntimeStates, setPluginRuntimeStates] = useState<Record<string, PluginRuntimeEvent>>({});
+  const [pluginManagerLoading, setPluginManagerLoading] = useState(false);
+  const [pluginManagerError, setPluginManagerError] = useState<string | null>(null);
+
+  const refreshExternalPlugins = useCallback(async () => {
+    if (!isTauri()) {
+      setExternalPlugins([]);
+      setPluginPreferences({ plugins: {} });
+      return;
+    }
+    setPluginManagerLoading(true);
+    setPluginManagerError(null);
+    try {
+      await externalPluginRuntime.stopAll();
+      const [manifests, savedPreferences] = await Promise.all([
+        listExternalPlugins(),
+        loadPluginPreferences(),
+      ]);
+      const nextPreferences: PluginPreferencesFile = { plugins: { ...savedPreferences.plugins } };
+      let preferencesChanged = false;
+      for (const manifest of manifests) {
+        const saved = nextPreferences.plugins[manifest.id] ?? {
+          enabled: false,
+          trustedFingerprint: null,
+          settings: {},
+        };
+        const savedSettings = saved.settings && typeof saved.settings === 'object' && !Array.isArray(saved.settings)
+          ? saved.settings
+          : {};
+        const settings = { ...savedSettings };
+        for (const field of manifest.settings) {
+          if (!(field.key in settings) && field.default !== null) settings[field.key] = field.default;
+        }
+        const trusted = saved.enabled && saved.trustedFingerprint === manifest.fingerprint;
+        nextPreferences.plugins[manifest.id] = {
+          enabled: trusted,
+          trustedFingerprint: saved.trustedFingerprint,
+          settings,
+        };
+        if (saved.enabled !== trusted || JSON.stringify(savedSettings) !== JSON.stringify(settings)) preferencesChanged = true;
+      }
+      if (preferencesChanged) await savePluginPreferences(nextPreferences);
+      setExternalPlugins(manifests);
+      setPluginPreferences(nextPreferences);
+      await Promise.all(manifests.map(async manifest => {
+        const preference = nextPreferences.plugins[manifest.id];
+        if (!preference?.enabled || preference.trustedFingerprint !== manifest.fingerprint) return;
+        try {
+          await externalPluginRuntime.start(manifest, preference.settings);
+        } catch {
+          // Runtime status is displayed on the plugin card; a broken plugin must not affect the player.
+        }
+      }));
+    } catch (error) {
+      setPluginManagerError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPluginManagerLoading(false);
+    }
+  }, []);
+
+  useEffect(() => externalPluginRuntime.subscribe(event => {
+    setPluginRuntimeStates(previous => ({ ...previous, [event.pluginId]: event }));
+  }), []);
+
+  useEffect(() => {
+    void refreshExternalPlugins();
+    return () => { void externalPluginRuntime.stopAll(); };
+  }, [refreshExternalPlugins]);
+
+  useEffect(() => {
+    externalPluginRuntime.updatePlayback({
+      track: currentTrack ? {
+        title: currentTrack.title || '',
+        artist: currentTrack.artist || '',
+        album: currentTrack.album || '',
+        duration: currentTrack.duration || 0,
+      } : null,
+      isPlaying,
+      currentTime,
+    });
+  }, [currentTrack?.id, currentTrack?.title, currentTrack?.artist, currentTrack?.album, currentTrack?.duration, isPlaying, currentTime]);
+
+  const handleToggleExternalPlugin = async (plugin: ExternalPluginManifest, enabled: boolean) => {
+    const current = pluginPreferences.plugins[plugin.id] ?? { enabled: false, trustedFingerprint: null, settings: {} };
+    const next: PluginPreferencesFile = {
+      plugins: {
+        ...pluginPreferences.plugins,
+        [plugin.id]: {
+          ...current,
+          enabled,
+          trustedFingerprint: enabled ? plugin.fingerprint : current.trustedFingerprint,
+        },
+      },
+    };
+    try {
+      await savePluginPreferences(next);
+    } catch (error) {
+      setPluginManagerError(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    setPluginPreferences(next);
+    setPluginManagerError(null);
+    if (enabled) {
+      try {
+        await externalPluginRuntime.start(plugin, next.plugins[plugin.id].settings);
+      } catch (error) {
+        setPluginManagerError(error instanceof Error ? error.message : String(error));
+      }
+    } else {
+      await externalPluginRuntime.stop(plugin.id);
+    }
+  };
+
+  const handleUpdatePluginSettings = (pluginId: string, settings: Record<string, unknown>) => {
+    const current = pluginPreferences.plugins[pluginId] ?? { enabled: false, trustedFingerprint: null, settings: {} };
+    const next: PluginPreferencesFile = {
+      plugins: {
+        ...pluginPreferences.plugins,
+        [pluginId]: { ...current, settings },
+      },
+    };
+    setPluginPreferences(next);
+    externalPluginRuntime.updateSettings(pluginId, settings);
+    void savePluginPreferences(next).catch(error => {
+      setPluginManagerError(error instanceof Error ? error.message : String(error));
+    });
+  };
 
   useEffect(() => {
     if (!isOpen || currentView !== 'library_folders' || !onRefreshLibraryFolderTrackCounts) return;
@@ -1021,6 +1162,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ? t.settings.logs
                   : currentView === 'library_folders'
                   ? t.settings.libraryFolders
+                  : currentView === 'plugins'
+                  ? (language === 'ru' ? 'Плагины' : 'Plugins')
                   : t.settings.title}
               </h3>
               <p className="text-xs text-md3-on-surface-variant">
@@ -1034,6 +1177,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ? t.settings.logsDesc
                   : currentView === 'library_folders'
                   ? t.settings.libraryFoldersDesc
+                  : currentView === 'plugins'
+                  ? (language === 'ru' ? 'Управление встроенными и сторонними расширениями' : 'Manage built-in and third-party extensions')
                   : t.settings.subtitle}
               </p>
             </div>
@@ -1305,6 +1450,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
           </div>
+        ) : currentView === 'plugins' ? (
+          <PluginManagerView
+            language={language}
+            externalPlugins={externalPlugins}
+            preferences={pluginPreferences}
+            runtimeStates={pluginRuntimeStates}
+            loading={pluginManagerLoading}
+            error={pluginManagerError}
+            discordEnabled={discordEnabled}
+            onToggleDiscord={onToggleDiscord}
+            onOpenDiscordSettings={() => setCurrentView('discord')}
+            onToggleExternalPlugin={handleToggleExternalPlugin}
+            onUpdatePluginSettings={handleUpdatePluginSettings}
+            onRefresh={() => { void refreshExternalPlugins(); }}
+            onOpenFolder={() => {
+              void openPluginsFolder().catch(error => {
+                setPluginManagerError(error instanceof Error ? error.message : String(error));
+              });
+            }}
+          />
         ) : currentView === 'discord' ? (
           /* Dedicated Discord Integration Settings View */
           <div key="view-discord" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 anim-view-slide-right">
@@ -2715,7 +2880,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
-            {/* Button to Open Discord Integration Settings */}
+            {/* Open the plugin manager */}
             <div className="pt-2">
               <button
                 tabIndex={-1}
@@ -2724,31 +2889,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   if (mainSettingsContainerRef.current) {
                     mainScrollTopRef.current = mainSettingsContainerRef.current.scrollTop;
                   }
-                  setCurrentView('discord');
+                  setCurrentView('plugins');
                 }}
-                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-md3-surface-container-high/60 hover:bg-md3-surface-container-high border border-md3-outline-variant/20 hover:border-[#5865F2]/40 transition-all cursor-pointer group shadow-xs outline-none focus:outline-none"
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-md3-surface-container-high/60 hover:bg-md3-surface-container-high border border-md3-outline-variant/20 hover:border-md3-primary/40 transition-all cursor-pointer group shadow-xs outline-none focus:outline-none"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-[#5865F2]/10 text-[#5865F2] flex items-center justify-center group-hover:scale-105 transition-transform">
-                    <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
-                      <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.078.078 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
-                    </svg>
+                  <div className="w-9 h-9 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <Puzzle className="h-5 w-5" />
                   </div>
                   <div className="text-left">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-md3-on-surface group-hover:text-md3-primary transition-colors">
-                        {t.settings.discordRpc}
+                        {language === 'ru' ? 'Менеджер плагинов' : 'Plugin manager'}
                       </span>
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                        discordEnabled 
-                          ? 'bg-[#5865F2]/15 text-[#5865F2] border border-[#5865F2]/30' 
-                          : 'bg-md3-surface-container-high text-md3-on-surface-variant'
-                      }`}>
-                        {discordEnabled ? t.settings.discordEnabled : t.settings.discordDisabled}
+                      <span className="rounded-full bg-md3-primary/10 px-2 py-0.5 text-[10px] font-semibold text-md3-primary">
+                        {externalPlugins.length + 1} {language === 'ru' ? 'плагинов' : 'plugins'}
                       </span>
                     </div>
                     <div className="text-[11px] text-md3-on-surface-variant">
-                      {t.settings.discordSettingsDesc}
+                      {language === 'ru' ? 'Discord RPC и сторонние расширения' : 'Discord RPC and third-party extensions'}
                     </div>
                   </div>
                 </div>

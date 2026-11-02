@@ -1,0 +1,1 @@
+Copy a plugin directory such as `playback-logger` into the `plugins/` folder next to `Arachnid-Portable.exe`, then choose Settings → Plugins → Refresh. This sample only writes playback events to the plugin manager output.

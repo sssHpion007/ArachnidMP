@@ -5,6 +5,7 @@ mod cover_cache;
 mod player;
 mod logger;
 mod memory_diagnostics;
+mod plugins;
 #[cfg(target_os = "windows")]
 mod portable_updater;
 
@@ -911,6 +912,31 @@ fn update_discord_presence(presence: DiscordPresenceState, state: State<'_, AppS
         status_mode: presence.status_mode,
     });
     Ok("Discord presence update queued".to_string())
+}
+
+#[tauri::command]
+fn list_external_plugins() -> Result<Vec<plugins::PluginManifest>, String> {
+    plugins::list_plugins()
+}
+
+#[tauri::command]
+fn read_external_plugin_source(plugin_id: String, expected_fingerprint: String) -> Result<String, String> {
+    plugins::read_plugin_source(plugin_id, expected_fingerprint)
+}
+
+#[tauri::command]
+fn load_plugin_preferences() -> Result<plugins::PluginPreferencesFile, String> {
+    plugins::load_preferences()
+}
+
+#[tauri::command]
+fn save_plugin_preferences(preferences: plugins::PluginPreferencesFile) -> Result<(), String> {
+    plugins::save_preferences(preferences)
+}
+
+#[tauri::command]
+fn open_plugins_folder() -> Result<(), String> {
+    plugins::open_plugins_folder()
 }
 
 #[tauri::command]
@@ -3199,6 +3225,11 @@ pub fn run() {
             sample_memory_diagnostics,
             log_keyboard_probe,
             update_discord_presence,
+            list_external_plugins,
+            read_external_plugin_source,
+            load_plugin_preferences,
+            save_plugin_preferences,
+            open_plugins_folder,
             read_audio_files,
             scan_library_to_database,
             read_audio_binary,
