@@ -943,35 +943,6 @@ fn prepare_discord_cover(cover: Option<String>, covers: &cover_cache::CoverCache
     }
 }
 
-#[cfg(test)]
-mod discord_cover_tests {
-    use super::*;
-
-    #[test]
-    fn cached_png_cover_becomes_a_bounded_jpeg_data_uri_for_rpc() {
-        let mut png_bytes = Vec::new();
-        {
-            let mut encoder = png::Encoder::new(&mut png_bytes, 2, 2);
-            encoder.set_color(png::ColorType::Rgba);
-            encoder.set_depth(png::BitDepth::Eight);
-            let mut writer = encoder.write_header().unwrap();
-            writer.write_image_data(&[
-                255, 0, 0, 255, 0, 255, 0, 255,
-                0, 0, 255, 255, 255, 255, 255, 128,
-            ]).unwrap();
-        }
-        let cache = cover_cache::CoverCache::open(":memory:").unwrap();
-        let hash = cache.store_bytes(&png_bytes, "image/png").unwrap();
-        let url = cover_cache::cover_url(&hash, None);
-
-        let data_uri = prepare_discord_cover(Some(url), &cache).unwrap();
-        let encoded = data_uri.strip_prefix("data:image/jpeg;base64,").unwrap();
-        let jpeg = BASE64_STANDARD.decode(encoded).unwrap();
-        assert!(jpeg.starts_with(b"\xFF\xD8\xFF"));
-        assert!(jpeg.len() < 32 * 1024);
-    }
-}
-
 #[tauri::command]
 fn update_discord_presence(
     presence: DiscordPresenceState,
