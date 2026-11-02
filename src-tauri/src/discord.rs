@@ -361,9 +361,9 @@ impl DiscordService {
                         "status_display_type": 2,
                     });
 
-                    // Assets
+                    // Prepare image assets before building the final packet. This keeps
+                    // artwork, timestamps, and the activity in one atomic SET_ACTIVITY update.
                     let mut assets = json!({});
-                    let mut pending_cover_upload: Option<(String, Vec<u8>)> = None;
 
                     if let Some(large_img) = &latest.large_image {
                         let trimmed = large_img.trim();
@@ -380,10 +380,13 @@ impl DiscordService {
                             if let Some(cached_url) = cover_cache.get(&cache_key) {
                                 assets["large_image"] = json!(cached_url);
                             } else if let Ok(bytes) = BASE64_STANDARD.decode(&b64_clean) {
-                                // Send track/artist immediately; upload artwork only after the
-                                // first RPC packet so a slow image host cannot block presence.
-                                assets["large_image"] = json!("https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png");
-                                pending_cover_upload = Some((cache_key, bytes));
+                                if let Some(uploaded_url) = upload_raw_cover(&bytes) {
+                                    cover_cache.insert(cache_key, uploaded_url.clone());
+                                    assets["large_image"] = json!(uploaded_url);
+                                } else {
+                                    crate::logger::log("WARN", "DISCORD_COVER", "All cover image hosts failed; using the player icon.");
+                                    assets["large_image"] = json!("https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png");
+                                }
                             } else {
                                 crate::logger::log("WARN", "DISCORD_COVER", "Could not decode the compressed cover image; using the player icon.");
                                 assets["large_image"] = json!("https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png");
@@ -444,63 +447,20 @@ impl DiscordService {
                         "cmd": "SET_ACTIVITY",
                         "args": {
                             "pid": std::process::id(),
-                            "activity": activity.clone()
+                            "activity": activity
                         },
                         "nonce": format!("arachnid_act_{}", nonce)
                     }).to_string();
 
+                    // Keep one atomic RPC update: the previous known-good implementation
+                    // uploaded the JPEG first, then sent cover and timestamps together.
                     if send_packet(stream, 1, &set_activity).is_err() {
                         active_stream = None;
                         continue;
                     }
                     match read_packet(stream) {
                         Ok((_, response)) => log_rpc_error_event("DISCORD_RPC", &response),
-                        Err(_) => {
-                            active_stream = None;
-                            continue;
-                        }
-                    }
-
-                    if let Some((cache_key, image_bytes)) = pending_cover_upload {
-                        if let Some(uploaded_url) = upload_raw_cover(&image_bytes) {
-                            cover_cache.insert(cache_key, uploaded_url.clone());
-                            activity["assets"]["large_image"] = json!(uploaded_url);
-
-                            // Discord can retain a previously resolved large_image in its
-                            // shallow activity/assets merge. Clear the placeholder activity
-                            // before publishing the final artwork, as the known-good main path did.
-                            nonce += 1;
-                            let clear_pkt = json!({
-                                "cmd": "SET_ACTIVITY",
-                                "args": { "pid": std::process::id(), "activity": null },
-                                "nonce": format!("arachnid_cover_clear_{}", nonce)
-                            }).to_string();
-                            if send_packet(stream, 1, &clear_pkt).is_err() {
-                                active_stream = None;
-                            } else if let Err(_) = read_packet(stream) {
-                                active_stream = None;
-                            } else {
-                                nonce += 1;
-                                let cover_update = json!({
-                                    "cmd": "SET_ACTIVITY",
-                                    "args": {
-                                        "pid": std::process::id(),
-                                        "activity": activity
-                                    },
-                                    "nonce": format!("arachnid_cover_{}", nonce)
-                                }).to_string();
-                                if send_packet(stream, 1, &cover_update).is_err() {
-                                    active_stream = None;
-                                } else {
-                                    match read_packet(stream) {
-                                        Ok((_, response)) => log_rpc_error_event("DISCORD_COVER", &response),
-                                        Err(_) => active_stream = None,
-                                    }
-                                }
-                            }
-                        } else {
-                            crate::logger::log("WARN", "DISCORD_COVER", "All cover image hosts failed; keeping the player icon.");
-                        }
+                        Err(_) => active_stream = None,
                     }
                 }
             }

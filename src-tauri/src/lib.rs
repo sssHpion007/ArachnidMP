@@ -921,8 +921,8 @@ fn prepare_discord_cover(cover: Option<String>, covers: &cover_cache::CoverCache
         return None;
     };
 
-    // Always send the generated 256px JPEG rather than the original cover blob. The
-    // original may be a large PNG/embedded image that image hosts reject or time out on.
+    // Match the old canvas path: always send a bounded JPEG, even when the library
+    // keeps this cover as PNG to preserve transparency for the UI.
     match covers.get_discord_jpeg(&hash) {
         Ok(Some(image)) => {
             logger::log("INFO", "DISCORD_COVER", &format!("Prepared cached JPEG thumbnail: {} bytes.", image.bytes.len()));
@@ -940,6 +940,35 @@ fn prepare_discord_cover(cover: Option<String>, covers: &cover_cache::CoverCache
             logger::log("ERROR", "DISCORD_COVER", &format!("Failed to read cached cover for Discord: {error}"));
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod discord_cover_tests {
+    use super::*;
+
+    #[test]
+    fn cached_png_cover_becomes_a_bounded_jpeg_data_uri_for_rpc() {
+        let mut png_bytes = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut png_bytes, 2, 2);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(&[
+                255, 0, 0, 255, 0, 255, 0, 255,
+                0, 0, 255, 255, 255, 255, 255, 128,
+            ]).unwrap();
+        }
+        let cache = cover_cache::CoverCache::open(":memory:").unwrap();
+        let hash = cache.store_bytes(&png_bytes, "image/png").unwrap();
+        let url = cover_cache::cover_url(&hash, None);
+
+        let data_uri = prepare_discord_cover(Some(url), &cache).unwrap();
+        let encoded = data_uri.strip_prefix("data:image/jpeg;base64,").unwrap();
+        let jpeg = BASE64_STANDARD.decode(encoded).unwrap();
+        assert!(jpeg.starts_with(b"\xFF\xD8\xFF"));
+        assert!(jpeg.len() < 32 * 1024);
     }
 }
 
