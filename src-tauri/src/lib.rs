@@ -125,11 +125,21 @@ fn saved_tray_language_is_russian() -> bool {
 }
 
 #[tauri::command]
-fn log_keyboard_probe(target: String, typing_target: bool, focused_id: String) {
+fn log_keyboard_probe(
+    target: String,
+    typing_target: bool,
+    focused_id: String,
+    shortcut_matched: bool,
+    shortcut_code: String,
+    shortcut_shift: bool,
+) {
     logger::log(
         "INFO",
         "KEYBOARD_PROBE",
-        &format!("target={} typing_target={} focused_id={}", target, typing_target, focused_id),
+        &format!(
+            "target={} typing_target={} focused_id={} shortcut_matched={} shortcut_code={} shortcut_shift={}",
+            target, typing_target, focused_id, shortcut_matched, shortcut_code, shortcut_shift
+        ),
     );
 }
 

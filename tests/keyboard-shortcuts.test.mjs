@@ -10,6 +10,7 @@ import {
 assert.equal(DEFAULT_KEYBOARD_SHORTCUTS.playPause.code, 'Space');
 assert.equal(formatShortcut(DEFAULT_KEYBOARD_SHORTCUTS.search, 'ru'), 'Ctrl / ⌘ + F');
 assert.equal(formatShortcut(DEFAULT_KEYBOARD_SHORTCUTS.lyricsWindow, 'en'), 'Shift + T');
+assert.equal(matchesShortcut({ code: 'KeyT', ctrlKey: false, metaKey: false, altKey: false, shiftKey: true }, DEFAULT_KEYBOARD_SHORTCUTS.lyricsWindow), true);
 
 const ctrlArrowRight = DEFAULT_KEYBOARD_SHORTCUTS.nextTrack;
 assert.equal(matchesShortcut({ code: 'ArrowRight', ctrlKey: true, metaKey: false, altKey: false, shiftKey: false }, ctrlArrowRight), true);

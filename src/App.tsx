@@ -2771,6 +2771,9 @@ export const App: React.FC = () => {
           target: keyboardTarget?.tagName || 'none',
           typingTarget: isTypingTarget,
           focusedId: (document.activeElement as HTMLElement | null)?.id || '',
+          shortcutMatched: matchesShortcut(e, keyboardShortcuts.lyricsWindow),
+          shortcutCode: keyboardShortcuts.lyricsWindow.code,
+          shortcutShift: keyboardShortcuts.lyricsWindow.shift,
         }).catch(() => {});
       }
       const repeatableCodes = new Set(['Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
