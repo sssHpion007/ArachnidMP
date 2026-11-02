@@ -140,7 +140,7 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({
       onClick={standaloneWindow ? undefined : onClose}
       className={standaloneWindow
         ? `fixed inset-0 z-50 flex h-full w-full select-none bg-md3-surface-container cursor-default ${backdropClass}`
-        : `fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 select-none cursor-pointer ${backdropClass}`}
+        : `fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 select-none cursor-default ${backdropClass}`}
     >
       <div
         onClick={(e) => e.stopPropagation()}

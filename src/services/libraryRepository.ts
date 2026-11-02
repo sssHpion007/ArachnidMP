@@ -2,6 +2,18 @@ import { invoke } from '@tauri-apps/api/core';
 import { Track, TrackDetails, TrackPage, TrackSummary } from '../types/music';
 import type { LibraryCollectionGroup, LibraryCollectionKind } from './libraryCollectionIndex';
 
+export interface PlaylistCoverQuery {
+  playlistId: string;
+  trackIds: string[];
+  limit: number;
+}
+
+export interface PlaylistCoverResult {
+  playlistId: string;
+  covers: string[];
+  totalDuration: number;
+}
+
 export interface LibraryPageQuery {
   search?: string;
   sortBy: string;
@@ -12,14 +24,60 @@ export interface LibraryPageQuery {
   filterValue?: string;
   favoriteOnly?: boolean;
   excludedIds?: string[];
+  includeTotal?: boolean;
 }
 
 const MAX_PAGE_SIZE = 500;
+const MAX_DELETE_BATCH_SIZE = 500;
+
+export interface DeleteTrackFailure {
+  trackId: string;
+  reason: string;
+}
+
+export interface DeleteTracksFromDiskResult {
+  deletedTrackIds: string[];
+  alreadyMissingTrackIds: string[];
+  failures: DeleteTrackFailure[];
+}
 
 /** Typed boundary for native catalog access. Keep calls bounded; never request the whole DB by default. */
 export const libraryRepository = {
   async count(search?: string): Promise<number> {
     return invoke<number>('library_db_get_count', { search: search?.trim() || null });
+  },
+
+  async countUnderRoots(roots: string[]): Promise<number[]> {
+    if (roots.length === 0) return [];
+    return invoke<number[]>('library_db_count_under_roots', { roots });
+  },
+
+  async trackIdsUnderRootsExcluding(roots: string[], excludedRoots: string[] = []): Promise<string[]> {
+    if (roots.length === 0) return [];
+    return invoke<string[]>('library_db_track_ids_under_roots_excluding', { roots, excludedRoots });
+  },
+
+  async orderedIds(sortBy: string, descending: boolean, favoriteOnly = false, search?: string): Promise<string[]> {
+    return invoke<string[]>('library_db_get_ordered_ids', {
+      search: search?.trim() || null,
+      sortBy: sortBy || 'title',
+      descending,
+      favoriteOnly,
+    });
+  },
+
+  async orderedSubsetIds(
+    trackIds: string[],
+    search: string,
+    sortBy: string,
+    descending: boolean,
+  ): Promise<string[]> {
+    return invoke<string[]>('library_db_order_subset_ids', {
+      trackIds,
+      search: search.trim() || null,
+      sortBy: sortBy || 'custom',
+      descending,
+    });
   },
 
   async page(query: LibraryPageQuery): Promise<TrackPage> {
@@ -35,6 +93,7 @@ export const libraryRepository = {
       filterValue: query.filterValue ?? null,
       favoriteOnly: query.favoriteOnly ?? false,
       excludedIds: query.excludedIds ?? [],
+      includeTotal: query.includeTotal ?? true,
     });
   },
 
@@ -58,6 +117,14 @@ export const libraryRepository = {
     return invoke<TrackDetails | null>('library_db_get_details', { trackId });
   },
 
+  async existingPathIds(paths: string[]): Promise<string[]> {
+    const ids: string[] = [];
+    for (let start = 0; start < paths.length; start += 500) {
+      ids.push(...await invoke<string[]>('library_db_get_path_ids', { paths: paths.slice(start, start + 500) }));
+    }
+    return ids;
+  },
+
   async byPaths(paths: string[]): Promise<TrackSummary[]> {
     const rows: TrackSummary[] = [];
     for (let start = 0; start < paths.length; start += 500) {
@@ -78,6 +145,10 @@ export const libraryRepository = {
   async byIdsPage(trackIds: string[], offset: number, limit = 500): Promise<TrackSummary[]> {
     const selectedIds = trackIds.slice(offset, offset + Math.min(500, limit));
     return this.byIds(selectedIds);
+  },
+
+  async playlistCovers(playlists: PlaylistCoverQuery[]): Promise<PlaylistCoverResult[]> {
+    return invoke<PlaylistCoverResult[]>('library_db_get_playlist_covers', { playlists });
   },
 
   async upsertBatch(tracks: Track[]): Promise<number> {
@@ -113,6 +184,37 @@ export const libraryRepository = {
     for (let start = 0; start < trackIds.length; start += 500) {
       await invoke('library_db_set_favorites', { trackIds: trackIds.slice(start, start + 500), favorite });
     }
+  },
+
+  async setMissing(trackIds: string[], missing: boolean): Promise<void> {
+    for (let start = 0; start < trackIds.length; start += 500) {
+      await invoke('library_db_set_missing', { trackIds: trackIds.slice(start, start + 500), missing });
+    }
+  },
+
+  async deleteFilesFromDisk(trackIds: string[]): Promise<DeleteTracksFromDiskResult> {
+    const uniqueIds = [...new Set(trackIds)];
+    const result: DeleteTracksFromDiskResult = {
+      deletedTrackIds: [],
+      alreadyMissingTrackIds: [],
+      failures: [],
+    };
+
+    for (let start = 0; start < uniqueIds.length; start += MAX_DELETE_BATCH_SIZE) {
+      const batch = uniqueIds.slice(start, start + MAX_DELETE_BATCH_SIZE);
+      try {
+        const batchResult = await invoke<DeleteTracksFromDiskResult>('delete_files_from_disk', {
+          trackIds: batch,
+        });
+        result.deletedTrackIds.push(...batchResult.deletedTrackIds);
+        result.alreadyMissingTrackIds.push(...batchResult.alreadyMissingTrackIds);
+        result.failures.push(...batchResult.failures);
+      } catch (error) {
+        result.failures.push(...batch.map(trackId => ({ trackId, reason: String(error) })));
+      }
+    }
+
+    return result;
   },
 
   async delete(trackIds: string[]): Promise<void> {

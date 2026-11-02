@@ -76,7 +76,7 @@ export const MissingTracksModal: React.FC<MissingTracksModalProps> = ({
 
   return (
     <div
-      className={`fixed inset-0 z-[70] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 select-none cursor-pointer ${backdropClass}`}
+      className={`fixed inset-0 z-[70] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 select-none cursor-default ${backdropClass}`}
       onClick={(e) => {
         if (e.target === e.currentTarget) {
           onContinueAsIs();

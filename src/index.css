@@ -135,6 +135,39 @@ input[type=range]::-webkit-slider-runnable-track {
   border-radius: 9999px;
 }
 
+/* Main player volume: show the current level as a filled portion of the track. */
+input.main-volume-slider::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    to right,
+    var(--md-sys-color-primary) 0%,
+    var(--md-sys-color-primary) var(--volume-progress),
+    var(--md-sys-color-surface-container-highest) var(--volume-progress),
+    var(--md-sys-color-surface-container-highest) 100%
+  );
+}
+
+input.main-volume-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--md-sys-color-surface-container-highest);
+}
+
+input.main-volume-slider::-moz-range-progress {
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--md-sys-color-primary);
+}
+
+input.main-volume-slider::-moz-range-thumb {
+  height: 14px;
+  width: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--md-sys-color-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
 /* Mini-player timeline: keep a filled progress track instead of a thumb-only accent. */
 input.mini-player-timeline {
   -webkit-appearance: none;
@@ -437,20 +470,15 @@ input.mini-player-timeline::-moz-range-thumb {
   contain-intrinsic-size: 180px 240px;
 }
 
-@keyframes collectionCardEnter {
-  from {
-    opacity: 0;
-    transform: translateY(10px) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+@keyframes miniLibraryContentEnter {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-.collection-card-enter {
-  animation: collectionCardEnter 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  will-change: opacity, transform;
+.collection-card-enter,
+.mini-library-content-enter {
+  animation: miniLibraryContentEnter 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: opacity;
 }
 
 .mini-panel-surface {
@@ -464,7 +492,8 @@ input.mini-player-timeline::-moz-range-thumb {
     will-change: auto;
   }
 
-  .collection-card-enter {
+  .collection-card-enter,
+  .mini-library-content-enter {
     animation: none;
     will-change: auto;
   }

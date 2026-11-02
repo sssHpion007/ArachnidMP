@@ -6,6 +6,7 @@ on:
       - 'arena/da9dc431-arachnidmp'
       - 'arena/034a5a55-arachnidmp'
       - 'arena/cd6430e2-arachnidmp'
+      - 'arena/6fcee020-arachnidmp'
     tags:
       - 'v*'
   workflow_dispatch:
@@ -46,6 +47,21 @@ jobs:
 
       - name: Build Web Frontend
         run: npm run build
+
+      - name: Test bounded library cache and frontend regressions
+        shell: pwsh
+        run: |
+          npm run test:bounded-page-cache
+          npm run test:bounded-indexed-cache
+          npm run test:library-index
+          npm run test:folder-playback
+          npm run test:library-scan-paths
+          npm run test:track-table-scroll
+          npm run test:playlist-cover-fallback
+          npm run test:playlist-detail-cover
+          npm run test:playlist-durations
+          npm run test:hex-color
+          npm run test:play-icon-color
 
       - name: Build Tauri Desktop Portable
         shell: pwsh
@@ -165,6 +181,29 @@ jobs:
             throw "SQLite library repository tests failed with exit code $testExitCode."
           }
 
+      - name: Test retired library index cleanup
+        shell: pwsh
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --lib storage::storage_tests -- --nocapture 2>&1 | Tee-Object -Variable testOutput
+          $testExitCode = $LASTEXITCODE
+          if ($testExitCode -ne 0) {
+            $tail = $testOutput | Select-Object -Last 120
+            "### Retired library index cleanup test failure diagnostics" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            '```text' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            $tail | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            $diagnostic = ($tail -join ' ') -replace '%', '%25' -replace "`r", ' ' -replace "`n", ' '
+            if ($diagnostic.Length -gt 9000) { $diagnostic = $diagnostic.Substring($diagnostic.Length - 9000) }
+            Write-Output "::error title=Retired library index cleanup failed::$diagnostic"
+            throw "Retired library index cleanup tests failed with exit code $testExitCode."
+          }
+
+      - name: Test SQLite cover cache and Windows custom protocol URLs
+        shell: pwsh
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --lib cover_cache::tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "SQLite cover-cache tests failed." }
+
       - name: Test native portable updater transaction and rollback safety
         shell: pwsh
         run: |
@@ -236,7 +275,7 @@ jobs:
           echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
 
       - name: Upload Windows test build
-        if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp' || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && !contains(github.event.head_commit.message, '[publish-release]')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag == 'test-build')
+        if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp' || github.ref == 'refs/heads/arena/6fcee020-arachnidmp' || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && !contains(github.event.head_commit.message, '[publish-release]')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag == 'test-build')
         uses: actions/upload-artifact@v4
         with:
           name: Arachnid-Windows-Test-${{ github.run_number }}-${{ github.sha }}
