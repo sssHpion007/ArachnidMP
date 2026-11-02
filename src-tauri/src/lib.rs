@@ -916,19 +916,21 @@ fn prepare_discord_cover(cover: Option<String>, covers: &cover_cache::CoverCache
         .or_else(|| cover.strip_prefix("https://cover.localhost"))
         .or_else(|| cover.strip_prefix("cover://localhost"));
     let Some(path) = path else { return Some(cover) };
-    let Some((hash, size)) = cover_cache::parse_cover_request(path) else {
+    let Some((hash, _)) = cover_cache::parse_cover_request(path) else {
         logger::log("WARN", "DISCORD_COVER", "Rejected malformed cached cover URL.");
         return None;
     };
 
-    match covers.get_image(&hash, size) {
+    // Always send the generated 256px JPEG rather than the original cover blob. The
+    // original may be a large PNG/embedded image that image hosts reject or time out on.
+    match covers.get_image(&hash, Some(256)) {
         Ok(Some(image)) => Some(format!(
             "data:{};base64,{}",
             image.mime,
             BASE64_STANDARD.encode(image.bytes),
         )),
         Ok(None) => {
-            logger::log("WARN", "DISCORD_COVER", &format!("Cached cover not found for Discord: hash={hash} size={size:?}"));
+            logger::log("WARN", "DISCORD_COVER", &format!("Cached cover thumbnail not found for Discord: hash={hash} size=256"));
             None
         }
         Err(error) => {

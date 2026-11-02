@@ -457,8 +457,14 @@ impl DiscordService {
                                 },
                                 "nonce": format!("arachnid_cover_{}", nonce)
                             }).to_string();
-                            if send_packet(stream, 1, &cover_update).is_err() || read_packet(stream).is_err() {
+                            if send_packet(stream, 1, &cover_update).is_err() {
                                 active_stream = None;
+                            } else {
+                                match read_packet(stream) {
+                                    Ok((2, _)) => crate::logger::log("WARN", "DISCORD_COVER", "Discord rejected the cover asset update."),
+                                    Ok(_) => {}
+                                    Err(_) => active_stream = None,
+                                }
                             }
                         } else {
                             crate::logger::log("WARN", "DISCORD_COVER", "All cover image hosts failed; keeping the player icon.");
