@@ -222,55 +222,23 @@ fn upload_to_uguu(image_bytes: &[u8]) -> Option<String> {
 }
 
 /**
- * 3. Imgur fallback
- */
-fn upload_to_imgur(image_bytes: &[u8]) -> Option<String> {
-    let boundary = "----ArachnidCoverUpload7MA4YWxk";
-    let b64 = BASE64_STANDARD.encode(image_bytes);
-    let mut body = Vec::with_capacity(b64.len() + 256);
-    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
-    body.extend_from_slice(b"Content-Disposition: form-data; name=\"image\"\r\n\r\n");
-    body.extend_from_slice(b64.as_bytes());
-    body.extend_from_slice(format!("\r\n--{}\r\n", boundary).as_bytes());
-    body.extend_from_slice(b"Content-Disposition: form-data; name=\"type\"\r\n\r\nbase64\r\n");
-    body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
-
-    if let Ok(res) = ureq::post("https://api.imgur.com/3/upload")
-        .set("Authorization", "Client-ID 09bef4c058080cd")
-        .set("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
-        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-        .timeout(std::time::Duration::from_secs(8))
-        .send_bytes(&body)
-    {
-        if let Ok(body_str) = res.into_string() {
-            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&body_str) {
-                if let Some(url) = json_val.pointer("/data/link").and_then(|v| v.as_str()) {
-                    if !url.is_empty() {
-                        return Some(url.to_string());
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
-/**
- * Uploads local embedded track artwork using multi-tier hosting strategy
+ * Upload artwork using the hosts previously used by ArachnidMP. Catbox is only
+ * a last-resort fallback; do not send covers to Imgur.
  */
 fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
-    // Keep the same provider order as main: the RPC client is known to accept these
-    // direct image URLs. Catbox remains a last-resort fallback only.
     if let Some(url) = upload_to_img24(image_bytes) {
+        crate::logger::log("INFO", "DISCORD_COVER", "Cover uploaded through i-mg24.");
         return Some(url);
     }
     if let Some(url) = upload_to_uguu(image_bytes) {
+        crate::logger::log("INFO", "DISCORD_COVER", "Cover uploaded through Uguu.");
         return Some(url);
     }
-    if let Some(url) = upload_to_imgur(image_bytes) {
+    if let Some(url) = upload_to_catbox(image_bytes) {
+        crate::logger::log("INFO", "DISCORD_COVER", "Cover uploaded through Catbox fallback.");
         return Some(url);
     }
-    upload_to_catbox(image_bytes)
+    None
 }
 
 impl DiscordService {
@@ -385,6 +353,7 @@ impl DiscordService {
 
                     // Assets
                     let mut assets = json!({});
+                    let mut pending_cover_upload: Option<(String, Vec<u8>)> = None;
 
                     if let Some(large_img) = &latest.large_image {
                         let trimmed = large_img.trim();
@@ -401,13 +370,10 @@ impl DiscordService {
                             if let Some(cached_url) = cover_cache.get(&cache_key) {
                                 assets["large_image"] = json!(cached_url);
                             } else if let Ok(bytes) = BASE64_STANDARD.decode(&b64_clean) {
-                                if let Some(uploaded_url) = upload_raw_cover(&bytes) {
-                                    cover_cache.insert(cache_key, uploaded_url.clone());
-                                    assets["large_image"] = json!(uploaded_url);
-                                } else {
-                                    crate::logger::log("WARN", "DISCORD_COVER", "All cover image hosts failed; using the player icon.");
-                                    assets["large_image"] = json!("https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png");
-                                }
+                                // Send track/artist immediately; upload artwork only after the
+                                // first RPC packet so a slow image host cannot block presence.
+                                assets["large_image"] = json!("https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png");
+                                pending_cover_upload = Some((cache_key, bytes));
                             } else {
                                 crate::logger::log("WARN", "DISCORD_COVER", "Could not decode the compressed cover image; using the player icon.");
                                 assets["large_image"] = json!("https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png");
@@ -468,13 +434,35 @@ impl DiscordService {
                         "cmd": "SET_ACTIVITY",
                         "args": {
                             "pid": std::process::id(),
-                            "activity": activity
+                            "activity": activity.clone()
                         },
                         "nonce": format!("arachnid_act_{}", nonce)
                     }).to_string();
 
                     if send_packet(stream, 1, &set_activity).is_err() || read_packet(stream).is_err() {
                         active_stream = None;
+                        continue;
+                    }
+
+                    if let Some((cache_key, image_bytes)) = pending_cover_upload {
+                        if let Some(uploaded_url) = upload_raw_cover(&image_bytes) {
+                            cover_cache.insert(cache_key, uploaded_url.clone());
+                            activity["assets"]["large_image"] = json!(uploaded_url);
+                            nonce += 1;
+                            let cover_update = json!({
+                                "cmd": "SET_ACTIVITY",
+                                "args": {
+                                    "pid": std::process::id(),
+                                    "activity": activity
+                                },
+                                "nonce": format!("arachnid_cover_{}", nonce)
+                            }).to_string();
+                            if send_packet(stream, 1, &cover_update).is_err() || read_packet(stream).is_err() {
+                                active_stream = None;
+                            }
+                        } else {
+                            crate::logger::log("WARN", "DISCORD_COVER", "All cover image hosts failed; keeping the player icon.");
+                        }
                     }
                 }
             }
