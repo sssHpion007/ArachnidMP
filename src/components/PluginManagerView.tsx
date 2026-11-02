@@ -14,9 +14,9 @@ interface PluginManagerViewProps {
   runtimeStates: Record<string, PluginRuntimeEvent>;
   loading: boolean;
   error: string | null;
-  discordEnabled: boolean;
+  discordPluginEnabled: boolean;
   discordShortcutLabel: string;
-  onToggleDiscord: () => void;
+  onToggleDiscordPlugin: () => void;
   onOpenDiscordSettings: () => void;
   onToggleExternalPlugin: (plugin: ExternalPluginManifest, enabled: boolean) => Promise<void>;
   onUpdatePluginSettings: (pluginId: string, settings: Record<string, unknown>) => void;
@@ -38,9 +38,9 @@ export const PluginManagerView: React.FC<PluginManagerViewProps> = ({
   runtimeStates,
   loading,
   error,
-  discordEnabled,
+  discordPluginEnabled,
   discordShortcutLabel,
-  onToggleDiscord,
+  onToggleDiscordPlugin,
   onOpenDiscordSettings,
   onToggleExternalPlugin,
   onUpdatePluginSettings,
@@ -77,7 +77,7 @@ export const PluginManagerView: React.FC<PluginManagerViewProps> = ({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-5 anim-view-slide-right">
+    <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-6 space-y-5 anim-view-slide-right">
       {securityNoticeOpen && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-5 backdrop-blur-sm" role="presentation">
           <section role="dialog" aria-modal="true" aria-labelledby="plugin-security-title" className="w-full max-w-md rounded-3xl border border-md3-outline-variant/30 bg-md3-surface-container p-5 shadow-2xl">
@@ -130,10 +130,10 @@ export const PluginManagerView: React.FC<PluginManagerViewProps> = ({
                 <span className="text-sm font-bold text-md3-on-surface">Discord RPC</span>
                 <span className="rounded-full bg-md3-primary/10 px-2 py-0.5 text-[10px] font-semibold text-md3-primary">{text(language, 'Встроенный', 'Built-in')}</span>
               </div>
-              <p className="mt-1 text-xs text-md3-on-surface-variant">{text(language, 'Публикует текущий трек и состояние воспроизведения в Discord. Использует встроенную нативную интеграцию.', 'Shares the current track and playback state with Discord using the existing native integration.')}</p>
+              <p className="mt-1 text-xs text-md3-on-surface-variant">{text(language, 'Включает или отключает встроенную интеграцию. Передачу статуса можно приостановить отдельно кнопкой Discord в плеере (D).', 'Enables or disables the built-in integration. Pause status sharing separately with the Discord button in the player (D).')}</p>
             </div>
-            <button type="button" role="switch" aria-label={text(language, 'Включить Discord RPC', 'Enable Discord RPC')} aria-checked={discordEnabled} onClick={onToggleDiscord} className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${discordEnabled ? 'bg-[#5865F2]' : 'bg-md3-surface-container-highest'}`}>
-              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${discordEnabled ? 'left-6' : 'left-1'}`} />
+            <button type="button" role="switch" aria-label={text(language, 'Включить интеграцию Discord RPC', 'Enable Discord RPC integration')} aria-checked={discordPluginEnabled} onClick={onToggleDiscordPlugin} className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${discordPluginEnabled ? 'bg-[#5865F2]' : 'bg-md3-surface-container-highest'}`}>
+              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${discordPluginEnabled ? 'left-6' : 'left-1'}`} />
             </button>
             <button type="button" onClick={onOpenDiscordSettings} title={text(language, 'Настройки Discord RPC', 'Discord RPC settings')} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface"><Settings className="h-4 w-4" /></button>
           </div>

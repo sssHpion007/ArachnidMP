@@ -96,6 +96,8 @@ interface SettingsModalProps {
   onSetKeyboardShortcuts: (shortcuts: KeyboardShortcuts) => void;
   discordEnabled: boolean;
   onToggleDiscord: () => void;
+  discordPluginEnabled: boolean;
+  onToggleDiscordPlugin: () => void;
   showDiscordButton: boolean;
   onToggleShowDiscordButton: () => void;
   discordShowPlayIcon: boolean;
@@ -177,6 +179,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSetKeyboardShortcuts,
   discordEnabled,
   onToggleDiscord,
+  discordPluginEnabled,
+  onToggleDiscordPlugin,
   showDiscordButton,
   onToggleShowDiscordButton,
   discordShowPlayIcon,
@@ -1209,7 +1213,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm select-none cursor-default ${backdropClass}`}
     >
       <div 
-        className={`w-full max-w-xl bg-md3-surface-container rounded-3xl border border-md3-outline-variant/30 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-md3-on-surface cursor-default ${dialogClass}`}
+        className={`w-full h-[85vh] max-w-xl min-h-0 bg-md3-surface-container rounded-3xl border border-md3-outline-variant/30 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-md3-on-surface cursor-default ${dialogClass}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -1409,9 +1413,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             runtimeStates={pluginRuntimeStates}
             loading={pluginManagerLoading}
             error={pluginManagerError}
-            discordEnabled={discordEnabled}
+            discordPluginEnabled={discordPluginEnabled}
             discordShortcutLabel={formatShortcut(keyboardShortcuts.toggleDiscord, language)}
-            onToggleDiscord={onToggleDiscord}
+            onToggleDiscordPlugin={onToggleDiscordPlugin}
             onOpenDiscordSettings={() => setCurrentView('discord')}
             onToggleExternalPlugin={handleToggleExternalPlugin}
             onUpdatePluginSettings={handleUpdatePluginSettings}

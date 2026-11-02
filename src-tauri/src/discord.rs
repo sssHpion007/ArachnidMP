@@ -5,6 +5,7 @@ use std::thread;
 use std::collections::HashMap;
 use base64::prelude::*;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone)]
 pub struct ActivityData {
@@ -160,6 +161,36 @@ fn upload_to_img24(image_bytes: &[u8]) -> Option<String> {
 }
 
 /**
+ * Persistent public image host used when the regional host is unavailable.
+ */
+fn upload_to_catbox(image_bytes: &[u8]) -> Option<String> {
+    let boundary = "----ArachnidCoverUpload7MA4YWxk";
+    let mut body = Vec::with_capacity(image_bytes.len() + 384);
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"reqtype\"\r\n\r\nfileupload\r\n");
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"fileToUpload\"; filename=\"cover.jpg\"\r\n");
+    body.extend_from_slice(b"Content-Type: image/jpeg\r\n\r\n");
+    body.extend_from_slice(image_bytes);
+    body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
+
+    if let Ok(response) = ureq::post("https://catbox.moe/user/api.php")
+        .set("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
+        .set("User-Agent", "ArachnidMusicPlayer/0.4")
+        .timeout(std::time::Duration::from_secs(12))
+        .send_bytes(&body)
+    {
+        if let Ok(url) = response.into_string() {
+            let url = url.trim();
+            if url.starts_with("https://files.catbox.moe/") {
+                return Some(url.to_string());
+            }
+        }
+    }
+    None
+}
+
+/**
  * 2. International fast temporary host (Pomf / Uguu)
  */
 fn upload_to_uguu(image_bytes: &[u8]) -> Option<String> {
@@ -228,6 +259,9 @@ fn upload_to_imgur(image_bytes: &[u8]) -> Option<String> {
  * Uploads local embedded track artwork using multi-tier hosting strategy
  */
 fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
+    if let Some(url) = upload_to_catbox(image_bytes) {
+        return Some(url);
+    }
     if let Some(url) = upload_to_img24(image_bytes) {
         return Some(url);
     }
@@ -363,7 +397,7 @@ impl DiscordService {
                             };
                             // Filter out any whitespace/newlines to ensure clean decoding
                             let b64_clean: String = b64_part.chars().filter(|c| !c.is_whitespace()).collect();
-                            let cache_key = format!("{}_{}_{}", latest.details, latest.state, b64_clean.len());
+                            let cache_key = format!("{:x}", Sha256::digest(b64_clean.as_bytes()));
 
                             if let Some(cached_url) = cover_cache.get(&cache_key) {
                                 assets["large_image"] = json!(cached_url);
@@ -372,9 +406,11 @@ impl DiscordService {
                                     cover_cache.insert(cache_key, uploaded_url.clone());
                                     assets["large_image"] = json!(uploaded_url);
                                 } else {
+                                    crate::logger::log("WARN", "DISCORD_COVER", "All cover image hosts failed; using the player icon.");
                                     assets["large_image"] = json!("https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png");
                                 }
                             } else {
+                                crate::logger::log("WARN", "DISCORD_COVER", "Could not decode the compressed cover image; using the player icon.");
                                 assets["large_image"] = json!("https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png");
                             }
                         } else if !trimmed.is_empty() {

@@ -468,6 +468,7 @@ export const App: React.FC = () => {
   const [folderContextMenu, setFolderContextMenu] = useState<{ x: number; y: number; folder: PlaylistFolder } | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
   const [discordEnabled, setDiscordEnabled] = useState<boolean>(true);
+  const [discordPluginEnabled, setDiscordPluginEnabled] = useState<boolean>(true);
   const [keyboardShortcuts, setKeyboardShortcuts] = useState<KeyboardShortcuts>(DEFAULT_KEYBOARD_SHORTCUTS);
   const [showDiscordButton, setShowDiscordButton] = useState<boolean>(true);
   const [discordShowPlayIcon, setDiscordShowPlayIcon] = useState<boolean>(true);
@@ -513,6 +514,7 @@ export const App: React.FC = () => {
   const currentTrackRef = useRef<Track | null>(currentTrack);
   const languageRef = useRef<AppLanguage>(language);
   const discordEnabledRef = useRef<boolean>(discordEnabled);
+  const discordPluginEnabledRef = useRef<boolean>(discordPluginEnabled);
   const discordShowPlayIconRef = useRef<boolean>(discordShowPlayIcon);
   const discordShowPauseIconRef = useRef<boolean>(discordShowPauseIcon);
   const discordStatusModeRef = useRef<'listening' | 'listening_app'>(discordStatusMode);
@@ -1023,11 +1025,12 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     discordEnabledRef.current = discordEnabled;
+    discordPluginEnabledRef.current = discordPluginEnabled;
     discordShowPlayIconRef.current = discordShowPlayIcon;
     discordShowPauseIconRef.current = discordShowPauseIcon;
     discordStatusModeRef.current = discordStatusMode;
     discordCustomClientIdRef.current = discordCustomClientId;
-  }, [discordEnabled, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId]);
+  }, [discordEnabled, discordPluginEnabled, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId]);
 
   useEffect(() => {
     selectedPlaylistIdRef.current = selectedPlaylistId;
@@ -1640,6 +1643,7 @@ export const App: React.FC = () => {
             setLanguage(detectSystemLanguage());
           }
           if (typeof parsed.discordEnabled === 'boolean') setDiscordEnabled(parsed.discordEnabled);
+          if (typeof parsed.discordPluginEnabled === 'boolean') setDiscordPluginEnabled(parsed.discordPluginEnabled);
           if (parsed.keyboardShortcuts) setKeyboardShortcuts(normalizeKeyboardShortcuts(parsed.keyboardShortcuts));
           if (typeof parsed.showDiscordButton === 'boolean') setShowDiscordButton(parsed.showDiscordButton);
           if (typeof parsed.discordShowPlayIcon === 'boolean') setDiscordShowPlayIcon(parsed.discordShowPlayIcon);
@@ -1758,6 +1762,7 @@ export const App: React.FC = () => {
       appTheme,
       language,
       discordEnabled,
+      discordPluginEnabled,
       keyboardShortcuts,
       showDiscordButton,
       discordShowPlayIcon,
@@ -1778,7 +1783,7 @@ export const App: React.FC = () => {
     invoke('save_portable_settings', { data: JSON.stringify(settings) }).catch(error => {
       console.warn('Failed to save settings:', error);
     });
-  }, [themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface, startupDataLoaded]);
+  }, [themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, discordPluginEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface, startupDataLoaded]);
 
   // Browser-only fallback retains its existing single localStorage document format.
   useEffect(() => {
@@ -1794,6 +1799,7 @@ export const App: React.FC = () => {
       appTheme,
       language,
       discordEnabled,
+      discordPluginEnabled,
       keyboardShortcuts,
       showDiscordButton,
       discordShowPlayIcon,
@@ -1816,7 +1822,7 @@ export const App: React.FC = () => {
     } catch (error) {
       console.warn('Failed to save browser library data:', error);
     }
-  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface]);
+  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, discordPluginEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface]);
 
   // Reveal the native window only after portable preferences have loaded, so the
   // selected startup layout is already active when the user sees it.
@@ -1898,7 +1904,7 @@ export const App: React.FC = () => {
       onPlay: () => {
         setIsPlaying(true);
         const cur = currentTrackRef.current;
-        if (discordEnabledRef.current && cur) {
+        if (discordEnabledRef.current && discordPluginEnabledRef.current && cur) {
           discordRpc.updatePresence({
             enabled: true,
             trackName: cur.title,
@@ -1919,7 +1925,7 @@ export const App: React.FC = () => {
       onPause: () => {
         setIsPlaying(false);
         const cur = currentTrackRef.current;
-        if (discordEnabledRef.current && cur) {
+        if (discordEnabledRef.current && discordPluginEnabledRef.current && cur) {
           discordRpc.updatePresence({
             enabled: true,
             trackName: cur.title,
@@ -1939,7 +1945,7 @@ export const App: React.FC = () => {
       },
       onLoopRepeat: () => {
         const cur = currentTrackRef.current;
-        if (discordEnabledRef.current && cur) {
+        if (discordEnabledRef.current && discordPluginEnabledRef.current && cur) {
           discordRpc.updatePresence({
             enabled: true,
             trackName: cur.title,
@@ -2170,7 +2176,7 @@ export const App: React.FC = () => {
       const curTime = isNewTrack ? 0 : (audioEngine.getCurrentTime() || 0);
 
       discordRpc.updatePresence({
-        enabled: discordEnabled,
+        enabled: discordEnabled && discordPluginEnabled,
         trackName: currentTrack.title,
         artist: currentTrack.artist,
         album: currentTrack.album,
@@ -2208,6 +2214,7 @@ export const App: React.FC = () => {
     currentTrack?.album,
     isPlaying,
     discordEnabled,
+    discordPluginEnabled,
     discordShowPlayIcon,
     discordShowPauseIcon,
     discordStatusMode,
@@ -3995,7 +4002,7 @@ export const App: React.FC = () => {
   const handleTrackEnded = () => {
     if (repeatMode === 'one') {
       const cur = currentTrackRef.current;
-      if (discordEnabledRef.current && cur) {
+      if (discordEnabledRef.current && discordPluginEnabledRef.current && cur) {
         discordRpc.updatePresence({
           enabled: true,
           trackName: cur.title,
@@ -4034,7 +4041,7 @@ export const App: React.FC = () => {
     setCurrentTime(time);
     audioEngine.seek(time);
 
-    if (discordEnabled && currentTrack) {
+    if (discordEnabled && discordPluginEnabled && currentTrack) {
       discordRpc.updatePresence({
         enabled: true,
         trackName: currentTrack.title,
@@ -5615,7 +5622,7 @@ export const App: React.FC = () => {
           isLibraryDataLoading={!startupDataLoaded || (isTauri() && nativePageLoading)}
           lyricsMode={miniLyricsMode}
           discordEnabled={discordEnabled}
-          showDiscordButton={showDiscordButton && discordEnabled}
+          showDiscordButton={showDiscordButton && discordPluginEnabled}
           onPlayPause={handlePlayPause}
           onPrev={handlePrev}
           onNext={handleNext}
@@ -5640,7 +5647,7 @@ export const App: React.FC = () => {
             if (miniLyricsMode === 'closed') void attachMiniLyrics();
             else void closeMiniLyrics();
           }}
-          onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
+          onToggleDiscord={() => setDiscordEnabled(prev => !prev)}
           onOpenEQ={() => { void openMiniEqualizer(); }}
           onToggleFavorite={handleToggleFavorite}
           onOpenTrackDetails={track => { void openMiniTrackDetails(track); }}
@@ -5679,8 +5686,8 @@ export const App: React.FC = () => {
         onOpenEQ={() => setIsEQOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         discordEnabled={discordEnabled}
-        onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
-        showDiscordButton={showDiscordButton && discordEnabled}
+        onToggleDiscord={() => setDiscordEnabled(prev => !prev)}
+        showDiscordButton={showDiscordButton && discordPluginEnabled}
         navigationTabOrder={navigationTabOrder}
         language={language}
         hasUpdate={hasUpdate}
@@ -5956,8 +5963,8 @@ export const App: React.FC = () => {
         onOpenFiles={handleOpenFiles}
         onOpenEQ={() => setIsEQOpen(true)}
         discordEnabled={discordEnabled}
-        onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
-        showDiscordButton={showDiscordButton && discordEnabled}
+        onToggleDiscord={() => setDiscordEnabled(prev => !prev)}
+        showDiscordButton={showDiscordButton && discordPluginEnabled}
         onOpenTrackDetails={openTrackDetails}
         onOpenLyrics={() => {
           if (currentTrack) setIsLyricsOpen(true);
@@ -6053,7 +6060,9 @@ export const App: React.FC = () => {
         keyboardShortcuts={keyboardShortcuts}
         onSetKeyboardShortcuts={setKeyboardShortcuts}
         discordEnabled={discordEnabled}
-        onToggleDiscord={() => setDiscordEnabled(!discordEnabled)}
+        onToggleDiscord={() => setDiscordEnabled(prev => !prev)}
+        discordPluginEnabled={discordPluginEnabled}
+        onToggleDiscordPlugin={() => setDiscordPluginEnabled(prev => !prev)}
         showDiscordButton={showDiscordButton}
         onToggleShowDiscordButton={() => setShowDiscordButton(prev => !prev)}
         discordShowPlayIcon={discordShowPlayIcon}
