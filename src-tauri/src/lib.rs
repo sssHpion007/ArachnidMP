@@ -1,6 +1,7 @@
 mod discord;
 mod library_db;
 mod storage;
+mod cover_cache;
 mod player;
 mod logger;
 mod memory_diagnostics;
@@ -10,7 +11,7 @@ mod portable_updater;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use base64::prelude::*;
 use lofty::config::{ParseOptions, ParsingMode, WriteOptions};
 use lofty::file::{AudioFile, TaggedFileExt};
@@ -31,6 +32,8 @@ pub struct TrackMetadata {
     pub track_total: Option<u32>,
     pub duration_seconds: f64,
     pub cover_art: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cover_art_scan_complete: Option<bool>,
     pub format: String,
     pub file_size: u64,
     pub lyrics: Option<String>,
@@ -83,6 +86,10 @@ pub struct AppState {
 
 struct TrayMenuState {
     open_item: tauri::menu::MenuItem<tauri::Wry>,
+    help_submenu: tauri::menu::Submenu<tauri::Wry>,
+    reset_theme_item: tauri::menu::MenuItem<tauri::Wry>,
+    scan_library_item: tauri::menu::MenuItem<tauri::Wry>,
+    github_item: tauri::menu::MenuItem<tauri::Wry>,
     quit_item: tauri::menu::MenuItem<tauri::Wry>,
 }
 
@@ -93,32 +100,27 @@ fn set_close_to_tray(enabled: bool, state: State<'_, AppState>) {
 
 #[tauri::command]
 fn set_tray_language(language: String, state: State<'_, TrayMenuState>) -> Result<(), String> {
-    let (open_label, quit_label) = if language == "ru" {
-        ("Открыть", "Выход")
+    let (open_label, help_label, reset_theme_label, scan_library_label, github_label, quit_label) = if language == "ru" {
+        ("Открыть", "Помощь", "Сброс темы", "Сканирование медиатеки", "Страница на GitHub", "Выход")
     } else {
-        ("Open", "Quit")
+        ("Open", "Help", "Reset theme", "Scan media library", "GitHub page", "Quit")
     };
 
     state.open_item.set_text(open_label).map_err(|error| error.to_string())?;
+    state.help_submenu.set_text(help_label).map_err(|error| error.to_string())?;
+    state.reset_theme_item.set_text(reset_theme_label).map_err(|error| error.to_string())?;
+    state.scan_library_item.set_text(scan_library_label).map_err(|error| error.to_string())?;
+    state.github_item.set_text(github_label).map_err(|error| error.to_string())?;
     state.quit_item.set_text(quit_label).map_err(|error| error.to_string())?;
     Ok(())
 }
 
 fn saved_tray_language_is_russian() -> bool {
     let base_dir = storage::get_portable_base_dir();
-    let settings_paths = [
-        base_dir.join("config").join("settings.json"),
-        base_dir.join("arachnid_data.json"),
-    ];
-
-    for path in settings_paths {
-        let Ok(contents) = std::fs::read_to_string(path) else { continue };
-        let Ok(settings) = serde_json::from_str::<serde_json::Value>(&contents) else { continue };
-        if let Some(language) = settings.get("language").and_then(serde_json::Value::as_str) {
-            return language == "ru";
-        }
-    }
-    false
+    let settings_path = base_dir.join("config").join("settings.json");
+    let Ok(contents) = std::fs::read_to_string(settings_path) else { return false };
+    let Ok(settings) = serde_json::from_str::<serde_json::Value>(&contents) else { return false };
+    settings.get("language").and_then(serde_json::Value::as_str) == Some("ru")
 }
 
 #[tauri::command]
@@ -130,10 +132,37 @@ fn log_keyboard_probe(target: String, typing_target: bool, focused_id: String) {
     );
 }
 
+fn cache_inline_cover(covers: &cover_cache::CoverCache, cover: &str) -> String {
+    if !cover.starts_with("data:image/") { return cover.to_string(); }
+    let Some((header, encoded)) = cover.split_once(";base64,") else { return cover.to_string() };
+    let Some(mime) = header.strip_prefix("data:") else { return cover.to_string() };
+    let encoded = encoded.chars().filter(|character| !character.is_whitespace()).collect::<String>();
+    let Ok(bytes) = BASE64_STANDARD.decode(encoded) else { return cover.to_string() };
+    match covers.store_bytes(&bytes, mime) {
+        Ok(hash) => cover_cache::cover_url(&hash, None),
+        Err(error) => {
+            logger::log("WARN", "COVER_CACHE", &format!("Could not migrate inline cover into SQLite: {error}"));
+            cover.to_string()
+        }
+    }
+}
+
 #[tauri::command]
-fn save_portable_data(data: String, state: State<'_, library_db::LibraryDb>) -> Result<bool, String> {
+fn save_portable_data(
+    data: String,
+    state: State<'_, library_db::LibraryDb>,
+    covers: State<'_, cover_cache::CoverCache>,
+) -> Result<bool, String> {
     let mut value = serde_json::from_str::<serde_json::Value>(&data)
         .map_err(|_| "Invalid JSON data format".to_string())?;
+    if let Some(playlists) = value.get_mut("playlists").and_then(serde_json::Value::as_array_mut) {
+        for playlist in playlists {
+            if let Some(cover) = playlist.get("coverArt").and_then(serde_json::Value::as_str) {
+                let cached = cache_inline_cover(covers.inner(), cover);
+                playlist["coverArt"] = serde_json::Value::String(cached);
+            }
+        }
+    }
     let mut referenced_ids = Vec::new();
     if let Some(playlists) = value.get("playlists").and_then(serde_json::Value::as_array) {
         let mut unique_ids = std::collections::HashSet::new();
@@ -233,7 +262,7 @@ fn find_folder_cover_art(track_path: &Path) -> Option<String> {
     None
 }
 
-fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
+fn parse_single_file(path_str: &str, covers: &cover_cache::CoverCache) -> Option<TrackMetadata> {
     let path = Path::new(path_str);
     if !path.is_file() {
         return None;
@@ -257,6 +286,7 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
     let mut track_total = None;
     let mut duration_seconds = 0.0;
     let mut cover_art = None;
+    let mut cover_art_scan_complete = false;
     let mut lyrics = None;
     let mut composer = None;
     let mut content_group = None;
@@ -266,6 +296,7 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
 
     let parse_opts = ParseOptions::new().parsing_mode(ParsingMode::Relaxed);
     if let Ok(tagged_file) = Probe::open(path).and_then(|p| p.options(parse_opts).read()) {
+        cover_art_scan_complete = true;
         let properties = tagged_file.properties();
         duration_seconds = properties.duration().as_secs_f64();
 
@@ -353,8 +384,12 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
                         Some(m) => m.as_str(),
                         None => "image/jpeg",
                     };
-                    if let Some(saved_path) = storage::save_cover_bytes(pic.data(), mime) {
-                        cover_art = Some(saved_path);
+                    match covers.store_bytes(pic.data(), mime) {
+                        Ok(hash) => cover_art = Some(cover_cache::cover_url(&hash, None)),
+                        Err(error) => {
+                            cover_art_scan_complete = false;
+                            logger::log("WARN", "COVER_CACHE", &format!("Could not cache embedded cover for {}: {error}", path.display()));
+                        }
                     }
                 }
             }
@@ -362,7 +397,18 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
     }
 
     if cover_art.is_none() {
-        cover_art = find_folder_cover_art(path);
+        if let Some(folder_cover) = find_folder_cover_art(path) {
+            match covers.store_file(&folder_cover) {
+                Ok(hash) => {
+                    cover_art = Some(cover_cache::cover_url(&hash, None));
+                    cover_art_scan_complete = true;
+                }
+                Err(error) => {
+                    cover_art_scan_complete = false;
+                    logger::log("WARN", "COVER_CACHE", &format!("Could not cache folder cover {}: {error}", folder_cover));
+                }
+            }
+        }
     }
 
     if lyrics.is_none() {
@@ -410,6 +456,7 @@ fn parse_single_file(path_str: &str) -> Option<TrackMetadata> {
         track_total,
         duration_seconds,
         cover_art,
+        cover_art_scan_complete: Some(cover_art_scan_complete),
         format: ext.to_uppercase(),
         file_size,
         lyrics,
@@ -427,7 +474,11 @@ fn rand_suffix() -> u32 {
 }
 
 #[tauri::command]
-async fn read_audio_files(paths: Vec<String>) -> Result<Vec<TrackMetadata>, String> {
+async fn read_audio_files(
+    paths: Vec<String>,
+    cover_state: State<'_, cover_cache::CoverCache>,
+) -> Result<Vec<TrackMetadata>, String> {
+    let covers = cover_state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut results = Vec::new();
 
@@ -436,13 +487,13 @@ async fn read_audio_files(paths: Vec<String>) -> Result<Vec<TrackMetadata>, Stri
             if p.is_dir() {
                 for entry in walkdir::WalkDir::new(p).into_iter().filter_map(|e| e.ok()) {
                     if entry.path().is_file() {
-                        if let Some(meta) = parse_single_file(&entry.path().to_string_lossy()) {
+                        if let Some(meta) = parse_single_file(&entry.path().to_string_lossy(), &covers) {
                             results.push(meta);
                         }
                     }
                 }
             } else if p.is_file() {
-                if let Some(meta) = parse_single_file(&p_str) {
+                if let Some(meta) = parse_single_file(&p_str, &covers) {
                     results.push(meta);
                 }
             }
@@ -463,6 +514,28 @@ fn library_db_get_count(
 }
 
 #[tauri::command]
+fn library_db_get_ordered_ids(
+    search: Option<String>,
+    sort_by: String,
+    descending: bool,
+    favorite_only: bool,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<Vec<String>, String> {
+    state.ordered_ids(search.as_deref(), &sort_by, descending, favorite_only)
+}
+
+#[tauri::command]
+fn library_db_order_subset_ids(
+    track_ids: Vec<String>,
+    search: Option<String>,
+    sort_by: String,
+    descending: bool,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<Vec<String>, String> {
+    state.ordered_subset_ids(&track_ids, search.as_deref(), &sort_by, descending)
+}
+
+#[tauri::command]
 fn library_db_get_page(
     search: Option<String>,
     sort_by: String,
@@ -473,11 +546,13 @@ fn library_db_get_page(
     filter_value: Option<String>,
     favorite_only: bool,
     excluded_ids: Vec<String>,
+    include_total: Option<bool>,
     state: State<'_, library_db::LibraryDb>,
 ) -> Result<library_db::TrackPage, String> {
-    let mut page = state.page_filtered_excluding(
+    let mut page = state.page_filtered_excluding_with_total(
         search.as_deref(), &sort_by, descending, offset, limit,
         filter_kind.as_deref(), filter_value.as_deref(), favorite_only, &excluded_ids,
+        include_total.unwrap_or(true),
     )?;
     let base_dir = storage::get_portable_base_dir();
     for track in &mut page.items {
@@ -523,6 +598,32 @@ fn library_db_get_details(
 }
 
 #[tauri::command]
+fn library_db_get_path_ids(
+    paths: Vec<String>,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<Vec<String>, String> {
+    state.ids_by_paths(&paths)
+}
+
+fn reconcile_missing_imports_with_covers(
+    database: &library_db::LibraryDb,
+    covers: &cover_cache::CoverCache,
+    paths: &[String],
+    known_existing_ids: &[String],
+) -> Result<Vec<library_db::TrackIdReplacement>, String> {
+    let replacements = database.reconcile_missing_imports(paths, known_existing_ids)?;
+    if replacements.is_empty() { return Ok(replacements); }
+    let imported_ids = replacements.iter().map(|replacement| replacement.imported_id.clone()).collect::<Vec<_>>();
+    let retained_ids = replacements.iter().map(|replacement| replacement.retained_id.clone()).collect::<Vec<_>>();
+    covers.remove_tracks(&imported_ids)?;
+    let retained_paths = database.summaries_by_ids(&retained_ids)?.into_iter()
+        .filter_map(|track| track.path).collect::<Vec<_>>();
+    let links = database.cover_links_for_paths(&retained_paths)?;
+    covers.set_track_artwork_batch(&links)?;
+    Ok(replacements)
+}
+
+#[tauri::command]
 fn library_db_get_by_paths(
     paths: Vec<String>,
     state: State<'_, library_db::LibraryDb>,
@@ -557,41 +658,64 @@ fn library_db_get_by_ids(
 }
 
 #[tauri::command]
-fn library_db_seed_legacy_from_disk(
+fn library_db_get_playlist_covers(
+    playlists: Vec<library_db::PlaylistCoverRequest>,
     state: State<'_, library_db::LibraryDb>,
-) -> Result<usize, String> {
-    if state.count(None)? > 0 {
-        return Ok(0);
-    }
-    let references = storage::load_legacy_track_references()?;
-    let seeded = state.seed_legacy_track_map(&references)?;
-    if !references.is_empty() {
-        logger::log(
-            "INFO",
-            "LIBRARY_MIGRATION",
-            &format!(
-                "legacy catalog retained; seeded {seeded} path/ID references from {} records for playlist continuity",
-                references.len(),
-            ),
-        );
-    }
-    Ok(seeded)
+) -> Result<Vec<library_db::PlaylistCoverResult>, String> {
+    let base_dir = storage::get_portable_base_dir();
+    playlists.into_iter().map(|playlist| {
+        let covers = state.cover_art_by_ids(&playlist.track_ids, playlist.limit)?
+            .into_iter()
+            .map(|cover| {
+                if cover.starts_with("http") || cover.starts_with("data:") {
+                    cover
+                } else {
+                    storage::to_absolute_cover(&cover, &base_dir).unwrap_or(cover)
+                }
+            })
+            .collect();
+        let total_duration = state.total_duration_by_ids(&playlist.track_ids)?;
+        Ok(library_db::PlaylistCoverResult { playlist_id: playlist.playlist_id, covers, total_duration })
+    }).collect()
 }
 
 #[tauri::command]
 fn library_db_seed_playlist_track_references(
-    references: Vec<library_db::LegacyTrackReference>,
+    references: Vec<library_db::PlaylistTrackReference>,
     state: State<'_, library_db::LibraryDb>,
 ) -> Result<usize, String> {
-    state.seed_legacy_track_map(&references)
+    state.seed_playlist_track_map(&references)
+}
+
+fn upsert_tracks_with_cover_cache(
+    database: &library_db::LibraryDb,
+    covers: &cover_cache::CoverCache,
+    tracks: &[serde_json::Value],
+) -> Result<usize, String> {
+    let mut normalized_tracks = tracks.to_vec();
+    for track in &mut normalized_tracks {
+        let cover_field = if track.get("coverArt").is_some() { "coverArt" } else { "cover_art" };
+        if let Some(cover) = track.get(cover_field).and_then(serde_json::Value::as_str) {
+            let cached = cache_inline_cover(covers, cover);
+            track[cover_field] = serde_json::Value::String(cached);
+        }
+    }
+    let changed = database.upsert_batch(&normalized_tracks)?;
+    let paths = tracks.iter()
+        .filter_map(|track| track.get("path").and_then(serde_json::Value::as_str).map(str::to_string))
+        .collect::<Vec<_>>();
+    let links = database.cover_links_for_paths(&paths)?;
+    covers.set_track_artwork_batch(&links)?;
+    Ok(changed)
 }
 
 #[tauri::command]
 fn library_db_upsert_batch(
     tracks: Vec<serde_json::Value>,
     state: State<'_, library_db::LibraryDb>,
+    covers: State<'_, cover_cache::CoverCache>,
 ) -> Result<usize, String> {
-    state.upsert_batch(&tracks)
+    upsert_tracks_with_cover_cache(state.inner(), covers.inner(), &tracks)
 }
 
 #[tauri::command]
@@ -608,16 +732,25 @@ fn library_db_merge_summary(
     track_ids: Vec<String>,
     mut patch: serde_json::Value,
     state: State<'_, library_db::LibraryDb>,
+    covers: State<'_, cover_cache::CoverCache>,
 ) -> Result<usize, String> {
-    let cover = patch.get("coverArt").and_then(serde_json::Value::as_str).map(str::to_string);
-    if let Some(cover) = cover.as_deref() {
+    let cover_field = patch.get("coverArt").cloned();
+    if let Some(cover) = cover_field.as_ref().and_then(serde_json::Value::as_str) {
         if cover.is_empty() {
             patch["coverArt"] = serde_json::Value::Null;
+        } else if cover.starts_with("data:image/") {
+            patch["coverArt"] = serde_json::Value::String(cache_inline_cover(covers.inner(), cover));
         } else if let Some(portable) = storage::to_portable_cover(cover, &storage::get_portable_base_dir()) {
             patch["coverArt"] = serde_json::Value::String(portable);
         }
     }
-    state.merge_summary(&track_ids, &patch)
+    let changed = state.merge_summary(&track_ids, &patch)?;
+    if cover_field.is_some() {
+        let cover = patch.get("coverArt").and_then(serde_json::Value::as_str).map(str::to_string);
+        let links = track_ids.iter().cloned().map(|id| (id, cover.clone())).collect::<Vec<_>>();
+        covers.set_track_artwork_batch(&links)?;
+    }
+    Ok(changed)
 }
 
 #[tauri::command]
@@ -630,23 +763,44 @@ fn library_db_set_favorites(
 }
 
 #[tauri::command]
+fn library_db_set_missing(
+    track_ids: Vec<String>,
+    missing: bool,
+    state: State<'_, library_db::LibraryDb>,
+) -> Result<usize, String> {
+    state.set_missing(&track_ids, missing)
+}
+
+#[tauri::command]
 fn library_db_delete_ids(
     track_ids: Vec<String>,
     state: State<'_, library_db::LibraryDb>,
+    covers: State<'_, cover_cache::CoverCache>,
 ) -> Result<(), String> {
-    state.delete_ids(&track_ids)
+    state.delete_ids(&track_ids)?;
+    covers.remove_tracks(&track_ids)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LibraryScanResult {
+    scanned: usize,
+    replacements: Vec<library_db::TrackIdReplacement>,
 }
 
 #[tauri::command]
 async fn scan_library_to_database(
     paths: Vec<String>,
     state: State<'_, library_db::LibraryDb>,
-) -> Result<usize, String> {
+    cover_state: State<'_, cover_cache::CoverCache>,
+) -> Result<LibraryScanResult, String> {
     let database = state.inner().clone();
+    let covers = cover_state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         const BATCH_SIZE: usize = 128;
         let mut batch = Vec::with_capacity(BATCH_SIZE);
         let mut scanned = 0usize;
+        let mut replacements = Vec::new();
         let mut discovered = 0usize;
         let mut directory_results = Vec::new();
         let mut individual_file_paths = 0usize;
@@ -656,7 +810,14 @@ async fn scan_library_to_database(
 
         let mut flush = |batch: &mut Vec<serde_json::Value>| -> Result<(), String> {
             if batch.is_empty() { return Ok(()); }
-            database.upsert_batch(batch)?;
+            let mut seen_paths = std::collections::HashSet::new();
+            let batch_paths = batch.iter()
+                .filter_map(|track| track.get("path").and_then(serde_json::Value::as_str).map(str::to_string))
+                .filter(|path| seen_paths.insert(path.trim().replace('\\', "/").to_lowercase()))
+                .collect::<Vec<_>>();
+            let known_existing_ids = database.ids_by_paths(&batch_paths)?;
+            upsert_tracks_with_cover_cache(&database, &covers, batch)?;
+            replacements.extend(reconcile_missing_imports_with_covers(&database, &covers, &batch_paths, &known_existing_ids)?);
             scanned = scanned.saturating_add(batch.len());
             batch.clear();
             Ok(())
@@ -674,7 +835,7 @@ async fn scan_library_to_database(
                         Err(_) => { walk_errors += 1; continue; }
                     };
                     if !entry.path().is_file() { continue; }
-                    if let Some(track) = parse_single_file(&entry.path().to_string_lossy()) {
+                    if let Some(track) = parse_single_file(&entry.path().to_string_lossy(), &covers) {
                         batch.push(serde_json::to_value(track).map_err(|error| error.to_string())?);
                         discovered = discovered.saturating_add(1);
                         if batch.len() >= BATCH_SIZE { flush(&mut batch)?; }
@@ -685,7 +846,7 @@ async fn scan_library_to_database(
                 }
             } else if path.is_file() {
                 individual_file_paths = individual_file_paths.saturating_add(1);
-                if let Some(track) = parse_single_file(&path_string) {
+                if let Some(track) = parse_single_file(&path_string, &covers) {
                     batch.push(serde_json::to_value(track).map_err(|error| error.to_string())?);
                     discovered = discovered.saturating_add(1);
                     individual_file_tracks = individual_file_tracks.saturating_add(1);
@@ -700,12 +861,12 @@ async fn scan_library_to_database(
             "INFO",
             "LIBRARY_SCAN",
             &format!(
-                "paths={} audio_tracks={} persisted={} directories=[{}] individual_file_paths={} individual_file_tracks={} missing_paths={}",
-                total_paths, discovered, scanned, directory_results.join(","),
+                "paths={} audio_tracks={} persisted={} reconciled_missing_tracks={} directories=[{}] individual_file_paths={} individual_file_tracks={} missing_paths={}",
+                total_paths, discovered, scanned, replacements.len(), directory_results.join(","),
                 individual_file_paths, individual_file_tracks, missing_paths,
             ),
         );
-        Ok(scanned)
+        Ok(LibraryScanResult { scanned, replacements })
     })
     .await
     .map_err(|error| format!("Library scan task failed: {error}"))?
@@ -747,8 +908,27 @@ fn open_file_dialog() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-async fn scan_folder(folder_path: String) -> Result<Vec<TrackMetadata>, String> {
-    read_audio_files(vec![folder_path]).await
+async fn scan_folder(
+    folder_path: String,
+    cover_state: State<'_, cover_cache::CoverCache>,
+) -> Result<Vec<TrackMetadata>, String> {
+    let covers = cover_state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut results = Vec::new();
+        let path = Path::new(&folder_path);
+        if path.is_dir() {
+            for entry in walkdir::WalkDir::new(path).into_iter().filter_map(|entry| entry.ok()) {
+                if entry.path().is_file() {
+                    if let Some(track) = parse_single_file(&entry.path().to_string_lossy(), &covers) {
+                        results.push(track);
+                    }
+                }
+            }
+        } else if path.is_file() {
+            if let Some(track) = parse_single_file(&folder_path, &covers) { results.push(track); }
+        }
+        Ok(results)
+    }).await.map_err(|error| format!("Task execution error: {error}"))?
 }
 
 #[tauri::command]
@@ -1489,28 +1669,113 @@ fn batch_check_files_exist(paths: Vec<String>) -> std::collections::HashMap<Stri
     map
 }
 
-#[tauri::command]
-async fn delete_files_from_disk(paths: Vec<String>, state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
-    // If playback is currently active, stop native player to release any file locks
-    let _ = state.player.stop(false);
+const MAX_DELETE_TRACK_BATCH: usize = 500;
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteTrackFailure {
+    track_id: String,
+    reason: String,
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteTracksFromDiskResult {
+    deleted_track_ids: Vec<String>,
+    already_missing_track_ids: Vec<String>,
+    failures: Vec<DeleteTrackFailure>,
+}
+
+fn is_supported_audio_track_path(path: &Path) -> bool {
+    const AUDIO_EXTENSIONS: &[&str] = &["mp3", "flac", "wav", "ogg", "m4a", "aac", "opus", "wma"];
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| AUDIO_EXTENSIONS.iter().any(|supported| extension.eq_ignore_ascii_case(supported)))
+}
+
+#[tauri::command]
+async fn delete_files_from_disk(
+    track_ids: Vec<String>,
+    database: State<'_, library_db::LibraryDb>,
+) -> Result<DeleteTracksFromDiskResult, String> {
+    if track_ids.len() > MAX_DELETE_TRACK_BATCH {
+        return Err(format!("A maximum of {MAX_DELETE_TRACK_BATCH} tracks can be deleted per request"));
+    }
+
+    let database = database.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        // Short grace pause for Windows filesystem handle closure
-        std::thread::sleep(std::time::Duration::from_millis(60));
-        let mut deleted = Vec::new();
-        for p_str in paths {
-            let p = Path::new(&p_str);
-            if p.is_file() {
-                if std::fs::remove_file(p).is_ok() {
-                    deleted.push(p_str.clone());
-                    notify_shell_file_changed(p);
-                }
+        let mut result = DeleteTracksFromDiskResult::default();
+        let mut unique_ids = Vec::with_capacity(track_ids.len());
+        let mut seen_ids = std::collections::HashSet::with_capacity(track_ids.len());
+        for track_id in track_ids {
+            if seen_ids.insert(track_id.clone()) {
+                unique_ids.push(track_id);
             }
         }
-        Ok(deleted)
+
+        let tracks = database.summaries_by_ids(&unique_ids)?;
+        let tracks_by_id = tracks.into_iter().map(|track| (track.id.clone(), track)).collect::<std::collections::HashMap<_, _>>();
+
+        for track_id in unique_ids {
+            let Some(track) = tracks_by_id.get(&track_id) else {
+                result.failures.push(DeleteTrackFailure {
+                    track_id,
+                    reason: "Track is not present in the library database".to_string(),
+                });
+                continue;
+            };
+            let Some(path_string) = track.path.as_deref() else {
+                result.failures.push(DeleteTrackFailure {
+                    track_id,
+                    reason: "Track has no file path".to_string(),
+                });
+                continue;
+            };
+            let path = Path::new(path_string);
+            if !path.is_absolute() {
+                result.failures.push(DeleteTrackFailure {
+                    track_id,
+                    reason: "Track path is not absolute".to_string(),
+                });
+                continue;
+            }
+            if !is_supported_audio_track_path(path) {
+                result.failures.push(DeleteTrackFailure {
+                    track_id,
+                    reason: "Track path does not have a supported audio extension".to_string(),
+                });
+                continue;
+            }
+
+            match std::fs::metadata(path) {
+                Ok(metadata) if metadata.is_file() => match std::fs::remove_file(path) {
+                    Ok(()) => {
+                        notify_shell_file_changed(path);
+                        result.deleted_track_ids.push(track_id);
+                    }
+                    Err(error) => result.failures.push(DeleteTrackFailure {
+                        track_id,
+                        reason: format!("Unable to delete audio file: {error}"),
+                    }),
+                },
+                Ok(_) => result.failures.push(DeleteTrackFailure {
+                    track_id,
+                    reason: "Track path does not refer to a regular file".to_string(),
+                }),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    result.already_missing_track_ids.push(track_id);
+                }
+                Err(error) => result.failures.push(DeleteTrackFailure {
+                    track_id,
+                    reason: format!("Unable to inspect audio file: {error}"),
+                }),
+            }
+        }
+
+        Ok(result)
     })
     .await
-    .map_err(|e| format!("Failed to delete files: {}", e))?
+    .map_err(|error| format!("Failed to delete library files: {error}"))?
 }
 
 #[tauri::command]
@@ -1523,9 +1788,13 @@ fn pick_single_audio_file() -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
-fn save_track_file_tags(path: String, updates: TagUpdates) -> Result<Option<TrackMetadata>, String> {
+fn save_track_file_tags(
+    path: String,
+    updates: TagUpdates,
+    covers: State<'_, cover_cache::CoverCache>,
+) -> Result<Option<TrackMetadata>, String> {
     apply_tag_updates_to_file(&path, &updates)?;
-    Ok(parse_single_file(&path))
+    Ok(parse_single_file(&path, covers.inner()))
 }
 
 #[tauri::command]
@@ -1963,7 +2232,7 @@ async fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> 
     const LYRICS_WINDOW_WIDTH: f64 = 440.0;
     const LYRICS_WINDOW_HEIGHT: f64 = 700.0;
     const WINDOW_GAP: i64 = 12;
-    const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--max-old-space-size=256\"";
+    const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--expose-gc --max-old-space-size=256\"";
 
     let (lyrics_window, created) = match app_handle.get_webview_window("lyrics") {
         Some(window) => (window, false),
@@ -2038,7 +2307,7 @@ async fn show_lyrics_window(app_handle: tauri::AppHandle) -> Result<(), String> 
 async fn show_track_details_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     const DETAILS_WINDOW_WIDTH: f64 = 560.0;
     const DETAILS_WINDOW_HEIGHT: f64 = 640.0;
-    const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--max-old-space-size=256\"";
+    const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--expose-gc --max-old-space-size=256\"";
 
     let details_window = match app_handle.get_webview_window("track-details") {
         Some(window) => window,
@@ -2079,7 +2348,7 @@ fn hide_track_details_window(app_handle: tauri::AppHandle) -> Result<(), String>
 
 #[tauri::command]
 async fn show_equalizer_window(app_handle: tauri::AppHandle) -> Result<(), String> {
-    const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--max-old-space-size=256\"";
+    const MAIN_WEBVIEW_ARGS: &str = "--js-flags=\"--expose-gc --max-old-space-size=256\"";
 
     let equalizer_window = match app_handle.get_webview_window("equalizer") {
         Some(window) => window,
@@ -2668,18 +2937,79 @@ pub fn run() {
     {
         windows_process_grouping::setup_process_grouping();
 
-        let webview_args = "--enable-features=HardwareMediaKeyHandling,MediaSessionService \
-                            --autoplay-policy=no-user-gesture-required \
-                            --disable-background-timer-throttling \
-                            --disable-renderer-backgrounding \
-                            --disable-backgrounding-occluded-windows \
-                            --disable-features=CalculateNativeWinOcclusion";
+        // Keep the established background policy by default. For controlled Windows
+        // memory investigations, setting ARACHNIDMP_WEBVIEW_BACKGROUNDING=default
+        // lets WebView2 use Chromium's normal background throttling/backgrounding.
+        let use_runtime_backgrounding = std::env::var("ARACHNIDMP_WEBVIEW_BACKGROUNDING")
+            .map(|value| value.trim().eq_ignore_ascii_case("default"))
+            .unwrap_or(false);
+        let webview_args = if use_runtime_backgrounding {
+            concat!(
+                "--enable-features=HardwareMediaKeyHandling,MediaSessionService ",
+                "--autoplay-policy=no-user-gesture-required"
+            )
+        } else {
+            concat!(
+                "--enable-features=HardwareMediaKeyHandling,MediaSessionService ",
+                "--autoplay-policy=no-user-gesture-required ",
+                "--disable-background-timer-throttling ",
+                "--disable-renderer-backgrounding ",
+                "--disable-backgrounding-occluded-windows ",
+                "--disable-features=CalculateNativeWinOcclusion"
+            )
+        };
 
         std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", webview_args);
         std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGS", webview_args);
+        logger::log(
+            "INFO",
+            "WEBVIEW_CONFIG",
+            &format!(
+                "background_policy={}",
+                if use_runtime_backgrounding { "runtime-default" } else { "legacy-unthrottled" }
+            ),
+        );
     }
 
     tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol("cover", |context, request, responder| {
+            let covers = context.app_handle().state::<cover_cache::CoverCache>().inner().clone();
+            let path = request.uri().path().to_string();
+            tauri::async_runtime::spawn_blocking(move || {
+                let image = match cover_cache::parse_cover_request(&path) {
+                    Some((hash, size)) => match covers.get_image(&hash, size) {
+                        Ok(Some(image)) => Some(image),
+                        Ok(None) => {
+                            logger::log("WARN", "COVER_PROTOCOL", &format!("Cached cover not found: hash={hash} size={size:?}"));
+                            None
+                        }
+                        Err(error) => {
+                            logger::log("ERROR", "COVER_PROTOCOL", &format!("Failed reading cached cover hash={hash}: {error}"));
+                            None
+                        }
+                    },
+                    None => {
+                        logger::log("WARN", "COVER_PROTOCOL", &format!("Rejected invalid cover request path={path}"));
+                        None
+                    }
+                };
+                let response = match image {
+                    Some(image) => tauri::http::Response::builder()
+                        .status(tauri::http::StatusCode::OK)
+                        .header(tauri::http::header::CONTENT_TYPE, image.mime)
+                        .header(tauri::http::header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+                        .header(tauri::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                        .body(image.bytes)
+                        .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
+                    None => tauri::http::Response::builder()
+                        .status(tauri::http::StatusCode::NOT_FOUND)
+                        .header(tauri::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                        .body(Vec::new())
+                        .unwrap_or_else(|_| tauri::http::Response::new(Vec::new())),
+                };
+                responder.respond(response);
+            });
+        })
         .on_window_event(|window, event| {
             match event {
                 tauri::WindowEvent::Focused(focused) => {
@@ -2712,7 +3042,7 @@ pub fn run() {
         })
         .setup(|app| {
             use tauri::{
-                menu::{Menu, MenuItem},
+                menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
                 tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
             };
 
@@ -2721,15 +3051,48 @@ pub fn run() {
                 .join("library.sqlite3");
             let library_db = library_db::LibraryDb::open(&library_path)
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            match storage::remove_retired_library_index(&storage::get_portable_base_dir()) {
+                Ok(true) => logger::log("INFO", "LIBRARY_STORAGE", "removed retired config/library.json"),
+                Ok(false) => {}
+                Err(error) => logger::log("WARN", "LIBRARY_STORAGE", &error),
+            }
+            let covers_path = storage::get_portable_base_dir().join("config").join("covers.sqlite3");
+            let cover_cache = cover_cache::CoverCache::open(&covers_path)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            let track_covers = library_db.cached_cover_links()
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            cover_cache.reconcile_library_covers(&track_covers)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
             app.manage(library_db);
+            app.manage(cover_cache);
 
             let is_russian = saved_tray_language_is_russian();
-            let open_label = if is_russian { "Открыть" } else { "Open" };
-            let quit_label = if is_russian { "Выход" } else { "Quit" };
+            let (open_label, help_label, reset_theme_label, scan_library_label, github_label, quit_label) = if is_russian {
+                ("Открыть", "Помощь", "Сброс темы", "Сканирование медиатеки", "Страница на GitHub", "Выход")
+            } else {
+                ("Open", "Help", "Reset theme", "Scan media library", "GitHub page", "Quit")
+            };
             let open_item = MenuItem::with_id(app, "open", open_label, true, None::<&str>)?;
+            let reset_theme_item = MenuItem::with_id(app, "help-reset-theme", reset_theme_label, true, None::<&str>)?;
+            let scan_library_item = MenuItem::with_id(app, "help-scan-library", scan_library_label, true, None::<&str>)?;
+            let github_item = MenuItem::with_id(app, "help-github", github_label, true, None::<&str>)?;
+            let help_submenu = Submenu::with_items(
+                app,
+                help_label,
+                true,
+                &[&reset_theme_item, &scan_library_item, &github_item],
+            )?;
+            let separator = PredefinedMenuItem::separator(app)?;
             let quit_item = MenuItem::with_id(app, "quit", quit_label, true, None::<&str>)?;
-            let tray_menu = Menu::with_items(app, &[&open_item, &quit_item])?;
-            app.manage(TrayMenuState { open_item, quit_item });
+            let tray_menu = Menu::with_items(app, &[&open_item, &help_submenu, &separator, &quit_item])?;
+            app.manage(TrayMenuState {
+                open_item,
+                help_submenu,
+                reset_theme_item,
+                scan_library_item,
+                github_item,
+                quit_item,
+            });
             let tray_icon = app
                 .default_window_icon()
                 .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Default window icon is missing"))?
@@ -2742,6 +3105,23 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => show_main_window(app),
+                    "help-reset-theme" => {
+                        show_main_window(app);
+                        if let Err(error) = app.emit_to("main", "tray-action", "reset-theme") {
+                            logger::log("WARN", "TRAY_MENU", &format!("Unable to dispatch theme reset: {error}"));
+                        }
+                    }
+                    "help-scan-library" => {
+                        show_main_window(app);
+                        if let Err(error) = app.emit_to("main", "tray-action", "scan-library") {
+                            logger::log("WARN", "TRAY_MENU", &format!("Unable to dispatch library scan: {error}"));
+                        }
+                    }
+                    "help-github" => {
+                        if let Err(error) = open_url("https://github.com/sssHpion007/ArachnidMP".to_string()) {
+                            logger::log("WARN", "TRAY_MENU", &format!("Unable to open GitHub page: {error}"));
+                        }
+                    }
                     "quit" => clean_exit(),
                     _ => {}
                 })
@@ -2777,17 +3157,21 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             library_db_get_count,
+            library_db_get_ordered_ids,
+            library_db_order_subset_ids,
             library_db_get_page,
             library_db_get_collection_groups,
             library_db_get_details,
             library_db_get_by_ids,
+            library_db_get_playlist_covers,
+            library_db_get_path_ids,
             library_db_get_by_paths,
-            library_db_seed_legacy_from_disk,
             library_db_seed_playlist_track_references,
             library_db_upsert_batch,
             library_db_merge_details,
             library_db_merge_summary,
             library_db_set_favorites,
+            library_db_set_missing,
             library_db_delete_ids,
             get_app_version,
             set_close_to_tray,

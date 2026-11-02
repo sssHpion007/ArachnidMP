@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { 
   X, 
   Settings, 
@@ -21,6 +21,7 @@ import {
   Tag,
   Keyboard,
   ArrowLeft,
+  Plus,
   ChevronRight,
   ChevronDown,
   Globe,
@@ -41,14 +42,17 @@ import {
   Calendar,
   FolderKanban,
   FolderPlus,
+  GripVertical,
   Search
 } from 'lucide-react';
 import { marked } from 'marked';
 import { ThemeMode, Track, FadeMode } from '../types/music';
+import { coverVariantUrl } from '../utils/coverArt';
 import { CustomThemeInfo } from '../types/theme';
 import { ThemePaletteModal } from './ThemePaletteModal';
+import { HexColorInput } from './HexColorInput';
 import { ConfirmationModal } from './ConfirmationModal';
-import { MainViewType } from './TopBar';
+import { getMainNavigationTabs } from './TopBar';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage, getTranslations } from '../i18n';
 import { isTauri, invoke } from '@tauri-apps/api/core';
@@ -86,8 +90,10 @@ interface SettingsModalProps {
   onSetDiscordStatusMode: (mode: 'listening' | 'listening_app') => void;
   discordCustomClientId: string;
   onSetDiscordCustomClientId: (id: string) => void;
-  visibleTabs: Record<MainViewType, boolean>;
-  onToggleTabVisibility: (tab: MainViewType) => void;
+  navigationTabOrder: string[];
+  onAddNavigationTab: (tabId: string) => void;
+  onRemoveNavigationTab: (tabId: string) => void;
+  onReorderNavigationTabs: (tabOrder: string[]) => void;
   currentTrack: Track | null;
   isPlaying: boolean;
   currentTime: number;
@@ -161,8 +167,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSetDiscordStatusMode,
   discordCustomClientId,
   onSetDiscordCustomClientId,
-  visibleTabs,
-  onToggleTabVisibility,
+  navigationTabOrder,
+  onAddNavigationTab,
+  onRemoveNavigationTab,
+  onReorderNavigationTabs,
   currentTrack,
   isPlaying,
   currentTime,
@@ -210,6 +218,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const releaseNotesContainerRef = useRef<HTMLDivElement>(null);
   const mainSettingsContainerRef = useRef<HTMLDivElement>(null);
   const mainScrollTopRef = useRef<number>(0);
+  const draggedNavigationTabIdRef = useRef<string | null>(null);
+  const navigationTabDragOrderRef = useRef<string[] | null>(null);
+  const [draggedNavigationTabId, setDraggedNavigationTabId] = useState<string | null>(null);
+  const [navigationTabDragOrder, setNavigationTabDragOrder] = useState<string[] | null>(null);
+  const [dragOverNavigationTabId, setDragOverNavigationTabId] = useState<string | null>(null);
+  const wasSettingsOpenRef = useRef(false);
+  const shouldResetMainScrollOnOpenRef = useRef(false);
 
   const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen, 200);
 
@@ -225,6 +240,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Theme Mode segmented control indicator
   const themeModeContainerRef = useRef<HTMLDivElement>(null);
   const themeModeRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+  const [indicatorTransitionsEnabled, setIndicatorTransitionsEnabled] = useState(false);
+  const enableIndicatorTransitions = () => setIndicatorTransitionsEnabled(true);
+  const indicatorTransitionClass = indicatorTransitionsEnabled
+    ? 'transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)]'
+    : 'transition-none';
   const [themeModeIndicatorStyle, setThemeModeIndicatorStyle] = useState<{ left: number; width: number; height: number; opacity: number }>({
     left: 0,
     width: 0,
@@ -264,7 +284,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [closeBehaviorIndicatorStyle, setCloseBehaviorIndicatorStyle] = useState({ left: 0, width: 0, height: 0, opacity: 0 });
   const updateCloseBehaviorIndicator = () => {
     const el = closeBehaviorRefs.current[closeBehavior];
-    if (el) setCloseBehaviorIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, opacity: 1 });
+    if (el) {
+      setCloseBehaviorIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, opacity: 1 });
+    }
   };
 
   const startupInterfaceContainerRef = useRef<HTMLDivElement>(null);
@@ -272,7 +294,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [startupInterfaceIndicatorStyle, setStartupInterfaceIndicatorStyle] = useState({ left: 0, width: 0, height: 0, opacity: 0 });
   const updateStartupInterfaceIndicator = () => {
     const el = startupInterfaceRefs.current[startupInterface];
-    if (el) setStartupInterfaceIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, opacity: 1 });
+    if (el) {
+      setStartupInterfaceIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, opacity: 1 });
+    }
   };
 
   useEffect(() => {
@@ -409,6 +433,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       }
     }
   }, [currentView, latestRelease]);
+
+  useLayoutEffect(() => {
+    const justOpened = isOpen && !wasSettingsOpenRef.current;
+    wasSettingsOpenRef.current = isOpen;
+    if (justOpened) {
+      mainScrollTopRef.current = 0;
+      shouldResetMainScrollOnOpenRef.current = true;
+    }
+
+    if (!isOpen || !isRendered || currentView !== 'main' || !shouldResetMainScrollOnOpenRef.current) return;
+    mainSettingsContainerRef.current?.scrollTo({ top: 0, behavior: 'instant' });
+    shouldResetMainScrollOnOpenRef.current = false;
+  }, [isOpen, isRendered, currentView]);
 
   // Real-time logs subscriber and initial fetch
   useEffect(() => {
@@ -565,7 +602,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleClose = () => {
-    setCurrentView('main');
     setIsThemeCurtainOpen(false);
     setIsLangCurtainOpen(false);
     setIsUpdateSettingsOpen(false);
@@ -757,7 +793,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setIsLangCurtainOpen(false);
       onRefreshCustomThemes();
     } else {
-      setCurrentView('main');
+      setIndicatorTransitionsEnabled(false);
       setIsThemeCurtainOpen(false);
       setIsLangCurtainOpen(false);
     }
@@ -791,6 +827,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && e.target instanceof Element && e.target.closest('[data-hex-color-picker], [data-cover-color-picker]')) return;
       if (e.key === 'Escape') {
         if (isThemeCurtainOpen) {
           setIsThemeCurtainOpen(false);
@@ -825,14 +862,75 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const navTabConfigs = [
-    { id: 'tracks' as MainViewType, label: t.nav.tracks, icon: Music },
-    { id: 'playlists' as MainViewType, label: t.nav.playlists, icon: ListMusic },
-    { id: 'albums' as MainViewType, label: t.nav.albums, icon: Disc },
-    { id: 'artists' as MainViewType, label: t.nav.artists, icon: Mic2 },
-    { id: 'favorites' as MainViewType, label: t.nav.favorites, icon: Heart },
-    { id: 'genres' as MainViewType, label: t.nav.genres, icon: Tag },
-  ];
+  const navTabConfigs = getMainNavigationTabs(t);
+  const getReorderedNavigationTabOrder = (sourceId: string, targetId: string, afterTarget: boolean, baseOrder: string[]) => {
+    if (sourceId === targetId) return null;
+    const registeredIds = new Set<string>(navTabConfigs.map(tab => tab.id));
+    const reorderedVisibleIds = baseOrder.filter(id => registeredIds.has(id));
+    const sourceIndex = reorderedVisibleIds.indexOf(sourceId);
+    const targetIndex = reorderedVisibleIds.indexOf(targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return null;
+    const [movingId] = reorderedVisibleIds.splice(sourceIndex, 1);
+    let insertIndex = targetIndex + (afterTarget ? 1 : 0);
+    if (sourceIndex < insertIndex) insertIndex -= 1;
+    reorderedVisibleIds.splice(insertIndex, 0, movingId);
+    let visibleIndex = 0;
+    const nextOrder = baseOrder.map(id => registeredIds.has(id) ? reorderedVisibleIds[visibleIndex++] : id);
+    return nextOrder.every((id, index) => id === baseOrder[index]) ? null : nextOrder;
+  };
+  const visibleNavigationTabs = (navigationTabDragOrder ?? navigationTabOrder)
+    .map(id => navTabConfigs.find(tab => tab.id === id))
+    .filter((tab): tab is (typeof navTabConfigs)[number] => Boolean(tab));
+  const availableNavigationTabs = navTabConfigs.filter(tab => !navigationTabOrder.includes(tab.id));
+
+  const startNavigationTabDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || (event.target instanceof Element && event.target.closest('button'))) return;
+    const tabElement = event.currentTarget.closest('[data-navigation-tab-id]') as HTMLElement | null;
+    const listElement = event.currentTarget.closest('[data-navigation-tab-list]') as HTMLElement | null;
+    const tabId = tabElement?.dataset.navigationTabId;
+    if (!tabId || !listElement) return;
+    event.preventDefault();
+    event.stopPropagation();
+    listElement.setPointerCapture(event.pointerId);
+    draggedNavigationTabIdRef.current = tabId;
+    navigationTabDragOrderRef.current = [...navigationTabOrder];
+    setDraggedNavigationTabId(tabId);
+    setNavigationTabDragOrder([...navigationTabOrder]);
+  };
+
+  const moveNavigationTabDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const sourceId = draggedNavigationTabIdRef.current;
+    if (!sourceId) return;
+    event.preventDefault();
+    const targetElement = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-navigation-tab-id]') as HTMLElement | null;
+    const targetId = targetElement?.dataset.navigationTabId;
+    if (!targetElement || !targetId || targetId === sourceId) {
+      setDragOverNavigationTabId(null);
+      return;
+    }
+    setDragOverNavigationTabId(targetId);
+    const bounds = targetElement.getBoundingClientRect();
+    const afterTarget = event.clientX >= bounds.left + bounds.width / 2;
+    const baseOrder = navigationTabDragOrderRef.current ?? navigationTabOrder;
+    const nextOrder = getReorderedNavigationTabOrder(sourceId, targetId, afterTarget, baseOrder);
+    if (nextOrder) {
+      navigationTabDragOrderRef.current = nextOrder;
+      setNavigationTabDragOrder(nextOrder);
+    }
+  };
+
+  const finishNavigationTabDrag = (event: React.PointerEvent<HTMLDivElement>, commit: boolean) => {
+    const pointerId = event.pointerId;
+    if (commit && draggedNavigationTabIdRef.current && navigationTabDragOrderRef.current) {
+      onReorderNavigationTabs(navigationTabDragOrderRef.current);
+    }
+    if (event.currentTarget.hasPointerCapture(pointerId)) event.currentTarget.releasePointerCapture(pointerId);
+    draggedNavigationTabIdRef.current = null;
+    navigationTabDragOrderRef.current = null;
+    setDraggedNavigationTabId(null);
+    setNavigationTabDragOrder(null);
+    setDragOverNavigationTabId(null);
+  };
 
   // Helper to get active theme object
   const activeCustomTheme = (() => {
@@ -861,7 +959,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   return (
     <div 
       onClick={handleClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm select-none cursor-pointer ${backdropClass}`}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm select-none cursor-default ${backdropClass}`}
     >
       <div 
         className={`w-full max-w-xl bg-md3-surface-container rounded-3xl border border-md3-outline-variant/30 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-md3-on-surface cursor-default ${dialogClass}`}
@@ -979,6 +1077,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.mediaKeys}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    ⏮ / ⏯ / ⏭ / ⏹
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
                   <span className="text-md3-on-surface-variant">{t.shortcuts.volumeAdj}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     Ctrl + ↑ / ↓
@@ -1030,6 +1135,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.scrollToTop}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    Home
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.scrollToBottom}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    End
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.scrollByPage}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    Page Up / Page Down
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
                   <span className="text-md3-on-surface-variant">{t.shortcuts.playSelected}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     Enter
@@ -1040,6 +1166,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span className="text-md3-on-surface-variant">{t.shortcuts.editTags}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     Shift + Enter
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.saveTags}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    Ctrl / ⌘ + Enter
                   </kbd>
                 </div>
 
@@ -1081,6 +1214,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.miniPlayer}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    F
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
                   <span className="text-md3-on-surface-variant">{t.shortcuts.search}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     Ctrl + F
@@ -1112,6 +1252,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span className="text-md3-on-surface-variant">{t.shortcuts.lyrics}</span>
                   <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
                     T / L
+                  </kbd>
+                </div>
+
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
+                  <span className="text-md3-on-surface-variant">{t.shortcuts.lyricsWindow}</span>
+                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
+                    Shift + T
                   </kbd>
                 </div>
 
@@ -1333,7 +1480,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="relative w-16 h-16 rounded-xl bg-[#313338] overflow-hidden shrink-0 border border-white/5 shadow-md">
                     {currentTrack && currentTrack.coverArt ? (
                       <img
-                        src={currentTrack.coverArt}
+                        src={coverVariantUrl(currentTrack.coverArt, 96)}
                         alt="Artwork"
                         className="w-full h-full object-cover"
                       />
@@ -2009,7 +2156,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   >
                     {/* Smooth sliding glow pill indicator */}
                     <div
-                      className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                      className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
                       style={{
                         left: `${themeModeIndicatorStyle.left}px`,
                         width: `${themeModeIndicatorStyle.width}px`,
@@ -2024,7 +2171,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       ref={(el) => { themeModeRefs.current['dark'] = el; }}
                       tabIndex={-1}
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => onSetThemeMode('dark')}
+                      onClick={() => { enableIndicatorTransitions(); onSetThemeMode('dark'); }}
                       className={`relative z-10 flex-1 py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                         themeMode === 'dark'
                           ? 'text-md3-on-primary font-bold'
@@ -2040,7 +2187,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       ref={(el) => { themeModeRefs.current['amoled'] = el; }}
                       tabIndex={-1}
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => onSetThemeMode('amoled')}
+                      onClick={() => { enableIndicatorTransitions(); onSetThemeMode('amoled'); }}
                       className={`relative z-10 flex-1 py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                         themeMode === 'amoled'
                           ? 'text-md3-on-primary font-bold'
@@ -2060,7 +2207,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       ref={(el) => { themeModeRefs.current['light'] = el; }}
                       tabIndex={-1}
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => onSetThemeMode('light')}
+                      onClick={() => { enableIndicatorTransitions(); onSetThemeMode('light'); }}
                       className={`relative z-10 flex-1 py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                         themeMode === 'light'
                           ? 'text-md3-on-primary font-bold'
@@ -2083,7 +2230,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     >
                       {/* Smooth sliding glow pill indicator */}
                       <div
-                        className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                        className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
                         style={{
                           left: `${colorSchemeIndicatorStyle.left}px`,
                           width: `${colorSchemeIndicatorStyle.width}px`,
@@ -2098,7 +2245,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         ref={(el) => { colorSchemeRefs.current['dynamic'] = el; }}
                         tabIndex={-1}
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => onSetColorSchemeMode('dynamic')}
+                        onClick={() => { enableIndicatorTransitions(); onSetColorSchemeMode('dynamic'); }}
                         className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                           colorSchemeMode === 'dynamic'
                             ? 'text-md3-on-primary font-bold'
@@ -2115,7 +2262,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         ref={(el) => { colorSchemeRefs.current['system'] = el; }}
                         tabIndex={-1}
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => onSetColorSchemeMode('system')}
+                        onClick={() => { enableIndicatorTransitions(); onSetColorSchemeMode('system'); }}
                         className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                           colorSchemeMode === 'system'
                             ? 'text-md3-on-primary font-bold'
@@ -2132,7 +2279,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         ref={(el) => { colorSchemeRefs.current['custom'] = el; }}
                         tabIndex={-1}
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => onSetColorSchemeMode('custom')}
+                        onClick={() => { enableIndicatorTransitions(); onSetColorSchemeMode('custom'); }}
                         className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                           colorSchemeMode === 'custom'
                             ? 'text-md3-on-primary font-bold'
@@ -2165,18 +2312,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               )}
                             </button>
                           ))}
-                          <label
-                            className="relative w-8 h-8 rounded-full shadow-md hover:scale-110 active:scale-95 transition-transform cursor-pointer flex items-center justify-center border-2 border-white/40 overflow-hidden"
-                            style={{ backgroundColor: seedColor }}
-                            title={t.settings.paletteCustom}
-                          >
-                            <input
-                              type="color"
-                              value={seedColor}
-                              onChange={(e) => onSetSeedColor(e.target.value)}
-                              className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
-                            />
-                          </label>
+                          <HexColorInput
+                            color={seedColor}
+                            onChange={onSetSeedColor}
+                            label={language === 'ru' ? 'Акцентный цвет темы' : 'Theme accent color'}
+                            language={language}
+                            compact
+                            showHexInput={false}
+                          />
                         </div>
                       </div>
                     )}
@@ -2357,7 +2500,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 {/* Smooth sliding glow pill indicator */}
                 <div
-                  className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                  className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
                   style={{
                     left: `${fadeModeIndicatorStyle.left}px`,
                     width: `${fadeModeIndicatorStyle.width}px`,
@@ -2372,7 +2515,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ref={(el) => { fadeModeRefs.current['off'] = el; }}
                   tabIndex={-1}
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => onSetFadeMode('off')}
+                  onClick={() => { enableIndicatorTransitions(); onSetFadeMode('off'); }}
                   className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                     fadeMode === 'off'
                       ? 'text-md3-on-primary font-bold'
@@ -2389,7 +2532,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ref={(el) => { fadeModeRefs.current['track_change_and_pause'] = el; }}
                   tabIndex={-1}
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => onSetFadeMode('track_change_and_pause')}
+                  onClick={() => { enableIndicatorTransitions(); onSetFadeMode('track_change_and_pause'); }}
                   className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                     fadeMode === 'track_change_and_pause'
                       ? 'text-md3-on-primary font-bold'
@@ -2406,7 +2549,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ref={(el) => { fadeModeRefs.current['always'] = el; }}
                   tabIndex={-1}
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => onSetFadeMode('always')}
+                  onClick={() => { enableIndicatorTransitions(); onSetFadeMode('always'); }}
                   className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                     fadeMode === 'always'
                       ? 'text-md3-on-primary font-bold'
@@ -2449,41 +2592,92 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             {/* 3. Section: Navigation Tabs Visibility */}
-            <div className="space-y-3 pt-4 border-t border-md3-outline-variant/20">
+            <div className="space-y-2.5 pt-3 border-t border-md3-outline-variant/20">
               <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
                 <LayoutGrid className="w-4 h-4 text-md3-primary" />
                 <span>{t.settings.navigationTabs}</span>
               </div>
-              <p className="text-xs text-md3-on-surface-variant">
+              <p className="text-[11px] leading-relaxed text-md3-on-surface-variant">
                 {t.settings.navigationTabsDesc}
               </p>
-              <div className="grid grid-cols-2 gap-2">
-                {navTabConfigs.map((tab) => {
-                  const Icon = tab.icon;
-                  const isVisible = visibleTabs[tab.id] ?? true;
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => onToggleTabVisibility(tab.id)}
-                      className={`p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer ${
-                        isVisible
-                          ? 'border-md3-primary/40 bg-md3-primary/10 text-md3-on-surface font-medium'
-                          : 'border-md3-outline-variant/20 bg-md3-surface/40 text-md3-on-surface-variant/60'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <Icon className={`w-4 h-4 ${isVisible ? 'text-md3-primary' : 'opacity-40'}`} />
-                        <span className="text-xs">{tab.label}</span>
+              <div className="space-y-2">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between px-1">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-md3-on-surface-variant">
+                      {t.settings.visibleNavigationTabs}
+                    </div>
+                    <span className="text-[10px] font-medium tabular-nums text-md3-on-surface-variant/70">{visibleNavigationTabs.length}</span>
+                  </div>
+                  <div
+                    data-navigation-tab-list
+                    onPointerMove={moveNavigationTabDrag}
+                    onPointerUp={event => finishNavigationTabDrag(event, true)}
+                    onPointerCancel={event => finishNavigationTabDrag(event, false)}
+                    className="flex flex-wrap gap-1.5 rounded-2xl border border-md3-outline-variant/20 bg-md3-surface/40 p-2"
+                  >
+                  {visibleNavigationTabs.map(tab => {
+                    const Icon = tab.icon;
+                    return (
+                      <div
+                        key={tab.id}
+                        draggable={false}
+                        data-navigation-tab-id={tab.id}
+                        onPointerDown={startNavigationTabDrag}
+                        className={`flex max-w-full items-center gap-1 rounded-full border bg-md3-surface py-1 pl-2 pr-1 transition-all ${
+                          draggedNavigationTabId === tab.id ? 'opacity-40' : ''
+                        } ${
+                          dragOverNavigationTabId === tab.id ? 'border-md3-primary/50 bg-md3-primary/5 ring-1 ring-md3-primary/20' : 'border-md3-outline-variant/15 hover:border-md3-outline-variant/30'
+                        } ${visibleNavigationTabs.length > 1 ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                      >
+                        <GripVertical className="h-3 w-3 shrink-0 select-none text-md3-on-surface-variant/60" />
+                        <Icon className="h-3.5 w-3.5 shrink-0 text-md3-primary" />
+                        <span className="min-w-0 max-w-36 truncate text-[11px] font-medium text-md3-on-surface">{tab.label}</span>
+                        <div className="flex shrink-0 items-center gap-0.5">
+                          <button
+                            type="button"
+                            title={`${t.settings.removeNavigationTab}: ${tab.label}`}
+                            aria-label={`${t.settings.removeNavigationTab}: ${tab.label}`}
+                            disabled={visibleNavigationTabs.length <= 1}
+                            onClick={() => onRemoveNavigationTab(tab.id)}
+                            className="rounded-md p-0.5 text-md3-on-surface-variant transition-colors hover:bg-red-500/10 hover:text-red-400 disabled:cursor-default disabled:opacity-30"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
                       </div>
-                      <input
-                        type="checkbox"
-                        checked={isVisible}
-                        onChange={() => {}}
-                        className="w-4 h-4 rounded accent-md3-primary pointer-events-none"
-                      />
-                    </button>
-                  );
-                })}
+                    );
+                  })}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="px-1 text-[10px] font-bold uppercase tracking-wider text-md3-on-surface-variant">
+                    {t.settings.availableNavigationTabs}
+                  </div>
+                  {availableNavigationTabs.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                    {availableNavigationTabs.map(tab => {
+                    const Icon = tab.icon;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => onAddNavigationTab(tab.id)}
+                        className="flex max-w-full items-center gap-1.5 rounded-full border border-md3-outline-variant/15 bg-md3-surface/50 px-2.5 py-1.5 text-left text-md3-on-surface-variant transition-colors hover:border-md3-primary/30 hover:bg-md3-primary/5 hover:text-md3-on-surface"
+                      >
+                        <Icon className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate text-[11px]">{tab.label}</span>
+                        <Plus className="h-3.5 w-3.5 shrink-0 text-md3-primary" />
+                      </button>
+                    );
+                  })}
+                    </div>
+                  ) : (
+                    <p className="rounded-xl bg-md3-surface/50 p-2 text-[11px] text-md3-on-surface-variant">
+                      {t.settings.noAvailableNavigationTabs}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -2543,7 +2737,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
                 >
                   <div
-                    className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                    className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
                     style={{
                       left: `${closeBehaviorIndicatorStyle.left}px`,
                       width: `${closeBehaviorIndicatorStyle.width}px`,
@@ -2559,7 +2753,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     aria-checked={closeBehavior === 'exit'}
                     tabIndex={-1}
                     onMouseDown={event => event.preventDefault()}
-                    onClick={() => onSetCloseBehavior?.('exit')}
+                    onClick={() => { enableIndicatorTransitions(); onSetCloseBehavior?.('exit'); }}
                     className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'exit' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
                   >
                     <X className="w-4 h-4 shrink-0" />
@@ -2572,7 +2766,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     aria-checked={closeBehavior === 'tray'}
                     tabIndex={-1}
                     onMouseDown={event => event.preventDefault()}
-                    onClick={() => onSetCloseBehavior?.('tray')}
+                    onClick={() => { enableIndicatorTransitions(); onSetCloseBehavior?.('tray'); }}
                     className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'tray' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
                   >
                     <Radio className="w-4 h-4 shrink-0" />
@@ -2594,7 +2788,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
                 >
                   <div
-                    className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                    className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
                     style={{
                       left: `${startupInterfaceIndicatorStyle.left}px`,
                       width: `${startupInterfaceIndicatorStyle.width}px`,
@@ -2610,7 +2804,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     aria-checked={startupInterface === 'full'}
                     tabIndex={-1}
                     onMouseDown={event => event.preventDefault()}
-                    onClick={() => onSetStartupInterface?.('full')}
+                    onClick={() => { enableIndicatorTransitions(); onSetStartupInterface?.('full'); }}
                     className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'full' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
                   >
                     <Monitor className="w-4 h-4 shrink-0" />
@@ -2623,11 +2817,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     aria-checked={startupInterface === 'mini'}
                     tabIndex={-1}
                     onMouseDown={event => event.preventDefault()}
-                    onClick={() => onSetStartupInterface?.('mini')}
+                    onClick={() => { enableIndicatorTransitions(); onSetStartupInterface?.('mini'); }}
                     className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'mini' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
                   >
                     <Music className="w-4 h-4 shrink-0" />
-                    <span className="min-w-0 truncate">{language === 'ru' ? 'Мини-плеер' : 'Mini player'}</span>
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'Мини' : 'Mini'}</span>
                   </button>
                 </div>
               </section>

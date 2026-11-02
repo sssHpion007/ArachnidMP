@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Plus, 
   Play, 
+  Heart,
   ListMusic, 
   FolderPlus, 
   Layers, 
@@ -19,9 +20,12 @@ import {
   FileUp
 } from 'lucide-react';
 import { Playlist, PlaylistFolder, PlaylistGroup, Track, FolderCoverType } from '../types/music';
+import { coverVariantUrl } from '../utils/coverArt';
+import { shouldShowPlaylistCoverFallback } from '../utils/playlistCoverFallback';
 import { formatTime } from '../services/tagEditor';
 import { getFolderIconComponent, getFolderColorHex, getThemedPlayIconColor } from '../theme/folderIcons';
 import { AppLanguage } from '../i18n';
+import { CrossfadeImage } from './CrossfadeImage';
 import { FadeInImage } from './FadeInImage';
 
 interface PlaylistsGridViewProps {
@@ -29,6 +33,10 @@ interface PlaylistsGridViewProps {
   folders: PlaylistFolder[];
   groups: PlaylistGroup[];
   tracks: Track[];
+  playlistCovers?: Record<string, string[]>;
+  playlistCoversLoaded?: boolean;
+  playlistDurations?: Record<string, number>;
+  playlistDurationsLoaded?: boolean;
   searchQuery?: string;
   language?: AppLanguage;
   onSelectPlaylist: (id: string) => void;
@@ -271,7 +279,7 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
             </div>
           ) : coverType === 'first_playlist' || covers.length === 1 ? (
             <FadeInImage
-              src={covers[0]}
+              src={coverVariantUrl(covers[0], 256)}
               alt={folder.name}
               draggable={false}
               loading="lazy"
@@ -280,21 +288,21 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
             />
           ) : covers.length === 2 ? (
             <div className="w-full h-full grid grid-cols-2 grid-rows-1 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
-              <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[0], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[1], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           ) : covers.length === 3 ? (
             <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
-              <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
-              <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <FadeInImage src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[0], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
+              <FadeInImage src={coverVariantUrl(covers[1], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[2], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           ) : (
             <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
-              <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <FadeInImage src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <FadeInImage src={covers[3]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[0], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[1], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[2], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[3], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           )
         ) : (
@@ -370,6 +378,7 @@ interface PlaylistCardItemProps {
   playlist: Playlist;
   cover: string | null;
   covers: string[];
+  isCoverResolutionPending: boolean;
   totalDuration: number;
   isTarget: boolean;
   dropPosition?: 'before' | 'after' | null;
@@ -386,6 +395,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
   playlist,
   cover,
   covers,
+  isCoverResolutionPending,
   totalDuration,
   isTarget,
   dropPosition,
@@ -402,7 +412,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
   const coversRef = useRef(covers || []);
   coversRef.current = covers || [];
 
-  const IconComponent = getFolderIconComponent(playlist.icon);
+  const IconComponent = playlist.id === 'pl_favorites' ? Heart : getFolderIconComponent(playlist.icon);
   const baseColor = getFolderColorHex(playlist.color);
   // Play icon shade absorbs the playlist color hue and follows the theme direction
   const playIconColor = getThemedPlayIconColor(playlist.color, isDarkTheme);
@@ -412,7 +422,42 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
   };
   const coverType: FolderCoverType = (playlist.coverType as FolderCoverType) || 'first_playlist';
   const hasMultipleCovers = covers && covers.length > 1;
-  const hasImages = (cover || (covers && covers.length > 0)) && coverType !== 'icon';
+  const usesCoverSet = hasMultipleCovers && (coverType === 'cycle' || coverType === 'collage');
+  const imageSources = coverType === 'icon' ? [] : usesCoverSet ? covers : cover ? [cover] : [];
+  const hasImages = imageSources.length > 0;
+  const coverSourceKey = JSON.stringify(imageSources);
+  const [coverLoadState, setCoverLoadState] = useState<{ sourceKey: string; failed: Set<string>; loaded: Set<string> }>({
+    sourceKey: '',
+    failed: new Set(),
+    loaded: new Set(),
+  });
+  const failedCoverSources = coverLoadState.sourceKey === coverSourceKey ? coverLoadState.failed : new Set<string>();
+  const loadedCoverSources = coverLoadState.sourceKey === coverSourceKey ? coverLoadState.loaded : new Set<string>();
+  const hasLoadedCover = imageSources.some(source => loadedCoverSources.has(source));
+  const showFallbackIcon = shouldShowPlaylistCoverFallback(
+    coverType,
+    imageSources,
+    failedCoverSources,
+    isCoverResolutionPending,
+  );
+  const updateCoverLoadState = (source: string, loaded: boolean) => {
+    setCoverLoadState(current => {
+      const nextFailed = current.sourceKey === coverSourceKey ? new Set(current.failed) : new Set<string>();
+      const nextLoaded = current.sourceKey === coverSourceKey ? new Set(current.loaded) : new Set<string>();
+      if (loaded) {
+        nextFailed.delete(source);
+        nextLoaded.add(source);
+      } else {
+        nextFailed.add(source);
+        nextLoaded.delete(source);
+      }
+      return { sourceKey: coverSourceKey, failed: nextFailed, loaded: nextLoaded };
+    });
+  };
+  const coverLoadHandlers = (source: string) => ({
+    onLoad: () => updateCoverLoadState(source, true),
+    onError: () => updateCoverLoadState(source, false),
+  });
 
   // Slideshow interval for cycling playlist covers with independent stagger and period
   useEffect(() => {
@@ -510,7 +555,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
       {/* Cover Art Container */}
       <div 
         className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest mb-3 shadow-inner pointer-events-none transition-all duration-300 border border-md3-outline-variant/20"
-        style={previewBg && !hasImages ? { background: previewBg } : undefined}
+        style={previewBg && showFallbackIcon ? { background: previewBg } : undefined}
       >
         {hasImages ? (
           coverType === 'cycle' && hasMultipleCovers ? (
@@ -519,6 +564,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
                 <FadeInImage
                   key={c + idx}
                   src={c}
+                  {...coverLoadHandlers(c)}
                   alt=""
                   draggable={false}
                   loading="lazy"
@@ -526,51 +572,53 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
                   isVisible={idx === cycleIndex}
                   fadeDurationMs={700}
                   className={`absolute inset-0 w-full h-full object-cover pointer-events-none ${idx === cycleIndex ? 'z-10' : 'z-0'}`}
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
                 />
               ))}
             </div>
           ) : coverType === 'collage' && hasMultipleCovers ? (
             covers.length === 2 ? (
               <div className="w-full h-full grid grid-cols-2 grid-rows-1 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-                <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[0], 256)} {...coverLoadHandlers(covers[0])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[1], 256)} {...coverLoadHandlers(covers[1])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
               </div>
             ) : covers.length === 3 ? (
               <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-                <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
-                <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[0], 256)} {...coverLoadHandlers(covers[0])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
+                <FadeInImage src={coverVariantUrl(covers[1], 256)} {...coverLoadHandlers(covers[1])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[2], 256)} {...coverLoadHandlers(covers[2])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
               </div>
             ) : (
               <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-                <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={covers[3]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[0], 256)} {...coverLoadHandlers(covers[0])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[1], 256)} {...coverLoadHandlers(covers[1])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[2], 256)} {...coverLoadHandlers(covers[2])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[3], 256)} {...coverLoadHandlers(covers[3])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
               </div>
             )
           ) : cover ? (
-            <FadeInImage
-              src={cover}
+            <CrossfadeImage
+              src={coverVariantUrl(cover, 256)}
+              onSourceLoad={() => updateCoverLoadState(cover, true)}
+              onSourceError={() => updateCoverLoadState(cover, false)}
               alt={playlist.name}
-              draggable={false}
-              loading="lazy"
-              decoding="async"
-              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
+              className="absolute inset-0 z-[1] h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
             />
           ) : null
-        ) : (
-          <div className="w-full h-full flex items-center justify-center pointer-events-none transition-transform duration-300 group-hover:scale-105">
-            <IconComponent 
-              className="w-16 h-16 drop-shadow-md transition-all duration-300"
+        ) : null}
+
+        {showFallbackIcon && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center transition-transform duration-300 group-hover:scale-105">
+            <IconComponent
+              className="h-16 w-16 drop-shadow-md transition-all duration-300"
               style={{ color: baseColor || 'rgb(var(--md-sys-color-primary-rgb))' }}
             />
+          </div>
+        )}
+
+        {/* Custom playlist icon in the corner, shown only after cover art is visible. */}
+        {hasLoadedCover && playlist.icon && playlist.icon !== 'none' && playlist.icon !== 'list' && (
+          <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/60 text-white/95 backdrop-blur-xs flex items-center justify-center shadow-xs z-20 pointer-events-none">
+            <IconComponent className="w-3.5 h-3.5" />
           </div>
         )}
 
@@ -590,13 +638,6 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
           >
             <Play className="w-5 h-5 fill-current ml-0.5" />
           </button>
-        )}
-
-        {/* Small playlist icon badge in top-left when images are shown and icon is custom */}
-        {hasImages && playlist.icon && playlist.icon !== 'none' && playlist.icon !== 'list' && (
-          <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/60 text-white/95 backdrop-blur-xs flex items-center justify-center shadow-xs z-20 pointer-events-none">
-            <IconComponent className="w-3.5 h-3.5" />
-          </div>
         )}
 
         {/* System Badge */}
@@ -629,6 +670,10 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   folders,
   groups,
   tracks,
+  playlistCovers,
+  playlistCoversLoaded = true,
+  playlistDurations,
+  playlistDurationsLoaded = true,
   searchQuery = '',
   language = 'ru',
   onSelectPlaylist,
@@ -729,19 +774,30 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
 
   // Helpers to get cover art and duration
   const getPlaylistCover = (playlist: Playlist): string | null => {
+    if (playlist.coverArt) return playlist.coverArt;
+    if (!playlistCoversLoaded && playlist.trackIds.length > 0) return null;
+    if (playlistCoversLoaded && playlistCovers) return playlistCovers[playlist.id]?.[0] ?? null;
     for (const id of playlist.trackIds) {
-      const t = trackMap.get(id);
-      if (t && t.coverArt) return t.coverArt;
+      const cover = trackMap.get(id)?.coverArt;
+      if (cover) return cover;
     }
     return null;
   };
 
   const getPlaylistCovers = (playlist: Playlist): string[] => {
+    if (playlistCoversLoaded && playlistCovers) {
+      const resolvedCovers = playlistCovers[playlist.id] ?? [];
+      if (!playlist.coverArt) return resolvedCovers;
+      return [playlist.coverArt, ...resolvedCovers.filter(cover => cover !== playlist.coverArt)].slice(0, 8);
+    }
+    if (!playlistCoversLoaded && playlist.trackIds.length > 0) {
+      return playlist.coverArt ? [playlist.coverArt] : [];
+    }
     const covers: string[] = [];
     for (const id of playlist.trackIds) {
-      const t = trackMap.get(id);
-      if (t && t.coverArt && !covers.includes(t.coverArt)) {
-        covers.push(t.coverArt);
+      const cover = trackMap.get(id)?.coverArt;
+      if (cover && !covers.includes(cover)) {
+        covers.push(cover);
         if (covers.length >= 8) break;
       }
     }
@@ -749,6 +805,9 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   };
 
   const getPlaylistDuration = (playlist: Playlist): number => {
+    const resolvedDuration = playlistDurations?.[playlist.id];
+    if (resolvedDuration !== undefined) return resolvedDuration;
+    if (!playlistDurationsLoaded) return 0;
     let total = 0;
     for (const id of playlist.trackIds) {
       const t = trackMap.get(id);
@@ -805,12 +864,9 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     // 2. Secondary: supplement from tracks if fewer than 8 distinct covers
     if (covers.length < 8) {
       for (const pl of folderPlaylists) {
-        for (const tid of pl.trackIds) {
-          const t = trackMap.get(tid);
-          if (t && t.coverArt && !covers.includes(t.coverArt)) {
-            covers.push(t.coverArt);
-            if (covers.length >= 8) break;
-          }
+        for (const cover of getPlaylistCovers(pl)) {
+          if (!covers.includes(cover)) covers.push(cover);
+          if (covers.length >= 8) break;
         }
         if (covers.length >= 8) break;
       }
@@ -1247,6 +1303,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         playlist={playlist}
         cover={cover}
         covers={covers}
+        isCoverResolutionPending={!playlistCoversLoaded && !playlist.coverArt && playlist.trackIds.length > 0}
         totalDuration={totalDuration}
         isTarget={isTarget}
         dropPosition={dropPosition}
@@ -1307,7 +1364,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     const hasResults = searchFilteredFolders.length > 0 || searchFilteredPlaylists.length > 0;
 
     return (
-      <div className="flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none">
+      <div data-home-scroll="main" className="flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none">
         <div className="flex items-center justify-between mb-6 pb-4 border-b border-md3-outline-variant/15">
           <div>
             <h2 className="text-xl font-bold text-md3-on-surface">
@@ -1375,7 +1432,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     const CurrentFolderIcon = getFolderIconComponent(currentFolder.icon);
 
     return (
-      <div key={`folder-view-${currentFolderId}`} className={`flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none ${folderNavDirection === 'forward' ? 'anim-view-slide-right' : 'anim-view-slide-left'}`}>
+      <div key={`folder-view-${currentFolderId}`} data-home-scroll="main" className={`flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none ${folderNavDirection === 'forward' ? 'anim-view-slide-right' : 'anim-view-slide-left'}`}>
         {/* Floating Drag Ghost element */}
         {dragState && dragState.isDragging && (
           <div
@@ -1534,7 +1591,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   const hasGroups = groups.length > 0;
 
   return (
-    <div key="playlists-root-view" className={`flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none ${folderNavDirection === 'backward' ? 'anim-view-slide-left' : ''}`}>
+    <div key="playlists-root-view" data-home-scroll="main" className={`flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none ${folderNavDirection === 'backward' ? 'anim-view-slide-left' : ''}`}>
       {/* Floating Drag Ghost element */}
       {dragState && dragState.isDragging && (
         <div
@@ -1653,6 +1710,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
             const isTargetGroup = dropTargetGroup?.id === group.id;
 
             const groupColor = group.color ? getFolderColorHex(group.color) : undefined;
+            const GroupIcon = group.icon ? getFolderIconComponent(group.icon) : Layers;
             const groupHeaderBg = group.color ? getFolderColorRgba(group.color, 0.14) : undefined;
             const groupBorderColor = group.color ? getFolderColorRgba(group.color, 0.35) : undefined;
 
@@ -1705,7 +1763,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                       />
                     </button>
                     <GripVertical className="w-3.5 h-3.5 text-md3-on-surface-variant/40" />
-                    <Layers
+                    <GroupIcon
                       className="w-4 h-4 flex-shrink-0"
                       style={{ color: groupColor || 'var(--md-sys-color-primary)' }}
                     />

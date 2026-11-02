@@ -26,7 +26,7 @@
         "backgroundColor": "#141218",
         "theme": "Dark",
         "dragDropEnabled": true,
-        "additionalBrowserArgs": "--js-flags=\"--max-old-space-size=256\""
+        "additionalBrowserArgs": "--js-flags=\"--expose-gc --max-old-space-size=256\""
       }
     ],
     "security": {

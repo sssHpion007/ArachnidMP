@@ -81,6 +81,7 @@ export interface PlaylistGroup {
   id: string;
   name: string;
   color?: string; // Group accent color
+  icon?: string; // Icon identifier from the shared folder/playlist icon set
   isIsolated?: boolean; // Isolated container: tracks in this group's playlists are hidden from All Tracks, Albums, Artists
   isCollapsed?: boolean; // "группа сворачивается разворачивается"
   order: number;

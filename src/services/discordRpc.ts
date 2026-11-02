@@ -1,17 +1,21 @@
 import { DiscordPresenceInfo } from '../types/music';
+import { coverVariantUrl, isCachedCoverUrl } from '../utils/coverArt';
 
 const DEFAULT_LOGO_URL = 'https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png';
 const PLAYING_ICON_URL = 'https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png';
 const PAUSED_ICON_URL = 'https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png';
 
 /**
- * Compresses any arbitrary base64 cover art image to a lightweight 384x384 JPEG (~25KB)
- * for lightning-fast transfer over Tauri IPC and swift upload to Discord-compatible hosts.
+ * Compresses local or embedded cover art to a lightweight JPEG before sending it
+ * through Tauri IPC for upload to a Discord-compatible image host.
  */
 function compressCoverForDiscord(imageUrl: string, maxSize = 384): Promise<string> {
   return new Promise((resolve) => {
     try {
-      if (!imageUrl || (!imageUrl.startsWith('data:') && !imageUrl.includes('asset.localhost') && !imageUrl.startsWith('asset:'))) {
+      const isAppLocalImage = imageUrl.includes('asset.localhost')
+        || imageUrl.startsWith('asset:')
+        || isCachedCoverUrl(imageUrl);
+      if (!imageUrl || (!imageUrl.startsWith('data:') && !isAppLocalImage)) {
         resolve(imageUrl);
         return;
       }
@@ -21,7 +25,7 @@ function compressCoverForDiscord(imageUrl: string, maxSize = 384): Promise<strin
         let width = img.naturalWidth || img.width;
         let height = img.naturalHeight || img.height;
         if (width <= 0 || height <= 0) {
-          resolve(imageUrl);
+          resolve(DEFAULT_LOGO_URL);
           return;
         }
         if (width > maxSize || height > maxSize) {
@@ -42,12 +46,12 @@ function compressCoverForDiscord(imageUrl: string, maxSize = 384): Promise<strin
           resolve(canvas.toDataURL('image/jpeg', 0.85));
           return;
         }
-        resolve(imageUrl);
+        resolve(DEFAULT_LOGO_URL);
       };
-      img.onerror = () => resolve(imageUrl);
+      img.onerror = () => resolve(DEFAULT_LOGO_URL);
       img.src = imageUrl;
     } catch {
-      resolve(imageUrl);
+      resolve(DEFAULT_LOGO_URL);
     }
   });
 }
@@ -108,16 +112,22 @@ class DiscordRpcService {
     // Prepare optimized cover art
     let coverArt = DEFAULT_LOGO_URL;
     if (info.coverArt && info.coverArt.trim().length > 0) {
-      if (info.coverArt.startsWith('http://') || info.coverArt.startsWith('https://')) {
-        if (info.coverArt.includes('asset.localhost')) {
-          coverArt = await compressCoverForDiscord(info.coverArt, 384);
+      const sourceCover = info.coverArt.trim();
+      if (isCachedCoverUrl(sourceCover)) {
+        // Discord cannot access the app's private cover.localhost URI. Read only the
+        // bounded SQLite thumbnail in WebView, then upload the compressed data to Discord.
+        const thumbnail = coverVariantUrl(sourceCover, 256) || sourceCover;
+        coverArt = await compressCoverForDiscord(thumbnail, 384);
+      } else if (sourceCover.startsWith('http://') || sourceCover.startsWith('https://')) {
+        if (sourceCover.includes('asset.localhost')) {
+          coverArt = await compressCoverForDiscord(sourceCover, 384);
         } else {
-          coverArt = info.coverArt.trim();
+          coverArt = sourceCover;
         }
-      } else if (info.coverArt.startsWith('data:')) {
-        coverArt = await compressCoverForDiscord(info.coverArt, 384);
+      } else if (sourceCover.startsWith('data:')) {
+        coverArt = await compressCoverForDiscord(sourceCover, 384);
       } else {
-        coverArt = info.coverArt.trim();
+        coverArt = sourceCover;
       }
     }
 
