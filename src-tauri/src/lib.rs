@@ -3364,25 +3364,43 @@ struct ThemeManifest {
     pub toggles: Vec<ThemeToggleItem>,
 }
 
+fn resolve_app_folder(base_dir: &Path, subfolder: Option<&str>) -> Result<PathBuf, String> {
+    let Some(subfolder) = subfolder.filter(|value| !value.is_empty()) else {
+        return Ok(base_dir.to_path_buf());
+    };
+    let relative = Path::new(subfolder);
+    if relative.as_os_str().is_empty()
+        || relative.components().any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err("Invalid application subfolder path".to_string());
+    }
+    Ok(base_dir.join(relative))
+}
+
 #[tauri::command]
 fn open_app_folder(subfolder: Option<String>) -> Result<(), String> {
     let base_dir = storage::get_portable_base_dir();
-    let target = match subfolder {
-        Some(sub) if !sub.is_empty() => base_dir.join(sub),
-        _ => base_dir,
-    };
-    let _ = std::fs::create_dir_all(&target);
+    let target = resolve_app_folder(&base_dir, subfolder.as_deref())?;
+    std::fs::create_dir_all(&target).map_err(|error| format!("Create application folder: {error}"))?;
+    let canonical_base = base_dir.canonicalize().map_err(|error| format!("Resolve app folder: {error}"))?;
+    let canonical_target = target.canonicalize().map_err(|error| format!("Resolve target folder: {error}"))?;
+    if !canonical_target.starts_with(&canonical_base) {
+        return Err("Application folder resolves outside the portable data directory".to_string());
+    }
 
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("explorer")
-            .arg(&target)
+        std::process::Command::new("explorer.exe")
+            .arg(&canonical_target)
             .spawn()
-            .map_err(|e| e.to_string())?;
+            .map_err(|error| format!("Open application folder: {error}"))?;
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = std::process::Command::new("xdg-open").arg(&target).spawn();
+        std::process::Command::new("xdg-open")
+            .arg(&canonical_target)
+            .spawn()
+            .map_err(|error| format!("Open application folder: {error}"))?;
     }
     Ok(())
 }
@@ -3408,8 +3426,9 @@ fn validate_external_http_url(input: &str) -> Result<&str, String> {
 }
 
 #[cfg(test)]
-mod external_url_tests {
-    use super::validate_external_http_url;
+mod input_validation_tests {
+    use super::{resolve_app_folder, validate_external_http_url};
+    use std::path::Path;
 
     #[test]
     fn accepts_http_links_and_rejects_non_http_or_ambiguous_authorities() {
@@ -3419,6 +3438,16 @@ mod external_url_tests {
         assert!(validate_external_http_url("https://trusted.example@attacker.example/").is_err());
         assert!(validate_external_http_url("https://example.org/\r\ncalc").is_err());
         assert!(validate_external_http_url("https://example.org\\@attacker").is_err());
+    }
+
+    #[test]
+    fn rejects_app_folder_traversal_and_accepts_nested_relative_folders() {
+        let base = Path::new("portable-data");
+        assert_eq!(resolve_app_folder(base, Some("themes/custom")).unwrap(), base.join("themes/custom"));
+        assert!(resolve_app_folder(base, Some("../outside")).is_err());
+        assert!(resolve_app_folder(base, Some("/outside")).is_err());
+        #[cfg(windows)]
+        assert!(resolve_app_folder(base, Some(r"themes\\..\\outside")).is_err());
     }
 }
 

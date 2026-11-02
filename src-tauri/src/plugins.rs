@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 const PLUGIN_API_VERSION: u32 = 1;
@@ -147,7 +148,34 @@ fn validate_manifest(manifest: &PluginManifest, directory_id: &str) -> Result<()
     Ok(())
 }
 
-fn read_manifest_in(directory: &Path) -> Result<PluginManifest, String> {
+fn plugin_fingerprint(manifest_bytes: &[u8], source: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"ArachnidMP external plugin trust v2\0");
+    hasher.update((manifest_bytes.len() as u64).to_le_bytes());
+    hasher.update(manifest_bytes);
+    hasher.update((source.len() as u64).to_le_bytes());
+    hasher.update(source.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn read_bounded_file(path: &Path, max_bytes: u64, label: &str) -> Result<Vec<u8>, String> {
+    let file = File::open(path).map_err(|error| format!("Read {label}: {error}"))?;
+    let metadata = file.metadata().map_err(|error| format!("Inspect {label}: {error}"))?;
+    if !metadata.is_file() || metadata.len() > max_bytes {
+        return Err(format!("{label} is missing, not a file, or too large"));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    let mut bounded_file = file.take(max_bytes + 1);
+    bounded_file
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("Read {label}: {error}"))?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(format!("{label} is too large"));
+    }
+    Ok(bytes)
+}
+
+fn read_manifest_and_source_in(directory: &Path) -> Result<(PluginManifest, String), String> {
     let directory_id = directory
         .file_name()
         .and_then(|name| name.to_str())
@@ -160,7 +188,7 @@ fn read_manifest_in(directory: &Path) -> Result<PluginManifest, String> {
     if !metadata.file_type().is_file() || metadata.len() > MAX_MANIFEST_BYTES {
         return Err("Plugin manifest is missing or too large".to_string());
     }
-    let bytes = fs::read(&manifest_path).map_err(|error| error.to_string())?;
+    let bytes = read_bounded_file(&manifest_path, MAX_MANIFEST_BYTES, "plugin manifest")?;
     let mut manifest: PluginManifest = serde_json::from_slice(&bytes)
         .map_err(|error| format!("Invalid plugin manifest: {error}"))?;
     validate_manifest(&manifest, directory_id)?;
@@ -172,17 +200,15 @@ fn read_manifest_in(directory: &Path) -> Result<PluginManifest, String> {
     if !canonical_entry.starts_with(&canonical_directory) {
         return Err("Plugin entry escapes its folder".to_string());
     }
-    let source_metadata = fs::metadata(&canonical_entry).map_err(|error| error.to_string())?;
-    if !source_metadata.is_file() || source_metadata.len() > MAX_PLUGIN_SOURCE_BYTES {
-        return Err("Plugin entry is missing or too large".to_string());
-    }
-    let source = fs::read_to_string(&canonical_entry)
+    let source_bytes = read_bounded_file(&canonical_entry, MAX_PLUGIN_SOURCE_BYTES, "plugin entry")?;
+    let source = String::from_utf8(source_bytes)
         .map_err(|error| format!("Plugin entry is not valid UTF-8: {error}"))?;
-    let mut hasher = Sha256::new();
-    hasher.update(&bytes);
-    hasher.update(source.as_bytes());
-    manifest.fingerprint = format!("{:x}", hasher.finalize());
-    Ok(manifest)
+    manifest.fingerprint = plugin_fingerprint(&bytes, &source);
+    Ok((manifest, source))
+}
+
+fn read_manifest_in(directory: &Path) -> Result<PluginManifest, String> {
+    read_manifest_and_source_in(directory).map(|(manifest, _)| manifest)
 }
 
 pub fn list_plugins() -> Result<Vec<PluginManifest>, String> {
@@ -219,20 +245,13 @@ pub fn read_plugin_source(plugin_id: String, expected_fingerprint: String) -> Re
     if !canonical_directory.starts_with(&canonical_root) {
         return Err("Plugin folder escapes the plugins directory".to_string());
     }
-    let manifest = read_manifest_in(&directory)?;
+    let (manifest, source) = read_manifest_and_source_in(&directory)?;
     if manifest.fingerprint != expected_fingerprint {
         return Err("Plugin files changed after scanning; refresh the plugin list and trust it again".to_string());
     }
-    let entry_path = directory.join(&manifest.entry);
-    let canonical_entry = entry_path.canonicalize().map_err(|error| error.to_string())?;
-    if !canonical_entry.starts_with(&canonical_directory) {
-        return Err("Plugin entry escapes its folder".to_string());
-    }
-    let metadata = fs::metadata(&canonical_entry).map_err(|error| error.to_string())?;
-    if !metadata.is_file() || metadata.len() > MAX_PLUGIN_SOURCE_BYTES {
-        return Err("Plugin entry is missing or too large".to_string());
-    }
-    fs::read_to_string(canonical_entry).map_err(|error| format!("Read plugin source: {error}"))
+    // Return the exact bytes covered by the trusted fingerprint; do not reopen the file
+    // after verification, which would introduce a check/use race for edited plugin files.
+    Ok(source)
 }
 
 pub fn load_preferences() -> Result<PluginPreferencesFile, String> {
@@ -327,5 +346,30 @@ mod tests {
         manifest.permissions.clear();
         manifest.api_version = PLUGIN_API_VERSION + 1;
         assert!(validate_manifest(&manifest, "sample-plugin").is_err());
+    }
+
+    #[test]
+    fn fingerprint_covers_the_exact_source_returned_for_execution() {
+        let directory = std::env::temp_dir().join(format!(
+            "arachnid-plugin-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let mut test_manifest = valid_manifest();
+        test_manifest.id = directory.file_name().unwrap().to_string_lossy().into_owned();
+        fs::write(directory.join("manifest.json"), serde_json::to_vec(&test_manifest).unwrap()).unwrap();
+        fs::write(directory.join("plugin.js"), "registerPlugin({ onEnable() {} });").unwrap();
+
+        let (manifest, source) = read_manifest_and_source_in(&directory).unwrap();
+        let manifest_bytes = fs::read(directory.join("manifest.json")).unwrap();
+        assert_eq!(manifest.fingerprint, plugin_fingerprint(&manifest_bytes, &source));
+        assert_eq!(source, "registerPlugin({ onEnable() {} });");
+
+        fs::write(directory.join("plugin.js"), "registerPlugin({ onEnable() { evil(); } });").unwrap();
+        let (modified_manifest, modified_source) = read_manifest_and_source_in(&directory).unwrap();
+        assert_ne!(manifest.fingerprint, modified_manifest.fingerprint);
+        assert_ne!(source, modified_source);
+        fs::remove_dir_all(directory).unwrap();
     }
 }

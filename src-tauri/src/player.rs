@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
@@ -84,14 +84,14 @@ pub struct SmoothAudioSource<I> {
     handle: SmoothSourceHandle,
     prev_samples: [i16; 8],
     samples_yielded: u64,
-    glitch_tx: Sender<GlitchReport>,
+    glitch_tx: SyncSender<GlitchReport>,
 }
 
 impl<I> SmoothAudioSource<I>
 where
     I: Source<Item = i16>,
 {
-    pub fn new(inner: I, glitch_tx: Sender<GlitchReport>) -> (Self, SmoothSourceHandle) {
+    pub fn new(inner: I, glitch_tx: SyncSender<GlitchReport>) -> (Self, SmoothSourceHandle) {
         let channels = inner.channels().max(1);
         let sample_rate = inner.sample_rate();
         let handle = SmoothSourceHandle::new(sample_rate);
@@ -164,7 +164,7 @@ where
 
         // In bandlimited audio (<20kHz), delta > 14000 (~43% full-scale) indicates a digital pop
         if self.samples_yielded > 512 && delta > 14000 {
-            let _ = self.glitch_tx.send(GlitchReport {
+            let _ = self.glitch_tx.try_send(GlitchReport {
                 sample_pos: self.samples_yielded,
                 channel: ch as u16,
                 prev_val: prev,
@@ -413,7 +413,7 @@ impl NativePlayer {
 fn append_smooth_source<S: Source<Item = i16> + Send + 'static>(
     sink: &Sink,
     src: S,
-    glitch_tx: Sender<GlitchReport>,
+    glitch_tx: SyncSender<GlitchReport>,
 ) -> SmoothSourceHandle {
     let (smooth_src, handle) = SmoothAudioSource::new(src, glitch_tx);
     sink.append(smooth_src);
@@ -521,7 +521,8 @@ fn run_player_thread(
     let mut preloaded_next_loop = false;
     let mut active_volume_fade: Option<(Instant, f32, f32, Duration)> = None;
 
-    let (glitch_tx, glitch_rx) = channel::<GlitchReport>();
+    // Audio callbacks never block on diagnostics and cannot grow an unbounded queue.
+    let (glitch_tx, glitch_rx) = sync_channel::<GlitchReport>(1024);
     let mut glitch_window_start = Instant::now();
     let mut glitch_count = 0u64;
     let mut glitch_max_delta = 0i32;

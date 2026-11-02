@@ -45,6 +45,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+
       - name: Build Web Frontend
         run: npm run build
 
@@ -204,6 +207,18 @@ jobs:
         run: |
           cargo test --manifest-path src-tauri/Cargo.toml --lib cover_cache::tests -- --nocapture
           if ($LASTEXITCODE -ne 0) { throw "SQLite cover-cache tests failed." }
+
+      - name: Test external plugin manifest and trust checks
+        shell: pwsh
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --lib plugins::tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "External plugin validation tests failed." }
+
+      - name: Test external input path and URL validation
+        shell: pwsh
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --lib input_validation_tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "External input validation tests failed." }
 
       - name: Test native portable updater transaction and rollback safety
         shell: pwsh
