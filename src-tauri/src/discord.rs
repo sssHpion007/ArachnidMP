@@ -1,3 +1,4 @@
+#[cfg(windows)]
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::collections::HashMap;
