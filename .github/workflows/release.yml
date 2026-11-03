@@ -168,12 +168,33 @@ jobs:
             Remove-Item $stdoutLog, $stderrLog -Force -ErrorAction SilentlyContinue
           }
 
+      - name: Package Windows test build
+        shell: pwsh
+        run: |
+          $exePath = Join-Path $PWD "src-tauri/target/release/arachnid.exe"
+          if (-not (Test-Path $exePath)) { throw "Built portable EXE was not found." }
+          $packageDir = Join-Path $PWD "windows-test-artifact"
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+          $portableExe = Join-Path $packageDir "Arachnid-Portable.exe"
+          Copy-Item $exePath $portableExe
+          $version = (Get-Content "package.json" -Raw | ConvertFrom-Json).version
+          $portableZip = Join-Path $packageDir "Arachnid-v$version-Windows-Portable.zip"
+          Compress-Archive -LiteralPath $portableExe -DestinationPath $portableZip -CompressionLevel Optimal
+          $sha256 = (Get-FileHash $portableExe -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -Path (Join-Path $packageDir "SHA256SUMS.txt") -Value "$sha256  Arachnid-Portable.exe"
+          $readme = @'
+          Windows portable build. Run Arachnid-Portable.exe directly, or extract the ZIP first.
+          Microsoft Edge WebView2 Runtime is required (normally present on Windows 10/11).
+          '@
+          Set-Content -Path (Join-Path $packageDir "README.txt") -Value $readme
+          Get-ChildItem $packageDir | Select-Object Name, Length
+
       - name: Upload Windows test build
         if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp' || github.ref == 'refs/heads/arena/6fcee020-arachnidmp' || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && !contains(github.event.head_commit.message, '[publish-release]')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag == 'test-build')
         uses: actions/upload-artifact@v4
         with:
           name: Arachnid-Windows-Test-${{ github.run_number }}-${{ github.sha }}
-          path: src-tauri/target/release/arachnid.exe
+          path: windows-test-artifact/*
           if-no-files-found: error
           retention-days: 14
 
