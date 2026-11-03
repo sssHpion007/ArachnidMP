@@ -360,6 +360,8 @@ fn upload_to_imgdb(image_bytes: &[u8]) -> Option<String> {
 
 type CoverUploader = fn(&[u8]) -> Option<String>;
 
+const COVER_RETRY_BACKOFF: Duration = Duration::from_secs(60);
+
 const COVER_UPLOADERS: [(&str, &str, CoverUploader); 4] = [
     ("img24", "i-mg24", upload_to_img24),
     ("uguu", "Uguu", upload_to_uguu),
@@ -375,6 +377,33 @@ fn normalize_cover_host(value: Option<&str>) -> &'static str {
         Some("imgdb") => "imgdb",
         _ => "auto",
     }
+}
+
+fn next_cover_retry_deadline(
+    enabled: bool,
+    retry_after: &HashMap<(String, String), Instant>,
+) -> Option<Instant> {
+    enabled.then(|| retry_after.values().copied().min()).flatten()
+}
+
+fn clear_expired_cover_retries(retry_after: &mut HashMap<(String, String), Instant>, now: Instant) {
+    retry_after.retain(|_, retry_at| *retry_at > now);
+}
+
+fn schedule_cover_retry_at(
+    retry_after: &mut HashMap<(String, String), Instant>,
+    cache_key: (String, String),
+    now: Instant,
+) {
+    if retry_after.len() >= 128 {
+        clear_expired_cover_retries(retry_after, now);
+    }
+    if retry_after.len() >= 128 {
+        if let Some(oldest) = retry_after.keys().next().cloned() {
+            retry_after.remove(&oldest);
+        }
+    }
+    retry_after.insert(cache_key, now + COVER_RETRY_BACKOFF);
 }
 
 fn cover_uploaders(preference: &str) -> Vec<(&'static str, &'static str, CoverUploader)> {
@@ -486,46 +515,65 @@ impl DiscordService {
             let mut last_had_timestamps = false;
             let mut last_had_small_image = false;
 
-            while let Ok(message) = rx.recv() {
-                let mut should_publish = false;
-                match message {
-                    DiscordMessage::Presence(presence) => {
-                        latest_presence = Some(presence);
-                        should_publish = true;
-                    }
-                    DiscordMessage::CoverUploaded { hash, host, url } => {
-                        let cache_key = (hash.clone(), host.clone());
-                        pending_uploads.remove(&cache_key);
-                        if let Some(url) = url {
-                            if cover_cache.len() >= 256 {
-                                if let Some(oldest) = cover_cache.keys().next().cloned() {
-                                    cover_cache.remove(&oldest);
+            loop {
+                let retry_deadline = next_cover_retry_deadline(
+                    latest_presence.as_ref().is_some_and(|presence| presence.enabled),
+                    &retry_after,
+                );
+                let message = match retry_deadline {
+                    Some(deadline) => match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                        Ok(message) => Some(message),
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    },
+                    None => match rx.recv() {
+                        Ok(message) => Some(message),
+                        Err(_) => break,
+                    },
+                };
+
+                let retry_timer_fired = message.is_none();
+                if retry_timer_fired {
+                    clear_expired_cover_retries(&mut retry_after, Instant::now());
+                    crate::logger::log("INFO", "DISCORD_COVER", "Cover retry timer expired; refreshing the current Discord activity.");
+                }
+                let mut should_publish = retry_timer_fired;
+                if let Some(message) = message {
+                    match message {
+                        DiscordMessage::Presence(presence) => {
+                            latest_presence = Some(presence);
+                            should_publish = true;
+                        }
+                        DiscordMessage::CoverUploaded { hash, host, url } => {
+                            let cache_key = (hash.clone(), host.clone());
+                            pending_uploads.remove(&cache_key);
+                            if let Some(url) = url {
+                                if cover_cache.len() >= 256 {
+                                    if let Some(oldest) = cover_cache.keys().next().cloned() {
+                                        cover_cache.remove(&oldest);
+                                    }
                                 }
-                            }
-                            cover_cache.insert(cache_key, url);
-                            should_publish = latest_presence.as_ref().is_some_and(|presence| {
-                                presence.enabled
-                                    && normalize_cover_host(presence.cover_host.as_deref()) == host.as_str()
-                                    && presence.large_image.as_deref()
-                                        .and_then(decode_cover_data_uri)
-                                        .is_some_and(|(current_hash, _)| current_hash == hash)
-                            });
-                        } else {
-                            let now = Instant::now();
-                            if retry_after.len() >= 128 {
-                                retry_after.retain(|_, retry_at| *retry_at > now);
-                            }
-                            if retry_after.len() >= 128 {
-                                if let Some(oldest) = retry_after.keys().next().cloned() {
-                                    retry_after.remove(&oldest);
+                                cover_cache.insert(cache_key, url);
+                                should_publish = latest_presence.as_ref().is_some_and(|presence| {
+                                    presence.enabled
+                                        && normalize_cover_host(presence.cover_host.as_deref()) == host.as_str()
+                                        && presence.large_image.as_deref()
+                                            .and_then(decode_cover_data_uri)
+                                            .is_some_and(|(current_hash, _)| current_hash == hash)
+                                });
+                                if should_publish {
+                                    crate::logger::log("INFO", "DISCORD_COVER", "Uploaded cover matches the active track; republishing activity with artwork.");
+                                } else {
+                                    crate::logger::log("INFO", "DISCORD_COVER", "Uploaded cover is cached, but the active track or host has changed; skipping stale publish.");
                                 }
+                            } else {
+                                schedule_cover_retry_at(&mut retry_after, cache_key, Instant::now());
+                                crate::logger::log(
+                                    "WARN",
+                                    "DISCORD_COVER",
+                                    "All configured cover hosts failed; the current cover will retry automatically after backoff.",
+                                );
                             }
-                            retry_after.insert(cache_key, now + Duration::from_secs(60));
-                            crate::logger::log(
-                                "WARN",
-                                "DISCORD_COVER",
-                                "All configured cover hosts failed; the Discord activity was already sent without album artwork.",
-                            );
                         }
                     }
                 }
@@ -552,6 +600,13 @@ impl DiscordService {
                     continue;
                 }
 
+                let upload_host = normalize_cover_host(latest.cover_host.as_deref()).to_string();
+                let mut decoded_cover = latest.large_image.as_deref()
+                    .map(str::trim)
+                    .filter(|value| value.starts_with("data:"))
+                    .and_then(decode_cover_data_uri);
+                let cover_retry_key = decoded_cover.as_ref()
+                    .map(|(hash, _)| (hash.clone(), upload_host.clone()));
                 let desired_client_id = latest.client_id.as_deref().unwrap_or("1129859263741837373");
                 if !active_client_id.is_empty() && active_client_id != desired_client_id {
                     active_stream = None;
@@ -564,7 +619,12 @@ impl DiscordService {
                         last_had_small_image = false;
                     }
                 }
-                let Some(stream) = active_stream.as_mut() else { continue };
+                let Some(stream) = active_stream.as_mut() else {
+                    if let Some(cache_key) = cover_retry_key.as_ref() {
+                        schedule_cover_retry_at(&mut retry_after, cache_key.clone(), Instant::now());
+                    }
+                    continue;
+                };
 
                 let has_timestamps = latest.start_timestamp.is_some() || latest.end_timestamp.is_some();
                 let has_small_image = latest.small_image.as_ref().is_some_and(|image| !image.trim().is_empty());
@@ -578,16 +638,18 @@ impl DiscordService {
                         "nonce": format!("arachnid_clr_{}", nonce)
                     }).to_string();
                     if send_packet(stream, 1, &clear_packet).is_err() || read_packet(stream).is_err() {
+                        if let Some(cache_key) = cover_retry_key.as_ref() {
+                            schedule_cover_retry_at(&mut retry_after, cache_key.clone(), Instant::now());
+                        }
                         active_stream = None;
                         continue;
                     }
                 }
 
-                let upload_host = normalize_cover_host(latest.cover_host.as_deref()).to_string();
                 let mut pending_cover: Option<(String, String, Vec<u8>)> = None;
                 let large_image = match latest.large_image.as_deref().map(str::trim) {
                     Some(value) if value.starts_with("data:") => {
-                        match decode_cover_data_uri(value) {
+                        match decoded_cover.take() {
                             Some((hash, bytes)) => {
                                 let cache_key = (hash.clone(), upload_host.clone());
                                 if let Some(url) = cover_cache.get(&cache_key) {
@@ -610,6 +672,9 @@ impl DiscordService {
                 let activity = build_activity(latest, &large_image);
                 if let Err(error) = send_activity(stream, &activity, &mut nonce) {
                     crate::logger::log("WARN", "DISCORD_RPC", &format!("Could not publish activity: {error}"));
+                    if let Some(cache_key) = cover_retry_key.as_ref() {
+                        schedule_cover_retry_at(&mut retry_after, cache_key.clone(), Instant::now());
+                    }
                     active_stream = None;
                     continue;
                 }
@@ -631,8 +696,8 @@ impl DiscordService {
                     match upload_tx.try_send((hash, host, bytes)) {
                         Ok(()) => { pending_uploads.insert(cache_key); }
                         Err(TrySendError::Full(_)) => {
-                            retry_after.insert(cache_key, now + Duration::from_secs(60));
-                            crate::logger::log("WARN", "DISCORD_COVER", "Cover upload queue is full; presence was published and this image will be retried later.");
+                            schedule_cover_retry_at(&mut retry_after, cache_key, now);
+                            crate::logger::log("WARN", "DISCORD_COVER", "Cover upload queue is full; presence was published and this image will retry automatically after backoff.");
                         }
                         Err(TrySendError::Disconnected(_)) => {
                             crate::logger::log("ERROR", "DISCORD_COVER", "Cover upload worker is unavailable.");
@@ -652,9 +717,15 @@ impl DiscordService {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_activity, cover_uploaders, decode_cover_data_uri, imgdb_direct_url, normalize_cover_host, ActivityData};
+    use super::{
+        build_activity, clear_expired_cover_retries, cover_uploaders, decode_cover_data_uri,
+        imgdb_direct_url, next_cover_retry_deadline, normalize_cover_host, schedule_cover_retry_at,
+        ActivityData,
+    };
     use serde_json::json;
     use sha2::Digest;
+    use std::collections::HashMap;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn cover_host_preference_selects_only_the_requested_host_or_all_in_auto_mode() {
@@ -663,6 +734,28 @@ mod tests {
         let imgdb: Vec<&str> = cover_uploaders("imgdb").iter().map(|(host, _, _)| *host).collect();
         assert_eq!(imgdb, ["imgdb"]);
         assert_eq!(normalize_cover_host(Some("unknown")), "auto");
+    }
+
+    #[test]
+    fn cover_upload_retries_wake_only_for_enabled_presence_and_expire_stale_deadlines() {
+        let now = Instant::now();
+        let due_key = ("due-hash".to_string(), "auto".to_string());
+        let future_key = ("future-hash".to_string(), "imgdb".to_string());
+        let mut retries = HashMap::from([
+            (due_key.clone(), now + Duration::from_secs(2)),
+            (future_key.clone(), now + Duration::from_secs(5)),
+        ]);
+
+        assert_eq!(next_cover_retry_deadline(true, &retries), Some(now + Duration::from_secs(2)));
+        assert_eq!(next_cover_retry_deadline(false, &retries), None);
+
+        let automatic_retry_key = ("retry-hash".to_string(), "auto".to_string());
+        schedule_cover_retry_at(&mut retries, automatic_retry_key.clone(), now);
+        assert_eq!(*retries.get(&automatic_retry_key).unwrap(), now + Duration::from_secs(60));
+
+        clear_expired_cover_retries(&mut retries, now + Duration::from_secs(3));
+        assert!(!retries.contains_key(&due_key));
+        assert_eq!(*retries.get(&future_key).unwrap(), now + Duration::from_secs(5));
     }
 
     #[test]
