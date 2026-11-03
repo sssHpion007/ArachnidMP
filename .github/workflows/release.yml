@@ -180,8 +180,19 @@ jobs:
       - name: Test Discord cover host selection
         shell: pwsh
         run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --lib discord::tests -- --nocapture
-          if ($LASTEXITCODE -ne 0) { throw "Discord cover host tests failed." }
+          cargo test --manifest-path src-tauri/Cargo.toml --lib discord::tests -- --nocapture 2>&1 | Tee-Object -Variable testOutput
+          $testExitCode = $LASTEXITCODE
+          if ($testExitCode -ne 0) {
+            $tail = $testOutput | Select-Object -Last 120
+            "### Discord cover host test failure diagnostics" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            '```text' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            $tail | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            $diagnostic = ($tail -join ' ') -replace '%', '%25' -replace "`r", ' ' -replace "`n", ' '
+            if ($diagnostic.Length -gt 9000) { $diagnostic = $diagnostic.Substring($diagnostic.Length - 9000) }
+            Write-Output "::error title=Discord cover host tests failed::$diagnostic"
+            throw "Discord cover host tests failed with exit code $testExitCode."
+          }
 
       - name: Test SQLite library repository
         shell: pwsh
