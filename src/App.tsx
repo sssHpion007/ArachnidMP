@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, startTransition } from 'react';
-import { Track, TrackDetails, TrackSummary, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode, FadeMode, FolderCoverType } from './types/music';
+import { Track, TrackDetails, TrackSummary, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode, FadeMode, FolderCoverType, DiscordCoverHost } from './types/music';
 import { TitleBar } from './components/TitleBar';
 import { TopBar, MainViewType } from './components/TopBar';
 import { TrackTable } from './components/TrackTable';
@@ -475,6 +475,7 @@ export const App: React.FC = () => {
   const [discordShowPauseIcon, setDiscordShowPauseIcon] = useState<boolean>(true);
   const [discordStatusMode, setDiscordStatusMode] = useState<'listening' | 'listening_app'>('listening_app');
   const [discordCustomClientId, setDiscordCustomClientId] = useState<string>('');
+  const [discordCoverHost, setDiscordCoverHost] = useState<DiscordCoverHost>('auto');
   const [navigationTabOrder, setNavigationTabOrder] = useState<string[]>(DEFAULT_NAVIGATION_TAB_ORDER);
   const visibleTabs = useMemo<Record<MainViewType, boolean>>(() => ({
     tracks: navigationTabOrder.includes('tracks'),
@@ -519,6 +520,7 @@ export const App: React.FC = () => {
   const discordShowPauseIconRef = useRef<boolean>(discordShowPauseIcon);
   const discordStatusModeRef = useRef<'listening' | 'listening_app'>(discordStatusMode);
   const discordCustomClientIdRef = useRef<string>(discordCustomClientId);
+  const discordCoverHostRef = useRef<DiscordCoverHost>(discordCoverHost);
   const lastDiscordTrackIdRef = useRef<string | null>(null);
   const lastPrevPressRef = useRef<number>(0);
   const lastTabSwitchTimeRef = useRef<number>(0);
@@ -1030,7 +1032,8 @@ export const App: React.FC = () => {
     discordShowPauseIconRef.current = discordShowPauseIcon;
     discordStatusModeRef.current = discordStatusMode;
     discordCustomClientIdRef.current = discordCustomClientId;
-  }, [discordEnabled, discordPluginEnabled, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId]);
+    discordCoverHostRef.current = discordCoverHost;
+  }, [discordEnabled, discordPluginEnabled, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, discordCoverHost]);
 
   useEffect(() => {
     selectedPlaylistIdRef.current = selectedPlaylistId;
@@ -1652,6 +1655,9 @@ export const App: React.FC = () => {
             setDiscordStatusMode(parsed.discordStatusMode);
           }
           if (typeof parsed.discordCustomClientId === 'string') setDiscordCustomClientId(parsed.discordCustomClientId);
+          if (['auto', 'img24', 'uguu', 'catbox', 'imgdb'].includes(parsed.discordCoverHost)) {
+            setDiscordCoverHost(parsed.discordCoverHost as DiscordCoverHost);
+          }
           if (Array.isArray(parsed.navigationTabOrder)) {
             setNavigationTabOrder(normalizeNavigationTabOrder(parsed.navigationTabOrder));
           } else if (parsed.visibleTabs && typeof parsed.visibleTabs === 'object') {
@@ -1769,6 +1775,7 @@ export const App: React.FC = () => {
       discordShowPauseIcon,
       discordStatusMode,
       discordCustomClientId,
+      discordCoverHost,
       visibleTabs,
       navigationTabOrder,
       colorSchemeMode,
@@ -1783,7 +1790,7 @@ export const App: React.FC = () => {
     invoke('save_portable_settings', { data: JSON.stringify(settings) }).catch(error => {
       console.warn('Failed to save settings:', error);
     });
-  }, [themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, discordPluginEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface, startupDataLoaded]);
+  }, [themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, discordPluginEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, discordCoverHost, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface, startupDataLoaded]);
 
   // Browser-only fallback retains its existing single localStorage document format.
   useEffect(() => {
@@ -1806,6 +1813,7 @@ export const App: React.FC = () => {
       discordShowPauseIcon,
       discordStatusMode,
       discordCustomClientId,
+      discordCoverHost,
       visibleTabs,
       navigationTabOrder,
       colorSchemeMode,
@@ -1822,7 +1830,7 @@ export const App: React.FC = () => {
     } catch (error) {
       console.warn('Failed to save browser library data:', error);
     }
-  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, discordPluginEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface]);
+  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, discordPluginEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, discordCoverHost, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface]);
 
   // Reveal the native window only after portable preferences have loaded, so the
   // selected startup layout is already active when the user sees it.
@@ -1914,6 +1922,7 @@ export const App: React.FC = () => {
             currentTime: audioEngine.getCurrentTime() || 0,
             isPlaying: true,
             coverArt: cur.coverArt,
+            coverHost: discordCoverHostRef.current,
             showPlayIcon: discordShowPlayIconRef.current,
             showPauseIcon: discordShowPauseIconRef.current,
             statusMode: discordStatusModeRef.current,
@@ -1935,6 +1944,7 @@ export const App: React.FC = () => {
             currentTime: audioEngine.getCurrentTime() || 0,
             isPlaying: false,
             coverArt: cur.coverArt,
+            coverHost: discordCoverHostRef.current,
             showPlayIcon: discordShowPlayIconRef.current,
             showPauseIcon: discordShowPauseIconRef.current,
             statusMode: discordStatusModeRef.current,
@@ -1955,6 +1965,7 @@ export const App: React.FC = () => {
             currentTime: 0,
             isPlaying: true,
             coverArt: cur.coverArt,
+            coverHost: discordCoverHostRef.current,
             showPlayIcon: discordShowPlayIconRef.current,
             showPauseIcon: discordShowPauseIconRef.current,
             statusMode: discordStatusModeRef.current,
@@ -2184,6 +2195,7 @@ export const App: React.FC = () => {
         currentTime: curTime,
         isPlaying: isPlaying,
         coverArt: currentTrack.coverArt,
+        coverHost: discordCoverHost,
         showPlayIcon: discordShowPlayIcon,
         showPauseIcon: discordShowPauseIcon,
         statusMode: discordStatusMode,
@@ -2219,6 +2231,7 @@ export const App: React.FC = () => {
     discordShowPauseIcon,
     discordStatusMode,
     discordCustomClientId,
+    discordCoverHost,
     language,
   ]);
 
@@ -4012,6 +4025,7 @@ export const App: React.FC = () => {
           currentTime: 0,
           isPlaying: true,
           coverArt: cur.coverArt,
+          coverHost: discordCoverHostRef.current,
           showPlayIcon: discordShowPlayIconRef.current,
           showPauseIcon: discordShowPauseIconRef.current,
           statusMode: discordStatusModeRef.current,
@@ -4051,6 +4065,7 @@ export const App: React.FC = () => {
         currentTime: time,
         isPlaying: isPlaying,
         coverArt: currentTrack.coverArt,
+        coverHost: discordCoverHost,
         showPlayIcon: discordShowPlayIcon,
         showPauseIcon: discordShowPauseIcon,
         statusMode: discordStatusMode,
@@ -6073,6 +6088,8 @@ export const App: React.FC = () => {
         onSetDiscordStatusMode={setDiscordStatusMode}
         discordCustomClientId={discordCustomClientId}
         onSetDiscordCustomClientId={setDiscordCustomClientId}
+        discordCoverHost={discordCoverHost}
+        onSetDiscordCoverHost={setDiscordCoverHost}
         navigationTabOrder={navigationTabOrder}
         onAddNavigationTab={handleAddNavigationTab}
         onRemoveNavigationTab={handleRemoveNavigationTab}

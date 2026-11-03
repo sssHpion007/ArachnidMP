@@ -22,11 +22,12 @@ pub struct ActivityData {
     pub status_display_type: Option<i32>,
     pub client_id: Option<String>,
     pub status_mode: Option<String>,
+    pub cover_host: Option<String>,
 }
 
 enum DiscordMessage {
     Presence(ActivityData),
-    CoverUploaded { hash: String, url: Option<String> },
+    CoverUploaded { hash: String, host: String, url: Option<String> },
 }
 
 pub struct DiscordService {
@@ -356,22 +357,42 @@ fn upload_to_imgdb(image_bytes: &[u8]) -> Option<String> {
     None
 }
 
-fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
-    if let Some(url) = upload_to_img24(image_bytes) {
-        crate::logger::log("INFO", "DISCORD_COVER", "Cover uploaded through i-mg24.");
-        return Some(url);
+type CoverUploader = fn(&[u8]) -> Option<String>;
+
+const COVER_UPLOADERS: [(&str, &str, CoverUploader); 4] = [
+    ("img24", "i-mg24", upload_to_img24),
+    ("uguu", "Uguu", upload_to_uguu),
+    ("catbox", "Catbox", upload_to_catbox),
+    ("imgdb", "ImgDB", upload_to_imgdb),
+];
+
+fn normalize_cover_host(value: Option<&str>) -> &'static str {
+    match value {
+        Some("img24") => "img24",
+        Some("uguu") => "uguu",
+        Some("catbox") => "catbox",
+        Some("imgdb") => "imgdb",
+        _ => "auto",
     }
-    if let Some(url) = upload_to_uguu(image_bytes) {
-        crate::logger::log("INFO", "DISCORD_COVER", "Cover uploaded through Uguu.");
-        return Some(url);
+}
+
+fn cover_uploaders(preference: &str) -> Vec<(&'static str, &'static str, CoverUploader)> {
+    match preference {
+        "img24" => vec![COVER_UPLOADERS[0]],
+        "uguu" => vec![COVER_UPLOADERS[1]],
+        "catbox" => vec![COVER_UPLOADERS[2]],
+        "imgdb" => vec![COVER_UPLOADERS[3]],
+        _ => COVER_UPLOADERS.to_vec(),
     }
-    if let Some(url) = upload_to_catbox(image_bytes) {
-        crate::logger::log("INFO", "DISCORD_COVER", "Cover uploaded through Catbox fallback.");
-        return Some(url);
-    }
-    if let Some(url) = upload_to_imgdb(image_bytes) {
-        crate::logger::log("INFO", "DISCORD_COVER", "Cover uploaded through ImgDB fallback.");
-        return Some(url);
+}
+
+fn upload_raw_cover(image_bytes: &[u8], preference: &str) -> Option<String> {
+    for (host_id, host_name, upload) in cover_uploaders(preference) {
+        if let Some(url) = upload(image_bytes) {
+            crate::logger::log("INFO", "DISCORD_COVER", &format!("Cover uploaded through {host_name}."));
+            return Some(url);
+        }
+        crate::logger::log("INFO", "DISCORD_COVER", &format!("Cover host attempt completed: {host_id}."));
     }
     None
 }
@@ -439,15 +460,15 @@ fn send_activity(stream: &mut IpcStream, activity: &serde_json::Value, nonce: &m
 impl DiscordService {
     pub fn new() -> Self {
         let (tx, rx) = channel::<DiscordMessage>();
-        let (upload_tx, upload_rx) = sync_channel::<(String, Vec<u8>)>(2);
+        let (upload_tx, upload_rx) = sync_channel::<(String, String, Vec<u8>)>(2);
         let upload_result_tx = tx.clone();
 
         // Network uploads run independently from the Discord IPC worker. A slow image
         // host must never delay the activity/timestamps or block later pause/track updates.
         thread::spawn(move || {
-            while let Ok((hash, bytes)) = upload_rx.recv() {
-                let url = upload_raw_cover(&bytes);
-                if upload_result_tx.send(DiscordMessage::CoverUploaded { hash, url }).is_err() {
+            while let Ok((hash, host, bytes)) = upload_rx.recv() {
+                let url = upload_raw_cover(&bytes, &host);
+                if upload_result_tx.send(DiscordMessage::CoverUploaded { hash, host, url }).is_err() {
                     break;
                 }
             }
@@ -457,9 +478,9 @@ impl DiscordService {
             let mut active_stream: Option<IpcStream> = None;
             let mut active_client_id = String::new();
             let mut nonce = 0u64;
-            let mut cover_cache: HashMap<String, String> = HashMap::new();
+            let mut cover_cache: HashMap<(String, String), String> = HashMap::new();
             let mut pending_uploads = std::collections::HashSet::new();
-            let mut retry_after: HashMap<String, Instant> = HashMap::new();
+            let mut retry_after: HashMap<(String, String), Instant> = HashMap::new();
             let mut latest_presence: Option<ActivityData> = None;
             let mut last_had_timestamps = false;
             let mut last_had_small_image = false;
@@ -471,17 +492,19 @@ impl DiscordService {
                         latest_presence = Some(presence);
                         should_publish = true;
                     }
-                    DiscordMessage::CoverUploaded { hash, url } => {
-                        pending_uploads.remove(&hash);
+                    DiscordMessage::CoverUploaded { hash, host, url } => {
+                        let cache_key = (hash.clone(), host.clone());
+                        pending_uploads.remove(&cache_key);
                         if let Some(url) = url {
                             if cover_cache.len() >= 256 {
                                 if let Some(oldest) = cover_cache.keys().next().cloned() {
                                     cover_cache.remove(&oldest);
                                 }
                             }
-                            cover_cache.insert(hash.clone(), url);
+                            cover_cache.insert(cache_key, url);
                             should_publish = latest_presence.as_ref().is_some_and(|presence| {
                                 presence.enabled
+                                    && normalize_cover_host(presence.cover_host.as_deref()) == host.as_str()
                                     && presence.large_image.as_deref()
                                         .and_then(decode_cover_data_uri)
                                         .is_some_and(|(current_hash, _)| current_hash == hash)
@@ -496,7 +519,7 @@ impl DiscordService {
                                     retry_after.remove(&oldest);
                                 }
                             }
-                            retry_after.insert(hash, now + Duration::from_secs(60));
+                            retry_after.insert(cache_key, now + Duration::from_secs(60));
                             crate::logger::log(
                                 "WARN",
                                 "DISCORD_COVER",
@@ -559,15 +582,17 @@ impl DiscordService {
                     }
                 }
 
-                let mut pending_cover: Option<(String, Vec<u8>)> = None;
+                let upload_host = normalize_cover_host(latest.cover_host.as_deref()).to_string();
+                let mut pending_cover: Option<(String, String, Vec<u8>)> = None;
                 let large_image = match latest.large_image.as_deref().map(str::trim) {
                     Some(value) if value.starts_with("data:") => {
                         match decode_cover_data_uri(value) {
                             Some((hash, bytes)) => {
-                                if let Some(url) = cover_cache.get(&hash) {
+                                let cache_key = (hash.clone(), upload_host.clone());
+                                if let Some(url) = cover_cache.get(&cache_key) {
                                     url.clone()
                                 } else {
-                                    pending_cover = Some((hash, bytes));
+                                    pending_cover = Some((hash, upload_host.clone(), bytes));
                                     "https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png".to_string()
                                 }
                             }
@@ -592,19 +617,20 @@ impl DiscordService {
 
                 // Queue the cover only after presence has been published. Retry identical
                 // failed bytes at most once per minute instead of serially delaying RPC updates.
-                if let Some((hash, bytes)) = pending_cover {
-                    if pending_uploads.contains(&hash) {
+                if let Some((hash, host, bytes)) = pending_cover {
+                    let cache_key = (hash.clone(), host.clone());
+                    if pending_uploads.contains(&cache_key) {
                         continue;
                     }
                     let now = Instant::now();
-                    if retry_after.get(&hash).is_some_and(|retry_at| *retry_at > now) {
+                    if retry_after.get(&cache_key).is_some_and(|retry_at| *retry_at > now) {
                         continue;
                     }
-                    retry_after.remove(&hash);
-                    match upload_tx.try_send((hash.clone(), bytes)) {
-                        Ok(()) => { pending_uploads.insert(hash); }
+                    retry_after.remove(&cache_key);
+                    match upload_tx.try_send((hash, host, bytes)) {
+                        Ok(()) => { pending_uploads.insert(cache_key); }
                         Err(TrySendError::Full(_)) => {
-                            retry_after.insert(hash, now + Duration::from_secs(60));
+                            retry_after.insert(cache_key, now + Duration::from_secs(60));
                             crate::logger::log("WARN", "DISCORD_COVER", "Cover upload queue is full; presence was published and this image will be retried later.");
                         }
                         Err(TrySendError::Disconnected(_)) => {
@@ -625,9 +651,18 @@ impl DiscordService {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_activity, decode_cover_data_uri, imgdb_direct_url, ActivityData};
+    use super::{build_activity, cover_uploaders, decode_cover_data_uri, imgdb_direct_url, normalize_cover_host, ActivityData};
     use serde_json::json;
     use sha2::Digest;
+
+    #[test]
+    fn cover_host_preference_selects_only_the_requested_host_or_all_in_auto_mode() {
+        let automatic: Vec<&str> = cover_uploaders("auto").iter().map(|(host, _, _)| *host).collect();
+        assert_eq!(automatic, vec!["img24", "uguu", "catbox", "imgdb"]);
+        let imgdb: Vec<&str> = cover_uploaders("imgdb").iter().map(|(host, _, _)| *host).collect();
+        assert_eq!(imgdb, ["imgdb"]);
+        assert_eq!(normalize_cover_host(Some("unknown")), "auto");
+    }
 
     #[test]
     fn imgdb_response_must_contain_a_direct_imgdb_image_url() {
@@ -661,6 +696,7 @@ mod tests {
             status_display_type: Some(2),
             client_id: None,
             status_mode: Some("listening_app".to_string()),
+            cover_host: Some("auto".to_string()),
         };
 
         let placeholder = build_activity(&presence, "player-icon");

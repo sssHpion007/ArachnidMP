@@ -49,7 +49,7 @@ import {
 } from 'lucide-react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { ThemeMode, Track, FadeMode } from '../types/music';
+import { ThemeMode, Track, FadeMode, DiscordCoverHost } from '../types/music';
 import { coverVariantUrl } from '../utils/coverArt';
 import { CustomThemeInfo } from '../types/theme';
 import { ThemePaletteModal } from './ThemePaletteModal';
@@ -109,6 +109,8 @@ interface SettingsModalProps {
   onSetDiscordStatusMode: (mode: 'listening' | 'listening_app') => void;
   discordCustomClientId: string;
   onSetDiscordCustomClientId: (id: string) => void;
+  discordCoverHost: DiscordCoverHost;
+  onSetDiscordCoverHost: (host: DiscordCoverHost) => void;
   navigationTabOrder: string[];
   onAddNavigationTab: (tabId: string) => void;
   onRemoveNavigationTab: (tabId: string) => void;
@@ -192,6 +194,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSetDiscordStatusMode,
   discordCustomClientId,
   onSetDiscordCustomClientId,
+  discordCoverHost,
+  onSetDiscordCoverHost,
   navigationTabOrder,
   onAddNavigationTab,
   onRemoveNavigationTab,
@@ -1598,6 +1602,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   />
                 </label>
               </div>
+            </div>
+
+            {/* Cover upload host selector */}
+            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
+              <div>
+                <div className="text-sm font-bold text-md3-on-surface">
+                  {t.settings.discordCoverHost}
+                </div>
+                <div className="text-xs text-md3-on-surface-variant mt-1">
+                  {t.settings.discordCoverHostDesc}
+                </div>
+              </div>
+              <select
+                aria-label={t.settings.discordCoverHost}
+                value={discordCoverHost}
+                onChange={event => onSetDiscordCoverHost(event.target.value as DiscordCoverHost)}
+                className="w-full px-3 py-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/30 text-sm text-md3-on-surface focus:outline-none focus:border-md3-primary transition-colors"
+              >
+                <option value="auto">{t.settings.discordCoverHostAuto}</option>
+                <option value="img24">{t.settings.discordCoverHostImg24}</option>
+                <option value="uguu">{t.settings.discordCoverHostUguu}</option>
+                <option value="catbox">{t.settings.discordCoverHostCatbox}</option>
+                <option value="imgdb">{t.settings.discordCoverHostImgdb}</option>
+              </select>
             </div>
 
             {/* 4. Live Discord Mockup Profile Card */}

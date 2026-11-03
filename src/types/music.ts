@@ -129,6 +129,7 @@ export interface DiscordPresenceInfo {
   showPauseIcon?: boolean;
   statusMode?: 'listening' | 'listening_app';
   customClientId?: string;
+  coverHost?: DiscordCoverHost;
   language?: AppLanguage;
 }
 
@@ -168,4 +169,6 @@ export interface M3ThemeColors {
 export type ThemeMode = 'dark' | 'amoled' | 'light';
 
 export type FadeMode = 'off' | 'track_change_and_pause' | 'always';
+
+export type DiscordCoverHost = 'auto' | 'img24' | 'uguu' | 'catbox' | 'imgdb';
 

@@ -112,6 +112,13 @@ export interface Translations {
     discordStatusListeningApp: string;
     discordIcons: string;
     discordIconsDesc: string;
+    discordCoverHost: string;
+    discordCoverHostDesc: string;
+    discordCoverHostAuto: string;
+    discordCoverHostImg24: string;
+    discordCoverHostUguu: string;
+    discordCoverHostCatbox: string;
+    discordCoverHostImgdb: string;
     discordShowPlayIcon: string;
     discordShowPlayIconDesc: string;
     discordShowPauseIcon: string;
@@ -341,6 +348,13 @@ export const RU_TRANSLATIONS: Translations = {
     discordStatusListeningApp: '«Слушает ArachnidMP»',
     discordIcons: 'Значки состояния воспроизведения',
     discordIconsDesc: 'Отображение значка в углу обложки при воспроизведении и на паузе',
+    discordCoverHost: 'Хостинг обложек для Discord',
+    discordCoverHostDesc: 'Авто использует доступные сервисы по очереди. При ручном выборе используется только выбранный хост.',
+    discordCoverHostAuto: 'Автоматически (рекомендуется)',
+    discordCoverHostImg24: 'i-mg24.ru',
+    discordCoverHostUguu: 'Uguu',
+    discordCoverHostCatbox: 'Catbox',
+    discordCoverHostImgdb: 'ImgDB.io',
     discordShowPlayIcon: 'Показывать значок воспроизведения',
     discordShowPlayIconDesc: 'Отображать значок Play во время звучания трека',
     discordShowPauseIcon: 'Показывать значок паузы',
@@ -570,6 +584,13 @@ export const EN_TRANSLATIONS: Translations = {
     discordStatusListeningApp: '“Listening to ArachnidMP”',
     discordIcons: 'Playback State Icons',
     discordIconsDesc: 'Show small badge on artwork during playback and pause',
+    discordCoverHost: 'Discord cover image host',
+    discordCoverHostDesc: 'Automatic tries the available services in order. A manual choice uses only the selected host.',
+    discordCoverHostAuto: 'Automatic (recommended)',
+    discordCoverHostImg24: 'i-mg24.ru',
+    discordCoverHostUguu: 'Uguu',
+    discordCoverHostCatbox: 'Catbox',
+    discordCoverHostImgdb: 'ImgDB.io',
     discordShowPlayIcon: 'Show Play Icon',
     discordShowPlayIconDesc: 'Display green Play badge when audio is playing',
     discordShowPauseIcon: 'Show Pause Icon',

@@ -101,6 +101,7 @@ class DiscordRpcService {
             status_display_type: null,
             client_id: null,
             status_mode: null,
+            cover_host: info.coverHost ?? 'auto',
           }
         });
       } catch (err) {
@@ -189,6 +190,7 @@ class DiscordRpcService {
           status_display_type: statusDisplayType,
           client_id: clientId,
           status_mode: statusMode,
+          cover_host: info.coverHost ?? 'auto',
         }
       });
     } catch (err) {
