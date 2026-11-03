@@ -2,6 +2,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::path::Path;
 use unicode_normalization::UnicodeNormalization;
 use std::sync::{Arc, Mutex};
@@ -20,6 +21,13 @@ const DETAIL_KEYS: &[&str] = &[
     "customTags",
     "custom_tags",
 ];
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackIdReplacement {
+    pub imported_id: String,
+    pub retained_id: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -68,6 +76,22 @@ pub struct TrackPage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PlaylistCoverRequest {
+    pub playlist_id: String,
+    pub track_ids: Vec<String>,
+    pub limit: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistCoverResult {
+    pub playlist_id: String,
+    pub covers: Vec<String>,
+    pub total_duration: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LibraryCollectionGroup {
     pub name: String,
     pub track_ids: Vec<String>,
@@ -81,7 +105,7 @@ pub struct LibraryCollectionGroup {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LegacyTrackReference {
+pub struct PlaylistTrackReference {
     pub id: String,
     pub path: String,
     #[serde(default)]
@@ -146,16 +170,82 @@ impl LibraryDb {
              CREATE INDEX IF NOT EXISTS idx_tracks_genre ON tracks(genre COLLATE NATURAL_NOCASE, id);
              CREATE INDEX IF NOT EXISTS idx_tracks_favorite ON tracks(is_favorite, id);
              CREATE INDEX IF NOT EXISTS idx_tracks_path_key ON tracks(path_key);
-             CREATE TABLE IF NOT EXISTS legacy_path_map (
+             DROP TABLE IF EXISTS legacy_path_map;
+             CREATE TABLE IF NOT EXISTS playlist_path_map (
                 path_key TEXT PRIMARY KEY NOT NULL,
-                old_id TEXT NOT NULL,
+                track_id TEXT NOT NULL,
                 is_favorite INTEGER NOT NULL DEFAULT 0,
                 play_count INTEGER NOT NULL DEFAULT 0,
                 date_added INTEGER NOT NULL DEFAULT 0
-             );"
+             );
+             CREATE INDEX IF NOT EXISTS idx_playlist_path_map_track_id ON playlist_path_map(track_id);"
         ).map_err(|e| format!("Initialize library database: {e}"))?;
+        #[cfg(target_os = "windows")]
+        normalize_legacy_windows_cover_urls(&connection)?;
         migrate_search_index(&connection)?;
         Ok(Self { connection: Arc::new(Mutex::new(connection)) })
+    }
+
+    pub fn ordered_subset_ids(
+        &self,
+        ids: &[String],
+        search: Option<&str>,
+        sort_by: &str,
+        descending: bool,
+    ) -> Result<Vec<String>, String> {
+        let search = normalize_search(search.unwrap_or_default());
+        let mut connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let transaction = connection.transaction().map_err(|e| e.to_string())?;
+        transaction.execute_batch(
+            "CREATE TEMP TABLE IF NOT EXISTS requested_track_order (ordinal INTEGER PRIMARY KEY NOT NULL, id TEXT NOT NULL);
+             CREATE INDEX IF NOT EXISTS idx_requested_track_order_id ON requested_track_order(id);
+             DELETE FROM requested_track_order;"
+        ).map_err(|e| e.to_string())?;
+        {
+            let mut insert = transaction.prepare("INSERT INTO requested_track_order(id, ordinal) VALUES (?1, ?2)")
+                .map_err(|e| e.to_string())?;
+            for (ordinal, id) in ids.iter().enumerate() {
+                insert.execute(params![id, ordinal.min(i64::MAX as usize) as i64]).map_err(|e| e.to_string())?;
+            }
+        }
+        let direction = if descending { "DESC" } else { "ASC" };
+        let order_clause = if sort_by == "custom" {
+            format!("requested_track_order.ordinal {direction}")
+        } else {
+            format!("tracks.{} COLLATE NATURAL_NOCASE {direction}, requested_track_order.ordinal ASC", sort_column(sort_by))
+        };
+        let sql = format!(
+            "SELECT tracks.id FROM tracks JOIN requested_track_order USING(id)
+             WHERE (?1 = '' OR instr(tracks.search_text, ?1) > 0) ORDER BY {order_clause}"
+        );
+        let mut statement = transaction.prepare(&sql).map_err(|e| e.to_string())?;
+        let rows = statement.query_map([search], |row| row.get::<_, String>(0)).map_err(|e| e.to_string())?;
+        let mut ordered = Vec::new();
+        for row in rows { ordered.push(row.map_err(|e| e.to_string())?); }
+        drop(statement);
+        transaction.commit().map_err(|e| e.to_string())?;
+        Ok(ordered)
+    }
+
+    pub fn ordered_ids(
+        &self,
+        search: Option<&str>,
+        sort_by: &str,
+        descending: bool,
+        favorite_only: bool,
+    ) -> Result<Vec<String>, String> {
+        let search = normalize_search(search.unwrap_or_default());
+        let column = sort_column(sort_by);
+        let direction = if descending { "DESC" } else { "ASC" };
+        let sql = format!(
+            "SELECT id FROM tracks WHERE (?1 = '' OR instr(search_text, ?1) > 0) AND (?2 = 0 OR is_favorite = 1) ORDER BY {column} COLLATE NATURAL_NOCASE {direction}, id {direction}"
+        );
+        let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let mut statement = connection.prepare(&sql).map_err(|e| e.to_string())?;
+        let rows = statement.query_map(params![search, favorite_only], |row| row.get::<_, String>(0)).map_err(|e| e.to_string())?;
+        let mut ids = Vec::new();
+        for row in rows { ids.push(row.map_err(|e| e.to_string())?); }
+        Ok(ids)
     }
 
     pub fn count(&self, search: Option<&str>) -> Result<u64, String> {
@@ -167,6 +257,62 @@ impl LibraryDb {
             |row| row.get::<_, i64>(0),
         ).map_err(|e| e.to_string())?;
         Ok(count.max(0) as u64)
+    }
+
+    pub fn count_under_roots(&self, roots: &[String]) -> Result<Vec<u64>, String> {
+        let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let mut statement = connection.prepare(
+            "SELECT COUNT(*) FROM tracks
+             WHERE path_key = ?1 OR (path_key >= (?1 || '/') AND path_key < (?1 || '0'))"
+        ).map_err(|e| e.to_string())?;
+        roots.iter().map(|root| {
+            let normalized_root = normalize_path(root).trim_end_matches('/').to_string();
+            if normalized_root.is_empty() {
+                return Ok(0);
+            }
+            let count = statement.query_row([normalized_root], |row| row.get::<_, i64>(0)).map_err(|e| e.to_string())?;
+            Ok(count.max(0) as u64)
+        }).collect()
+    }
+
+    pub fn track_ids_under_roots_excluding(
+        &self,
+        roots: &[String],
+        excluded_roots: &[String],
+    ) -> Result<Vec<String>, String> {
+        let normalized_roots = roots.iter()
+            .map(|root| normalize_path(root).trim_end_matches('/').to_string())
+            .filter(|root| !root.is_empty())
+            .collect::<Vec<_>>();
+        if normalized_roots.is_empty() {
+            return Ok(Vec::new());
+        }
+        let normalized_excluded_roots = excluded_roots.iter()
+            .map(|root| normalize_path(root).trim_end_matches('/').to_string())
+            .filter(|root| !root.is_empty())
+            .collect::<Vec<_>>();
+        let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let mut statement = connection.prepare(
+            "SELECT id,path_key FROM tracks
+             WHERE path_key = ?1 OR (path_key >= (?1 || '/') AND path_key < (?1 || '0'))"
+        ).map_err(|e| e.to_string())?;
+        let mut track_ids = Vec::new();
+        let mut seen_ids = HashSet::new();
+        for root in normalized_roots {
+            let rows = statement.query_map([root], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            }).map_err(|e| e.to_string())?;
+            for row in rows {
+                let (track_id, path_key) = row.map_err(|e| e.to_string())?;
+                let covered_by_remaining_root = normalized_excluded_roots.iter().any(|excluded| {
+                    path_key == *excluded || path_key.starts_with(&format!("{excluded}/"))
+                });
+                if !covered_by_remaining_root && seen_ids.insert(track_id.clone()) {
+                    track_ids.push(track_id);
+                }
+            }
+        }
+        Ok(track_ids)
     }
 
     pub fn page(&self, search: Option<&str>, sort_by: &str, descending: bool, offset: u64, limit: u32) -> Result<TrackPage, String> {
@@ -183,6 +329,15 @@ impl LibraryDb {
     pub fn page_filtered_excluding(
         &self, search: Option<&str>, sort_by: &str, descending: bool, offset: u64, limit: u32,
         filter_kind: Option<&str>, filter_value: Option<&str>, favorite_only: bool, excluded_ids: &[String],
+    ) -> Result<TrackPage, String> {
+        self.page_filtered_excluding_with_total(
+            search, sort_by, descending, offset, limit, filter_kind, filter_value, favorite_only, excluded_ids, true,
+        )
+    }
+
+    pub fn page_filtered_excluding_with_total(
+        &self, search: Option<&str>, sort_by: &str, descending: bool, offset: u64, limit: u32,
+        filter_kind: Option<&str>, filter_value: Option<&str>, favorite_only: bool, excluded_ids: &[String], include_total: bool,
     ) -> Result<TrackPage, String> {
         let limit = limit.clamp(1, 500) as u64;
         let search = normalize_search(search.unwrap_or_default());
@@ -218,14 +373,18 @@ impl LibraryDb {
             rusqlite::types::Value::Integer(if favorite_only { 1 } else { 0 }),
         ];
         query_values.extend(excluded_ids.iter().cloned().map(rusqlite::types::Value::Text));
-        let count = connection.query_row(
-            &format!("SELECT COUNT(*) FROM tracks WHERE {predicate}{exclusion_clause}"),
-            rusqlite::params_from_iter(query_values.iter()), |row| row.get::<_, i64>(0),
-        ).map_err(|e| e.to_string())?;
+        let total = if include_total {
+            let count = connection.query_row(
+                &format!("SELECT COUNT(*) FROM tracks WHERE {predicate}{exclusion_clause}"),
+                rusqlite::params_from_iter(query_values.iter()), |row| row.get::<_, i64>(0),
+            ).map_err(|e| e.to_string())?;
+            count.max(0) as u64
+        } else {
+            0
+        };
         let mut page_values = query_values;
         page_values.push(rusqlite::types::Value::Integer(limit as i64));
         page_values.push(rusqlite::types::Value::Integer(offset.min(i64::MAX as u64) as i64));
-        let total = count.max(0) as u64;
         let mut statement = connection.prepare(&sql).map_err(|e| e.to_string())?;
         let rows = statement.query_map(rusqlite::params_from_iter(page_values.iter()), row_to_summary).map_err(|e| e.to_string())?;
         let mut items = Vec::new();
@@ -311,7 +470,7 @@ impl LibraryDb {
             .filter(|group| query.is_empty() || group.name.to_lowercase().contains(&query) || matched.contains(&group.name))
             .collect();
         if kind == "genres" {
-            result.sort_by(|left, right| right.track_ids.len().cmp(&left.track_ids.len()).then_with(|| natural_compare(&left.name, &right.name)));
+            result.sort_by(|left, right| right.track_count.cmp(&left.track_count).then_with(|| natural_compare(&left.name, &right.name)));
         } else {
             result.sort_by(|left, right| natural_compare(&left.name, &right.name));
         }
@@ -322,6 +481,122 @@ impl LibraryDb {
         let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
         let raw = connection.query_row("SELECT details_json FROM tracks WHERE id=?1", [id], |row| row.get::<_, String>(0)).optional().map_err(|e| e.to_string())?;
         raw.map(|json| serde_json::from_str(&json).map_err(|e| format!("Decode track details: {e}"))).transpose()
+    }
+
+    pub fn ids_by_paths(&self, paths: &[String]) -> Result<Vec<String>, String> {
+        let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let mut statement = connection.prepare("SELECT id FROM tracks WHERE path_key=?1")
+            .map_err(|e| e.to_string())?;
+        let mut ids = Vec::with_capacity(paths.len());
+        for path in paths {
+            let path_key = normalize_path(path);
+            if let Some(id) = statement.query_row([path_key], |row| row.get::<_, String>(0)).optional().map_err(|e| e.to_string())? {
+                ids.push(id);
+            }
+        }
+        Ok(ids)
+    }
+
+    pub fn reconcile_missing_imports(&self, paths: &[String], known_existing_ids: &[String]) -> Result<Vec<TrackIdReplacement>, String> {
+        let known_existing_ids = known_existing_ids.iter().map(String::as_str).collect::<std::collections::HashSet<_>>();
+        let mut connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let transaction = connection.transaction().map_err(|e| e.to_string())?;
+
+        let mut imported = Vec::with_capacity(paths.len());
+        {
+            let mut statement = transaction.prepare(
+                "SELECT id,path,title,artist,album,genre,year,track_number,track_total,duration,src,cover_art,bitrate,format,file_size,date_added,play_count,is_favorite,is_missing,search_text,details_json
+                 FROM tracks WHERE path_key=?1"
+            ).map_err(|e| e.to_string())?;
+            for path in paths {
+                let path_key = normalize_path(path);
+                if let Some((summary, search_text, details_json)) = statement.query_row([path_key], |row| {
+                    Ok((row_to_summary(row)?, row.get::<_, String>(19)?, row.get::<_, String>(20)?))
+                }).optional().map_err(|e| e.to_string())? {
+                    imported.push((summary, search_text, details_json));
+                }
+            }
+        }
+
+        let mut used_missing_ids = std::collections::HashSet::new();
+        let mut replacements = Vec::new();
+        for (summary, search_text, details_json) in imported {
+            if summary.is_missing { continue; }
+            let already_known_path = known_existing_ids.contains(summary.id.as_str());
+            let Some(key) = title_artist_key(&summary.title, &summary.artist) else { continue };
+            let retained_id = {
+                let mut statement = transaction.prepare(
+                    "SELECT id,title,artist,path,is_missing,
+                            EXISTS(SELECT 1 FROM playlist_path_map WHERE track_id=tracks.id)
+                     FROM tracks WHERE title=?1 COLLATE NATURAL_NOCASE ORDER BY rowid"
+                ).map_err(|e| e.to_string())?;
+                let mut rows = statement.query([&summary.title]).map_err(|e| e.to_string())?;
+                let mut match_id = None;
+                while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+                    let id: String = row.get(0).map_err(|e| e.to_string())?;
+                    let title: String = row.get(1).map_err(|e| e.to_string())?;
+                    let artist: String = row.get(2).map_err(|e| e.to_string())?;
+                    let old_path: Option<String> = row.get(3).map_err(|e| e.to_string())?;
+                    let was_missing: bool = row.get(4).map_err(|e| e.to_string())?;
+                    let is_playlist_reference: bool = row.get(5).map_err(|e| e.to_string())?;
+                    // Startup rescans can discover a moved file before the separate
+                    // existence check has set is_missing. Treat a stale on-disk path
+                    // the same as an already-flagged missing row so playlist IDs survive.
+                    let old_path_is_missing = old_path.as_deref()
+                        .map(|path| !Path::new(path).is_file())
+                        .unwrap_or(true);
+                    if id != summary.id && !used_missing_ids.contains(&id)
+                        && (was_missing || old_path_is_missing)
+                        // An already-indexed new path is only merged when the old ID is
+                        // explicitly referenced by a playlist. This repairs duplicates
+                        // created by earlier builds without collapsing ordinary duplicates.
+                        && (!already_known_path || is_playlist_reference)
+                        && title_artist_key(&title, &artist).as_deref() == Some(key.as_str())
+                    {
+                        match_id = Some(id);
+                        break;
+                    }
+                }
+                match_id
+            };
+            let Some(retained_id) = retained_id else { continue };
+            used_missing_ids.insert(retained_id.clone());
+
+            transaction.execute("DELETE FROM tracks WHERE id=?1", [&summary.id]).map_err(|e| e.to_string())?;
+            let changed = transaction.execute(
+                "UPDATE tracks SET path=?1,path_key=?2,title=?3,artist=?4,album=?5,genre=?6,year=?7,track_number=?8,track_total=?9,duration=?10,src=?11,cover_art=?12,bitrate=?13,format=?14,file_size=?15,is_missing=0,search_text=?16,details_json=?17 WHERE id=?18",
+                params![
+                    summary.path,
+                    summary.path.as_deref().map(normalize_path),
+                    summary.title,
+                    summary.artist,
+                    summary.album,
+                    summary.genre,
+                    summary.year,
+                    summary.track_number,
+                    summary.track_total,
+                    summary.duration,
+                    summary.src,
+                    summary.cover_art,
+                    summary.bitrate,
+                    summary.format,
+                    summary.file_size,
+                    search_text,
+                    details_json,
+                    retained_id,
+                ],
+            ).map_err(|e| e.to_string())?;
+            if changed != 1 {
+                return Err(format!("Missing track {retained_id} changed during import reconciliation"));
+            }
+            if let Some(path) = summary.path.as_deref() {
+                let path_key = normalize_path(path);
+                transaction.execute("DELETE FROM playlist_path_map WHERE path_key=?1", [path_key]).map_err(|e| e.to_string())?;
+            }
+            replacements.push(TrackIdReplacement { imported_id: summary.id, retained_id });
+        }
+        transaction.commit().map_err(|e| e.to_string())?;
+        Ok(replacements)
     }
 
     pub fn summaries_by_paths(&self, paths: &[String]) -> Result<Vec<TrackSummary>, String> {
@@ -353,11 +628,84 @@ impl LibraryDb {
         Ok(result)
     }
 
-    pub fn seed_legacy_track_map(&self, tracks: &[LegacyTrackReference]) -> Result<usize, String> {
+    pub fn cover_art_by_ids(&self, ids: &[String], max_covers: usize) -> Result<Vec<String>, String> {
+        use std::collections::{HashMap, HashSet};
+
+        let max_covers = max_covers.min(8);
+        if max_covers == 0 || ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let mut covers = Vec::with_capacity(max_covers);
+        let mut seen_covers = HashSet::new();
+
+        for id_chunk in ids.chunks(500) {
+            let placeholders = (1..=id_chunk.len()).map(|index| format!("?{index}")).collect::<Vec<_>>().join(",");
+            let sql = format!("SELECT id, cover_art FROM tracks WHERE id IN ({placeholders}) AND cover_art IS NOT NULL AND trim(cover_art) != ''");
+            let values = id_chunk.iter().cloned().map(rusqlite::types::Value::Text).collect::<Vec<_>>();
+            let mut statement = connection.prepare(&sql).map_err(|e| e.to_string())?;
+            let rows = statement.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            }).map_err(|e| e.to_string())?;
+            let mut covers_by_id = HashMap::new();
+            for row in rows {
+                let (id, cover) = row.map_err(|e| e.to_string())?;
+                covers_by_id.insert(id, cover);
+            }
+
+            for id in id_chunk {
+                if let Some(cover) = covers_by_id.get(id) {
+                    if seen_covers.insert(cover.clone()) {
+                        covers.push(cover.clone());
+                        if covers.len() == max_covers {
+                            return Ok(covers);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(covers)
+    }
+
+    pub fn total_duration_by_ids(&self, ids: &[String]) -> Result<f64, String> {
+        use std::collections::HashMap;
+
+        if ids.is_empty() {
+            return Ok(0.0);
+        }
+
+        let mut multiplicities = HashMap::<&str, u64>::new();
+        for id in ids {
+            *multiplicities.entry(id.as_str()).or_default() += 1;
+        }
+        let unique_ids = multiplicities.keys().copied().collect::<Vec<_>>();
+        let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let mut total = 0.0;
+        for id_chunk in unique_ids.chunks(500) {
+            let placeholders = (1..=id_chunk.len()).map(|index| format!("?{index}")).collect::<Vec<_>>().join(",");
+            let sql = format!("SELECT id, duration FROM tracks WHERE id IN ({placeholders})");
+            let values = id_chunk.iter().map(|id| rusqlite::types::Value::Text((*id).to_string())).collect::<Vec<_>>();
+            let mut statement = connection.prepare(&sql).map_err(|e| e.to_string())?;
+            let rows = statement.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+            }).map_err(|e| e.to_string())?;
+            for row in rows {
+                let (id, duration) = row.map_err(|e| e.to_string())?;
+                if duration.is_finite() && duration > 0.0 {
+                    total += duration * multiplicities.get(id.as_str()).copied().unwrap_or(0) as f64;
+                }
+            }
+        }
+        Ok(if total.is_finite() { total } else { 0.0 })
+    }
+
+    pub fn seed_playlist_track_map(&self, tracks: &[PlaylistTrackReference]) -> Result<usize, String> {
         let mut connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
         let transaction = connection.transaction().map_err(|e| e.to_string())?;
         let mut statement = transaction.prepare(
-            "INSERT INTO legacy_path_map(path_key,old_id,is_favorite,play_count,date_added) VALUES (?1,?2,?3,?4,?5)
+            "INSERT INTO playlist_path_map(path_key,track_id,is_favorite,play_count,date_added) VALUES (?1,?2,?3,?4,?5)
              ON CONFLICT(path_key) DO NOTHING"
         ).map_err(|e| e.to_string())?;
         let mut inserted = 0usize;
@@ -465,11 +813,53 @@ impl LibraryDb {
         transaction.commit().map_err(|e| e.to_string())
     }
 
+    pub fn set_missing(&self, ids: &[String], missing: bool) -> Result<usize, String> {
+        let mut connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let transaction = connection.transaction().map_err(|e| e.to_string())?;
+        let mut changed = 0usize;
+        {
+            let mut statement = transaction.prepare("UPDATE tracks SET is_missing=?1 WHERE id=?2").map_err(|e| e.to_string())?;
+            for id in ids {
+                changed += statement.execute(params![missing, id]).map_err(|e| e.to_string())?;
+            }
+        }
+        transaction.commit().map_err(|e| e.to_string())?;
+        Ok(changed)
+    }
+
     pub fn delete_ids(&self, ids: &[String]) -> Result<(), String> {
         let mut connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
         let transaction = connection.transaction().map_err(|e| e.to_string())?;
         for id in ids { transaction.execute("DELETE FROM tracks WHERE id=?1", [id]).map_err(|e| e.to_string())?; }
         transaction.commit().map_err(|e| e.to_string())
+    }
+
+    pub fn cached_cover_links(&self) -> Result<Vec<(String, Option<String>)>, String> {
+        let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let mut statement = connection.prepare(
+            "SELECT id,cover_art FROM tracks
+             WHERE cover_art LIKE 'https://cover.localhost/%'
+                OR cover_art LIKE 'http://cover.localhost/%'
+                OR cover_art LIKE 'cover://localhost/%'"
+        ).map_err(|error| error.to_string())?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|error| error.to_string())?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|error| error.to_string())
+    }
+
+    pub fn cover_links_for_paths(&self, paths: &[String]) -> Result<Vec<(String, Option<String>)>, String> {
+        let connection = self.connection.lock().map_err(|_| "Library database lock is poisoned".to_string())?;
+        let mut statement = connection.prepare("SELECT id,cover_art FROM tracks WHERE path_key=?1")
+            .map_err(|error| error.to_string())?;
+        let mut links = Vec::new();
+        for path in paths {
+            let path_key = normalize_path(path);
+            if let Some(link) = statement.query_row([path_key], |row| Ok((row.get(0)?, row.get(1)?)))
+                .optional().map_err(|error| error.to_string())? {
+                links.push(link);
+            }
+        }
+        Ok(links)
     }
 }
 
@@ -528,6 +918,11 @@ fn sort_column(value: &str) -> &'static str {
 
 fn normalize_search(value: &str) -> String { value.trim().to_lowercase() }
 fn normalize_path(value: &str) -> String { value.trim().replace('\\', "/").to_lowercase() }
+
+fn title_artist_key(title: &str, artist: &str) -> Option<String> {
+    let key = format!("{}|||{}", title.trim().to_lowercase(), artist.trim().to_lowercase());
+    if key == "|||" || key == "unknown|||unknown artist" { None } else { Some(key) }
+}
 fn string(value: &Value, camel: &str, snake: &str, default: &str) -> String {
     value.get(camel).or_else(|| value.get(snake)).and_then(Value::as_str).unwrap_or(default).to_string()
 }
@@ -544,9 +939,9 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
     let path_key = path.as_deref().map(normalize_path);
     // A rescan can produce a fresh ID for an already-known file. Keep the existing ID
     // so playlist and queue references survive rescans.
-    let legacy_state: Option<(String, bool, i64, i64)> = if let Some(path_key) = path_key.as_deref() {
+    let playlist_state: Option<(String, bool, i64, i64)> = if let Some(path_key) = path_key.as_deref() {
         transaction.query_row(
-            "SELECT old_id,is_favorite,play_count,date_added FROM legacy_path_map WHERE path_key=?1",
+            "SELECT track_id,is_favorite,play_count,date_added FROM playlist_path_map WHERE path_key=?1",
             [path_key],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         ).optional().map_err(|e| e.to_string())?
@@ -558,7 +953,7 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
     } else {
         None
     };
-    let id = existing_path_id.as_deref().or_else(|| legacy_state.as_ref().map(|state| state.0.as_str())).unwrap_or(incoming_id);
+    let id = existing_path_id.as_deref().or_else(|| playlist_state.as_ref().map(|state| state.0.as_str())).unwrap_or(incoming_id);
     let existing_state: Option<(i64, i64, bool, bool)> = transaction.query_row(
         "SELECT date_added,play_count,is_favorite,is_missing FROM tracks WHERE id=?1",
         [id],
@@ -566,14 +961,14 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
     ).optional().map_err(|e| e.to_string())?;
     let date_added = number(value, "dateAdded", "date_added")
         .or_else(|| existing_state.map(|state| state.0))
-        .or_else(|| legacy_state.as_ref().map(|state| state.3))
+        .or_else(|| playlist_state.as_ref().map(|state| state.3))
         .unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis().min(i64::MAX as u128) as i64);
     let play_count = number(value, "playCount", "play_count")
         .or_else(|| existing_state.map(|state| state.1))
-        .or_else(|| legacy_state.as_ref().map(|state| state.2)).unwrap_or(0);
+        .or_else(|| playlist_state.as_ref().map(|state| state.2)).unwrap_or(0);
     let is_favorite = value.get("isFavorite").or_else(|| value.get("is_favorite")).and_then(Value::as_bool)
         .or_else(|| existing_state.map(|state| state.2))
-        .or_else(|| legacy_state.as_ref().map(|state| state.1)).unwrap_or(false);
+        .or_else(|| playlist_state.as_ref().map(|state| state.1)).unwrap_or(false);
     let is_missing = value.get("isMissing").or_else(|| value.get("is_missing")).and_then(Value::as_bool)
         .or_else(|| existing_state.map(|state| state.3)).unwrap_or(false);
     let title = string(value, "title", "title", "Unknown");
@@ -603,6 +998,15 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
     if let Some(g) = &genre { search_parts.push(g.clone()); }
     let search_text = search_parts.join("\n").to_lowercase();
     let src = path.clone().unwrap_or_else(|| string(value, "src", "src", ""));
+    // A scanner may fail to inspect tags or persist the artwork because of a transient
+    // I/O/cache error. In that case preserve the last known cover instead of treating
+    // the missing result as an explicit removal. A completed scan with no cover still
+    // serializes coverArt: null and clears the old link as intended.
+    let cover_scan_incomplete = value.get("coverArtScanComplete")
+        .or_else(|| value.get("cover_art_scan_complete"))
+        .and_then(Value::as_bool) == Some(false);
+    let cover_field_present = !cover_scan_incomplete
+        && (value.get("coverArt").is_some() || value.get("cover_art").is_some());
     let raw_cover = optional_string(value, "coverArt", "cover_art");
     let cover_art = raw_cover.map(|cover| {
         crate::storage::to_portable_cover(&cover, &crate::storage::get_portable_base_dir()).unwrap_or(cover)
@@ -610,18 +1014,31 @@ fn upsert_one(transaction: &Transaction<'_>, value: &Value) -> Result<(), String
     transaction.execute(
         "INSERT INTO tracks (id,path,path_key,title,artist,album,genre,year,track_number,track_total,duration,src,cover_art,bitrate,format,file_size,date_added,play_count,is_favorite,is_missing,search_text,details_json)
          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)
-         ON CONFLICT(id) DO UPDATE SET path=excluded.path,path_key=excluded.path_key,title=excluded.title,artist=excluded.artist,album=excluded.album,genre=excluded.genre,year=excluded.year,track_number=excluded.track_number,track_total=excluded.track_total,duration=excluded.duration,src=excluded.src,cover_art=COALESCE(excluded.cover_art,tracks.cover_art),bitrate=excluded.bitrate,format=excluded.format,file_size=excluded.file_size,date_added=excluded.date_added,play_count=excluded.play_count,is_favorite=excluded.is_favorite,is_missing=excluded.is_missing,search_text=excluded.search_text,details_json=excluded.details_json",
+         ON CONFLICT(id) DO UPDATE SET path=excluded.path,path_key=excluded.path_key,title=excluded.title,artist=excluded.artist,album=excluded.album,genre=excluded.genre,year=excluded.year,track_number=excluded.track_number,track_total=excluded.track_total,duration=excluded.duration,src=excluded.src,cover_art=CASE WHEN ?23 THEN excluded.cover_art ELSE tracks.cover_art END,bitrate=excluded.bitrate,format=excluded.format,file_size=excluded.file_size,date_added=excluded.date_added,play_count=excluded.play_count,is_favorite=excluded.is_favorite,is_missing=excluded.is_missing,search_text=excluded.search_text,details_json=excluded.details_json",
         params![
             id, path, path_key, title, artist, album, genre,
             number(value,"year","year"), number(value,"trackNumber","track_number"), number(value,"trackTotal","track_total"),
             value.get("duration").and_then(Value::as_f64).or_else(|| value.get("duration_seconds").and_then(Value::as_f64)).unwrap_or(0.0),
             src, cover_art, number(value,"bitrate","bitrate"), optional_string(value,"format","format"),
-            number(value,"fileSize","file_size"), date_added, play_count, is_favorite, is_missing, search_text, details_json
+            number(value,"fileSize","file_size"), date_added, play_count, is_favorite, is_missing, search_text, details_json, cover_field_present
         ],
     ).map_err(|e| format!("Save track {id}: {e}"))?;
     if let Some(path_key) = path_key {
-        transaction.execute("DELETE FROM legacy_path_map WHERE path_key=?1", [path_key]).map_err(|e| e.to_string())?;
+        transaction.execute("DELETE FROM playlist_path_map WHERE path_key=?1", [path_key]).map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn normalize_legacy_windows_cover_urls(connection: &Connection) -> Result<(), String> {
+    // Earlier builds stored HTTPS URLs, but Tauri's default Windows custom-protocol
+    // origin is HTTP. Rewrite only this app's cache origin; artwork hashes/BLOBs stay intact.
+    connection.execute(
+        "UPDATE tracks
+         SET cover_art=replace(cover_art, 'https://cover.localhost/', 'http://cover.localhost/')
+         WHERE cover_art LIKE 'https://cover.localhost/%'",
+        [],
+    ).map_err(|error| format!("Normalize cached cover URLs for Windows: {error}"))?;
     Ok(())
 }
 
@@ -686,6 +1103,33 @@ mod tests {
     fn database() -> LibraryDb { LibraryDb::open(":memory:").expect("database initializes") }
 
     #[test]
+    fn opening_catalog_drops_obsolete_path_map() {
+        let path = std::env::temp_dir().join(format!(
+            "arachnid-obsolete-map-{}-{}.sqlite3",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        let connection = Connection::open(&path).unwrap();
+        connection.execute_batch(
+            "CREATE TABLE legacy_path_map(path_key TEXT PRIMARY KEY, old_id TEXT NOT NULL);
+             INSERT INTO legacy_path_map(path_key,old_id) VALUES('/stale/song.mp3','stale-id');",
+        ).unwrap();
+        drop(connection);
+
+        let db = LibraryDb::open(&path).unwrap();
+        let connection = db.connection.lock().unwrap();
+        let old_table_exists: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='legacy_path_map')",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert!(!old_table_exists);
+        drop(connection);
+        drop(db);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn natural_collation_handles_cyrillic_accents_and_numeric_sequences() {
         assert_eq!(natural_compare("Песня 2", "Песня 10"), Ordering::Less);
         assert_eq!(natural_compare("Éclair 2", "eclair 10"), Ordering::Less);
@@ -707,33 +1151,157 @@ mod tests {
     }
 
     #[test]
+    fn folder_track_counts_use_normalized_path_boundaries_for_complete_catalog() {
+        let db = database();
+        db.upsert_batch(&[
+            json!({"id":"portable-1","title":"One","path":"C:\\Music\\one.flac"}),
+            json!({"id":"portable-2","title":"Two","path":"c:/music/sub/two.flac"}),
+            json!({"id":"sibling","title":"Sibling","path":"C:\\Music2\\not-in-folder.flac"}),
+            json!({"id":"relative","title":"Relative","path":"music/relative.flac"}),
+            json!({"id":"relative-sibling","title":"Relative sibling","path":"music2/not-in-folder.flac"}),
+        ]).unwrap();
+
+        let counts = db.count_under_roots(&[
+            "C:\\MUSIC\\".to_string(),
+            "music/".to_string(),
+            "missing".to_string(),
+        ]).unwrap();
+        assert_eq!(counts, vec![2, 1, 0]);
+
+        let removed_folder_ids = db.track_ids_under_roots_excluding(
+            &["C:/Music".to_string()],
+            &["C:/Music/Sub".to_string()],
+        ).unwrap();
+        assert_eq!(removed_folder_ids, vec!["portable-1"]);
+
+        let all_portable_ids = db.track_ids_under_roots_excluding(
+            &["C:/Music".to_string()],
+            &[],
+        ).unwrap();
+        assert_eq!(all_portable_ids.len(), 2);
+    }
+
+    #[test]
+    fn explicit_rescan_cover_value_replaces_or_clears_but_missing_field_preserves_it() {
+        let db = database();
+        let cover = format!("https://cover.localhost/{}/original", "a".repeat(64));
+        db.upsert_batch(&[json!({
+            "id":"scan-1", "path":"C:\\\\Music\\\\scan.flac", "title":"Scan",
+            "artist":"Artist", "album":"Album", "coverArt":cover.clone()
+        })]).unwrap();
+        assert_eq!(db.summaries_by_ids(&["scan-1".into()]).unwrap()[0].cover_art.as_deref(), Some(cover.as_str()));
+
+        db.upsert_batch(&[json!({"id":"fresh-id", "path":"C:\\\\Music\\\\scan.flac", "title":"Scan again"})]).unwrap();
+        assert_eq!(db.summaries_by_ids(&["scan-1".into()]).unwrap()[0].cover_art.as_deref(), Some(cover.as_str()));
+
+        db.upsert_batch(&[json!({
+            "id":"fresh-id-2", "path":"C:\\\\Music\\\\scan.flac", "title":"Scan could not read art",
+            "coverArt":null, "cover_art_scan_complete":false
+        })]).unwrap();
+        assert_eq!(db.summaries_by_ids(&["scan-1".into()]).unwrap()[0].cover_art.as_deref(), Some(cover.as_str()));
+
+        db.upsert_batch(&[json!({
+            "id":"fresh-id-3", "path":"C:\\\\Music\\\\scan.flac", "title":"Scan completed without art",
+            "coverArt":null, "cover_art_scan_complete":true
+        })]).unwrap();
+        assert_eq!(db.summaries_by_ids(&["scan-1".into()]).unwrap()[0].cover_art, None);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn previous_https_cover_urls_are_rewritten_to_tauri_windows_origin() {
+        let db = database();
+        let legacy_url = format!("https://cover.localhost/{}/original", "b".repeat(64));
+        db.upsert_batch(&[json!({
+            "id":"legacy-cover", "path":"C:\\\\Music\\\\legacy.flac", "title":"Legacy",
+            "coverArt":legacy_url
+        })]).unwrap();
+        normalize_legacy_windows_cover_urls(&db.connection.lock().unwrap()).unwrap();
+        let expected = format!("http://cover.localhost/{}/original", "b".repeat(64));
+        assert_eq!(db.summaries_by_ids(&["legacy-cover".into()]).unwrap()[0].cover_art.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
     fn collection_groups_are_built_from_the_native_catalog_without_track_details() {
         let db = database();
         db.upsert_batch(&[
             json!({"id":"1","title":"Song 1","artist":"Artist","album":"Album","genre":"Rock; Jazz","duration":10.0,"path":"/music/1.flac"}),
             json!({"id":"2","title":"Song 2","artist":"Artist","album":"Album","genre":"Rock","duration":20.0,"path":"/music/2.flac"}),
             json!({"id":"3","title":"Other","artist":"Other Artist","album":"Other Album","genre":"Jazz","duration":30.0,"path":"/music/3.flac"}),
+            json!({"id":"4","title":"Song 4","artist":"Artist","album":"Album","genre":"Rock","duration":40.0,"path":"/music/4.flac"}),
         ]).unwrap();
         let albums = db.collection_groups("albums", "en", None, &[], true).unwrap();
         assert_eq!(albums.len(), 2);
         assert_eq!(albums[0].name, "Album");
-        assert_eq!(albums[0].track_ids, vec!["1", "2"]);
-        assert_eq!(albums[0].total_duration, 30.0);
+        assert_eq!(albums[0].track_ids, vec!["1", "2", "4"]);
+        assert_eq!(albums[0].total_duration, 70.0);
         let mini_albums = db.collection_groups("albums", "en", None, &[], false).unwrap();
-        assert_eq!(mini_albums[0].track_count, 2);
+        assert_eq!(mini_albums[0].track_count, 3);
         assert!(mini_albums.iter().all(|group| group.track_ids.is_empty()));
         let genres = db.collection_groups("genres", "en", Some("song 1"), &[], true).unwrap();
         assert_eq!(genres.len(), 2);
+        let mini_genres = db.collection_groups("genres", "en", None, &[], false).unwrap();
+        assert_eq!(mini_genres[0].name, "Rock");
+        assert_eq!(mini_genres[0].track_count, 3);
+        assert_eq!(mini_genres[1].name, "Jazz");
+        assert_eq!(mini_genres[1].track_count, 2);
+        assert!(mini_genres.iter().all(|group| group.track_ids.is_empty()));
         let rock = genres.iter().find(|group| group.name == "Rock").unwrap();
         let jazz = genres.iter().find(|group| group.name == "Jazz").unwrap();
-        assert_eq!(rock.track_ids, vec!["1", "2"]);
+        assert_eq!(rock.track_ids, vec!["1", "2", "4"]);
         assert_eq!(jazz.track_ids, vec!["3", "1"]);
         let excluded = vec!["1".to_string()];
         let remaining = db.page_filtered_excluding(
             None, "title", false, 0, 10, Some("album"), Some("Album"), false, &excluded,
         ).unwrap();
-        assert_eq!(remaining.total, 1);
-        assert_eq!(remaining.items.iter().map(|track| track.id.as_str()).collect::<Vec<_>>(), vec!["2"]);
+        assert_eq!(remaining.total, 2);
+        assert_eq!(remaining.items.iter().map(|track| track.id.as_str()).collect::<Vec<_>>(), vec!["2", "4"]);
+    }
+
+    #[test]
+    fn playlist_cover_lookup_preserves_track_order_and_deduplicates_art() {
+        let db = database();
+        db.upsert_batch(&[
+            json!({"id":"cover-1","title":"One","artist":"A","album":"Album","duration":10.0}),
+            json!({"id":"cover-2","title":"Two","artist":"A","album":"Album","duration":20.0,"coverArt":"covers/a.jpg"}),
+            json!({"id":"cover-3","title":"Three","artist":"A","album":"Album","duration":30.0,"coverArt":"covers/a.jpg"}),
+            json!({"id":"cover-4","title":"Four","artist":"A","album":"Album","duration":40.0,"coverArt":"covers/b.jpg"}),
+        ]).unwrap();
+
+        let ids = vec![
+            "cover-1".to_string(),
+            "cover-2".to_string(),
+            "cover-3".to_string(),
+            "missing".to_string(),
+            "cover-4".to_string(),
+        ];
+        assert_eq!(db.cover_art_by_ids(&ids, 8).unwrap(), vec!["covers/a.jpg", "covers/b.jpg"]);
+        assert_eq!(db.cover_art_by_ids(&ids, 1).unwrap(), vec!["covers/a.jpg"]);
+        assert!(db.cover_art_by_ids(&ids, 0).unwrap().is_empty());
+        let duration_ids = vec!["cover-1", "cover-2", "cover-2", "cover-4", "missing"]
+            .into_iter().map(str::to_string).collect::<Vec<_>>();
+        assert_eq!(db.total_duration_by_ids(&duration_ids).unwrap(), 90.0);
+    }
+
+    #[test]
+    fn page_ranges_can_skip_recounting_after_the_view_total_is_known() {
+        let db = database();
+        db.upsert_batch(&[
+            json!({"id":"1","title":"Track 1","artist":"A","album":"Album","duration":10.0}),
+            json!({"id":"2","title":"Track 2","artist":"A","album":"Album","duration":20.0}),
+        ]).unwrap();
+
+        let first = db.page_filtered_excluding_with_total(
+            None, "title", false, 0, 1, None, None, false, &[], true,
+        ).unwrap();
+        assert_eq!(first.total, 2);
+        assert_eq!(first.items.len(), 1);
+
+        let next = db.page_filtered_excluding_with_total(
+            None, "title", false, 1, 1, None, None, false, &[], false,
+        ).unwrap();
+        assert_eq!(next.total, 0);
+        assert_eq!(next.items[0].id, "2");
     }
 
     #[test]
@@ -749,6 +1317,9 @@ mod tests {
         assert_eq!(descending.items.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(), vec!["10", "2"]);
         let duration = db.page(None, "duration", false, 0, 10).unwrap();
         assert_eq!(duration.items[0].id, "2");
+        assert_eq!(db.ordered_ids(None, "title", false, false).unwrap(), vec!["2", "10"]);
+        assert_eq!(db.ordered_subset_ids(&["10".into(), "2".into(), "10".into()], None, "custom", false).unwrap(), vec!["10", "2", "10"]);
+        assert_eq!(db.ordered_subset_ids(&["10".into(), "2".into()], None, "title", false).unwrap(), vec!["2", "10"]);
     }
 
     #[test]
@@ -762,6 +1333,7 @@ mod tests {
         let page = db.page_filtered(Some("rock track"), "title", false, 0, 10, Some("genre"), Some("Classic Rock"), true).unwrap();
         assert_eq!(page.total, 1);
         assert_eq!(page.items[0].id, "1");
+        assert_eq!(db.ordered_subset_ids(&["2".into(), "1".into()], Some("rock track"), "custom", false).unwrap(), vec!["1"]);
     }
 
     #[test]
@@ -785,6 +1357,110 @@ mod tests {
         assert!(page.items[0].is_favorite);
         assert_eq!(page.items[0].play_count, 9);
         assert_eq!(page.items[0].date_added, 123);
+    }
+
+    #[test]
+    fn reimport_reuses_evicted_missing_track_id_by_title_and_artist() {
+        let db = database();
+        db.upsert_batch(&[json!({"id":"stable-id","title":"Ёж и песня","artist":"Группа","album":"Альбом","path":"/old/song.flac","isFavorite":true,"playCount":7,"dateAdded":123})]).unwrap();
+        db.set_missing(&["stable-id".into()], true).unwrap();
+        db.upsert_batch(&[json!({"id":"new-id","title":"ёж и песня","artist":"ГРУППА","album":"Альбом 2","path":"/new/song.flac"})]).unwrap();
+
+        let replacements = db.reconcile_missing_imports(&["/new/song.flac".into()], &[]).unwrap();
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(replacements[0].imported_id, "new-id");
+        assert_eq!(replacements[0].retained_id, "stable-id");
+        let page = db.page(None, "title", false, 0, 10).unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items[0].id, "stable-id");
+        assert_eq!(page.items[0].path.as_deref(), Some("/new/song.flac"));
+        assert!(!page.items[0].is_missing);
+        assert!(page.items[0].is_favorite);
+        assert_eq!(page.items[0].play_count, 7);
+        assert_eq!(page.items[0].date_added, 123);
+    }
+
+    #[test]
+    fn moved_path_reuses_playlist_id_before_missing_flag_is_set() {
+        let db = database();
+        let old_path = std::env::temp_dir()
+            .join(format!("arachnid-moved-track-{}.mp3", std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()))
+            .to_string_lossy().to_string();
+        assert!(!Path::new(&old_path).is_file());
+        db.upsert_batch(&[json!({
+            "id":"stable-id","title":"Moved song","artist":"Artist",
+            "path":old_path,"isFavorite":true,"playCount":4
+        })]).unwrap();
+        db.upsert_batch(&[json!({
+            "id":"new-id","title":"Moved song","artist":"Artist","path":"/new/song.mp3"
+        })]).unwrap();
+
+        let replacements = db.reconcile_missing_imports(&["/new/song.mp3".into()], &[]).unwrap();
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(replacements[0].imported_id, "new-id");
+        assert_eq!(replacements[0].retained_id, "stable-id");
+        let page = db.page(None, "title", false, 0, 10).unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items[0].id, "stable-id");
+        assert_eq!(page.items[0].path.as_deref(), Some("/new/song.mp3"));
+        assert!(!page.items[0].is_missing);
+        assert!(page.items[0].is_favorite);
+        assert_eq!(page.items[0].play_count, 4);
+    }
+
+    #[test]
+    fn already_scanned_moved_track_recovers_playlist_id() {
+        let db = database();
+        db.upsert_batch(&[json!({
+            "id":"playlist-id","title":"Moved song","artist":"Artist",
+            "path":"/old/song.mp3","isFavorite":true,"playCount":5,"dateAdded":123
+        })]).unwrap();
+        db.seed_playlist_track_map(&[PlaylistTrackReference {
+            id: "playlist-id".into(),
+            path: "/old/song.mp3".into(),
+            is_favorite: true,
+            play_count: 5,
+            date_added: 123,
+        }]).unwrap();
+        db.upsert_batch(&[json!({
+            "id":"duplicate-id","title":"Moved song","artist":"Artist",
+            "path":"/new/song.mp3"
+        })]).unwrap();
+
+        // The new path is already in SQLite, as happens after an earlier build imported it.
+        let replacements = db.reconcile_missing_imports(
+            &["/new/song.mp3".into()],
+            &["duplicate-id".into()],
+        ).unwrap();
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(replacements[0].imported_id, "duplicate-id");
+        assert_eq!(replacements[0].retained_id, "playlist-id");
+
+        let page = db.page(None, "title", false, 0, 10).unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items[0].id, "playlist-id");
+        assert_eq!(page.items[0].path.as_deref(), Some("/new/song.mp3"));
+        assert!(!page.items[0].is_missing);
+        assert!(page.items[0].is_favorite);
+        assert_eq!(page.items[0].play_count, 5);
+        assert_eq!(page.items[0].date_added, 123);
+    }
+
+    #[test]
+    fn rescanning_an_existing_path_does_not_consume_another_missing_duplicate() {
+        let db = database();
+        db.upsert_batch(&[
+            json!({"id":"missing-id","title":"Same title","artist":"Same artist","path":"/old/song.mp3","isMissing":true}),
+            json!({"id":"active-id","title":"Same title","artist":"Same artist","path":"/new/song.mp3"}),
+        ]).unwrap();
+
+        let replacements = db.reconcile_missing_imports(&["/new/song.mp3".into()], &["active-id".into()]).unwrap();
+        assert!(replacements.is_empty());
+        let page = db.page(None, "title", false, 0, 10).unwrap();
+        assert_eq!(page.total, 2);
+        assert!(page.items.iter().any(|track| track.id == "missing-id" && track.is_missing));
+        assert!(page.items.iter().any(|track| track.id == "active-id" && !track.is_missing));
     }
 
     #[test]
@@ -836,9 +1512,9 @@ mod tests {
     }
 
     #[test]
-    fn legacy_path_map_preserves_playlist_ids_and_user_state_after_rescan() {
+    fn playlist_path_map_preserves_playlist_ids_and_user_state_after_rescan() {
         let db = database();
-        db.seed_legacy_track_map(&[LegacyTrackReference {
+        db.seed_playlist_track_map(&[PlaylistTrackReference {
             id: "playlist-track-id".into(),
             path: "C:\\Music\\legacy.flac".into(),
             is_favorite: true,
@@ -859,9 +1535,24 @@ mod tests {
         let item = json!({"id":"same","title":"Track","artist":"Artist","album":"Album","path":"/music/a.mp3","isFavorite":false});
         db.upsert_batch(&[item.clone(), item]).unwrap();
         assert_eq!(db.count(None).unwrap(), 1);
+        assert_eq!(db.ids_by_paths(&["/MUSIC/a.mp3".into()]).unwrap(), vec!["same"]);
         db.set_favorites(&["same".to_string()], true).unwrap();
         assert!(db.page(None, "title", false, 0, 10).unwrap().items[0].is_favorite);
         db.delete_ids(&["same".to_string()]).unwrap();
         assert_eq!(db.count(None).unwrap(), 0);
+    }
+
+    #[test]
+    fn missing_status_updates_rows_outside_the_visible_page() {
+        let db = database();
+        db.upsert_batch(&[
+            json!({"id":"1","title":"Track 1","artist":"Artist","album":"Album","path":"/music/1.flac"}),
+            json!({"id":"2","title":"Track 2","artist":"Artist","album":"Album","path":"/music/2.flac"}),
+        ]).unwrap();
+        assert_eq!(db.set_missing(&["2".into()], true).unwrap(), 1);
+        let row = db.summaries_by_ids(&["2".into()]).unwrap().pop().unwrap();
+        assert!(row.is_missing);
+        assert_eq!(db.set_missing(&["2".into()], false).unwrap(), 1);
+        assert!(!db.summaries_by_ids(&["2".into()]).unwrap()[0].is_missing);
     }
 }

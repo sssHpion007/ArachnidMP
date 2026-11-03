@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
-use base64::prelude::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -14,54 +13,17 @@ pub fn get_portable_base_dir() -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
-pub fn get_covers_dir() -> PathBuf {
-    get_portable_base_dir().join("config").join("covers")
-}
-
 pub fn get_logs_dir() -> PathBuf {
     get_portable_base_dir().join("config").join("logs")
 }
 
-pub fn save_cover_bytes(bytes: &[u8], mime: &str) -> Option<String> {
-    if bytes.is_empty() {
-        return None;
-    }
-    let mut hasher = DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    let hash = format!("{:016x}", hasher.finish());
-
-    let ext = match mime.to_lowercase().as_str() {
-        "image/png" | "png" => "png",
-        "image/webp" | "webp" => "webp",
-        _ => "jpg",
-    };
-
-    let covers_dir = get_covers_dir();
-    let _ = fs::create_dir_all(&covers_dir);
-    let filename = format!("{}.{}", hash, ext);
-    let file_path = covers_dir.join(&filename);
-
-    if !file_path.exists() {
-        let _ = fs::write(&file_path, bytes);
-    }
-
-    Some(file_path.to_string_lossy().to_string())
-}
-
-pub fn save_base64_cover(data_uri: &str) -> Option<String> {
-    if !data_uri.starts_with("data:image/") {
-        return None;
-    }
-    let parts: Vec<&str> = data_uri.splitn(2, ";base64,").collect();
-    if parts.len() != 2 {
-        return None;
-    }
-    let mime = parts[0].trim_start_matches("data:");
-    let b64_clean: String = parts[1].chars().filter(|c| !c.is_whitespace()).collect();
-    if let Ok(bytes) = BASE64_STANDARD.decode(&b64_clean) {
-        save_cover_bytes(&bytes, mime)
-    } else {
-        None
+/// Remove the retired monolithic index; SQLite and M3U are now authoritative.
+pub fn remove_retired_library_index(base_dir: &Path) -> Result<bool, String> {
+    let path = base_dir.join("config").join("library.json");
+    match fs::remove_file(&path) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!("Remove retired library index {}: {error}", path.display())),
     }
 }
 
@@ -122,23 +84,22 @@ fn extract_cover_filename(cover_val: &str) -> Option<String> {
     None
 }
 
-/// Convert any cover string (asset URL, old absolute path, base64, relative)
-/// to a portable relative path "config/covers/<filename>" suitable for saving in playlists.
+/// Normalize legacy filesystem covers while preserving inline, external, and SQLite-cache URLs.
 pub fn to_portable_cover(cover_val: &str, base_dir: &Path) -> Option<String> {
     let trimmed = cover_val.trim();
     if trimmed.is_empty() {
         return None;
     }
+    if trimmed.starts_with("https://cover.localhost/")
+        || trimmed.starts_with("http://cover.localhost/")
+        || trimmed.starts_with("cover://localhost/")
+    {
+        return Some(trimmed.to_string());
+    }
 
-    // 1. If base64 data URI, save to config/covers and return relative path
+    // Inline legacy images remain readable; native callers migrate them into the SQLite cache.
     if trimmed.starts_with("data:image/") {
-        if let Some(disk_path) = save_base64_cover(trimmed) {
-            let p = Path::new(&disk_path);
-            if let Some(fname) = p.file_name().and_then(|f| f.to_str()) {
-                return Some(format!("config/covers/{}", fname));
-            }
-        }
-        return None;
+        return Some(trimmed.to_string());
     }
 
     // 2. External web URLs (http/https not asset.localhost)
@@ -198,6 +159,12 @@ pub fn to_absolute_cover(cover_val: &str, base_dir: &Path) -> Option<String> {
     let trimmed = cover_val.trim();
     if trimmed.is_empty() {
         return None;
+    }
+    if trimmed.starts_with("https://cover.localhost/")
+        || trimmed.starts_with("http://cover.localhost/")
+        || trimmed.starts_with("cover://localhost/")
+    {
+        return Some(trimmed.to_string());
     }
 
     // 1. Base64 data URLs pass through as-is
@@ -308,14 +275,13 @@ pub fn to_absolute_music_path(path_str: &str, base_dir: &Path) -> Option<String>
 /// Initialize the modular directory structure on startup
 pub fn init_storage_structure(base_dir: &Path) {
     let config_dir = base_dir.join("config");
-    let covers_dir = config_dir.join("covers");
     let playlists_dir = base_dir.join("playlists");
     let themes_dir = base_dir.join("themes");
     let locales_dir = base_dir.join("locales");
     let logs_dir = config_dir.join("logs");
 
     let _ = fs::create_dir_all(&config_dir);
-    let _ = fs::create_dir_all(&covers_dir);
+    // Artwork is stored in the SQLite cover cache; do not recreate the retired config/covers folder.
     let _ = fs::create_dir_all(&logs_dir);
     let _ = fs::create_dir_all(&playlists_dir);
     let _ = fs::create_dir_all(&themes_dir);
@@ -639,24 +605,6 @@ Arachnid Music Player supports two formats for custom themes:
     }
 }
 
-/// Automatically migrate legacy single arachnid_data.json into the modular folder structure
-fn migrate_legacy_data(base_dir: &Path) {
-    let legacy_file = base_dir.join("arachnid_data.json");
-    let settings_file = base_dir.join("config").join("settings.json");
-
-    // Only migrate if legacy exists and settings.json does not exist yet
-    if legacy_file.is_file() && !settings_file.exists() {
-        if let Ok(content) = fs::read_to_string(&legacy_file) {
-            if let Ok(val) = serde_json::from_str::<Value>(&content) {
-                let _ = save_modular_data(&val);
-                // Create backup of old single file to ensure no loss of data
-                let backup_file = base_dir.join("arachnid_data.json.bak");
-                let _ = fs::rename(&legacy_file, &backup_file);
-            }
-        }
-    }
-}
-
 /// Save only the domains present in `data` into their modular files across config/ and playlists/
 pub fn save_modular_data(data: &Value) -> Result<bool, String> {
     let base_dir = get_portable_base_dir();
@@ -684,9 +632,7 @@ pub fn save_modular_data(data: &Value) -> Result<bool, String> {
             .map_err(|e| format!("Failed to write settings to {:?}: {}", settings_path, e))?;
     }
 
-    // 2. The SQLite database is the only active media catalog. Older library.json
-    // files are deliberately left untouched for one-time ID/path recovery; never
-    // overwrite them with a paginated view or remove them without user consent.
+    // 2. SQLite is the only native track catalog. Playlist path/ID references live in M3U8 files.
 
     // 3. Save Playlists Hierarchy Tree (folders & groups) only when supplied.
     // This lets settings-only writes avoid touching the playlist files.
@@ -767,25 +713,10 @@ pub fn load_modular_data() -> Result<Option<String>, String> {
     let base_dir = get_portable_base_dir();
     init_storage_structure(&base_dir);
 
-    // Perform one-time migration if needed
-    migrate_legacy_data(&base_dir);
-
     let config_dir = base_dir.join("config");
     let playlists_dir = base_dir.join("playlists");
     let settings_path = config_dir.join("settings.json");
-    let library_path = config_dir.join("library.json");
     let tree_path = playlists_dir.join("tree.json");
-
-    // If nothing exists yet, check legacy file as fallback
-    if !settings_path.exists() && !library_path.exists() {
-        let legacy_file = base_dir.join("arachnid_data.json");
-        if legacy_file.is_file() {
-            let content = fs::read_to_string(&legacy_file)
-                .map_err(|e| format!("Failed to read legacy data: {}", e))?;
-            return Ok(Some(content));
-        }
-        return Ok(None);
-    }
 
     let mut combined = json!({});
 
@@ -1256,41 +1187,44 @@ pub fn parse_m3u8_playlist(
 }
 
 
-/// Read only the minimal path/ID/user-state projection needed to reconnect playlists
-/// during the one-time SQLite catalog rebuild. No legacy Track objects cross the WebView.
-pub fn load_legacy_track_references() -> Result<Vec<crate::library_db::LegacyTrackReference>, String> {
-    let base_dir = get_portable_base_dir();
-    let candidates = [
-        base_dir.join("config").join("library.json"),
-        base_dir.join("arachnid_data.json.bak"),
-        base_dir.join("arachnid_data.json"),
-    ];
-    let Some(path) = candidates.iter().find(|path| path.is_file()) else {
-        return Ok(Vec::new());
-    };
-    let content = fs::read_to_string(path).map_err(|error| format!("Read legacy library index: {error}"))?;
-    let value: Value = serde_json::from_str(&content).map_err(|error| format!("Parse legacy library index: {error}"))?;
-    let Some(tracks) = value.get("tracks").and_then(Value::as_array) else {
-        return Ok(Vec::new());
-    };
-    let mut references = Vec::with_capacity(tracks.len());
-    for track in tracks {
-        let (Some(id), Some(raw_path)) = (
-            track.get("id").and_then(Value::as_str),
-            track.get("path").and_then(Value::as_str),
-        ) else { continue };
-        if id.is_empty() || raw_path.trim().is_empty() { continue; }
-        let resolved_path = to_absolute_music_path(raw_path, &base_dir).unwrap_or_else(|| {
-            let path = Path::new(raw_path);
-            if path.is_absolute() { raw_path.to_string() } else { base_dir.join(path).to_string_lossy().to_string() }
-        });
-        references.push(crate::library_db::LegacyTrackReference {
-            id: id.to_string(),
-            path: resolved_path,
-            is_favorite: track.get("isFavorite").and_then(Value::as_bool).unwrap_or(false),
-            play_count: track.get("playCount").and_then(Value::as_u64).unwrap_or(0),
-            date_added: track.get("dateAdded").and_then(Value::as_i64).unwrap_or(0),
-        });
+#[cfg(test)]
+mod storage_tests {
+    use super::*;
+
+    #[test]
+    fn retired_library_index_cleanup_removes_only_the_obsolete_file() {
+        let root = std::env::temp_dir().join(format!(
+            "arachnid-retired-index-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        let index = root.join("config").join("library.json");
+        fs::create_dir_all(index.parent().unwrap()).unwrap();
+        fs::write(&index, "stale synthetic index").unwrap();
+
+        assert!(remove_retired_library_index(&root).unwrap());
+        assert!(!index.exists());
+        assert!(!remove_retired_library_index(&root).unwrap());
+        fs::remove_dir_all(root).unwrap();
     }
-    Ok(references)
+
+    #[test]
+    fn startup_storage_init_does_not_recreate_file_cover_folder() {
+        let root = std::env::temp_dir().join(format!(
+            "arachnid-storage-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+        ));
+        let legacy_covers = root.join("config").join("covers");
+        fs::create_dir_all(&legacy_covers).unwrap();
+        fs::remove_dir(&legacy_covers).unwrap();
+
+        init_storage_structure(&root);
+
+        assert!(!legacy_covers.exists());
+        let inline_cover = "data:image/png;base64,aGVsbG8=";
+        assert_eq!(to_portable_cover(inline_cover, &root).as_deref(), Some(inline_cover));
+        assert!(!legacy_covers.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
 }

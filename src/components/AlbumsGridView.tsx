@@ -6,6 +6,7 @@ import { AppLanguage } from '../i18n';
 import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
 import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups';
 import { matchesLibraryCollectionSearch, type LibraryCollectionGroup } from '../services/libraryCollectionIndex';
+import { coverVariantUrl } from '../utils/coverArt';
 
 interface AlbumsGridViewProps {
   tracks: Track[];
@@ -39,7 +40,7 @@ const AlbumCard = memo<{
       <div className="relative aspect-square rounded-2xl overflow-hidden bg-md3-surface-container-high shadow-md mb-3">
         {album.coverArt ? (
           <img
-            src={album.coverArt}
+            src={coverVariantUrl(album.coverArt, 256)}
             alt={album.name}
             loading="lazy"
             decoding="async"
@@ -182,7 +183,7 @@ export const AlbumsGridView: React.FC<AlbumsGridViewProps> = ({
   }
 
   return (
-    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
+    <div ref={scrollContainerRef} data-home-scroll="main" className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-md3-on-surface">

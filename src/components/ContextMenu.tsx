@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { Track, Playlist, PlaylistFolder, PlaylistGroup } from '../types/music';
 import { AppLanguage } from '../i18n';
+import { getFolderIconComponent } from '../theme/folderIcons';
 
 interface ContextMenuProps {
   x: number;
@@ -860,10 +861,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <Layers 
-                    className="w-3.5 h-3.5 shrink-0" 
-                    style={{ color: grp.color || undefined }} 
-                  />
+                  {React.createElement(grp.icon ? getFolderIconComponent(grp.icon) : Layers, {
+                    className: 'w-3.5 h-3.5 shrink-0',
+                    style: { color: grp.color || undefined },
+                  })}
                   <span className="truncate">{grp.name}</span>
                 </div>
                 <ChevronRight className="w-3.5 h-3.5 opacity-60 shrink-0 ml-1.5" />

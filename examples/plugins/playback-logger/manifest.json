@@ -1,0 +1,18 @@
+{
+  "id": "playback-logger",
+  "name": "Playback logger",
+  "version": "1.0.0",
+  "description": "Shows current playback changes in the plugin manager output.",
+  "apiVersion": 1,
+  "entry": "plugin.js",
+  "permissions": ["playback.read"],
+  "settings": [
+    {
+      "key": "prefix",
+      "label": "Log prefix",
+      "type": "text",
+      "default": "Now playing",
+      "options": []
+    }
+  ]
+}

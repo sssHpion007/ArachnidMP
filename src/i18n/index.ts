@@ -92,6 +92,13 @@ export interface Translations {
     fadeDuration: string;
     navigationTabs: string;
     navigationTabsDesc: string;
+    visibleNavigationTabs: string;
+    availableNavigationTabs: string;
+    addNavigationTab: string;
+    removeNavigationTab: string;
+    moveNavigationTabUp: string;
+    moveNavigationTabDown: string;
+    noAvailableNavigationTabs: string;
     discordRpc: string;
     discordEnabled: string;
     discordDisabled: string;
@@ -105,6 +112,12 @@ export interface Translations {
     discordStatusListeningApp: string;
     discordIcons: string;
     discordIconsDesc: string;
+    discordCoverHost: string;
+    discordCoverHostAuto: string;
+    discordCoverHostImg24: string;
+    discordCoverHostUguu: string;
+    discordCoverHostCatbox: string;
+    discordCoverHostImgdb: string;
     discordShowPlayIcon: string;
     discordShowPlayIconDesc: string;
     discordShowPauseIcon: string;
@@ -194,10 +207,15 @@ export interface Translations {
     nextTrack: string;
     prevTrack: string;
     seek: string;
+    mediaKeys: string;
     volumeAdj: string;
     trackNav: string;
+    scrollToTop: string;
+    scrollToBottom: string;
+    scrollByPage: string;
     playSelected: string;
     editTags: string;
+    saveTags: string;
     mute: string;
     shuffle: string;
     repeat: string;
@@ -208,6 +226,8 @@ export interface Translations {
     queue: string;
     clearQueue: string;
     lyrics: string;
+    lyricsWindow: string;
+    miniPlayer: string;
     discord: string;
     settings: string;
     switchTabs: string;
@@ -305,8 +325,15 @@ export const RU_TRANSLATIONS: Translations = {
     crossfadeAlways: 'Всегда',
     crossfadeAlwaysDesc: 'Затухание при переключении, паузе и повторе трека',
     fadeDuration: 'Длительность затухания',
-    navigationTabs: 'Отображение вкладок',
-    navigationTabsDesc: 'Включите или отключите разделы в верхней навигационной панели:',
+    navigationTabs: 'Вкладки навигации',
+    navigationTabsDesc: 'Добавляйте вкладки из списка, убирайте ненужные и меняйте порядок. В панели должна остаться хотя бы одна вкладка.',
+    visibleNavigationTabs: 'Показываются в панели',
+    availableNavigationTabs: 'Можно добавить',
+    addNavigationTab: 'Добавить вкладку',
+    removeNavigationTab: 'Убрать вкладку',
+    moveNavigationTabUp: 'Переместить выше',
+    moveNavigationTabDown: 'Переместить ниже',
+    noAvailableNavigationTabs: 'Все доступные вкладки уже добавлены.',
     discordRpc: 'Интеграция с Discord',
     discordEnabled: 'Включено',
     discordDisabled: 'Выключено',
@@ -320,6 +347,12 @@ export const RU_TRANSLATIONS: Translations = {
     discordStatusListeningApp: '«Слушает ArachnidMP»',
     discordIcons: 'Значки состояния воспроизведения',
     discordIconsDesc: 'Отображение значка в углу обложки при воспроизведении и на паузе',
+    discordCoverHost: 'Хостинг обложек',
+    discordCoverHostAuto: 'Автоматически (рекомендуется)',
+    discordCoverHostImg24: 'i-mg24.ru',
+    discordCoverHostUguu: 'Uguu',
+    discordCoverHostCatbox: 'Catbox',
+    discordCoverHostImgdb: 'ImgDB.io',
     discordShowPlayIcon: 'Показывать значок воспроизведения',
     discordShowPlayIconDesc: 'Отображать значок Play во время звучания трека',
     discordShowPauseIcon: 'Показывать значок паузы',
@@ -409,10 +442,15 @@ export const RU_TRANSLATIONS: Translations = {
     nextTrack: 'Следующий трек',
     prevTrack: 'Предыдущий трек',
     seek: 'Перемотка (±5 сек)',
+    mediaKeys: 'Мультимедийные клавиши',
     volumeAdj: 'Громкость (±5%)',
     trackNav: 'Навигация по трекам',
+    scrollToTop: 'Прокрутить список в начало',
+    scrollToBottom: 'Прокрутить список в конец',
+    scrollByPage: 'Прокрутить на страницу вверх / вниз',
     playSelected: 'Воспроизвести выбранный',
     editTags: 'Редактировать теги',
+    saveTags: 'Сохранить изменения тегов',
     mute: 'Без звука (Mute)',
     shuffle: 'Случайный порядок',
     repeat: 'Режим зацикливания',
@@ -423,6 +461,8 @@ export const RU_TRANSLATIONS: Translations = {
     queue: 'Открыть / закрыть очередь',
     clearQueue: 'Очистить очередь воспроизведения',
     lyrics: 'Открыть / закрыть текст песни',
+    lyricsWindow: 'Открыть текст песни в отдельном окне',
+    miniPlayer: 'Переключить режим мини-плеера',
     discord: 'Переключить статус Discord RPC',
     settings: 'Открыть настройки',
     switchTabs: 'Переключение вкладок навигации',
@@ -521,7 +561,14 @@ export const EN_TRANSLATIONS: Translations = {
     crossfadeAlwaysDesc: 'Fade on manual switches, pause, and repeat-one loops',
     fadeDuration: 'Fade Duration',
     navigationTabs: 'Navigation Tabs',
-    navigationTabsDesc: 'Show or hide sections in the top navigation bar:',
+    navigationTabsDesc: 'Add tabs from the list, remove the ones you do not need, and reorder them. Keep at least one tab in the bar.',
+    visibleNavigationTabs: 'Shown in the navigation bar',
+    availableNavigationTabs: 'Available to add',
+    addNavigationTab: 'Add tab',
+    removeNavigationTab: 'Remove tab',
+    moveNavigationTabUp: 'Move up',
+    moveNavigationTabDown: 'Move down',
+    noAvailableNavigationTabs: 'All available tabs have been added.',
     discordRpc: 'Discord Integration',
     discordEnabled: 'Enabled',
     discordDisabled: 'Disabled',
@@ -535,6 +582,12 @@ export const EN_TRANSLATIONS: Translations = {
     discordStatusListeningApp: '“Listening to ArachnidMP”',
     discordIcons: 'Playback State Icons',
     discordIconsDesc: 'Show small badge on artwork during playback and pause',
+    discordCoverHost: 'Cover image hosting',
+    discordCoverHostAuto: 'Automatic (recommended)',
+    discordCoverHostImg24: 'i-mg24.ru',
+    discordCoverHostUguu: 'Uguu',
+    discordCoverHostCatbox: 'Catbox',
+    discordCoverHostImgdb: 'ImgDB.io',
     discordShowPlayIcon: 'Show Play Icon',
     discordShowPlayIconDesc: 'Display green Play badge when audio is playing',
     discordShowPauseIcon: 'Show Pause Icon',
@@ -624,10 +677,15 @@ export const EN_TRANSLATIONS: Translations = {
     nextTrack: 'Next Track',
     prevTrack: 'Previous Track',
     seek: 'Seek (±5 sec)',
+    mediaKeys: 'Media Keys',
     volumeAdj: 'Volume (±5%)',
     trackNav: 'Navigate Tracks',
+    scrollToTop: 'Scroll List to Top',
+    scrollToBottom: 'Scroll List to Bottom',
+    scrollByPage: 'Scroll Up / Down by a Page',
     playSelected: 'Play Selected Track',
     editTags: 'Edit Tags',
+    saveTags: 'Save Tag Changes',
     mute: 'Mute / Unmute',
     shuffle: 'Shuffle Mode',
     repeat: 'Repeat Mode',
@@ -638,6 +696,8 @@ export const EN_TRANSLATIONS: Translations = {
     queue: 'Open / Close Queue',
     clearQueue: 'Clear Playback Queue',
     lyrics: 'Open / Close Lyrics Panel',
+    lyricsWindow: 'Open Lyrics in Separate Window',
+    miniPlayer: 'Toggle Mini Player Mode',
     discord: 'Toggle Discord RPC Status',
     settings: 'Open Settings',
     switchTabs: 'Switch Navigation Tabs',

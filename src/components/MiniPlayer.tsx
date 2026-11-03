@@ -1,18 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   ChevronDown,
   ChevronLeft,
-  AlertTriangle,
   Disc3,
   Heart,
   Info,
   Layers,
   Mic2,
-  Library,
   ListMusic,
-  Music2,
   Pause,
   Play,
   Repeat,
@@ -27,13 +23,16 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { Playlist, PlaylistFolder, PlaylistGroup, Track } from '../types/music';
-import { getFolderColorHex, getFolderIconComponent } from '../theme/folderIcons';
+import { getFolderColorHex, getFolderIconComponent, getThemedPlayIconColor } from '../theme/folderIcons';
 import { AppLanguage } from '../i18n';
 import { formatTime } from '../services/tagEditor';
 import { MiniLyricsPane, MiniLyricsTrack } from './MiniLyricsPane';
 import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups';
 import type { LibraryCollectionGroup } from '../services/libraryCollectionIndex';
+import { coverVariantUrl } from '../utils/coverArt';
 import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
+import { MiniPanelLibraryButton } from './MiniPanelLibraryButton';
+import { MiniTrackRow } from './MiniTrackRow';
 import { FadeInImage } from './FadeInImage';
 import { CrossfadeImage } from './CrossfadeImage';
 import { getFolderTrackIds } from '../services/folderPlayback';
@@ -42,6 +41,8 @@ import { logger } from '../services/logger';
 type LyricsMode = 'closed' | 'attached' | 'detached';
 type BottomPanel = 'queue' | 'library' | null;
 type LibraryTab = 'tracks' | 'playlists' | 'albums' | 'artists' | 'favorites' | 'genres';
+const ALL_LIBRARY_TABS: LibraryTab[] = ['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'];
+const isLibraryTab = (tab: string): tab is LibraryTab => ALL_LIBRARY_TABS.includes(tab as LibraryTab);
 type LibraryCollectionType = 'albums' | 'artists' | 'genres';
 type MiniPlaylistEntry =
   | { type: 'folder'; item: PlaylistFolder; order: number }
@@ -86,53 +87,6 @@ const scrollFixedRowIntoView = (
   container.scrollTo({ top: Math.max(0, Math.min(maxScrollTop, targetTop)), behavior });
 };
 
-interface MiniTrackRowProps {
-  track: Track;
-  active?: boolean;
-  selected?: boolean;
-  language: AppLanguage;
-  index?: number;
-  totalCount?: number;
-  style?: React.CSSProperties;
-  onClick: () => void;
-}
-
-const MiniTrackRow: React.FC<MiniTrackRowProps> = ({ track, active = false, selected = false, language, index, totalCount, style, onClick }) => (
-  <button
-    type="button"
-    role={index !== undefined ? 'listitem' : undefined}
-    aria-posinset={index !== undefined ? index + 1 : undefined}
-    aria-setsize={totalCount}
-    style={style}
-    aria-current={active ? 'true' : undefined}
-    aria-selected={selected ? true : undefined}
-    onClick={onClick}
-    className={`group flex w-full min-w-0 items-center gap-2.5 rounded-2xl p-2 text-left transition-colors ${
-      active
-        ? 'bg-md3-primary-container font-semibold text-md3-on-primary-container shadow-sm'
-        : selected
-          ? 'bg-md3-primary/10 ring-1 ring-inset ring-md3-primary/50 text-md3-on-surface'
-          : 'text-md3-on-surface hover:bg-md3-surface-container-high'
-    }`}
-  >
-    <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-md3-surface-container-highest shadow-sm">
-      {track.coverArt ? (
-        <img src={track.coverArt} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
-      ) : (
-        <span className="flex h-full w-full items-center justify-center bg-md3-primary/10 text-md3-primary/70"><Music2 size={16} /></span>
-      )}
-    </span>
-    <span className="min-w-0 flex-1">
-      <span className={`flex items-center gap-1.5 truncate text-[11px] font-bold ${track.isMissing ? 'text-amber-500 dark:text-amber-400' : ''}`}>
-        <span className="truncate">{track.title}</span>
-        {track.isMissing && <span title={text(language, 'Файл не найден', 'File not found')}><AlertTriangle size={12} className="shrink-0" /></span>}
-      </span>
-      <span className="block truncate text-[10px] text-md3-on-surface-variant">{track.artist}</span>
-    </span>
-    <span className="shrink-0 text-[10px] tabular-nums text-md3-on-surface-variant">{formatTime(track.duration)}</span>
-  </button>
-);
-
 interface MiniLibraryCardProps {
   title: string;
   subtitle: string;
@@ -140,6 +94,8 @@ interface MiniLibraryCardProps {
   coverArt?: string;
   icon: React.ReactNode;
   accentColor?: string;
+  isDarkTheme?: boolean;
+  accentFill?: boolean;
   onPlay?: () => void;
   playLabel?: string;
   onResolveCover?: () => Promise<string | null>;
@@ -152,6 +108,8 @@ const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
   coverArt,
   icon,
   accentColor,
+  isDarkTheme = true,
+  accentFill = false,
   onPlay,
   playLabel,
   onResolveCover,
@@ -169,20 +127,36 @@ const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
     return () => { active = false; };
   }, [coverArt, onResolveCover]);
   const displayedCover = coverArt || resolvedCover;
+  const playIconColor = accentColor ? getThemedPlayIconColor(accentColor, isDarkTheme) : undefined;
 
   return (
   <div
     className="group relative aspect-square min-w-0 overflow-hidden rounded-xl border border-md3-outline-variant/15 bg-md3-surface-container-high transition-transform hover:scale-[1.02]"
-    style={accentColor ? { borderColor: accentColor } : undefined}
+    style={accentFill && accentColor ? {
+      borderColor: 'transparent',
+      backgroundColor: `color-mix(in srgb, ${accentColor} 35%, #111614)`,
+    } : accentColor ? { borderColor: accentColor } : undefined}
   >
     {displayedCover ? (
-      <FadeInImage src={displayedCover} alt="" loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" />
+      <FadeInImage src={coverVariantUrl(displayedCover, 256)} alt="" loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105" />
     ) : (
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high text-md3-primary/70">
+      <div
+        className={`pointer-events-none absolute inset-0 flex items-center justify-center ${
+          accentFill && accentColor
+            ? ''
+            : 'bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high text-md3-primary/70'
+        }`}
+        style={accentFill && accentColor ? { color: accentColor } : undefined}
+      >
         {icon}
       </div>
     )}
-    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
+    {accentFill && accentColor && (
+      <div className="pointer-events-none absolute inset-0 shadow-[inset_0_-34px_32px_-12px_rgba(0,0,0,0.62)]" />
+    )}
+    {!(accentFill && accentColor) && (
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
+    )}
     <button
       type="button"
       onClick={onClick}
@@ -202,6 +176,10 @@ const MiniLibraryCard: React.FC<MiniLibraryCardProps> = ({
         }}
         aria-label={playLabel}
         title={playLabel}
+        style={accentColor ? {
+          backgroundColor: accentColor,
+          ...(playIconColor ? { color: playIconColor } : {}),
+        } : undefined}
         className="absolute bottom-2 right-2 z-20 flex h-8 w-8 items-center justify-center rounded-full bg-md3-primary text-md3-on-primary shadow-lg transition-transform hover:scale-110 active:scale-95 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
       >
         <Play size={14} className="ml-0.5 fill-current" />
@@ -228,6 +206,8 @@ interface MiniPlayerProps {
   playlistFolders: PlaylistFolder[];
   playlistGroups: PlaylistGroup[];
   language: AppLanguage;
+  navigationTabOrder: string[];
+  isDarkTheme?: boolean;
   isLibraryDataLoading?: boolean;
   lyricsMode: LyricsMode;
   discordEnabled: boolean;
@@ -249,6 +229,11 @@ interface MiniPlayerProps {
   onLoadMiniCollectionTrackPage?: (
     kind: LibraryCollectionType,
     name: string,
+    offset: number,
+    limit: number,
+  ) => Promise<{ items: Track[]; total: number }>;
+  onLoadMiniLibraryTrackPage?: (
+    favoriteOnly: boolean,
     offset: number,
     limit: number,
   ) => Promise<{ items: Track[]; total: number }>;
@@ -294,6 +279,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   playlistFolders,
   playlistGroups,
   language,
+  navigationTabOrder,
+  isDarkTheme = true,
   isLibraryDataLoading = false,
   lyricsMode,
   discordEnabled,
@@ -313,6 +300,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   onResolveTracksByIds,
   onLoadMiniCollectionGroups,
   onLoadMiniCollectionTrackPage,
+  onLoadMiniLibraryTrackPage,
   onPlayMiniCollectionTrack,
   onClearQueue,
   onToggleLyrics,
@@ -330,6 +318,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const [renderedPanel, setRenderedPanel] = useState<Exclude<BottomPanel, null>>('library');
   const [isPanelContentRendered, setIsPanelContentRendered] = useState(false);
   const [libraryTab, setLibraryTab] = useState<LibraryTab>('tracks');
+  const [failedArtworkSource, setFailedArtworkSource] = useState<string | null>(null);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [selectedPlaylistFolderId, setSelectedPlaylistFolderId] = useState<string | null>(null);
   const [selectedPlaylistGroupId, setSelectedPlaylistGroupId] = useState<string | null>(null);
@@ -348,13 +337,35 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     isLoading: boolean;
     error?: boolean;
   } | null>(null);
+  const [miniLibraryTrackPage, setMiniLibraryTrackPage] = useState<{
+    key: 'tracks' | 'favorites';
+    items: Track[];
+    total: number;
+    isLoading: boolean;
+    error?: boolean;
+  } | null>(null);
   const collectionPageRequestRef = useRef<{ key: string; offset: number } | null>(null);
   const activeCollectionPageKeyRef = useRef<string | null>(null);
+  const miniLibraryPageRequestRef = useRef<{ key: 'tracks' | 'favorites'; offset: number; generation: number } | null>(null);
+  const activeMiniLibraryPageKeyRef = useRef<'tracks' | 'favorites' | null>(null);
+  const miniLibraryPageGenerationRef = useRef(0);
   const currentPlaylist = playlists.find(playlist => playlist.id === selectedPlaylistId) || null;
+  const visibleLibraryTabs = useMemo<LibraryTab[]>(() => {
+    const tabs = navigationTabOrder.filter(isLibraryTab);
+    return tabs.length > 0 ? tabs : ALL_LIBRARY_TABS;
+  }, [navigationTabOrder]);
+  useEffect(() => {
+    if (visibleLibraryTabs.includes(libraryTab)) return;
+    setLibraryTab(visibleLibraryTabs[0] ?? 'tracks');
+    setSelectedPlaylistId(null);
+    setSelectedPlaylistFolderId(null);
+    setSelectedPlaylistGroupId(null);
+    setSelectedCollection(null);
+  }, [visibleLibraryTabs, libraryTab]);
   const [isCompactVolHovered, setIsCompactVolHovered] = useState(false);
-  const [queueSelectedIndex, setQueueSelectedIndex] = useState(queueIndex);
-  const [libraryTrackSelectedIndex, setLibraryTrackSelectedIndex] = useState(0);
-  const [libraryTabIndicator, setLibraryTabIndicator] = useState({ left: 0, top: 0, width: 0, height: 0, opacity: 0 });
+  const [queueSelectedIndex, setQueueSelectedIndex] = useState<number | null>(null);
+  const [libraryTrackSelectedIndex, setLibraryTrackSelectedIndex] = useState<number | null>(null);
+  const [libraryTabIndicator, setLibraryTabIndicator] = useState({ x: 0, y: 0, width: 0, height: 0, opacity: 0 });
   const [queueScrollTop, setQueueScrollTop] = useState(0);
   const [queueViewportHeight, setQueueViewportHeight] = useState(0);
   const [libraryScrollTop, setLibraryScrollTop] = useState(0);
@@ -384,14 +395,20 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     if (panel !== null) {
       setRenderedPanel(panel);
       setIsPanelContentRendered(true);
-      if (panel === 'queue') setQueueScrollTop(0);
-      if (panel === 'library') setLibraryScrollTop(0);
+      if (panel === 'queue') {
+        setQueueScrollTop(0);
+        setQueueSelectedIndex(null);
+      }
+      if (panel === 'library') {
+        setLibraryScrollTop(0);
+        setLibraryTrackSelectedIndex(null);
+      }
     }
     setBottomPanel(panel);
   };
 
   const openLibraryPanel = () => {
-    setLibraryTab('tracks');
+    setLibraryTab(visibleLibraryTabs[0] ?? 'tracks');
     setSelectedPlaylistId(null);
     setSelectedPlaylistFolderId(null);
     setSelectedPlaylistGroupId(null);
@@ -459,7 +476,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   useEffect(() => {
     const handleMiniPlayerKeyboard = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      const isEditing = Boolean(target?.closest('input, textarea, select, [contenteditable="true"]'));
+      const isRangeInput = Boolean(target?.closest('input[type="range"]'));
+      const isEditing = Boolean(target?.closest('input:not([type="range"]), textarea, select, [contenteditable="true"]'));
+      const isNativeRangeAdjustmentKey = ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'End', 'Home', 'PageDown', 'PageUp'].includes(event.key);
 
       if (event.key === 'Escape' || event.code === 'Escape') {
         if (bottomPanel) {
@@ -471,6 +490,23 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       }
 
       if (isEditing) return;
+      const listScrollKey = ['Home', 'End', 'PageUp', 'PageDown'].find(key => event.key === key || event.code === key);
+      if (listScrollKey && !isRangeInput && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && bottomPanel) {
+        const list = bottomPanel === 'queue' ? queueListRef.current : libraryListRef.current;
+        if (list) {
+          const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+          const pageDistance = list.clientHeight;
+          const targetScrollTop = listScrollKey === 'Home' ? 0
+            : listScrollKey === 'End' ? maxScrollTop
+              : listScrollKey === 'PageUp' ? Math.max(0, list.scrollTop - pageDistance)
+                : Math.min(maxScrollTop, list.scrollTop + pageDistance);
+          event.preventDefault();
+          event.stopPropagation();
+          list.scrollTo({ top: targetScrollTop, behavior: 'auto' });
+        }
+        return;
+      }
+      if (isRangeInput && isNativeRangeAdjustmentKey) return;
 
       if (event.key === 'Tab' || event.code === 'Tab') {
         event.preventDefault();
@@ -484,7 +520,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
           return;
         }
 
-        const tabs: LibraryTab[] = ['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'];
+        const tabs = visibleLibraryTabs;
+        if (tabs.length === 0) return;
         const currentIndex = tabs.indexOf(libraryTab);
         const nextIndex = event.shiftKey
           ? (currentIndex <= 0 ? tabs.length - 1 : currentIndex - 1)
@@ -503,7 +540,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         event.stopPropagation();
         if (event.repeat) return;
         if (bottomPanel !== 'queue') {
-          setQueueSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
+          setQueueSelectedIndex(null);
           setMiniPanel('queue');
         } else {
           setMiniPanel(null);
@@ -520,9 +557,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         event.preventDefault();
         event.stopPropagation();
         const direction = isArrowDown ? 1 : -1;
+        const activeTrackIndex = currentTrack ? listTracks.findIndex(track => track.id === currentTrack.id) : -1;
         setLibraryTrackSelectedIndex(current => {
-          const next = Math.max(0, Math.min(listTracks.length - 1, current + direction));
-          if (next !== current) libraryPendingScrollIndexRef.current = next;
+          const baseIndex = current ?? (activeTrackIndex >= 0 ? activeTrackIndex : direction > 0 ? -1 : listTracks.length);
+          const next = Math.max(0, Math.min(listTracks.length - 1, baseIndex + direction));
+          if (current === null || next !== current) libraryPendingScrollIndexRef.current = next;
           return next;
         });
         return;
@@ -534,7 +573,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         event.preventDefault();
         event.stopPropagation();
         if (event.repeat) return;
-        const selectedIndex = Math.max(0, Math.min(listTracks.length - 1, libraryTrackSelectedIndex));
+        const activeTrackIndex = currentTrack ? listTracks.findIndex(track => track.id === currentTrack.id) : -1;
+        const selectedIndex = Math.max(0, Math.min(listTracks.length - 1, libraryTrackSelectedIndex ?? (activeTrackIndex >= 0 ? activeTrackIndex : 0)));
         onPlayTrack(listTracks[selectedIndex], listTracks, currentPlaylist?.id);
         return;
       }
@@ -547,8 +587,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         event.stopPropagation();
         const direction = event.key === 'ArrowDown' || event.code === 'ArrowDown' ? 1 : -1;
         setQueueSelectedIndex(current => {
-          const next = Math.max(0, Math.min(queue.length - 1, current + direction));
-          if (next !== current) queuePendingScrollIndexRef.current = next;
+          const baseIndex = Math.max(0, Math.min(queue.length - 1, current ?? queueIndex));
+          const next = Math.max(0, Math.min(queue.length - 1, baseIndex + direction));
+          if (current === null || next !== current) queuePendingScrollIndexRef.current = next;
           return next;
         });
         return;
@@ -558,15 +599,17 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         event.preventDefault();
         event.stopPropagation();
         if (event.repeat) return;
-        onPlayQueueTrack(Math.max(0, Math.min(queue.length - 1, queueSelectedIndex)));
+        onPlayQueueTrack(Math.max(0, Math.min(queue.length - 1, queueSelectedIndex ?? queueIndex)));
       }
     };
     window.addEventListener('keydown', handleMiniPlayerKeyboard, true);
     return () => window.removeEventListener('keydown', handleMiniPlayerKeyboard, true);
-  }, [bottomPanel, libraryTab, libraryTrackSelectedIndex, currentPlaylist?.id, onPlayQueueTrack, onPlayTrack, queue.length, queueIndex, queueSelectedIndex]);
+  }, [bottomPanel, libraryTab, visibleLibraryTabs, libraryTrackSelectedIndex, currentPlaylist?.id, currentTrack?.id, onPlayQueueTrack, onPlayTrack, queue.length, queueIndex, queueSelectedIndex]);
 
   useEffect(() => {
-    setQueueSelectedIndex(current => queue.length > 0 ? Math.max(0, Math.min(current, queue.length - 1)) : 0);
+    setQueueSelectedIndex(current => current === null
+      ? null
+      : queue.length > 0 ? Math.max(0, Math.min(current, queue.length - 1)) : null);
   }, [queue.length]);
 
   useEffect(() => {
@@ -592,10 +635,10 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   }, [bottomPanel]);
 
   useEffect(() => {
-    if (bottomPanel !== 'queue' || queuePendingScrollIndexRef.current !== queueSelectedIndex) return;
+    if (bottomPanel !== 'queue' || queueSelectedIndex === null || queuePendingScrollIndexRef.current !== queueSelectedIndex) return;
     queuePendingScrollIndexRef.current = null;
     const frame = requestAnimationFrame(() => {
-      scrollFixedRowIntoView(queueListRef.current, queueSelectedIndex, 'nearest', 'smooth');
+      scrollFixedRowIntoView(queueListRef.current, queueSelectedIndex, 'nearest', 'auto');
     });
     return () => cancelAnimationFrame(frame);
   }, [bottomPanel, queueSelectedIndex, queue.length]);
@@ -603,15 +646,14 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   useEffect(() => {
     if (bottomPanel !== 'library') return;
     const nav = libraryTabsNavRef.current;
-    const activeTab = libraryTabRefs.current[libraryTab];
-    if (!nav || !activeTab) return;
+    if (!nav) return;
 
     const updateIndicator = () => {
       const tab = libraryTabRefs.current[libraryTab];
       if (!tab) return;
       setLibraryTabIndicator({
-        left: tab.offsetLeft,
-        top: tab.offsetTop,
+        x: tab.offsetLeft,
+        y: tab.offsetTop,
         width: tab.offsetWidth,
         height: tab.offsetHeight,
         opacity: 1,
@@ -636,13 +678,18 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       updateIndicator();
       ensureTabVisible();
     });
-    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateIndicator) : null;
+    const resizeObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => {
+        updateIndicator();
+        ensureTabVisible();
+      })
+      : null;
     resizeObserver?.observe(nav);
     return () => {
       cancelAnimationFrame(frame);
       resizeObserver?.disconnect();
     };
-  }, [bottomPanel, libraryTab]);
+  }, [bottomPanel, libraryTab, visibleLibraryTabs]);
 
   const safeDuration = duration > 0 ? duration : (currentTrack?.duration || 0);
   const safeTime = Math.max(0, Math.min(safeDuration || 0, currentTime));
@@ -789,9 +836,6 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   const isCollectionsError = useNativeCollectionSource
     && Boolean(nativeCollectionRequest?.error)
     && indexedCollections.length === 0;
-  const isLocalCollectionsFallback = useNativeCollectionSource
-    && indexedCollections.length > 0
-    && !hasNativeCollections;
   const visibleCollections = useMemo(
     () => [...indexedCollections].sort((a, b) => a.name.localeCompare(b.name)),
     [indexedCollections],
@@ -899,6 +943,86 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     }
   }, [selectedCollection, selectedCollectionPageKey, collectionTrackPage, onLoadMiniCollectionTrackPage]);
 
+  const miniLibraryTrackTab = libraryTab === 'tracks' || libraryTab === 'favorites' ? libraryTab : null;
+  const shouldLoadMiniLibraryTracks = bottomPanel === 'library'
+    && isPanelContentRendered
+    && !currentPlaylist
+    && !selectedCollection
+    && miniLibraryTrackTab !== null
+    && Boolean(onLoadMiniLibraryTrackPage);
+
+  useEffect(() => {
+    if (!shouldLoadMiniLibraryTracks || !miniLibraryTrackTab || !onLoadMiniLibraryTrackPage) {
+      miniLibraryPageGenerationRef.current += 1;
+      activeMiniLibraryPageKeyRef.current = null;
+      miniLibraryPageRequestRef.current = null;
+      setMiniLibraryTrackPage(null);
+      return;
+    }
+
+    const key = miniLibraryTrackTab;
+    const generation = ++miniLibraryPageGenerationRef.current;
+    let active = true;
+    activeMiniLibraryPageKeyRef.current = key;
+    miniLibraryPageRequestRef.current = null;
+    setMiniLibraryTrackPage({ key, items: [], total: 0, isLoading: true, error: false });
+    void onLoadMiniLibraryTrackPage(key === 'favorites', 0, 100).then(page => {
+      if (active && miniLibraryPageGenerationRef.current === generation && activeMiniLibraryPageKeyRef.current === key) {
+        setMiniLibraryTrackPage({ key, items: page.items, total: page.total, isLoading: false, error: false });
+      }
+    }).catch(error => {
+      console.warn(`Mini-player failed to load ${key} from the library database:`, error);
+      if (active && miniLibraryPageGenerationRef.current === generation && activeMiniLibraryPageKeyRef.current === key) {
+        setMiniLibraryTrackPage({ key, items: [], total: 0, isLoading: false, error: true });
+      }
+    });
+    return () => {
+      active = false;
+      if (miniLibraryPageGenerationRef.current === generation) miniLibraryPageGenerationRef.current += 1;
+      if (activeMiniLibraryPageKeyRef.current === key) activeMiniLibraryPageKeyRef.current = null;
+    };
+  }, [shouldLoadMiniLibraryTracks, miniLibraryTrackTab, onLoadMiniLibraryTrackPage]);
+
+  const loadMoreMiniLibraryTracks = useCallback(async () => {
+    if (!miniLibraryTrackTab || !onLoadMiniLibraryTrackPage) return;
+    const key = miniLibraryTrackTab;
+    const generation = miniLibraryPageGenerationRef.current;
+    const current = miniLibraryTrackPage?.key === key ? miniLibraryTrackPage : null;
+    if (!current || current.isLoading || current.items.length >= current.total) return;
+    const offset = current.items.length;
+    if (miniLibraryPageRequestRef.current?.key === key
+      && miniLibraryPageRequestRef.current.offset === offset
+      && miniLibraryPageRequestRef.current.generation === generation) return;
+    miniLibraryPageRequestRef.current = { key, offset, generation };
+    setMiniLibraryTrackPage(previous => previous?.key === key ? { ...previous, isLoading: true } : previous);
+    try {
+      const page = await onLoadMiniLibraryTrackPage(key === 'favorites', offset, 100);
+      if (miniLibraryPageGenerationRef.current !== generation || activeMiniLibraryPageKeyRef.current !== key) return;
+      setMiniLibraryTrackPage(previous => {
+        if (previous?.key !== key) return previous;
+        const knownIds = new Set(previous.items.map(track => track.id));
+        return {
+          key,
+          items: [...previous.items, ...page.items.filter(track => !knownIds.has(track.id))],
+          total: page.total,
+          isLoading: false,
+          error: false,
+        };
+      });
+    } catch (error) {
+      console.warn(`Mini-player failed to load the next ${key} page:`, error);
+      if (miniLibraryPageGenerationRef.current === generation && activeMiniLibraryPageKeyRef.current === key) {
+        setMiniLibraryTrackPage(previous => previous?.key === key ? { ...previous, isLoading: false } : previous);
+      }
+    } finally {
+      if (miniLibraryPageRequestRef.current?.key === key
+        && miniLibraryPageRequestRef.current.offset === offset
+        && miniLibraryPageRequestRef.current.generation === generation) {
+        miniLibraryPageRequestRef.current = null;
+      }
+    }
+  }, [miniLibraryTrackTab, miniLibraryTrackPage, onLoadMiniLibraryTrackPage]);
+
   const libraryTracks = useMemo(() => {
     if (currentPlaylist) {
       const resolved = resolvedPlaylistTracks;
@@ -914,18 +1038,21 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         ? selectedCollectionTracks
         : collectionTrackPage.items;
     }
+    if ((libraryTab === 'favorites' || libraryTab === 'tracks') && onLoadMiniLibraryTrackPage) {
+      return miniLibraryTrackPage?.key === libraryTab ? miniLibraryTrackPage.items : [];
+    }
     if (libraryTab === 'favorites') return visibleTracks.filter(track => track.isFavorite);
     if (libraryTab === 'tracks') return visibleTracks;
     return [];
-  }, [currentPlaylist, libraryTab, resolvedPlaylistTracks, selectedCollection, selectedCollectionTracks, collectionTrackPage, selectedCollectionPageKey, onLoadMiniCollectionTrackPage, tracks, visibleTracks]);
+  }, [currentPlaylist, libraryTab, resolvedPlaylistTracks, selectedCollection, selectedCollectionTracks, collectionTrackPage, selectedCollectionPageKey, onLoadMiniCollectionTrackPage, onLoadMiniLibraryTrackPage, miniLibraryTrackPage, tracks, visibleTracks]);
   libraryTracksRef.current = libraryTracks;
   const visibleQueueRows = getFixedRowRange(queue, queueScrollTop, queueViewportHeight);
   const visibleLibraryRows = getFixedRowRange(libraryTracks, libraryScrollTop, libraryViewportHeight);
 
   useEffect(() => {
-    const currentTrackIndex = currentTrack ? libraryTracks.findIndex(track => track.id === currentTrack.id) : -1;
-    setLibraryTrackSelectedIndex(currentTrackIndex >= 0 ? currentTrackIndex : 0);
-  }, [currentPlaylist?.id, selectedCollection?.name, libraryTab, libraryTracks, currentTrack?.id]);
+    setLibraryTrackSelectedIndex(null);
+    libraryPendingScrollIndexRef.current = null;
+  }, [libraryTab, currentPlaylist?.id, selectedPlaylistId, selectedPlaylistFolderId, selectedPlaylistGroupId, selectedCollection?.name]);
 
   useEffect(() => {
     const list = libraryListRef.current;
@@ -952,14 +1079,16 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
   }, [bottomPanel]);
 
   useEffect(() => {
-    if (bottomPanel !== 'library' || libraryPendingScrollIndexRef.current !== libraryTrackSelectedIndex) return;
+    if (bottomPanel !== 'library' || libraryTrackSelectedIndex === null || libraryPendingScrollIndexRef.current !== libraryTrackSelectedIndex) return;
     libraryPendingScrollIndexRef.current = null;
     const frame = requestAnimationFrame(() => {
-      scrollFixedRowIntoView(libraryListRef.current, libraryTrackSelectedIndex, 'nearest', 'smooth');
+      scrollFixedRowIntoView(libraryListRef.current, libraryTrackSelectedIndex, 'nearest', 'auto');
     });
     return () => cancelAnimationFrame(frame);
   }, [bottomPanel, libraryTrackSelectedIndex, libraryTracks.length]);
 
+  const currentCoverSrc = coverVariantUrl(currentTrack?.coverArt, 256);
+  const showCoverFallback = !currentCoverSrc || failedArtworkSource === currentCoverSrc;
   const lyricsTrack: MiniLyricsTrack | null = currentTrack ? {
     id: currentTrack.id,
     title: currentTrack.title,
@@ -974,9 +1103,8 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
       setMiniPanel(null);
       return;
     }
-    if (panel === 'queue') {
-      setQueueSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
-    }
+    if (panel === 'queue') setQueueSelectedIndex(null);
+    if (panel === 'library') setLibraryTrackSelectedIndex(null);
     setMiniPanel(panel);
   };
 
@@ -1001,13 +1129,6 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
     onVolumeChange(nextVolume);
   };
 
-  const handleCoverMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || bottomPanel !== null || !isTauri()) return;
-    void getCurrentWindow().startDragging().catch(error => {
-      console.warn('Unable to drag the mini-player window:', error);
-    });
-  };
-
   const handleVolumeStepClick = (event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1027,20 +1148,20 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
         <div className="flex min-h-0 flex-1 flex-col items-center gap-3 px-5 pb-3 pt-4">
           <div
             data-tauri-drag-region={bottomPanel ? undefined : ''}
-            onMouseDown={handleCoverMouseDown}
             onClick={() => { if (bottomPanel) setMiniPanel(null); }}
             onDragStart={event => event.preventDefault()}
             aria-label={bottomPanel
               ? text(language, 'Нажмите, чтобы закрыть панель', 'Click to close the panel')
               : text(language, 'Перетащить окно мини-плеера', 'Drag the mini-player window')}
             title={bottomPanel ? text(language, 'Нажмите, чтобы закрыть панель', 'Click to close the panel') : undefined}
-            className={`relative mx-auto flex aspect-square w-full max-w-[280px] shrink-0 items-center justify-center overflow-hidden rounded-[24px] bg-md3-surface-container-high shadow-xl ${bottomPanel ? 'cursor-pointer' : ''}`}
+            className={`relative mx-auto flex aspect-square w-full max-w-[280px] shrink-0 select-none items-center justify-center overflow-hidden rounded-[24px] bg-md3-surface-container-high shadow-xl ${bottomPanel ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}`}
           >
-            <Disc3 className="h-24 w-24 text-md3-primary/40" strokeWidth={1.25} />
+            {showCoverFallback && <Disc3 className="pointer-events-none h-24 w-24 text-md3-primary/40" strokeWidth={1.25} />}
             <CrossfadeImage
-              src={currentTrack?.coverArt}
+              src={currentCoverSrc}
               alt={currentTrack?.title || ''}
-              className="absolute inset-0 h-full w-full select-none object-cover"
+              className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover"
+              onSourceError={source => setFailedArtworkSource(source)}
             />
           </div>
 
@@ -1241,15 +1362,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
             renderedPanel === 'queue' ? (
               <>
                 <header className="flex h-12 shrink-0 items-center gap-1.5 border-b border-md3-outline-variant/15 px-3">
-                  <button
-                    type="button"
+                  <MiniPanelLibraryButton
+                    language={language}
+                    isActive={bottomPanel === 'library'}
                     onClick={openLibraryPanel}
-                    title={text(language, 'Открыть библиотеку', 'Open library')}
-                    className="flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[10px] font-semibold text-md3-primary hover:bg-md3-primary/10"
-                  >
-                    <Library size={14} />
-                    <span>{text(language, 'Библиотека', 'Library')}</span>
-                  </button>
+                  />
                   <span className="min-w-0 flex-1" />
                   <span className="flex h-6 min-w-[58px] shrink-0 items-center justify-center rounded-full bg-md3-surface-container-high px-2 text-[9px] font-semibold tabular-nums text-md3-on-surface-variant">{queueTrackCount(queue.length, language)}</span>
                   <button
@@ -1292,7 +1409,10 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                             index={index}
                             totalCount={queue.length}
                             style={{ position: 'absolute', top: index * MINI_TRACK_ROW_HEIGHT, left: 0, right: 0, height: MINI_TRACK_ROW_HEIGHT }}
-                            onClick={() => onPlayQueueTrack(index)}
+                            onClick={() => {
+                              setQueueSelectedIndex(index);
+                              onPlayQueueTrack(index);
+                            }}
                           />
                         );
                       })}
@@ -1303,15 +1423,11 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
             ) : (
               <>
                 <header className="flex h-12 shrink-0 items-center gap-1.5 border-b border-md3-outline-variant/15 px-3">
-                  <button
-                    type="button"
+                  <MiniPanelLibraryButton
+                    language={language}
+                    isActive={bottomPanel === 'library'}
                     onClick={openLibraryPanel}
-                    title={text(language, 'Открыть библиотеку', 'Open library')}
-                    className="flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[10px] font-semibold text-md3-primary hover:bg-md3-primary/10"
-                  >
-                    <Library size={14} />
-                    <span>{text(language, 'Библиотека', 'Library')}</span>
-                  </button>
+                  />
                   {(currentPlaylist || selectedCollection || selectedPlaylistFolder || selectedPlaylistGroup) && (
                     <>
                       <button
@@ -1389,21 +1505,19 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                 >
                   <div
                     aria-hidden="true"
-                    className="pointer-events-none absolute z-0 rounded-full bg-md3-primary transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)]"
+                    className="pointer-events-none absolute left-0 top-0 z-0 rounded-full bg-md3-primary transition-[transform,width,height,opacity] duration-300 ease-[cubic-bezier(0.2,0,0,1)]"
                     style={{
-                      left: libraryTabIndicator.left,
-                      top: libraryTabIndicator.top,
                       width: libraryTabIndicator.width,
                       height: libraryTabIndicator.height,
                       opacity: libraryTabIndicator.opacity,
-                      boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
+                      transform: `translate3d(${libraryTabIndicator.x}px, ${libraryTabIndicator.y}px, 0)`,
                     }}
                   />
-                  {(['tracks', 'playlists', 'albums', 'artists', 'favorites', 'genres'] as LibraryTab[]).map(tab => {
+                  {visibleLibraryTabs.map(tab => {
                     const label = tab === 'tracks' ? text(language, 'Треки', 'Tracks')
                       : tab === 'playlists' ? text(language, 'Плейлисты', 'Playlists')
                         : tab === 'albums' ? text(language, 'Альбомы', 'Albums')
-                          : tab === 'artists' ? text(language, 'Артисты', 'Artists')
+                          : tab === 'artists' ? text(language, 'Исполнители', 'Artists')
                             : tab === 'favorites' ? text(language, 'Избранное', 'Favorites')
                               : text(language, 'Жанры', 'Genres');
                     const active = libraryTab === tab;
@@ -1412,6 +1526,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                         key={tab}
                         ref={node => { libraryTabRefs.current[tab] = node; }}
                         type="button"
+                        onMouseDown={event => event.preventDefault()}
                         onClick={() => {
                           logger.info('MINI_COLLECTION', `tab selected: tab=${tab}, panel=${bottomPanel ?? 'closed'}`);
                           setLibraryTab(tab);
@@ -1421,7 +1536,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                           setSelectedCollection(null);
                         }}
                         aria-current={active ? 'page' : undefined}
-                        className={`relative z-10 shrink-0 rounded-full px-2.5 py-1 text-[9px] transition-colors duration-200 ${active ? 'font-semibold text-md3-on-primary' : 'text-md3-on-surface-variant hover:bg-md3-surface-container-high/60 hover:text-md3-on-surface'}`}
+                        className={`relative z-10 shrink-0 rounded-full bg-transparent px-2.5 py-1 text-[9px] transition-colors duration-150 ${active ? 'font-semibold text-md3-on-primary' : 'text-md3-on-surface-variant hover:text-md3-on-surface'}`}
                       >{label}</button>
                     );
                   })}
@@ -1431,15 +1546,22 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                   onScroll={event => {
                     const container = event.currentTarget;
                     setLibraryScrollTop(container.scrollTop);
-                    if (selectedCollection && onLoadMiniCollectionTrackPage
-                      && container.scrollHeight - (container.scrollTop + container.clientHeight) < 800) {
-                      void loadMoreCollectionTracks();
+                    if (container.scrollHeight - (container.scrollTop + container.clientHeight) < 800) {
+                      if (selectedCollection && onLoadMiniCollectionTrackPage) {
+                        void loadMoreCollectionTracks();
+                      } else if (!currentPlaylist && !selectedCollection && onLoadMiniLibraryTrackPage
+                        && (libraryTab === 'tracks' || libraryTab === 'favorites')) {
+                        void loadMoreMiniLibraryTracks();
+                      }
                     }
                   }}
                   className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-2"
                 >
                   {libraryTab === 'playlists' && !currentPlaylist && !selectedCollection && (
-                    <div className="space-y-3">
+                    <div
+                      key={`mini-playlists:${selectedPlaylistFolderId ?? ''}:${selectedPlaylistGroupId ?? ''}`}
+                      className="space-y-3 mini-library-content-enter"
+                    >
                       {!selectedPlaylistFolder && !selectedPlaylistGroup && playlistGroups.length > 0 && (
                         <section className="space-y-1.5">
                           <h3 className="px-1 text-[9px] font-bold uppercase tracking-wider text-md3-on-surface-variant/75">
@@ -1453,13 +1575,16 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                             renderItem={group => {
                               const itemCount = playlistFolders.filter(folder => !folder.parentId && folder.groupId === group.id).length
                                 + playlists.filter(playlist => !playlist.folderId && playlist.groupId === group.id).length;
-                              const color = group.color ? getFolderColorHex(group.color) : undefined;
+                              const color = getFolderColorHex(group.color);
+                              const GroupIcon = group.icon ? getFolderIconComponent(group.icon) : Layers;
                               return (
                                 <MiniLibraryCard
                                   title={group.name}
                                   subtitle={`${itemCount} ${text(language, 'элементов', 'items')}${group.isIsolated ? ` · ${text(language, 'изолированная', 'isolated')}` : ''}`}
-                                  icon={<Layers size={28} />}
+                                  icon={<GroupIcon className="h-7 w-7" />}
                                   accentColor={color}
+                                  isDarkTheme={isDarkTheme}
+                                  accentFill
                                   onClick={() => {
                                     setSelectedPlaylistGroupId(group.id);
                                     setSelectedPlaylistFolderId(null);
@@ -1502,6 +1627,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                                     onResolveCover={folder.coverType && folder.coverType !== 'icon' ? () => resolveFolderCover(folder.id) : undefined}
                                     icon={<FolderIcon size={28} />}
                                     accentColor={folder.color ? getFolderColorHex(folder.color) : undefined}
+                                    isDarkTheme={isDarkTheme}
                                     onClick={() => {
                                       setSelectedPlaylistFolderId(folder.id);
                                       setSelectedPlaylistId(null);
@@ -1513,7 +1639,9 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                               }
                               const playlist = entry.item;
                               const cover = playlist.coverArt || tracks.find(track => playlist.trackIds.includes(track.id) && track.coverArt)?.coverArt;
-                              const PlaylistIcon = playlist.icon ? getFolderIconComponent(playlist.icon) : ListMusic;
+                              const PlaylistIcon = playlist.id === 'pl_favorites'
+                                ? Heart
+                                : playlist.icon ? getFolderIconComponent(playlist.icon) : ListMusic;
                               return (
                                 <MiniLibraryCard
                                   title={playlist.name}
@@ -1521,6 +1649,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                                   coverArt={cover}
                                   icon={<PlaylistIcon size={28} />}
                                   accentColor={playlist.color ? getFolderColorHex(playlist.color) : undefined}
+                                  isDarkTheme={isDarkTheme}
                                   onClick={() => setSelectedPlaylistId(playlist.id)}
                                   onPlay={playlist.trackIds.length > 0 ? () => onPlayPlaylist(playlist) : undefined}
                                   onResolveCover={() => resolvePlaylistCover(playlist.id)}
@@ -1544,16 +1673,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                     isCollectionsLoading ? null : isCollectionsError ? (
                       <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Не удалось загрузить медиатеку', 'Unable to load the library')}</p>
                     ) : visibleCollections.length > 0 ? (
-                      <>
-                        {isLocalCollectionsFallback && (
-                          <p role="status" className="mb-2 rounded-lg bg-md3-surface-container-high px-2 py-1.5 text-[10px] text-md3-on-surface-variant">
-                            {nativeCollectionRequest?.isLoading || !nativeCollectionRequest
-                              ? text(language, 'Показана загруженная часть медиатеки; загружаю полный список…', 'Showing loaded library items while the full list loads…')
-                              : nativeCollectionRequest.error
-                                ? text(language, 'Не удалось загрузить полный список; показана загруженная часть медиатеки.', 'Unable to load the full list; showing loaded library items.')
-                                : text(language, 'Полный список пуст; показана загруженная часть медиатеки.', 'The full list is empty; showing loaded library items.')}
-                          </p>
-                        )}
+                      <div key={`mini-collections:${libraryTab}`} className="collection-card-enter">
                         <VirtualizedCollectionGrid
                           items={visibleCollections}
                           scrollContainerRef={libraryListRef}
@@ -1565,7 +1685,7 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                               onClick={() => setSelectedCollection({ type: libraryTab as LibraryCollectionType, name: group.name })}
                               className="group relative aspect-[1.18] w-full min-w-0 overflow-hidden rounded-xl bg-md3-surface-container-high text-left"
                             >
-                              {group.coverArt ? <img src={group.coverArt} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high"><Disc3 size={28} className="text-md3-primary/65" /></div>}
+                              {group.coverArt ? <img src={coverVariantUrl(group.coverArt, 96)} alt="" loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-md3-primary/20 to-md3-surface-container-high"><Disc3 size={28} className="text-md3-primary/65" /></div>}
                               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
                               <span className="absolute inset-x-2 bottom-2 min-w-0 text-white">
                                 <span className="block truncate text-[11px] font-semibold">{group.name}</span>
@@ -1574,12 +1694,17 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                             </button>
                           )}
                         />
-                      </>
+                      </div>
                     ) : <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Ничего не найдено', 'Nothing here yet')}</p>
                   )}
                   {(libraryTab === 'tracks' || libraryTab === 'favorites' || currentPlaylist || selectedCollection) && (
                     libraryTracks.length > 0 ? (
-                      <div role="list" style={{ position: 'relative', height: visibleLibraryRows.totalHeight }}>
+                      <div
+                        key={`mini-track-list:${libraryTab}:${currentPlaylist?.id ?? ''}:${selectedCollectionPageKey ?? ''}`}
+                        role="list"
+                        className="mini-library-content-enter"
+                        style={{ position: 'relative', height: visibleLibraryRows.totalHeight }}
+                      >
                         {visibleLibraryRows.items.map((track, offset) => {
                           const index = visibleLibraryRows.startIndex + offset;
                           return (
@@ -1609,6 +1734,10 @@ export const MiniPlayer: React.FC<MiniPlayerProps> = ({
                       null
                     ) : selectedCollection && collectionTrackPage?.key === selectedCollectionPageKey && collectionTrackPage.error ? (
                       <p role="alert" className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Не удалось загрузить треки коллекции', 'Unable to load collection tracks')}</p>
+                    ) : shouldLoadMiniLibraryTracks && (!miniLibraryTrackPage || miniLibraryTrackPage.key !== miniLibraryTrackTab || miniLibraryTrackPage.isLoading) ? (
+                      null
+                    ) : shouldLoadMiniLibraryTracks && miniLibraryTrackPage?.key === miniLibraryTrackTab && miniLibraryTrackPage.error ? (
+                      <p role="alert" className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, 'Не удалось загрузить треки медиатеки', 'Unable to load library tracks')}</p>
                     ) : isLibraryDataLoading && (libraryTab === 'tracks' || libraryTab === 'favorites') ? (
                       null
                     ) : <p className="p-6 text-center text-xs text-md3-on-surface-variant">{text(language, libraryTab === 'favorites' ? 'В избранном пока нет треков' : 'В этом списке нет треков', libraryTab === 'favorites' ? 'No favorite tracks yet' : 'No tracks in this list')}</p>

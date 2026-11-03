@@ -5,6 +5,7 @@ import { AppLanguage } from '../i18n';
 import { VirtualizedCollectionGrid } from './VirtualizedCollectionGrid';
 import { useLibraryCollectionGroups } from '../hooks/useLibraryCollectionGroups';
 import { matchesLibraryCollectionSearch, type LibraryCollectionGroup } from '../services/libraryCollectionIndex';
+import { coverVariantUrl } from '../utils/coverArt';
 
 interface ArtistsGridViewProps {
   tracks: Track[];
@@ -38,7 +39,7 @@ const ArtistCard = memo<{
       <div className="relative w-32 h-32 rounded-full overflow-hidden bg-md3-surface-container-high shadow-md mb-3 group-hover:shadow-lg transition-shadow">
         {artist.coverArt ? (
           <img
-            src={artist.coverArt}
+            src={coverVariantUrl(artist.coverArt, 256)}
             alt={artist.name}
             loading="lazy"
             decoding="async"
@@ -172,7 +173,7 @@ export const ArtistsGridView: React.FC<ArtistsGridViewProps> = ({
   }
 
   return (
-    <div ref={scrollContainerRef} className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
+    <div ref={scrollContainerRef} data-home-scroll="main" className="flex-1 overflow-y-auto custom-scrollbar p-6 select-none">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-md3-on-surface">

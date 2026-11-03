@@ -384,7 +384,13 @@ export const FolderContextMenu: React.FC<FolderContextMenuProps> = ({
                       isCurrent ? 'text-md3-primary font-bold' : 'text-md3-on-surface'
                     }`}
                   >
-                    <span className="truncate">{group.name}</span>
+                    <div className="flex min-w-0 items-center gap-2">
+                      {React.createElement(group.icon ? getFolderIconComponent(group.icon) : Layers, {
+                        className: 'h-3.5 w-3.5 shrink-0',
+                        style: { color: group.color || undefined },
+                      })}
+                      <span className="truncate">{group.name}</span>
+                    </div>
                     {isCurrent && <Check className="w-3.5 h-3.5 text-md3-primary shrink-0 ml-1" />}
                   </button>
                 );

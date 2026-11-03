@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { X, Trash2, Shuffle, Music, Play, ArrowUp, ArrowDown, GripVertical, AlertTriangle } from 'lucide-react';
 import { Track } from '../types/music';
+import { coverVariantUrl } from '../utils/coverArt';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage } from '../i18n';
 import { useDrawerAnimation } from '../utils/useModalAnimation';
@@ -41,7 +42,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
   const [internalIsCompact, setInternalIsCompact] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth < 780 : false
   );
-  const [selectedIndex, setSelectedIndex] = useState(queueIndex);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
   const pendingSelectionScrollRef = useRef<number | null>(null);
@@ -107,14 +108,15 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
         e.stopPropagation();
         const direction = e.key === 'ArrowDown' ? 1 : -1;
         setSelectedIndex(current => {
-          const next = Math.max(0, Math.min(queue.length - 1, current + direction));
-          if (next !== current) pendingSelectionScrollRef.current = next;
+          const baseIndex = Math.max(0, Math.min(queue.length - 1, current ?? queueIndex));
+          const next = Math.max(0, Math.min(queue.length - 1, baseIndex + direction));
+          if (current === null || next !== current) pendingSelectionScrollRef.current = next;
           return next;
         });
       } else if (e.key === 'Enter' && queue.length > 0) {
         e.preventDefault();
         e.stopPropagation();
-        if (!e.repeat) onPlayQueueTrack(Math.max(0, Math.min(queue.length - 1, selectedIndex)));
+        if (!e.repeat) onPlayQueueTrack(Math.max(0, Math.min(queue.length - 1, selectedIndex ?? queueIndex)));
       }
     };
 
@@ -133,15 +135,17 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
       wasOpenRef.current = true;
       pendingSelectionScrollRef.current = null;
       setScrollTop(0);
-      setSelectedIndex(queue.length > 0 ? Math.max(0, Math.min(queueIndex, queue.length - 1)) : 0);
+      setSelectedIndex(null);
       return;
     }
 
-    setSelectedIndex(current => queue.length > 0 ? Math.max(0, Math.min(current, queue.length - 1)) : 0);
+    setSelectedIndex(current => current === null
+      ? null
+      : queue.length > 0 ? Math.max(0, Math.min(current, queue.length - 1)) : null);
   }, [isOpen, queueIndex, queue.length]);
 
   useEffect(() => {
-    if (!isOpen || pendingSelectionScrollRef.current !== selectedIndex) return;
+    if (!isOpen || selectedIndex === null || pendingSelectionScrollRef.current !== selectedIndex) return;
     pendingSelectionScrollRef.current = null;
     const frameId = requestAnimationFrame(() => {
       const container = listContainerRef.current;
@@ -150,10 +154,8 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
       const rowBottom = rowTop + QUEUE_ROW_CONTENT_HEIGHT;
       const viewportTop = container.scrollTop;
       const viewportBottom = viewportTop + container.clientHeight;
-      if (rowTop < viewportTop) container.scrollTo({ top: rowTop, behavior: 'smooth' });
-      else if (rowBottom > viewportBottom) {
-        container.scrollTo({ top: rowBottom - container.clientHeight, behavior: 'smooth' });
-      }
+      if (rowTop < viewportTop) container.scrollTop = rowTop;
+      else if (rowBottom > viewportBottom) container.scrollTop = rowBottom - container.clientHeight;
     });
     return () => cancelAnimationFrame(frameId);
   }, [isOpen, selectedIndex]);
@@ -371,6 +373,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
       {/* Queue items list */}
       <div
         ref={listContainerRef}
+        data-home-scroll="queue"
         onScroll={event => setScrollTop(event.currentTarget.scrollTop)}
         className="flex-1 overflow-y-auto p-2 custom-scrollbar"
       >
@@ -399,6 +402,8 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                   role="listitem"
                   aria-posinset={idx + 1}
                   aria-setsize={queue.length}
+                  aria-current={isCurrent ? 'true' : undefined}
+                  aria-selected={idx === selectedIndex ? true : undefined}
                   data-queue-row-index={idx}
                   onPointerDown={(e) => handlePointerDown(e, idx)}
                   style={{
@@ -408,13 +413,15 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                     right: 0,
                     height: QUEUE_ROW_CONTENT_HEIGHT,
                   }}
-                  className={`group flex items-center justify-between p-2 rounded-2xl transition-all select-none ${
+                  className={`group flex items-center justify-between p-2 rounded-2xl transition-[background-color,color,box-shadow] duration-150 ease-out select-none ${
                     isBeingDragged
                       ? 'opacity-30 bg-md3-primary/10 border-dashed border border-md3-primary/40'
-                      : isCurrent
-                      ? `bg-md3-primary-container text-md3-on-primary-container font-semibold shadow-sm ${idx === selectedIndex ? 'ring-2 ring-inset ring-md3-primary/70' : ''}`
+                      : idx === selectedIndex && isCurrent
+                      ? 'bg-md3-primary-container text-md3-on-primary-container font-semibold shadow-sm ring-2 ring-inset ring-md3-primary/70'
                       : idx === selectedIndex
                       ? 'bg-md3-primary/10 ring-2 ring-inset ring-md3-primary/60 text-md3-on-surface'
+                      : isCurrent
+                      ? 'bg-md3-primary-container text-md3-on-primary-container font-semibold shadow-sm'
                       : 'hover:bg-md3-surface-container-high text-md3-on-surface'
                   }`}
                 >
@@ -451,7 +458,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
                     <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-md3-surface-container-highest shadow-sm relative">
                       {track.coverArt ? (
                         <img
-                          src={track.coverArt}
+                          src={coverVariantUrl(track.coverArt, 96)}
                           alt={track.title}
                           loading="lazy"
                           decoding="async"
@@ -535,7 +542,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({
         >
           <div className="w-6 h-6 rounded-lg overflow-hidden shrink-0 bg-md3-surface-container-high flex items-center justify-center">
             {queue[dragState.index].coverArt ? (
-              <img src={queue[dragState.index].coverArt} alt="" className="w-full h-full object-cover" />
+              <img src={coverVariantUrl(queue[dragState.index].coverArt, 96)} alt="" className="w-full h-full object-cover" />
             ) : (
               <Music className="w-3.5 h-3.5 text-md3-primary" />
             )}
