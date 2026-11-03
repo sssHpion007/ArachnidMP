@@ -178,15 +178,13 @@ const DiscordShortcutHint: React.FC<{ language: AppLanguage; shortcutLabel: stri
           <CircleHelp className="h-4 w-4" />
         </button>
         {isOpen && (
-          <section id="discord-shortcut-help" role="tooltip" aria-labelledby="discord-shortcut-title" className="pointer-events-none absolute right-0 top-full z-50 mt-2 w-[min(20rem,calc(100vw-3rem))] rounded-2xl border border-md3-outline-variant/30 bg-md3-surface-container p-4 text-left shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-start gap-3">
+          <section id="discord-shortcut-help" role="tooltip" aria-labelledby="discord-shortcut-title" className="pointer-events-none absolute right-0 top-full z-50 mt-2 w-[min(22rem,calc(100vw-3rem))] rounded-2xl border border-md3-outline-variant/30 bg-md3-surface-container p-4 text-left shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-md3-primary/10 text-md3-primary"><Keyboard className="h-4 w-4" /></div>
-              <div className="min-w-0">
-                <h3 id="discord-shortcut-title" className="text-sm font-bold text-md3-on-surface">{language === 'ru' ? 'Горячая клавиша Discord RPC' : 'Discord RPC keyboard shortcut'}</h3>
-                <p className="mt-1.5 text-xs leading-relaxed text-md3-on-surface-variant">{language === 'ru' ? 'Быстро включить или выключить публикацию статуса можно сочетанием:' : 'Quickly toggle Discord status sharing with:'}</p>
-                <kbd className="mt-2 inline-flex rounded-lg border border-md3-outline-variant/30 bg-md3-surface-container-high px-2.5 py-1.5 text-center font-mono text-[11px] font-bold text-md3-primary">{shortcutLabel}</kbd>
-              </div>
+              <h3 id="discord-shortcut-title" className="text-sm font-bold text-md3-on-surface">{language === 'ru' ? 'Горячая клавиша' : 'Keyboard shortcut'}</h3>
             </div>
+            <p className="mt-2 text-xs leading-relaxed text-md3-on-surface-variant">{language === 'ru' ? 'Быстро включить или выключить публикацию активности можно сочетанием:' : 'Quickly toggle Discord activity sharing with:'}</p>
+            <kbd className="mt-2 inline-flex rounded-lg border border-md3-outline-variant/30 bg-md3-surface-container-high px-2.5 py-1.5 text-center font-mono text-[11px] font-bold text-md3-primary">{shortcutLabel}</kbd>
           </section>
         )}
       </div>
