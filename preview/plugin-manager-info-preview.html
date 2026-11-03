@@ -54,8 +54,13 @@
     .settings-head h2{margin:0;font-size:19px;letter-spacing:-.025em}
     .settings-head p{margin:5px 0 0;color:var(--muted);font-size:11px}
     .shortcut-help-row{width:100%}
-    .inline-help{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;padding:10px 12px;border:1px solid rgba(205,194,235,.12);border-radius:13px;background:#25242c;color:#d7d4df;font-size:11px;line-height:1.5;animation:pop .15s ease-out}
+    .help-trigger-row{display:flex;justify-content:flex-end}
+    .inline-help{margin-top:4px;padding:10px 12px;border:1px solid rgba(205,194,235,.12);border-radius:13px;background:#25242c;color:#d7d4df;font-size:11px;line-height:1.5;animation:pop .15s ease-out}
     .inline-help[hidden]{display:none}
+    .popover-title{display:flex;align-items:center;gap:7px;margin-bottom:4px;color:#eeeaf7;font-size:11px;font-weight:750}
+    .popover-content{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .status-controls{display:flex;align-items:center;gap:10px}
+    .status-pill{padding:4px 9px;border-radius:999px;background:rgba(117,214,170,.11);color:var(--green);font-size:10px;font-weight:700}
     .help-btn{width:34px;height:34px;border:1px solid var(--line);border-radius:50%;background:var(--surface-low);color:#c4b5ff;display:grid;place-items:center;font-size:16px;transition:.18s}
     .help-btn:hover,.help-btn:focus-visible{border-color:rgba(180,154,255,.55);background:#2b2638;color:#fff;outline:none}
     .keycap{display:inline-grid;min-width:24px;min-height:22px;margin:0 2px;padding:1px 6px;place-items:center;border:1px solid rgba(205,194,235,.25);border-bottom-width:2px;border-radius:6px;background:#302c3b;color:#e5dcff;font:700 11px ui-monospace,SFMono-Regular,Consolas,monospace;vertical-align:middle}
@@ -132,10 +137,10 @@
           </div>
         </div>
         <div class="setting-card">
-          <div class="setting-row"><div><div class="setting-label">Публикация статуса</div><div class="setting-help">Показывать прослушиваемый трек в Discord.</div></div><button class="switch" type="button" role="switch" aria-checked="true" aria-label="Публикация статуса"><i></i></button></div>
+          <div class="shortcut-help-row" id="helpAnchor"><div class="help-trigger-row"><button class="help-btn" id="helpButton" type="button" aria-label="Подсказка о горячей клавише" title="Наведите или нажмите">?</button></div><div class="inline-help" id="popover" role="tooltip" hidden></div></div>
+          <div class="setting-row"><div><div class="setting-label">Публикация статуса</div><div class="setting-help">Показывать прослушиваемый трек в Discord.</div></div><div class="status-controls"><span class="status-pill" id="discordStatusLabel">Включён</span><button class="switch" type="button" role="switch" aria-checked="true" aria-label="Публикация статуса" id="discordStatusSwitch"><i></i></button></div></div>
           <div class="setting-row"><div><div class="setting-label">Режим отображения</div><div class="setting-help">Выберите, как приложение будет отображаться в профиле.</div></div><select class="select" aria-label="Режим отображения"><option>Слушает музыку</option><option>Играет в ArachnidMP</option></select></div>
           <div class="setting-row"><div><div class="setting-label">Хостинг обложек</div></div><div class="host-picker" id="hostPicker"><button type="button" class="host-picker-button" id="hostPickerButton" aria-haspopup="listbox" aria-expanded="false"><span id="hostSelectedLabel">Автоматически (рекомендуется)</span><span class="host-chevron">⌄</span></button><div class="host-menu" id="hostMenu" role="listbox" aria-label="Хостинг обложек" hidden><button class="host-option" type="button" role="option" aria-selected="true" data-label="Автоматически (рекомендуется)"><span><span class="host-option-name">Автоматически (рекомендуется)</span></span><span class="host-option-check">✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="i-mg24.ru"><span><span class="host-option-name">i-mg24.ru</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="Uguu"><span><span class="host-option-name">Uguu</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="Catbox"><span><span class="host-option-name">Catbox</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="ImgDB.io"><span><span class="host-option-name">ImgDB.io</span></span><span class="host-option-check" hidden>✓</span></button></div></div></div>
-          <div class="shortcut-help-row" id="helpAnchor"><div class="setting-row"><div class="setting-label">Горячая клавиша</div><button class="help-btn" id="helpButton" type="button" aria-label="Подсказка о горячей клавише" title="Наведите или нажмите">?</button></div><div class="inline-help" id="popover" role="tooltip" hidden></div></div>
         </div>
       </section>
     </main>
@@ -181,7 +186,9 @@
 
     document.querySelectorAll('.switch').forEach(toggle => {
       toggle.addEventListener('click', () => {
-        toggle.setAttribute('aria-checked', String(toggle.getAttribute('aria-checked') !== 'true'));
+        const enabled = toggle.getAttribute('aria-checked') !== 'true';
+        toggle.setAttribute('aria-checked', String(enabled));
+        if (toggle.id === 'discordStatusSwitch') document.getElementById('discordStatusLabel').textContent = enabled ? 'Включён' : 'Выключен';
       });
     });
     if (localStorage.getItem(NOTICE_KEY) !== 'true') notice.hidden = false;
@@ -199,9 +206,10 @@
       popover.hidden = true;
       pinned = false;
     });
+    const previewShortcut = 'Ctrl + Shift + D';
     function showShortcutInfo(pin = false) {
       if (pin) pinned = true;
-      popover.innerHTML = '<span>Чтобы включить/выключить Discord RPC, нажмите:</span><kbd class="keycap">D</kbd>';
+      popover.innerHTML = '<div class="popover-title"><span aria-hidden="true">⌨</span><span>Горячая клавиша Discord RPC</span></div><div class="popover-content"><span>Чтобы включить или выключить публикацию статуса, нажмите:</span><kbd class="keycap">' + previewShortcut + '</kbd></div>';
       popover.hidden = false;
     }
     function hideShortcutInfo() { popover.hidden = true; pinned = false; }
