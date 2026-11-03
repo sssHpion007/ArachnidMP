@@ -1,8 +1,9 @@
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
-use std::sync::mpsc::{channel, Sender};
-use std::thread;
 use std::collections::HashMap;
+use std::sync::mpsc::{channel, sync_channel, Sender, SyncSender, TrySendError};
+use std::thread;
+use std::time::{Duration, Instant};
 use base64::prelude::*;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -23,8 +24,13 @@ pub struct ActivityData {
     pub status_mode: Option<String>,
 }
 
+enum DiscordMessage {
+    Presence(ActivityData),
+    CoverUploaded { hash: String, url: Option<String> },
+}
+
 pub struct DiscordService {
-    sender: Sender<ActivityData>,
+    sender: Sender<DiscordMessage>,
 }
 
 #[cfg(windows)]
@@ -137,6 +143,31 @@ fn sanitize_discord_string(s: &str) -> String {
     result
 }
 
+fn response_excerpt(body: &str) -> String {
+    body.chars()
+        .take(240)
+        .map(|character| if character.is_control() { ' ' } else { character })
+        .collect()
+}
+
+fn log_upload_error(host: &str, error: ureq::Error) {
+    match error {
+        ureq::Error::Status(status, response) => {
+            let body = response.into_string().unwrap_or_default();
+            crate::logger::log(
+                "WARN",
+                "DISCORD_COVER",
+                &format!("{host} rejected cover upload: HTTP {status}; response={}", response_excerpt(&body)),
+            );
+        }
+        ureq::Error::Transport(error) => crate::logger::log(
+            "WARN",
+            "DISCORD_COVER",
+            &format!("{host} cover upload transport error: {error}"),
+        ),
+    }
+}
+
 /**
  * 1. Russian domestic image host (ultra-fast for RU users, zero blocks, no API key)
  */
@@ -149,24 +180,38 @@ fn upload_to_img24(image_bytes: &[u8]) -> Option<String> {
     body.extend_from_slice(image_bytes);
     body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
 
-    if let Ok(res) = ureq::post("https://i-mg24.ru/")
+    let response = match ureq::post("https://i-mg24.ru/")
         .set("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
         .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-        .timeout(std::time::Duration::from_secs(8))
+        .timeout(Duration::from_secs(8))
         .send_bytes(&body)
     {
-        if let Ok(html) = res.into_string() {
-            if let Some(pos) = html.find("https://i-mg24.ru/images/") {
-                let tail = &html[pos..];
-                if let Some(end_pos) = tail.find('"') {
-                    let url = &tail[..end_pos];
-                    if !url.is_empty() {
-                        return Some(url.to_string());
-                    }
-                }
-            }
+        Ok(response) => response,
+        Err(error) => {
+            log_upload_error("i-mg24", error);
+            return None;
+        }
+    };
+    let status = response.status();
+    let html = match response.into_string() {
+        Ok(body) => body,
+        Err(error) => {
+            crate::logger::log("WARN", "DISCORD_COVER", &format!("i-mg24 returned unreadable response: {error}"));
+            return None;
+        }
+    };
+    if let Some(pos) = html.find("https://i-mg24.ru/images/") {
+        let tail = &html[pos..];
+        if let Some(end_pos) = tail.find('"') {
+            let url = &tail[..end_pos];
+            if !url.is_empty() { return Some(url.to_string()); }
         }
     }
+    crate::logger::log(
+        "WARN",
+        "DISCORD_COVER",
+        &format!("i-mg24 returned HTTP {status} but no recognized image URL; response={}", response_excerpt(&html)),
+    );
     None
 }
 
@@ -184,24 +229,38 @@ fn upload_to_catbox(image_bytes: &[u8]) -> Option<String> {
     body.extend_from_slice(image_bytes);
     body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
 
-    if let Ok(response) = ureq::post("https://catbox.moe/user/api.php")
+    let response = match ureq::post("https://catbox.moe/user/api.php")
         .set("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
         .set("User-Agent", "ArachnidMusicPlayer/0.4")
-        .timeout(std::time::Duration::from_secs(12))
+        .timeout(Duration::from_secs(12))
         .send_bytes(&body)
     {
-        if let Ok(url) = response.into_string() {
-            let url = url.trim();
-            if url.starts_with("https://files.catbox.moe/") {
-                return Some(url.to_string());
-            }
+        Ok(response) => response,
+        Err(error) => {
+            log_upload_error("Catbox", error);
+            return None;
         }
-    }
+    };
+    let status = response.status();
+    let body = match response.into_string() {
+        Ok(body) => body,
+        Err(error) => {
+            crate::logger::log("WARN", "DISCORD_COVER", &format!("Catbox returned unreadable response: {error}"));
+            return None;
+        }
+    };
+    let url = body.trim();
+    if url.starts_with("https://files.catbox.moe/") { return Some(url.to_string()); }
+    crate::logger::log(
+        "WARN",
+        "DISCORD_COVER",
+        &format!("Catbox returned HTTP {status} but no recognized file URL; response={}", response_excerpt(&body)),
+    );
     None
 }
 
 /**
- * 2. International fast temporary host (Pomf / Uguu)
+ * International fast temporary host (Pomf / Uguu).
  */
 fn upload_to_uguu(image_bytes: &[u8]) -> Option<String> {
     let boundary = "----ArachnidCoverUpload7MA4YWxk";
@@ -212,29 +271,39 @@ fn upload_to_uguu(image_bytes: &[u8]) -> Option<String> {
     body.extend_from_slice(image_bytes);
     body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
 
-    if let Ok(res) = ureq::post("https://uguu.se/upload")
+    let response = match ureq::post("https://uguu.se/upload")
         .set("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
         .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-        .timeout(std::time::Duration::from_secs(8))
+        .timeout(Duration::from_secs(8))
         .send_bytes(&body)
     {
-        if let Ok(body_str) = res.into_string() {
-            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&body_str) {
-                if let Some(url) = json_val.pointer("/files/0/url").and_then(|v| v.as_str()) {
-                    if !url.is_empty() {
-                        return Some(url.to_string());
-                    }
-                }
-            }
+        Ok(response) => response,
+        Err(error) => {
+            log_upload_error("Uguu", error);
+            return None;
+        }
+    };
+    let status = response.status();
+    let response_body = match response.into_string() {
+        Ok(body) => body,
+        Err(error) => {
+            crate::logger::log("WARN", "DISCORD_COVER", &format!("Uguu returned unreadable response: {error}"));
+            return None;
+        }
+    };
+    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&response_body) {
+        if let Some(url) = json_value.pointer("/files/0/url").and_then(|value| value.as_str()) {
+            if !url.is_empty() { return Some(url.to_string()); }
         }
     }
+    crate::logger::log(
+        "WARN",
+        "DISCORD_COVER",
+        &format!("Uguu returned HTTP {status} without a recognized file URL; response={}", response_excerpt(&response_body)),
+    );
     None
 }
 
-/**
- * Upload artwork using the hosts previously used by ArachnidMP. Catbox is only
- * a last-resort fallback; do not send covers to Imgur.
- */
 fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
     if let Some(url) = upload_to_img24(image_bytes) {
         crate::logger::log("INFO", "DISCORD_COVER", "Cover uploaded through i-mg24.");
@@ -251,40 +320,152 @@ fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
     None
 }
 
+fn decode_cover_data_uri(value: &str) -> Option<(String, Vec<u8>)> {
+    let value = value.trim();
+    let encoded = value.strip_prefix("data:")?.split_once(";base64,")?.1;
+    let compact: String = encoded.chars().filter(|character| !character.is_whitespace()).collect();
+    let bytes = BASE64_STANDARD.decode(compact.as_bytes()).ok()?;
+    let hash = format!("{:x}", Sha256::digest(&bytes));
+    Some((hash, bytes))
+}
+
+fn build_activity(latest: &ActivityData, large_image: &str) -> serde_json::Value {
+    let listening_only = latest.status_mode.as_deref() == Some("listening");
+    let mut activity = json!({
+        "type": 2,
+        "name": if listening_only { "\u{200b}" } else { "ArachnidMP" },
+        "details": sanitize_discord_string(&latest.details),
+        "state": sanitize_discord_string(&latest.state),
+        "status_display_type": 2,
+    });
+    let mut assets = json!({ "large_image": large_image });
+
+    if let Some(text) = &latest.large_text {
+        let clean = sanitize_discord_string(text);
+        if !clean.is_empty() { assets["large_text"] = json!(clean); }
+    }
+    if let Some(image) = &latest.small_image {
+        let image = image.trim();
+        if !image.is_empty() { assets["small_image"] = json!(image); }
+    }
+    if let Some(text) = &latest.small_text {
+        let clean = sanitize_discord_string(text);
+        if !clean.is_empty() { assets["small_text"] = json!(clean); }
+    }
+    activity["assets"] = assets;
+
+    if let Some(start) = latest.start_timestamp {
+        let mut timestamps = json!({ "start": start });
+        if let Some(end) = latest.end_timestamp { timestamps["end"] = json!(end); }
+        activity["timestamps"] = timestamps;
+        activity["party"] = json!({
+            "id": format!("arachnid_play_{}_{}", sanitize_discord_string(&latest.details), start)
+        });
+    } else if let Some(end) = latest.end_timestamp {
+        activity["timestamps"] = json!({ "end": end });
+    }
+    activity
+}
+
+fn send_activity(stream: &mut IpcStream, activity: &serde_json::Value, nonce: &mut u64) -> std::io::Result<()> {
+    *nonce += 1;
+    let packet = json!({
+        "cmd": "SET_ACTIVITY",
+        "args": { "pid": std::process::id(), "activity": activity },
+        "nonce": format!("arachnid_act_{}", nonce),
+    }).to_string();
+    send_packet(stream, 1, &packet)?;
+    let (_, response) = read_packet(stream)?;
+    log_rpc_error_event("DISCORD_RPC", &response);
+    Ok(())
+}
+
 impl DiscordService {
     pub fn new() -> Self {
-        let (tx, rx) = channel::<ActivityData>();
+        let (tx, rx) = channel::<DiscordMessage>();
+        let (upload_tx, upload_rx) = sync_channel::<(String, Vec<u8>)>(2);
+        let upload_result_tx = tx.clone();
+
+        // Network uploads run independently from the Discord IPC worker. A slow image
+        // host must never delay the activity/timestamps or block later pause/track updates.
+        thread::spawn(move || {
+            while let Ok((hash, bytes)) = upload_rx.recv() {
+                let url = upload_raw_cover(&bytes);
+                if upload_result_tx.send(DiscordMessage::CoverUploaded { hash, url }).is_err() {
+                    break;
+                }
+            }
+        });
 
         thread::spawn(move || {
             let mut active_stream: Option<IpcStream> = None;
             let mut active_client_id = String::new();
             let mut nonce = 0u64;
             let mut cover_cache: HashMap<String, String> = HashMap::new();
+            let mut pending_uploads = std::collections::HashSet::new();
+            let mut retry_after: HashMap<String, Instant> = HashMap::new();
+            let mut latest_presence: Option<ActivityData> = None;
             let mut last_had_timestamps = false;
             let mut last_had_small_image = false;
 
-            while let Ok(data) = rx.recv() {
-                // Drain any extra pending messages to only process the latest state
-                let mut latest = data;
-                while let Ok(next) = rx.try_recv() {
-                    latest = next;
+            while let Ok(message) = rx.recv() {
+                let mut should_publish = false;
+                match message {
+                    DiscordMessage::Presence(presence) => {
+                        latest_presence = Some(presence);
+                        should_publish = true;
+                    }
+                    DiscordMessage::CoverUploaded { hash, url } => {
+                        pending_uploads.remove(&hash);
+                        if let Some(url) = url {
+                            if cover_cache.len() >= 256 {
+                                if let Some(oldest) = cover_cache.keys().next().cloned() {
+                                    cover_cache.remove(&oldest);
+                                }
+                            }
+                            cover_cache.insert(hash.clone(), url);
+                            should_publish = latest_presence.as_ref().is_some_and(|presence| {
+                                presence.enabled
+                                    && presence.large_image.as_deref()
+                                        .and_then(decode_cover_data_uri)
+                                        .is_some_and(|(current_hash, _)| current_hash == hash)
+                            });
+                        } else {
+                            let now = Instant::now();
+                            if retry_after.len() >= 128 {
+                                retry_after.retain(|_, retry_at| *retry_at > now);
+                            }
+                            if retry_after.len() >= 128 {
+                                if let Some(oldest) = retry_after.keys().next().cloned() {
+                                    retry_after.remove(&oldest);
+                                }
+                            }
+                            retry_after.insert(hash, now + Duration::from_secs(60));
+                            crate::logger::log(
+                                "WARN",
+                                "DISCORD_COVER",
+                                "All configured cover hosts failed; the Discord activity was already sent without album artwork.",
+                            );
+                        }
+                    }
+                }
+                if !should_publish {
+                    continue;
                 }
 
+                let Some(latest) = latest_presence.as_ref() else { continue };
                 nonce += 1;
 
                 if !latest.enabled {
                     if let Some(stream) = &mut active_stream {
                         let clear_activity = json!({
                             "cmd": "SET_ACTIVITY",
-                            "args": {
-                                "pid": std::process::id(),
-                                "activity": null
-                            },
+                            "args": { "pid": std::process::id(), "activity": null },
                             "nonce": format!("arachnid_clr_{}", nonce)
                         }).to_string();
-
-                        let _ = send_packet(stream, 1, &clear_activity);
-                        let _ = read_packet(stream);
+                        if send_packet(stream, 1, &clear_activity).is_err() || read_packet(stream).is_err() {
+                            active_stream = None;
+                        }
                     }
                     last_had_timestamps = false;
                     last_had_small_image = false;
@@ -292,13 +473,9 @@ impl DiscordService {
                 }
 
                 let desired_client_id = latest.client_id.as_deref().unwrap_or("1129859263741837373");
-
-                // Reconnect if the target client ID changed
                 if !active_client_id.is_empty() && active_client_id != desired_client_id {
                     active_stream = None;
                 }
-
-                // Connect if needed
                 if active_stream.is_none() {
                     if let Some((stream, connected_id)) = establish_connection(desired_client_id) {
                         active_stream = Some(stream);
@@ -307,153 +484,76 @@ impl DiscordService {
                         last_had_small_image = false;
                     }
                 }
+                let Some(stream) = active_stream.as_mut() else { continue };
 
-                if let Some(stream) = &mut active_stream {
-                    let has_timestamps = latest.start_timestamp.is_some() || latest.end_timestamp.is_some();
-                    let has_small_image = latest.small_image.as_ref().map_or(false, |s| !s.trim().is_empty());
-
-                    // Send track changes as a single complete activity. Only clear first when a
-                    // previously-present optional field is being removed (pause or disabled badge),
-                    // because Discord may otherwise retain the old nested asset/timestamp value.
-                    let should_clear = (last_had_timestamps && !has_timestamps)
-                        || (last_had_small_image && !has_small_image);
-
-                    if should_clear {
-                        let clear_pkt = json!({
-                            "cmd": "SET_ACTIVITY",
-                            "args": {
-                                "pid": std::process::id(),
-                                "activity": null
-                            },
-                            "nonce": format!("arachnid_clr_{}", nonce)
-                        }).to_string();
-
-                        if send_packet(stream, 1, &clear_pkt).is_err() || read_packet(stream).is_err() {
-                            active_stream = None;
-                            continue;
-                        }
-                    }
-
-                    last_had_timestamps = has_timestamps;
-                    last_had_small_image = has_small_image;
-
-                    let is_listening_only = latest.status_mode.as_deref() == Some("listening");
-
-                    let act_name = if is_listening_only {
-                        "\u{200b}"
-                    } else {
-                        "ArachnidMP"
-                    };
-
-                    let mut activity = json!({
-                        "type": 2, // LISTENING (Слушает)
-                        "name": act_name,
-                        "details": sanitize_discord_string(&latest.details),
-                        "state": sanitize_discord_string(&latest.state),
-                        // ALWAYS 2 (Details) so Discord displays the track name under the user's nickname in the member list!
-                        "status_display_type": 2,
-                    });
-
-                    // Prepare image assets before building the final packet. This keeps
-                    // artwork, timestamps, and the activity in one atomic SET_ACTIVITY update.
-                    let mut assets = json!({});
-
-                    if let Some(large_img) = &latest.large_image {
-                        let trimmed = large_img.trim();
-                        if trimmed.starts_with("data:") {
-                            let b64_part = if let Some(idx) = trimmed.find(";base64,") {
-                                &trimmed[idx + 8..]
-                            } else {
-                                trimmed
-                            };
-                            // Filter out any whitespace/newlines to ensure clean decoding
-                            let b64_clean: String = b64_part.chars().filter(|c| !c.is_whitespace()).collect();
-                            let cache_key = format!("{:x}", Sha256::digest(b64_clean.as_bytes()));
-
-                            if let Some(cached_url) = cover_cache.get(&cache_key) {
-                                assets["large_image"] = json!(cached_url);
-                            } else if let Ok(bytes) = BASE64_STANDARD.decode(&b64_clean) {
-                                if let Some(uploaded_url) = upload_raw_cover(&bytes) {
-                                    cover_cache.insert(cache_key, uploaded_url.clone());
-                                    assets["large_image"] = json!(uploaded_url);
-                                } else {
-                                    crate::logger::log("WARN", "DISCORD_COVER", "All cover image hosts failed; using the player icon.");
-                                    assets["large_image"] = json!("https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png");
-                                }
-                            } else {
-                                crate::logger::log("WARN", "DISCORD_COVER", "Could not decode the compressed cover image; using the player icon.");
-                                assets["large_image"] = json!("https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png");
-                            }
-                        } else if !trimmed.is_empty() {
-                            assets["large_image"] = json!(trimmed);
-                        }
-                    } else {
-                        assets["large_image"] = json!("https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png");
-                    }
-
-                    if let Some(large_txt) = &latest.large_text {
-                        let clean = sanitize_discord_string(large_txt);
-                        if !clean.is_empty() {
-                            assets["large_text"] = json!(clean);
-                        }
-                    }
-
-                    if let Some(small_img) = &latest.small_image {
-                        let trimmed = small_img.trim();
-                        if !trimmed.is_empty() {
-                            assets["small_image"] = json!(trimmed);
-                        }
-                    }
-
-                    if let Some(small_txt) = &latest.small_text {
-                        let clean = sanitize_discord_string(small_txt);
-                        if !clean.is_empty() {
-                            assets["small_text"] = json!(clean);
-                        }
-                    }
-
-                    if assets.as_object().map_or(false, |o| !o.is_empty()) {
-                        activity["assets"] = assets;
-                    }
-
-                    // Timestamps: both start and end creates the timeline progress bar.
-                    // When paused (no start or end), omit timestamps so Discord does not show an active timer.
-                    if latest.start_timestamp.is_some() || latest.end_timestamp.is_some() {
-                        let mut timestamps = json!({});
-                        if let Some(ts_start) = latest.start_timestamp {
-                            timestamps["start"] = json!(ts_start);
-                        }
-                        if let Some(ts_end) = latest.end_timestamp {
-                            timestamps["end"] = json!(ts_end);
-                        }
-                        activity["timestamps"] = timestamps;
-
-                        // Session identity for Discord client to reliably detect new loop iterations
-                        if let Some(ts_start) = latest.start_timestamp {
-                            activity["party"] = json!({
-                                "id": format!("arachnid_play_{}_{}", sanitize_discord_string(&latest.details), ts_start)
-                            });
-                        }
-                    }
-
-                    let set_activity = json!({
+                let has_timestamps = latest.start_timestamp.is_some() || latest.end_timestamp.is_some();
+                let has_small_image = latest.small_image.as_ref().is_some_and(|image| !image.trim().is_empty());
+                let should_clear = (last_had_timestamps && !has_timestamps)
+                    || (last_had_small_image && !has_small_image);
+                if should_clear {
+                    nonce += 1;
+                    let clear_packet = json!({
                         "cmd": "SET_ACTIVITY",
-                        "args": {
-                            "pid": std::process::id(),
-                            "activity": activity
-                        },
-                        "nonce": format!("arachnid_act_{}", nonce)
+                        "args": { "pid": std::process::id(), "activity": null },
+                        "nonce": format!("arachnid_clr_{}", nonce)
                     }).to_string();
-
-                    // Keep one atomic RPC update: the previous known-good implementation
-                    // uploaded the JPEG first, then sent cover and timestamps together.
-                    if send_packet(stream, 1, &set_activity).is_err() {
+                    if send_packet(stream, 1, &clear_packet).is_err() || read_packet(stream).is_err() {
                         active_stream = None;
                         continue;
                     }
-                    match read_packet(stream) {
-                        Ok((_, response)) => log_rpc_error_event("DISCORD_RPC", &response),
-                        Err(_) => active_stream = None,
+                }
+
+                let mut pending_cover: Option<(String, Vec<u8>)> = None;
+                let large_image = match latest.large_image.as_deref().map(str::trim) {
+                    Some(value) if value.starts_with("data:") => {
+                        match decode_cover_data_uri(value) {
+                            Some((hash, bytes)) => {
+                                if let Some(url) = cover_cache.get(&hash) {
+                                    url.clone()
+                                } else {
+                                    pending_cover = Some((hash, bytes));
+                                    "https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png".to_string()
+                                }
+                            }
+                            None => {
+                                crate::logger::log("WARN", "DISCORD_COVER", "Invalid cover data URI; publishing presence without album artwork.");
+                                "https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png".to_string()
+                            }
+                        }
+                    }
+                    Some(value) if !value.is_empty() => value.to_string(),
+                    _ => "https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png".to_string(),
+                };
+
+                let activity = build_activity(latest, &large_image);
+                if let Err(error) = send_activity(stream, &activity, &mut nonce) {
+                    crate::logger::log("WARN", "DISCORD_RPC", &format!("Could not publish activity: {error}"));
+                    active_stream = None;
+                    continue;
+                }
+                last_had_timestamps = has_timestamps;
+                last_had_small_image = has_small_image;
+
+                // Queue the cover only after presence has been published. Retry identical
+                // failed bytes at most once per minute instead of serially delaying RPC updates.
+                if let Some((hash, bytes)) = pending_cover {
+                    if pending_uploads.contains(&hash) {
+                        continue;
+                    }
+                    let now = Instant::now();
+                    if retry_after.get(&hash).is_some_and(|retry_at| *retry_at > now) {
+                        continue;
+                    }
+                    retry_after.remove(&hash);
+                    match upload_tx.try_send((hash.clone(), bytes)) {
+                        Ok(()) => { pending_uploads.insert(hash); }
+                        Err(TrySendError::Full(_)) => {
+                            retry_after.insert(hash, now + Duration::from_secs(60));
+                            crate::logger::log("WARN", "DISCORD_COVER", "Cover upload queue is full; presence was published and this image will be retried later.");
+                        }
+                        Err(TrySendError::Disconnected(_)) => {
+                            crate::logger::log("ERROR", "DISCORD_COVER", "Cover upload worker is unavailable.");
+                        }
                     }
                 }
             }
@@ -463,6 +563,48 @@ impl DiscordService {
     }
 
     pub fn update(&self, data: ActivityData) {
-        let _ = self.sender.send(data);
+        let _ = self.sender.send(DiscordMessage::Presence(data));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_activity, decode_cover_data_uri, ActivityData};
+    use serde_json::json;
+    use sha2::Digest;
+
+    #[test]
+    fn image_hash_is_based_on_decoded_bytes() {
+        let (hash, bytes) = decode_cover_data_uri("data:image/jpeg;base64,AQID").unwrap();
+        assert_eq!(bytes, [1u8, 2, 3]);
+        assert_eq!(hash, format!("{:x}", sha2::Sha256::digest([1u8, 2, 3])));
+    }
+
+    #[test]
+    fn placeholder_and_uploaded_activity_keep_the_same_timeline() {
+        let presence = ActivityData {
+            enabled: true,
+            details: "Track".to_string(),
+            state: "Artist".to_string(),
+            large_image: Some("data:image/jpeg;base64,AQID".to_string()),
+            large_text: Some("Album".to_string()),
+            small_image: None,
+            small_text: None,
+            start_timestamp: Some(1_800_000_000),
+            end_timestamp: Some(1_800_000_240),
+            status_display_type: Some(2),
+            client_id: None,
+            status_mode: Some("listening_app".to_string()),
+        };
+
+        let placeholder = build_activity(&presence, "player-icon");
+        let uploaded = build_activity(&presence, "https://files.example/cover.jpg");
+        for activity in [&placeholder, &uploaded] {
+            assert_eq!(activity["timestamps"]["start"], json!(1_800_000_000i64));
+            assert_eq!(activity["timestamps"]["end"], json!(1_800_000_240i64));
+            assert_eq!(activity["details"], "Track");
+        }
+        assert_eq!(placeholder["assets"]["large_image"], "player-icon");
+        assert_eq!(uploaded["assets"]["large_image"], "https://files.example/cover.jpg");
     }
 }
