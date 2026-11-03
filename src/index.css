@@ -105,6 +105,36 @@ input:active {
   background: var(--md-sys-color-outline);
 }
 
+/* Material You scrollbar for compact option sheets and dropdowns */
+.md3-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--md-sys-color-primary) 58%, var(--md-sys-color-outline-variant)) transparent;
+}
+
+.md3-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.md3-scrollbar::-webkit-scrollbar-track {
+  margin: 8px 3px;
+  border-radius: 9999px;
+  background: transparent;
+}
+
+.md3-scrollbar::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--md-sys-color-outline-variant) 78%, transparent);
+  background-clip: padding-box;
+}
+
+.md3-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 72%, var(--md-sys-color-outline-variant));
+  background-clip: padding-box;
+}
+
 /* Range input styling for volume and EQ */
 input[type=range] {
   -webkit-appearance: none;

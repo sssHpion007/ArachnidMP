@@ -41,10 +41,10 @@
     .plugin-name{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700}
     .plugin-desc{margin-top:4px;color:#9998a6;font-size:10px;line-height:1.5}
     .running{margin-left:4px;padding:3px 7px;border-radius:999px;background:rgba(117,214,170,.11);color:var(--green);font-size:9px;font-weight:700}
-    .switch{position:relative;width:52px;height:32px;padding:4px;border:1px solid rgba(205,194,235,.2);border-radius:10px;background:#30303a;display:flex;align-items:center;justify-content:flex-start;transition:background-color 300ms cubic-bezier(.2,0,0,1),border-color 300ms cubic-bezier(.2,0,0,1);flex:0 0 auto}
+    .switch{position:relative;width:44px;height:32px;padding:4px;border:1px solid rgba(205,194,235,.2);border-radius:10px;background:#30303a;display:flex;align-items:center;justify-content:flex-start;transition:background-color 300ms cubic-bezier(.2,0,0,1),border-color 300ms cubic-bezier(.2,0,0,1);flex:0 0 auto}
     .switch[aria-checked="true"]{background:#b49aff;border-color:rgba(180,154,255,.3)}
-    .switch i{width:24px;height:24px;border-radius:7px;background:#aaa9b8;box-shadow:0 1px 3px rgba(0,0,0,.25);transform:translateX(0) scaleX(1);transition:transform 300ms cubic-bezier(.2,0,0,1),background-color 300ms cubic-bezier(.2,0,0,1)}
-    .switch[aria-checked="true"] i{background:#241a37;transform:translateX(20px) scaleX(1.1)}
+    .switch i{width:20px;height:20px;border-radius:6px;background:#aaa9b8;box-shadow:0 1px 3px rgba(0,0,0,.25);transform:translateX(0);transition:transform 300ms cubic-bezier(.2,0,0,1),background-color 300ms cubic-bezier(.2,0,0,1)}
+    .switch[aria-checked="true"] i{background:#241a37;transform:translateX(16px)}
     .switch:focus-visible{outline:2px solid #b49aff;outline-offset:3px}
     .gear,.back-btn{width:34px;height:34px;border:1px solid transparent;border-radius:50%;background:transparent;color:#aaa9b8;font-size:16px}
     .gear:hover,.back-btn:hover{background:var(--surface-high);color:#fff}
@@ -76,10 +76,14 @@
     .host-picker-button[aria-expanded="true"] .host-chevron{transform:rotate(180deg)}
     .host-menu{position:absolute;top:calc(100% + 8px);right:0;z-index:20;width:min(320px,calc(100vw - 100px));max-height:320px;overflow:auto;padding:7px;border:1px solid rgba(205,194,235,.2);border-radius:20px;background:linear-gradient(145deg,#292731,#1e1d24);box-shadow:0 18px 48px rgba(0,0,0,.5);animation:pop .16s ease-out}
     .host-menu[hidden]{display:none}
+    .host-menu{scrollbar-width:thin;scrollbar-color:rgba(180,154,255,.62) transparent}
+    .host-menu::-webkit-scrollbar{width:8px;height:8px}
+    .host-menu::-webkit-scrollbar-track{margin:8px 3px;border-radius:999px;background:transparent}
+    .host-menu::-webkit-scrollbar-thumb{min-height:32px;border:2px solid transparent;border-radius:999px;background:rgba(164,148,199,.68);background-clip:padding-box}
+    .host-menu::-webkit-scrollbar-thumb:hover{background:#b49aff;background-clip:padding-box}
     .host-option{width:100%;display:flex;align-items:center;gap:10px;padding:10px;border:1px solid transparent;border-radius:14px;background:transparent;color:#e7e5ed;text-align:left;transition:background .16s,border-color .16s}
     .host-option:hover{background:#30303a}
     .host-option[aria-selected="true"]{border-color:rgba(180,154,255,.24);background:rgba(180,154,255,.1)}
-    .host-option-icon{width:32px;height:32px;flex:0 0 auto;display:grid;place-items:center;border-radius:11px;background:rgba(156,123,255,.12);color:#c5b4ff;font-size:13px}
     .host-option-name{display:block;font-size:11px;font-weight:700}
     .host-option-check{margin-left:auto;color:#c5b4ff;font-size:14px}
     .interaction-tip{position:fixed;left:18px;bottom:15px;z-index:3;color:#777684;font-size:10px}
@@ -137,8 +141,8 @@
         <div class="setting-card">
           <div class="setting-row"><div><div class="setting-label">Публикация статуса</div><div class="setting-help">Показывать прослушиваемый трек в Discord.</div></div><button class="switch" type="button" role="switch" aria-checked="true" aria-label="Публикация статуса"><i></i></button></div>
           <div class="setting-row"><div><div class="setting-label">Режим отображения</div><div class="setting-help">Выберите, как приложение будет отображаться в профиле.</div></div><select class="select" aria-label="Режим отображения"><option>Слушает музыку</option><option>Играет в ArachnidMP</option></select></div>
-          <div class="setting-row"><div><div class="setting-label">Хостинг обложек</div></div><div class="host-picker" id="hostPicker"><button type="button" class="host-picker-button" id="hostPickerButton" aria-haspopup="listbox" aria-expanded="false"><span id="hostSelectedLabel">Автоматически (рекомендуется)</span><span class="host-chevron">⌄</span></button><div class="host-menu" id="hostMenu" role="listbox" aria-label="Хостинг обложек" hidden><button class="host-option" type="button" role="option" aria-selected="true" data-label="Автоматически (рекомендуется)"><span class="host-option-icon">✦</span><span><span class="host-option-name">Автоматически (рекомендуется)</span></span><span class="host-option-check">✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="i-mg24.ru"><span class="host-option-icon">↗</span><span><span class="host-option-name">i-mg24.ru</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="Uguu"><span class="host-option-icon">↗</span><span><span class="host-option-name">Uguu</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="Catbox"><span class="host-option-icon">↗</span><span><span class="host-option-name">Catbox</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="ImgDB.io"><span class="host-option-icon">↗</span><span><span class="host-option-name">ImgDB.io</span></span><span class="host-option-check" hidden>✓</span></button></div></div></div>
-          <div class="setting-row"><div><div class="setting-label">Горячая клавиша</div><div class="setting-help">Включение или выключение Discord RPC.</div></div><kbd class="keycap">D</kbd></div>
+          <div class="setting-row"><div><div class="setting-label">Хостинг обложек</div></div><div class="host-picker" id="hostPicker"><button type="button" class="host-picker-button" id="hostPickerButton" aria-haspopup="listbox" aria-expanded="false"><span id="hostSelectedLabel">Автоматически (рекомендуется)</span><span class="host-chevron">⌄</span></button><div class="host-menu" id="hostMenu" role="listbox" aria-label="Хостинг обложек" hidden><button class="host-option" type="button" role="option" aria-selected="true" data-label="Автоматически (рекомендуется)"><span><span class="host-option-name">Автоматически (рекомендуется)</span></span><span class="host-option-check">✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="i-mg24.ru"><span><span class="host-option-name">i-mg24.ru</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="Uguu"><span><span class="host-option-name">Uguu</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="Catbox"><span><span class="host-option-name">Catbox</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="ImgDB.io"><span><span class="host-option-name">ImgDB.io</span></span><span class="host-option-check" hidden>✓</span></button></div></div></div>
+          <div class="setting-row"><div class="setting-label">Горячая клавиша</div></div>
         </div>
       </section>
     </main>

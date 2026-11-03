@@ -30,9 +30,9 @@ const PluginSwitch: React.FC<{ checked: boolean; label: string; onClick: () => v
     aria-label={label}
     aria-checked={checked}
     onClick={onClick}
-    className={`relative inline-flex h-8 w-[52px] shrink-0 items-center rounded-[10px] border p-1 transition-colors duration-300 ease-[cubic-bezier(0.2,0,0,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-md3-primary/60 ${checked ? 'border-md3-primary/20 bg-md3-primary' : 'border-md3-outline-variant/35 bg-md3-surface-container-highest'}`}
+    className={`relative inline-flex h-8 w-11 shrink-0 items-center rounded-[10px] border p-1 transition-colors duration-300 ease-[cubic-bezier(0.2,0,0,1)] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-md3-primary/60 ${checked ? 'border-md3-primary/20 bg-md3-primary' : 'border-md3-outline-variant/35 bg-md3-surface-container-highest'}`}
   >
-    <span className={`absolute left-1 top-1 h-6 w-6 rounded-[7px] shadow-sm transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${checked ? 'translate-x-5 scale-x-110 bg-md3-on-primary' : 'translate-x-0 scale-100 bg-md3-on-surface-variant'}`} />
+    <span className={`absolute left-1 top-1 h-5 w-5 rounded-[6px] shadow-sm transition-[transform,background-color] duration-300 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none ${checked ? 'translate-x-4 bg-md3-on-primary' : 'translate-x-0 bg-md3-on-surface-variant'}`} />
   </button>
 );
 

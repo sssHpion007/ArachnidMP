@@ -20,6 +20,7 @@ import {
   Heart,
   Tag,
   Keyboard,
+  CircleHelp,
   ArrowLeft,
   Plus,
   ChevronRight,
@@ -104,15 +105,12 @@ const DiscordCoverHostPicker: React.FC<{
         onClick={() => setIsOpen(open => !open)}
         className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-md3-primary/50 ${isOpen ? 'border-md3-primary/45 bg-md3-surface-container-high' : 'border-md3-outline-variant/25 bg-md3-surface hover:border-md3-outline-variant/45 hover:bg-md3-surface-container-high'}`}
       >
-        <span className="flex min-w-0 items-center gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-md3-primary/10 text-md3-primary"><Globe className="h-4 w-4" /></span>
-          <span className="min-w-0 truncate text-sm font-semibold text-md3-on-surface">{selectedOption?.label}</span>
-        </span>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-md3-on-surface">{selectedOption?.label}</span>
         <ChevronDown className={`h-4 w-4 shrink-0 text-md3-on-surface-variant transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && (
-        <div role="listbox" aria-label={label} className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[70] max-h-72 overflow-y-auto rounded-[22px] border border-md3-outline-variant/25 bg-md3-surface-container-highest/95 p-2 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150">
+        <div role="listbox" aria-label={label} className="md3-scrollbar absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[70] max-h-60 overflow-y-auto rounded-[22px] border border-md3-outline-variant/25 bg-md3-surface-container-highest/95 p-2 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150">
           {options.map(option => {
             const selected = option.value === value;
             return (
@@ -122,14 +120,76 @@ const DiscordCoverHostPicker: React.FC<{
                 role="option"
                 aria-selected={selected}
                 onClick={() => { onChange(option.value); setIsOpen(false); }}
-                className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-colors ${selected ? 'border-md3-primary/25 bg-md3-primary/10' : 'border-transparent hover:bg-md3-surface-container-high'}`}
+                className={`flex w-full items-center gap-2 rounded-2xl border px-3 py-3 text-left transition-colors ${selected ? 'border-md3-primary/25 bg-md3-primary/10' : 'border-transparent hover:bg-md3-surface-container-high'}`}
               >
-                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${selected ? 'bg-md3-primary/15 text-md3-primary' : 'bg-md3-surface-container text-md3-on-surface-variant'}`}><Globe className="h-4 w-4" /></span>
                 <span className="min-w-0 flex-1 truncate text-xs font-semibold text-md3-on-surface">{option.label}</span>
                 {selected && <Check className="h-4 w-4 shrink-0 text-md3-primary" />}
               </button>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const DiscordShortcutHint: React.FC<{ language: AppLanguage; shortcutLabel: string }> = ({ language, shortcutLabel }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
+  const hintRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen || !isPinned) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!hintRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+        setIsPinned(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+        setIsPinned(false);
+      }
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [isOpen, isPinned]);
+
+  return (
+    <div
+      ref={hintRef}
+      className="relative shrink-0"
+      onPointerEnter={() => { if (!isPinned) setIsOpen(true); }}
+      onPointerLeave={() => { if (!isPinned) setIsOpen(false); }}
+    >
+      <button
+        type="button"
+        aria-label={language === 'ru' ? 'Подсказка о горячей клавише Discord RPC' : 'Discord RPC keyboard shortcut help'}
+        aria-describedby="discord-shortcut-help"
+        onFocus={() => setIsOpen(true)}
+        onBlur={() => { if (!isPinned) setIsOpen(false); }}
+        onClick={() => {
+          if (isPinned) {
+            setIsPinned(false);
+            setIsOpen(false);
+          } else {
+            setIsPinned(true);
+            setIsOpen(true);
+          }
+        }}
+        className="flex h-8 w-8 items-center justify-center rounded-full text-md3-on-surface-variant transition-colors hover:bg-md3-surface-container-high hover:text-md3-primary focus-visible:bg-md3-surface-container-high"
+      >
+        <CircleHelp className="h-4 w-4" />
+      </button>
+      {isOpen && (
+        <div id="discord-shortcut-help" role="tooltip" className="absolute right-0 top-full z-[80] mt-2 flex w-max max-w-[min(21rem,calc(100vw-3rem))] items-center gap-2.5 rounded-2xl border border-md3-outline-variant/25 bg-md3-surface-container-highest px-3.5 py-3 text-xs text-md3-on-surface shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+          <span className="leading-relaxed">{language === 'ru' ? 'Чтобы включить/выключить Discord RPC, нажмите' : 'Press to enable/disable Discord RPC:'}</span>
+          <kbd className="shrink-0 rounded-lg border border-md3-outline-variant/30 bg-md3-surface-container px-2.5 py-1.5 text-center font-mono text-[11px] font-bold text-md3-primary">{shortcutLabel}</kbd>
         </div>
       )}
     </div>
@@ -1544,16 +1604,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="flex items-center justify-between gap-3 rounded-2xl border border-md3-outline-variant/15 bg-md3-surface-container-low px-3 py-2.5">
                 <div className="flex min-w-0 items-center gap-2.5">
                   <Keyboard className="h-4 w-4 shrink-0 text-md3-primary" />
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold text-md3-on-surface">{language === 'ru' ? 'Горячая клавиша' : 'Keyboard shortcut'}</div>
-                    <p className="mt-0.5 text-[11px] leading-relaxed text-md3-on-surface-variant">
-                      {language === 'ru' ? 'Чтобы включить/выключить Discord RPC, нажмите:' : 'Press to enable/disable Discord RPC:'}
-                    </p>
-                  </div>
+                  <div className="min-w-0 text-xs font-semibold text-md3-on-surface">{language === 'ru' ? 'Горячая клавиша' : 'Keyboard shortcut'}</div>
                 </div>
-                <kbd className="shrink-0 rounded-lg border border-md3-outline-variant/30 bg-md3-surface-container-high px-2.5 py-1.5 text-center font-mono text-[11px] font-bold text-md3-on-surface-variant">
-                  {formatShortcut(keyboardShortcuts.toggleDiscord, language)}
-                </kbd>
+                <DiscordShortcutHint
+                  language={language}
+                  shortcutLabel={formatShortcut(keyboardShortcuts.toggleDiscord, language)}
+                />
               </div>
             </div>
 
