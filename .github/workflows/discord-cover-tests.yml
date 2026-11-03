@@ -48,3 +48,12 @@ jobs:
             echo "::error title=Discord cover tests failed::$diagnostic"
             exit "$test_exit_code"
           fi
+
+      - name: Upload Discord test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Discord-Cover-Test-Log-${{ github.run_number }}-${{ github.sha }}
+          path: discord-tests.log
+          if-no-files-found: ignore
+          retention-days: 7
