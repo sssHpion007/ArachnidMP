@@ -489,6 +489,15 @@ fn decode_cover_data_uri(value: &str) -> Option<(String, Vec<u8>)> {
     Some((hash, bytes))
 }
 
+fn activity_fingerprint(activity: &serde_json::Value) -> String {
+    let details = activity.get("details").and_then(serde_json::Value::as_str).unwrap_or_default();
+    let state = activity.get("state").and_then(serde_json::Value::as_str).unwrap_or_default();
+    let start = activity.pointer("/timestamps/start").and_then(serde_json::Value::as_i64).unwrap_or_default();
+    let end = activity.pointer("/timestamps/end").and_then(serde_json::Value::as_i64).unwrap_or_default();
+    let fingerprint = format!("{details}|{state}|{start}|{end}");
+    format!("{:x}", Sha256::digest(fingerprint.as_bytes()))[..12].to_string()
+}
+
 fn build_activity(latest: &ActivityData, large_image: &str) -> serde_json::Value {
     let listening_only = latest.status_mode.as_deref() == Some("listening");
     let mut activity = json!({
@@ -542,7 +551,11 @@ fn send_activity(stream: &mut IpcStream, activity: &serde_json::Value, nonce: &m
     if parsed.as_ref().and_then(|value| value.get("evt")).and_then(serde_json::Value::as_str) == Some("ERROR") {
         return Err(std::io::Error::new(std::io::ErrorKind::Other, "Discord rejected SET_ACTIVITY"));
     }
-    crate::logger::log("INFO", "DISCORD_RPC", &format!("Discord acknowledged SET_ACTIVITY nonce={expected_nonce}."));
+    crate::logger::log(
+        "INFO",
+        "DISCORD_RPC",
+        &format!("Discord acknowledged SET_ACTIVITY nonce={expected_nonce} presence_key={}.", activity_fingerprint(activity)),
+    );
     Ok(())
 }
 
@@ -573,6 +586,7 @@ impl DiscordService {
             let mut rpc_retry_at: Option<Instant> = None;
             let mut rpc_retry_delay = RPC_RETRY_INITIAL;
             let mut latest_presence: Option<ActivityData> = None;
+            let mut force_cover_refresh_pending = false;
             let mut last_had_timestamps = false;
             let mut last_had_small_image = false;
 
@@ -641,7 +655,8 @@ impl DiscordService {
                                             .is_some_and(|(current_hash, _)| current_hash == hash)
                                 });
                                 if should_publish {
-                                    crate::logger::log("INFO", "DISCORD_COVER", "Uploaded cover matches the active track; republishing activity with artwork.");
+                                    force_cover_refresh_pending = true;
+                                    crate::logger::log("INFO", "DISCORD_COVER", "Uploaded cover matches the active track; refreshing activity with artwork.");
                                 } else {
                                     crate::logger::log("INFO", "DISCORD_COVER", "Uploaded cover is cached, but the active track or host has changed; skipping stale publish.");
                                 }
@@ -681,6 +696,7 @@ impl DiscordService {
                     last_had_small_image = false;
                     rpc_retry_at = None;
                     rpc_retry_delay = RPC_RETRY_INITIAL;
+                    force_cover_refresh_pending = false;
                     continue;
                 }
 
@@ -754,6 +770,24 @@ impl DiscordService {
                 };
 
                 let activity = build_activity(latest, &large_image);
+                if force_cover_refresh_pending {
+                    nonce += 1;
+                    let clear_nonce = format!("arachnid_cover_clear_{}", nonce);
+                    let clear_activity = json!({
+                        "cmd": "SET_ACTIVITY",
+                        "args": { "pid": std::process::id(), "activity": null },
+                        "nonce": clear_nonce
+                    }).to_string();
+                    if send_packet(stream, 1, &clear_activity).is_err()
+                        || read_rpc_response(stream, &clear_nonce).is_err()
+                    {
+                        crate::logger::log("WARN", "DISCORD_RPC", "Could not clear the previous activity before refreshing its artwork; retrying the complete activity.");
+                        active_stream = None;
+                        schedule_rpc_retry(&mut rpc_retry_at, &mut rpc_retry_delay, Instant::now());
+                        continue;
+                    }
+                    crate::logger::log("INFO", "DISCORD_COVER", "Cleared the cached activity before applying the uploaded artwork; the replacement keeps the same track timestamps.");
+                }
                 if let Err(error) = send_activity(stream, &activity, &mut nonce) {
                     crate::logger::log("WARN", "DISCORD_RPC", &format!("Could not publish activity: {error}; scheduling an automatic reconnect and retry."));
                     active_stream = None;
@@ -762,6 +796,7 @@ impl DiscordService {
                 }
                 rpc_retry_at = None;
                 rpc_retry_delay = RPC_RETRY_INITIAL;
+                force_cover_refresh_pending = false;
                 last_had_timestamps = has_timestamps;
                 last_had_small_image = has_small_image;
 
@@ -939,5 +974,7 @@ mod tests {
         }
         assert_eq!(placeholder["assets"]["large_image"], "player-icon");
         assert_eq!(uploaded["assets"]["large_image"], "https://files.example/cover.jpg");
+        assert_eq!(placeholder["timestamps"], uploaded["timestamps"]);
+        assert_eq!(placeholder["party"], uploaded["party"]);
     }
 }
