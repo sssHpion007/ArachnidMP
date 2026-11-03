@@ -443,6 +443,14 @@ fn accept_cached_cover(latest: &mut Option<ActivityData>, hash: &str, data_uri: 
     true
 }
 
+fn should_defer_activity_for_cover(
+    cover_url_cached: bool,
+    upload_pending: bool,
+    fallback_published: bool,
+) -> bool {
+    !cover_url_cached && upload_pending && !fallback_published
+}
+
 fn schedule_cover_retry_at(
     retry_after: &mut HashMap<(String, String), Instant>,
     cache_key: (String, String),
@@ -582,6 +590,7 @@ impl DiscordService {
             let mut nonce = 0u64;
             let mut cover_cache: HashMap<(String, String), String> = HashMap::new();
             let mut pending_uploads = std::collections::HashSet::new();
+            let mut fallback_published: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
             let mut retry_after: HashMap<(String, String), Instant> = HashMap::new();
             let mut rpc_retry_at: Option<Instant> = None;
             let mut rpc_retry_delay = RPC_RETRY_INITIAL;
@@ -646,7 +655,8 @@ impl DiscordService {
                                         cover_cache.remove(&oldest);
                                     }
                                 }
-                                cover_cache.insert(cache_key, url);
+                                cover_cache.insert(cache_key.clone(), url);
+                                let placeholder_was_published = fallback_published.remove(&cache_key);
                                 should_publish = latest_presence.as_ref().is_some_and(|presence| {
                                     presence.enabled
                                         && normalize_cover_host(presence.cover_host.as_deref()) == host.as_str()
@@ -655,18 +665,37 @@ impl DiscordService {
                                             .is_some_and(|(current_hash, _)| current_hash == hash)
                                 });
                                 if should_publish {
-                                    force_cover_refresh_pending = true;
-                                    crate::logger::log("INFO", "DISCORD_COVER", "Uploaded cover matches the active track; refreshing activity with artwork.");
+                                    // A normal first upload has not yet created an activity. Send one
+                                    // complete packet with the direct URL; only reset if a fallback
+                                    // activity was already published after a failed upload.
+                                    force_cover_refresh_pending = placeholder_was_published;
+                                    crate::logger::log("INFO", "DISCORD_COVER", "Uploaded cover matches the active track; publishing its complete activity.");
                                 } else {
                                     crate::logger::log("INFO", "DISCORD_COVER", "Uploaded cover is cached, but the active track or host has changed; skipping stale publish.");
                                 }
                             } else {
-                                schedule_cover_retry_at(&mut retry_after, cache_key, Instant::now());
-                                crate::logger::log(
-                                    "WARN",
-                                    "DISCORD_COVER",
-                                    "All configured cover hosts failed; the current cover will retry automatically after backoff.",
-                                );
+                                schedule_cover_retry_at(&mut retry_after, cache_key.clone(), Instant::now());
+                                should_publish = latest_presence.as_ref().is_some_and(|presence| {
+                                    presence.enabled
+                                        && normalize_cover_host(presence.cover_host.as_deref()) == host.as_str()
+                                        && presence.large_image.as_deref()
+                                            .and_then(decode_cover_data_uri)
+                                            .is_some_and(|(current_hash, _)| current_hash == hash)
+                                });
+                                if should_publish {
+                                    fallback_published.insert(cache_key);
+                                    crate::logger::log(
+                                        "WARN",
+                                        "DISCORD_COVER",
+                                        "Cover upload failed for the active track; publishing its text status with the player icon while retrying.",
+                                    );
+                                } else {
+                                    crate::logger::log(
+                                        "WARN",
+                                        "DISCORD_COVER",
+                                        "Cover upload failed for a stale track; it will retry after backoff if requested again.",
+                                    );
+                                }
                             }
                         }
                     }
@@ -769,6 +798,40 @@ impl DiscordService {
                     _ => "https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png".to_string(),
                 };
 
+                if let Some((hash, host, bytes)) = pending_cover.take() {
+                    let cache_key = (hash.clone(), host.clone());
+                    let fallback_already_published = fallback_published.contains(&cache_key);
+                    let now = Instant::now();
+                    if pending_uploads.contains(&cache_key) {
+                        if should_defer_activity_for_cover(false, true, fallback_already_published) {
+                            crate::logger::log("INFO", "DISCORD_COVER", "Waiting for the current cover upload before publishing this track's activity.");
+                            continue;
+                        }
+                    } else if retry_after.get(&cache_key).is_some_and(|retry_at| *retry_at > now) {
+                        fallback_published.insert(cache_key);
+                    } else {
+                        retry_after.remove(&cache_key);
+                        match upload_tx.try_send((hash, host, bytes)) {
+                            Ok(()) => {
+                                pending_uploads.insert(cache_key.clone());
+                                if should_defer_activity_for_cover(false, true, fallback_already_published) {
+                                    crate::logger::log("INFO", "DISCORD_COVER", "Waiting for album artwork before publishing the complete Discord activity.");
+                                    continue;
+                                }
+                            }
+                            Err(TrySendError::Full(_)) => {
+                                schedule_cover_retry_at(&mut retry_after, cache_key.clone(), now);
+                                fallback_published.insert(cache_key);
+                                crate::logger::log("WARN", "DISCORD_COVER", "Cover upload queue is full; publishing the track status with the player icon and retrying later.");
+                            }
+                            Err(TrySendError::Disconnected(_)) => {
+                                fallback_published.insert(cache_key);
+                                crate::logger::log("ERROR", "DISCORD_COVER", "Cover upload worker is unavailable; publishing track status with the player icon.");
+                            }
+                        }
+                    }
+                }
+
                 let activity = build_activity(latest, &large_image);
                 if force_cover_refresh_pending {
                     nonce += 1;
@@ -800,29 +863,6 @@ impl DiscordService {
                 last_had_timestamps = has_timestamps;
                 last_had_small_image = has_small_image;
 
-                // Queue the cover only after presence has been published. Retry identical
-                // failed bytes at most once per minute instead of serially delaying RPC updates.
-                if let Some((hash, host, bytes)) = pending_cover {
-                    let cache_key = (hash.clone(), host.clone());
-                    if pending_uploads.contains(&cache_key) {
-                        continue;
-                    }
-                    let now = Instant::now();
-                    if retry_after.get(&cache_key).is_some_and(|retry_at| *retry_at > now) {
-                        continue;
-                    }
-                    retry_after.remove(&cache_key);
-                    match upload_tx.try_send((hash, host, bytes)) {
-                        Ok(()) => { pending_uploads.insert(cache_key); }
-                        Err(TrySendError::Full(_)) => {
-                            schedule_cover_retry_at(&mut retry_after, cache_key, now);
-                            crate::logger::log("WARN", "DISCORD_COVER", "Cover upload queue is full; presence was published and this image will retry automatically after backoff.");
-                        }
-                        Err(TrySendError::Disconnected(_)) => {
-                            crate::logger::log("ERROR", "DISCORD_COVER", "Cover upload worker is unavailable.");
-                        }
-                    }
-                }
             }
         });
 
@@ -844,7 +884,8 @@ mod tests {
         accept_cached_cover, build_activity, clear_expired_cover_retries, cover_uploaders,
         decode_cover_data_uri, imgdb_direct_url, next_cover_retry_deadline,
         next_rpc_retry_deadline, normalize_cover_host, schedule_cover_retry_at,
-        schedule_rpc_retry, ActivityData, RPC_RETRY_INITIAL, RPC_RETRY_MAX,
+        schedule_rpc_retry, should_defer_activity_for_cover, ActivityData,
+        RPC_RETRY_INITIAL, RPC_RETRY_MAX,
     };
     use serde_json::json;
     use sha2::Digest;
@@ -901,6 +942,14 @@ mod tests {
         clear_expired_cover_retries(&mut retries, now + Duration::from_secs(3));
         assert!(!retries.contains_key(&due_key));
         assert_eq!(*retries.get(&future_key).unwrap(), now + Duration::from_secs(5));
+    }
+
+    #[test]
+    fn first_activity_waits_for_cover_upload_but_fallback_remains_available() {
+        assert!(should_defer_activity_for_cover(false, true, false));
+        assert!(!should_defer_activity_for_cover(true, true, false));
+        assert!(!should_defer_activity_for_cover(false, false, false));
+        assert!(!should_defer_activity_for_cover(false, true, true));
     }
 
     #[test]
