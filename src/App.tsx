@@ -1909,49 +1909,14 @@ export const App: React.FC = () => {
         }
       },
       onEnded: () => handleTrackEndedRef.current(),
+      // Discord presence is published by the React effect below after currentTrack and
+      // isPlaying have committed together. Do not publish here: native play/pause can
+      // fire before currentTrackRef catches up, which may resend the previous track.
       onPlay: () => {
         setIsPlaying(true);
-        const cur = currentTrackRef.current;
-        if (discordEnabledRef.current && discordPluginEnabledRef.current && cur) {
-          discordRpc.updatePresence({
-            enabled: true,
-            trackName: cur.title,
-            artist: cur.artist,
-            album: cur.album,
-            duration: cur.duration || audioEngine.getDuration() || 0,
-            currentTime: audioEngine.getCurrentTime() || 0,
-            isPlaying: true,
-            coverArt: cur.coverArt,
-            coverHost: discordCoverHostRef.current,
-            showPlayIcon: discordShowPlayIconRef.current,
-            showPauseIcon: discordShowPauseIconRef.current,
-            statusMode: discordStatusModeRef.current,
-            customClientId: discordCustomClientIdRef.current,
-            language: languageRef.current,
-          });
-        }
       },
       onPause: () => {
         setIsPlaying(false);
-        const cur = currentTrackRef.current;
-        if (discordEnabledRef.current && discordPluginEnabledRef.current && cur) {
-          discordRpc.updatePresence({
-            enabled: true,
-            trackName: cur.title,
-            artist: cur.artist,
-            album: cur.album,
-            duration: cur.duration || audioEngine.getDuration() || 0,
-            currentTime: audioEngine.getCurrentTime() || 0,
-            isPlaying: false,
-            coverArt: cur.coverArt,
-            coverHost: discordCoverHostRef.current,
-            showPlayIcon: discordShowPlayIconRef.current,
-            showPauseIcon: discordShowPauseIconRef.current,
-            statusMode: discordStatusModeRef.current,
-            customClientId: discordCustomClientIdRef.current,
-            language: languageRef.current,
-          });
-        }
       },
       onLoopRepeat: () => {
         const cur = currentTrackRef.current;

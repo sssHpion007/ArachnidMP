@@ -60,6 +60,18 @@ class DiscordRpcService {
   private currentPresence: DiscordPresenceInfo | null = null;
   private listeners: ((info: DiscordPresenceInfo | null) => void)[] = [];
   private activeRequestId: number = 0;
+  private nativeInvocationQueue: Promise<void> = Promise.resolve();
+
+  private enqueueNativePresence(requestId: number, tauriCore: any, presence: Record<string, unknown>): Promise<void> {
+    const invocation = this.nativeInvocationQueue.catch(() => {}).then(async () => {
+      // Native commands can complete asynchronously; serialize them so an older
+      // "clear presence" cannot run after the latest enabled track update.
+      if (requestId !== this.activeRequestId) return;
+      await tauriCore.invoke('update_discord_presence', { presence });
+    });
+    this.nativeInvocationQueue = invocation.catch(() => {});
+    return invocation;
+  }
 
   public subscribe(listener: (info: DiscordPresenceInfo | null) => void) {
     this.listeners.push(listener);
@@ -87,22 +99,20 @@ class DiscordRpcService {
 
     if (!info.enabled) {
       try {
-        await tauriCore.invoke('update_discord_presence', {
-          presence: {
-            enabled: false,
-            details: '',
-            state: '',
-            large_image: null,
-            large_text: null,
-            small_image: null,
-            small_text: null,
-            start_timestamp: null,
-            end_timestamp: null,
-            status_display_type: null,
-            client_id: null,
-            status_mode: null,
-            cover_host: info.coverHost ?? 'auto',
-          }
+        await this.enqueueNativePresence(requestId, tauriCore, {
+          enabled: false,
+          details: '',
+          state: '',
+          large_image: null,
+          large_text: null,
+          small_image: null,
+          small_text: null,
+          start_timestamp: null,
+          end_timestamp: null,
+          status_display_type: null,
+          client_id: null,
+          status_mode: null,
+          cover_host: info.coverHost ?? 'auto',
         });
       } catch (err) {
         console.warn('Tauri Discord RPC clear error:', err);
@@ -176,22 +186,20 @@ class DiscordRpcService {
     }
 
     try {
-      await tauriCore.invoke('update_discord_presence', {
-        presence: {
-          enabled: true,
-          details: info.trackName || 'Arachnid Music Player',
-          state: info.artist || 'Неизвестный исполнитель',
-          large_image: coverArt,
-          large_text: info.album || 'Arachnid Music Player',
-          small_image: smallImage,
-          small_text: smallText,
-          start_timestamp: startTimestamp,
-          end_timestamp: endTimestamp,
-          status_display_type: statusDisplayType,
-          client_id: clientId,
-          status_mode: statusMode,
-          cover_host: info.coverHost ?? 'auto',
-        }
+      await this.enqueueNativePresence(requestId, tauriCore, {
+        enabled: true,
+        details: info.trackName || 'Arachnid Music Player',
+        state: info.artist || 'Неизвестный исполнитель',
+        large_image: coverArt,
+        large_text: info.album || 'Arachnid Music Player',
+        small_image: smallImage,
+        small_text: smallText,
+        start_timestamp: startTimestamp,
+        end_timestamp: endTimestamp,
+        status_display_type: statusDisplayType,
+        client_id: clientId,
+        status_mode: statusMode,
+        cover_host: info.coverHost ?? 'auto',
       });
     } catch (err) {
       console.warn('Tauri Discord RPC invoke error:', err);

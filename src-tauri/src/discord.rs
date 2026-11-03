@@ -70,6 +70,25 @@ fn read_packet(stream: &mut IpcStream) -> std::io::Result<(u32, String)> {
     Ok((op, s))
 }
 
+fn read_rpc_response(stream: &mut IpcStream, expected_nonce: &str) -> std::io::Result<String> {
+    loop {
+        let (opcode, payload) = read_packet(stream)?;
+        match opcode {
+            1 => {
+                let Ok(response) = serde_json::from_str::<serde_json::Value>(&payload) else { continue };
+                if response.get("nonce").and_then(serde_json::Value::as_str) == Some(expected_nonce) {
+                    return Ok(payload);
+                }
+                // Dispatch events are not acknowledgements for the command currently in flight.
+            }
+            2 => return Err(std::io::Error::new(std::io::ErrorKind::ConnectionReset, "Discord RPC closed the connection")),
+            3 => send_packet(stream, 4, &payload)?,
+            4 => {}
+            _ => {}
+        }
+    }
+}
+
 fn log_rpc_error_event(tag: &str, payload: &str) {
     let Ok(response) = serde_json::from_str::<serde_json::Value>(payload) else { return };
     if response.get("evt").and_then(serde_json::Value::as_str) != Some("ERROR") { return; }
@@ -365,6 +384,8 @@ fn upload_to_imgdb(image_bytes: &[u8]) -> Option<String> {
 type CoverUploader = fn(&[u8]) -> Option<String>;
 
 const COVER_RETRY_BACKOFF: Duration = Duration::from_secs(60);
+const RPC_RETRY_INITIAL: Duration = Duration::from_secs(1);
+const RPC_RETRY_MAX: Duration = Duration::from_secs(30);
 
 const COVER_UPLOADERS: [(&str, &str, CoverUploader); 4] = [
     ("img24", "i-mg24", upload_to_img24),
@@ -388,6 +409,24 @@ fn next_cover_retry_deadline(
     retry_after: &HashMap<(String, String), Instant>,
 ) -> Option<Instant> {
     enabled.then(|| retry_after.values().copied().min()).flatten()
+}
+
+fn next_rpc_retry_deadline(
+    enabled: bool,
+    cover_deadline: Option<Instant>,
+    rpc_deadline: Option<Instant>,
+) -> Option<Instant> {
+    if !enabled { return None; }
+    match (cover_deadline, rpc_deadline) {
+        (Some(cover), Some(rpc)) => Some(cover.min(rpc)),
+        (Some(deadline), None) | (None, Some(deadline)) => Some(deadline),
+        (None, None) => None,
+    }
+}
+
+fn schedule_rpc_retry(rpc_deadline: &mut Option<Instant>, retry_delay: &mut Duration, now: Instant) {
+    *rpc_deadline = Some(now + *retry_delay);
+    *retry_delay = (*retry_delay).saturating_mul(2).min(RPC_RETRY_MAX);
 }
 
 fn clear_expired_cover_retries(retry_after: &mut HashMap<(String, String), Instant>, now: Instant) {
@@ -490,14 +529,20 @@ fn build_activity(latest: &ActivityData, large_image: &str) -> serde_json::Value
 
 fn send_activity(stream: &mut IpcStream, activity: &serde_json::Value, nonce: &mut u64) -> std::io::Result<()> {
     *nonce += 1;
+    let expected_nonce = format!("arachnid_act_{}", nonce);
     let packet = json!({
         "cmd": "SET_ACTIVITY",
         "args": { "pid": std::process::id(), "activity": activity },
-        "nonce": format!("arachnid_act_{}", nonce),
+        "nonce": expected_nonce.clone(),
     }).to_string();
     send_packet(stream, 1, &packet)?;
-    let (_, response) = read_packet(stream)?;
+    let response = read_rpc_response(stream, &expected_nonce)?;
     log_rpc_error_event("DISCORD_RPC", &response);
+    let parsed = serde_json::from_str::<serde_json::Value>(&response).ok();
+    if parsed.as_ref().and_then(|value| value.get("evt")).and_then(serde_json::Value::as_str) == Some("ERROR") {
+        return Err(std::io::Error::new(std::io::ErrorKind::Other, "Discord rejected SET_ACTIVITY"));
+    }
+    crate::logger::log("INFO", "DISCORD_RPC", &format!("Discord acknowledged SET_ACTIVITY nonce={expected_nonce}."));
     Ok(())
 }
 
@@ -525,14 +570,20 @@ impl DiscordService {
             let mut cover_cache: HashMap<(String, String), String> = HashMap::new();
             let mut pending_uploads = std::collections::HashSet::new();
             let mut retry_after: HashMap<(String, String), Instant> = HashMap::new();
+            let mut rpc_retry_at: Option<Instant> = None;
+            let mut rpc_retry_delay = RPC_RETRY_INITIAL;
             let mut latest_presence: Option<ActivityData> = None;
             let mut last_had_timestamps = false;
             let mut last_had_small_image = false;
 
             loop {
-                let retry_deadline = next_cover_retry_deadline(
+                let retry_deadline = next_rpc_retry_deadline(
                     latest_presence.as_ref().is_some_and(|presence| presence.enabled),
-                    &retry_after,
+                    next_cover_retry_deadline(
+                        latest_presence.as_ref().is_some_and(|presence| presence.enabled),
+                        &retry_after,
+                    ),
+                    rpc_retry_at,
                 );
                 let message = match retry_deadline {
                     Some(deadline) => match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
@@ -548,8 +599,14 @@ impl DiscordService {
 
                 let retry_timer_fired = message.is_none();
                 if retry_timer_fired {
-                    clear_expired_cover_retries(&mut retry_after, Instant::now());
-                    crate::logger::log("INFO", "DISCORD_COVER", "Cover retry timer expired; refreshing the current Discord activity.");
+                    let now = Instant::now();
+                    clear_expired_cover_retries(&mut retry_after, now);
+                    if rpc_retry_at.is_some_and(|deadline| deadline <= now) {
+                        rpc_retry_at = None;
+                        crate::logger::log("INFO", "DISCORD_RPC", "Connection retry timer expired; republishing the latest presence.");
+                    } else {
+                        crate::logger::log("INFO", "DISCORD_COVER", "Cover retry timer expired; refreshing the current Discord activity.");
+                    }
                 }
                 let mut should_publish = retry_timer_fired;
                 if let Some(message) = message {
@@ -608,17 +665,22 @@ impl DiscordService {
 
                 if !latest.enabled {
                     if let Some(stream) = &mut active_stream {
+                        let clear_nonce = format!("arachnid_clr_{}", nonce);
                         let clear_activity = json!({
                             "cmd": "SET_ACTIVITY",
                             "args": { "pid": std::process::id(), "activity": null },
-                            "nonce": format!("arachnid_clr_{}", nonce)
+                            "nonce": clear_nonce
                         }).to_string();
-                        if send_packet(stream, 1, &clear_activity).is_err() || read_packet(stream).is_err() {
+                        if send_packet(stream, 1, &clear_activity).is_err()
+                            || read_rpc_response(stream, &clear_nonce).is_err()
+                        {
                             active_stream = None;
                         }
                     }
                     last_had_timestamps = false;
                     last_had_small_image = false;
+                    rpc_retry_at = None;
+                    rpc_retry_delay = RPC_RETRY_INITIAL;
                     continue;
                 }
 
@@ -627,14 +689,13 @@ impl DiscordService {
                     .map(str::trim)
                     .filter(|value| value.starts_with("data:"))
                     .and_then(decode_cover_data_uri);
-                let cover_retry_key = decoded_cover.as_ref()
-                    .map(|(hash, _)| (hash.clone(), upload_host.clone()));
                 let desired_client_id = latest.client_id.as_deref().unwrap_or("1129859263741837373");
                 if !active_client_id.is_empty() && active_client_id != desired_client_id {
                     active_stream = None;
                 }
                 if active_stream.is_none() {
                     if let Some((stream, connected_id)) = establish_connection(desired_client_id) {
+                        crate::logger::log("INFO", "DISCORD_RPC", "Connected to the Discord IPC endpoint.");
                         active_stream = Some(stream);
                         active_client_id = connected_id;
                         last_had_timestamps = false;
@@ -642,9 +703,8 @@ impl DiscordService {
                     }
                 }
                 let Some(stream) = active_stream.as_mut() else {
-                    if let Some(cache_key) = cover_retry_key.as_ref() {
-                        schedule_cover_retry_at(&mut retry_after, cache_key.clone(), Instant::now());
-                    }
+                    crate::logger::log("WARN", "DISCORD_RPC", "Could not connect to Discord IPC; the latest presence will retry automatically.");
+                    schedule_rpc_retry(&mut rpc_retry_at, &mut rpc_retry_delay, Instant::now());
                     continue;
                 };
 
@@ -654,16 +714,18 @@ impl DiscordService {
                     || (last_had_small_image && !has_small_image);
                 if should_clear {
                     nonce += 1;
+                    let clear_nonce = format!("arachnid_clr_{}", nonce);
                     let clear_packet = json!({
                         "cmd": "SET_ACTIVITY",
                         "args": { "pid": std::process::id(), "activity": null },
-                        "nonce": format!("arachnid_clr_{}", nonce)
+                        "nonce": clear_nonce
                     }).to_string();
-                    if send_packet(stream, 1, &clear_packet).is_err() || read_packet(stream).is_err() {
-                        if let Some(cache_key) = cover_retry_key.as_ref() {
-                            schedule_cover_retry_at(&mut retry_after, cache_key.clone(), Instant::now());
-                        }
+                    if send_packet(stream, 1, &clear_packet).is_err()
+                        || read_rpc_response(stream, &clear_nonce).is_err()
+                    {
+                        crate::logger::log("WARN", "DISCORD_RPC", "Could not clear the previous activity; the current presence will retry after reconnecting.");
                         active_stream = None;
+                        schedule_rpc_retry(&mut rpc_retry_at, &mut rpc_retry_delay, Instant::now());
                         continue;
                     }
                 }
@@ -693,13 +755,13 @@ impl DiscordService {
 
                 let activity = build_activity(latest, &large_image);
                 if let Err(error) = send_activity(stream, &activity, &mut nonce) {
-                    crate::logger::log("WARN", "DISCORD_RPC", &format!("Could not publish activity: {error}"));
-                    if let Some(cache_key) = cover_retry_key.as_ref() {
-                        schedule_cover_retry_at(&mut retry_after, cache_key.clone(), Instant::now());
-                    }
+                    crate::logger::log("WARN", "DISCORD_RPC", &format!("Could not publish activity: {error}; scheduling an automatic reconnect and retry."));
                     active_stream = None;
+                    schedule_rpc_retry(&mut rpc_retry_at, &mut rpc_retry_delay, Instant::now());
                     continue;
                 }
+                rpc_retry_at = None;
+                rpc_retry_delay = RPC_RETRY_INITIAL;
                 last_had_timestamps = has_timestamps;
                 last_had_small_image = has_small_image;
 
@@ -745,8 +807,9 @@ impl DiscordService {
 mod tests {
     use super::{
         accept_cached_cover, build_activity, clear_expired_cover_retries, cover_uploaders,
-        decode_cover_data_uri, imgdb_direct_url, next_cover_retry_deadline, normalize_cover_host,
-        schedule_cover_retry_at, ActivityData,
+        decode_cover_data_uri, imgdb_direct_url, next_cover_retry_deadline,
+        next_rpc_retry_deadline, normalize_cover_host, schedule_cover_retry_at,
+        schedule_rpc_retry, ActivityData, RPC_RETRY_INITIAL, RPC_RETRY_MAX,
     };
     use serde_json::json;
     use sha2::Digest;
@@ -760,6 +823,27 @@ mod tests {
         let imgdb: Vec<&str> = cover_uploaders("imgdb").iter().map(|(host, _, _)| *host).collect();
         assert_eq!(imgdb, ["imgdb"]);
         assert_eq!(normalize_cover_host(Some("unknown")), "auto");
+    }
+
+    #[test]
+    fn failed_rpc_presence_retries_automatically_with_bounded_backoff() {
+        let now = Instant::now();
+        let mut retry_at = None;
+        let mut retry_delay = RPC_RETRY_INITIAL;
+
+        schedule_rpc_retry(&mut retry_at, &mut retry_delay, now);
+        assert_eq!(retry_at, Some(now + Duration::from_secs(1)));
+        assert_eq!(retry_delay, Duration::from_secs(2));
+        assert_eq!(next_rpc_retry_deadline(true, Some(now + Duration::from_secs(60)), retry_at), retry_at);
+        assert_eq!(next_rpc_retry_deadline(false, None, retry_at), None);
+
+        schedule_rpc_retry(&mut retry_at, &mut retry_delay, now);
+        assert_eq!(retry_at, Some(now + Duration::from_secs(2)));
+        for _ in 0..8 {
+            schedule_rpc_retry(&mut retry_at, &mut retry_delay, now);
+        }
+        assert_eq!(retry_delay, RPC_RETRY_MAX);
+        assert_eq!(retry_at, Some(now + Duration::from_secs(30)));
     }
 
     #[test]
