@@ -168,6 +168,21 @@ jobs:
             Remove-Item $stdoutLog, $stderrLog -Force -ErrorAction SilentlyContinue
           }
 
+      - name: Upload Windows test build
+        if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp' || github.ref == 'refs/heads/arena/6fcee020-arachnidmp' || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && !contains(github.event.head_commit.message, '[publish-release]')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag == 'test-build')
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arachnid-Windows-Test-${{ github.run_number }}-${{ github.sha }}
+          path: src-tauri/target/release/arachnid.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Test Discord cover host selection
+        shell: pwsh
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --lib discord::tests -- --nocapture
+          if ($LASTEXITCODE -ne 0) { throw "Discord cover host tests failed." }
+
       - name: Test SQLite library repository
         shell: pwsh
         run: |
@@ -300,15 +315,6 @@ jobs:
         run: |
           version=$(node -p "require('./package.json').version")
           echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
-
-      - name: Upload Windows test build
-        if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp' || github.ref == 'refs/heads/arena/6fcee020-arachnidmp' || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && !contains(github.event.head_commit.message, '[publish-release]')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag == 'test-build')
-        uses: actions/upload-artifact@v4
-        with:
-          name: Arachnid-Windows-Test-${{ github.run_number }}-${{ github.sha }}
-          path: src-tauri/target/release/arachnid.exe
-          if-no-files-found: error
-          retention-days: 14
 
       - name: Prepare Portable Artifacts
         if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != 'test-build') || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && contains(github.event.head_commit.message, '[publish-release]'))
