@@ -1,7 +1,7 @@
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::collections::HashMap;
-use std::sync::mpsc::{channel, sync_channel, Sender, SyncSender, TrySendError};
+use std::sync::mpsc::{channel, sync_channel, Sender, TrySendError};
 use std::thread;
 use std::time::{Duration, Instant};
 use base64::prelude::*;
