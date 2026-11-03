@@ -911,16 +911,19 @@ fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-fn prepare_discord_cover(cover: Option<String>, covers: &cover_cache::CoverCache) -> Option<String> {
-    let cover = cover?;
+fn prepare_discord_cover(
+    cover: Option<String>,
+    covers: &cover_cache::CoverCache,
+) -> (Option<String>, Option<String>) {
+    let Some(cover) = cover else { return (None, None) };
     let path = cover
         .strip_prefix("http://cover.localhost")
         .or_else(|| cover.strip_prefix("https://cover.localhost"))
         .or_else(|| cover.strip_prefix("cover://localhost"));
-    let Some(path) = path else { return Some(cover) };
+    let Some(path) = path else { return (Some(cover), None) };
     let Some((hash, _)) = cover_cache::parse_cover_request(path) else {
         logger::log("WARN", "DISCORD_COVER", "Rejected malformed cached cover URL.");
-        return None;
+        return (None, None);
     };
 
     // Match the old canvas path: always send a bounded JPEG, even when the library
@@ -928,20 +931,47 @@ fn prepare_discord_cover(cover: Option<String>, covers: &cover_cache::CoverCache
     match covers.get_discord_jpeg(&hash) {
         Ok(Some(image)) => {
             logger::log("INFO", "DISCORD_COVER", &format!("Prepared cached JPEG thumbnail: {} bytes.", image.bytes.len()));
-            Some(format!(
+            (Some(format!(
                 "data:{};base64,{}",
                 image.mime,
                 BASE64_STANDARD.encode(image.bytes),
-            ))
+            )), None)
         }
         Ok(None) => {
-            logger::log("WARN", "DISCORD_COVER", &format!("Cached cover thumbnail not found for Discord: hash={hash} size=256"));
-            None
+            logger::log("WARN", "DISCORD_COVER", &format!("Cached cover thumbnail not found for Discord: hash={hash} size=256; will wait for the cache entry."));
+            (None, Some(hash))
         }
         Err(error) => {
             logger::log("ERROR", "DISCORD_COVER", &format!("Failed to read cached cover for Discord: {error}"));
-            None
+            (None, None)
         }
+    }
+}
+
+#[cfg(test)]
+mod discord_cover_prepare_tests {
+    use super::prepare_discord_cover;
+    use crate::cover_cache::{cover_url, CoverCache};
+    use jpeg_encoder::{ColorType, Encoder};
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn cached_cover_miss_is_recoverable_when_thumbnail_arrives_later() {
+        let covers = CoverCache::open(":memory:").unwrap();
+        let pixels = vec![180u8; 32 * 32 * 3];
+        let mut jpeg = Vec::new();
+        Encoder::new(&mut jpeg, 80).encode(&pixels, 32, 32, ColorType::Rgb).unwrap();
+        let hash = format!("{:x}", Sha256::digest(&jpeg));
+        let url = cover_url(&hash, None);
+
+        let (missing_image, pending_hash) = prepare_discord_cover(Some(url.clone()), &covers);
+        assert!(missing_image.is_none());
+        assert_eq!(pending_hash.as_deref(), Some(hash.as_str()));
+
+        covers.store_bytes(&jpeg, "image/jpeg").unwrap();
+        let (ready_image, pending_hash) = prepare_discord_cover(Some(url), &covers);
+        assert!(ready_image.as_deref().is_some_and(|image| image.starts_with("data:image/jpeg;base64,")));
+        assert!(pending_hash.is_none());
     }
 }
 
@@ -951,7 +981,8 @@ fn update_discord_presence(
     state: State<'_, AppState>,
     covers: State<'_, cover_cache::CoverCache>,
 ) -> Result<String, String> {
-    let large_image = prepare_discord_cover(presence.large_image, covers.inner());
+    let (large_image, pending_cover_hash) = prepare_discord_cover(presence.large_image, covers.inner());
+    let retry_hash = pending_cover_hash.clone();
     state.discord.update(discord::ActivityData {
         enabled: presence.enabled,
         details: presence.details,
@@ -966,7 +997,34 @@ fn update_discord_presence(
         client_id: presence.client_id,
         status_mode: presence.status_mode,
         cover_host: presence.cover_host,
+        pending_cover_hash,
     });
+
+    if presence.enabled {
+        if let Some(hash) = retry_hash {
+            let covers = covers.inner().clone();
+            let discord = state.discord.clone();
+            std::thread::spawn(move || {
+                for _ in 0..50 {
+                    match covers.get_discord_jpeg(&hash) {
+                        Ok(Some(image)) => {
+                            let data_uri = format!(
+                                "data:{};base64,{}",
+                                image.mime,
+                                BASE64_STANDARD.encode(image.bytes),
+                            );
+                            discord.cached_cover_ready(hash, data_uri);
+                            return;
+                        }
+                        Ok(None) => {}
+                        Err(error) => logger::log("WARN", "DISCORD_COVER", &format!("Waiting for cached artwork failed temporarily: {error}")),
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                }
+                logger::log("WARN", "DISCORD_COVER", &format!("Artwork cache did not become ready within 15 seconds: hash={hash}"));
+            });
+        }
+    }
     Ok("Discord presence update queued".to_string())
 }
 

@@ -24,13 +24,17 @@ pub struct ActivityData {
     pub client_id: Option<String>,
     pub status_mode: Option<String>,
     pub cover_host: Option<String>,
+    /// Cached artwork was requested before its SQLite thumbnail was available.
+    pub pending_cover_hash: Option<String>,
 }
 
 enum DiscordMessage {
     Presence(ActivityData),
     CoverUploaded { hash: String, host: String, url: Option<String> },
+    CachedCoverReady { hash: String, data_uri: String },
 }
 
+#[derive(Clone)]
 pub struct DiscordService {
     sender: Sender<DiscordMessage>,
 }
@@ -390,6 +394,16 @@ fn clear_expired_cover_retries(retry_after: &mut HashMap<(String, String), Insta
     retry_after.retain(|_, retry_at| *retry_at > now);
 }
 
+fn accept_cached_cover(latest: &mut Option<ActivityData>, hash: &str, data_uri: String) -> bool {
+    let Some(presence) = latest.as_mut() else { return false };
+    if !presence.enabled || presence.pending_cover_hash.as_deref() != Some(hash) {
+        return false;
+    }
+    presence.large_image = Some(data_uri);
+    presence.pending_cover_hash = None;
+    true
+}
+
 fn schedule_cover_retry_at(
     retry_after: &mut HashMap<(String, String), Instant>,
     cache_key: (String, String),
@@ -543,6 +557,14 @@ impl DiscordService {
                         DiscordMessage::Presence(presence) => {
                             latest_presence = Some(presence);
                             should_publish = true;
+                        }
+                        DiscordMessage::CachedCoverReady { hash, data_uri } => {
+                            should_publish = accept_cached_cover(&mut latest_presence, &hash, data_uri);
+                            if should_publish {
+                                crate::logger::log("INFO", "DISCORD_COVER", "Artwork cache became ready for the active track; publishing its cover without waiting for another playback event.");
+                            } else {
+                                crate::logger::log("INFO", "DISCORD_COVER", "Artwork cache became ready after the active track changed; ignoring stale cover.");
+                            }
                         }
                         DiscordMessage::CoverUploaded { hash, host, url } => {
                             let cache_key = (hash.clone(), host.clone());
@@ -713,14 +735,18 @@ impl DiscordService {
     pub fn update(&self, data: ActivityData) {
         let _ = self.sender.send(DiscordMessage::Presence(data));
     }
+
+    pub fn cached_cover_ready(&self, hash: String, data_uri: String) {
+        let _ = self.sender.send(DiscordMessage::CachedCoverReady { hash, data_uri });
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        build_activity, clear_expired_cover_retries, cover_uploaders, decode_cover_data_uri,
-        imgdb_direct_url, next_cover_retry_deadline, normalize_cover_host, schedule_cover_retry_at,
-        ActivityData,
+        accept_cached_cover, build_activity, clear_expired_cover_retries, cover_uploaders,
+        decode_cover_data_uri, imgdb_direct_url, next_cover_retry_deadline, normalize_cover_host,
+        schedule_cover_retry_at, ActivityData,
     };
     use serde_json::json;
     use sha2::Digest;
@@ -759,6 +785,32 @@ mod tests {
     }
 
     #[test]
+    fn cached_artwork_ready_event_only_updates_the_still_active_cover() {
+        let mut presence = Some(ActivityData {
+            enabled: true,
+            details: "First track".to_string(),
+            state: "Artist".to_string(),
+            large_image: None,
+            large_text: None,
+            small_image: None,
+            small_text: None,
+            start_timestamp: Some(1_800_000_000),
+            end_timestamp: Some(1_800_000_240),
+            status_display_type: Some(2),
+            client_id: None,
+            status_mode: Some("listening_app".to_string()),
+            cover_host: Some("auto".to_string()),
+            pending_cover_hash: Some("first-hash".to_string()),
+        });
+
+        assert!(!accept_cached_cover(&mut presence, "stale-hash", "data:image/jpeg;base64,AQID".to_string()));
+        assert!(accept_cached_cover(&mut presence, "first-hash", "data:image/jpeg;base64,AQID".to_string()));
+        let presence = presence.unwrap();
+        assert_eq!(presence.large_image.as_deref(), Some("data:image/jpeg;base64,AQID"));
+        assert_eq!(presence.pending_cover_hash, None);
+    }
+
+    #[test]
     fn imgdb_response_must_contain_a_direct_imgdb_image_url() {
         assert_eq!(
             imgdb_direct_url(r#"{"url":"https://imgdb.io/i/Ym5TEo4.jpg"}"#),
@@ -791,6 +843,7 @@ mod tests {
             client_id: None,
             status_mode: Some("listening_app".to_string()),
             cover_host: Some("auto".to_string()),
+            pending_cover_hash: None,
         };
 
         let placeholder = build_activity(&presence, "player-icon");
