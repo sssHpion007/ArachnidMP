@@ -1,4 +1,4 @@
-name: Discord cover provider tests
+name: Rust regression tests
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - 'arena/6fcee020-arachnidmp'
 
 jobs:
-  discord-cover-tests:
+  rust-regression-tests:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -38,25 +38,22 @@ jobs:
             wget
 
       - name: Test Discord cover selection and activity invariants
-        shell: bash
-        run: |
-          set +e
-          cargo test --manifest-path src-tauri/Cargo.toml --lib discord::tests -- --nocapture 2>&1 | tee discord-tests.log
-          test_exit_code=${PIPESTATUS[0]}
-          set -e
-          if [ "$test_exit_code" -ne 0 ]; then
-            tail -n 80 discord-tests.log | tee -a "$GITHUB_STEP_SUMMARY"
-            diagnostic=$(tail -n 80 discord-tests.log | tr '\n' ' ' | sed 's/%/%25/g')
-            if [ "${#diagnostic}" -gt 8000 ]; then diagnostic=${diagnostic: -8000}; fi
-            echo "::error title=Discord cover tests failed::$diagnostic"
-            exit "$test_exit_code"
-          fi
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib discord::tests -- --nocapture
 
-      - name: Upload Discord test diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Discord-Cover-Test-Log-${{ github.run_number }}-${{ github.sha }}
-          path: discord-tests.log
-          if-no-files-found: ignore
-          retention-days: 7
+      - name: Test SQLite library repository
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib library_db::tests -- --nocapture
+
+      - name: Test retired library index cleanup
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib storage::storage_tests -- --nocapture
+
+      - name: Test SQLite cover cache
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib cover_cache::tests -- --nocapture
+
+      - name: Test external plugin manifest and trust checks
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib plugins::tests -- --nocapture
+
+      - name: Test external input path and URL validation
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib input_validation_tests -- --nocapture
+
+      - name: Test portable updater transaction and rollback safety
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib portable_updater::tests -- --nocapture
