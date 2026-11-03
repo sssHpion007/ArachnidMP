@@ -39,12 +39,14 @@ jobs:
       - name: Test Discord cover selection and activity invariants
         shell: bash
         run: |
-          set -o pipefail
+          set +e
           cargo test --manifest-path src-tauri/Cargo.toml --lib discord::tests -- --nocapture 2>&1 | tee discord-tests.log
           test_exit_code=${PIPESTATUS[0]}
+          set -e
           if [ "$test_exit_code" -ne 0 ]; then
-            tail -n 120 discord-tests.log | tee -a "$GITHUB_STEP_SUMMARY"
-            diagnostic=$(tail -n 120 discord-tests.log | tr '\n' ' ' | sed 's/%/%25/g')
+            tail -n 80 discord-tests.log | tee -a "$GITHUB_STEP_SUMMARY"
+            diagnostic=$(tail -n 80 discord-tests.log | tr '\n' ' ' | sed 's/%/%25/g')
+            if [ "${#diagnostic}" -gt 8000 ]; then diagnostic=${diagnostic: -8000}; fi
             echo "::error title=Discord cover tests failed::$diagnostic"
             exit "$test_exit_code"
           fi
