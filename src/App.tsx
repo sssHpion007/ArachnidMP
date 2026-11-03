@@ -2224,6 +2224,7 @@ export const App: React.FC = () => {
     currentTrack?.title,
     currentTrack?.artist,
     currentTrack?.album,
+    currentTrack?.coverArt,
     isPlaying,
     discordEnabled,
     discordPluginEnabled,
