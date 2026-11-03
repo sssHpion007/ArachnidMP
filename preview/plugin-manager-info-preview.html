@@ -53,9 +53,9 @@
     .settings-title-wrap{display:flex;align-items:flex-start;gap:9px}
     .settings-head h2{margin:0;font-size:19px;letter-spacing:-.025em}
     .settings-head p{margin:5px 0 0;color:var(--muted);font-size:11px}
-    .shortcut-help-row{width:100%}
-    .help-trigger-row{display:flex;justify-content:flex-end}
-    .inline-help{margin-top:4px;padding:10px 12px;border:1px solid rgba(205,194,235,.12);border-radius:13px;background:#25242c;color:#d7d4df;font-size:11px;line-height:1.5;animation:pop .15s ease-out}
+    .help-area{display:flex;justify-content:flex-end;margin-bottom:18px}
+    .shortcut-help-row{position:relative;width:34px;height:34px}
+    .inline-help{position:absolute;top:calc(100% + 8px);right:0;z-index:50;width:min(320px,calc(100vw - 48px));padding:10px 12px;border:1px solid rgba(205,194,235,.12);border-radius:16px;background:#25242c;color:#d7d4df;font-size:11px;line-height:1.5;box-shadow:0 18px 48px rgba(0,0,0,.5);animation:pop .15s ease-out;pointer-events:none}
     .inline-help[hidden]{display:none}
     .popover-title{display:flex;align-items:center;gap:7px;margin-bottom:4px;color:#eeeaf7;font-size:11px;font-weight:750}
     .popover-content{display:flex;align-items:center;justify-content:space-between;gap:10px}
@@ -136,8 +136,8 @@
             <div><h2>Настройки Discord RPC</h2><p>Параметры встроенного плагина.</p></div>
           </div>
         </div>
+        <div class="help-area"><div class="shortcut-help-row" id="helpAnchor"><button class="help-btn" id="helpButton" type="button" aria-label="Подсказка о горячей клавише" title="Наведите или нажмите">?</button><div class="inline-help" id="popover" role="tooltip" hidden></div></div></div>
         <div class="setting-card">
-          <div class="shortcut-help-row" id="helpAnchor"><div class="help-trigger-row"><button class="help-btn" id="helpButton" type="button" aria-label="Подсказка о горячей клавише" title="Наведите или нажмите">?</button></div><div class="inline-help" id="popover" role="tooltip" hidden></div></div>
           <div class="setting-row"><div><div class="setting-label">Публикация статуса</div><div class="setting-help">Показывать прослушиваемый трек в Discord.</div></div><div class="status-controls"><span class="status-pill" id="discordStatusLabel">Включён</span><button class="switch" type="button" role="switch" aria-checked="true" aria-label="Публикация статуса" id="discordStatusSwitch"><i></i></button></div></div>
           <div class="setting-row"><div><div class="setting-label">Режим отображения</div><div class="setting-help">Выберите, как приложение будет отображаться в профиле.</div></div><select class="select" aria-label="Режим отображения"><option>Слушает музыку</option><option>Играет в ArachnidMP</option></select></div>
           <div class="setting-row"><div><div class="setting-label">Хостинг обложек</div></div><div class="host-picker" id="hostPicker"><button type="button" class="host-picker-button" id="hostPickerButton" aria-haspopup="listbox" aria-expanded="false"><span id="hostSelectedLabel">Автоматически (рекомендуется)</span><span class="host-chevron">⌄</span></button><div class="host-menu" id="hostMenu" role="listbox" aria-label="Хостинг обложек" hidden><button class="host-option" type="button" role="option" aria-selected="true" data-label="Автоматически (рекомендуется)"><span><span class="host-option-name">Автоматически (рекомендуется)</span></span><span class="host-option-check">✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="i-mg24.ru"><span><span class="host-option-name">i-mg24.ru</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="Uguu"><span><span class="host-option-name">Uguu</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="Catbox"><span><span class="host-option-name">Catbox</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="ImgDB.io"><span><span class="host-option-name">ImgDB.io</span></span><span class="host-option-check" hidden>✓</span></button></div></div></div>
@@ -156,7 +156,6 @@
     const popover = document.getElementById('popover');
     const anchor = document.getElementById('helpAnchor');
     const helpButton = document.getElementById('helpButton');
-    let pinned = false;
     const hostPicker = document.getElementById('hostPicker');
     const hostPickerButton = document.getElementById('hostPickerButton');
     const hostMenu = document.getElementById('hostMenu');
@@ -204,23 +203,17 @@
       discordSettingsView.hidden = true;
       managerView.hidden = false;
       popover.hidden = true;
-      pinned = false;
     });
     const previewShortcut = 'Ctrl + Shift + D';
-    function showShortcutInfo(pin = false) {
-      if (pin) pinned = true;
+    function showShortcutInfo() {
       popover.innerHTML = '<div class="popover-title"><span aria-hidden="true">⌨</span><span>Горячая клавиша Discord RPC</span></div><div class="popover-content"><span>Чтобы включить или выключить публикацию статуса, нажмите:</span><kbd class="keycap">' + previewShortcut + '</kbd></div>';
       popover.hidden = false;
     }
-    function hideShortcutInfo() { popover.hidden = true; pinned = false; }
-    helpButton.addEventListener('pointerenter', () => showShortcutInfo(false));
-    helpButton.addEventListener('focus', () => showShortcutInfo(false));
-    helpButton.addEventListener('click', event => {
-      event.stopPropagation();
-      if (pinned && !popover.hidden) hideShortcutInfo();
-      else showShortcutInfo(true);
-    });
-    anchor.addEventListener('pointerleave', () => { if (!pinned) hideShortcutInfo(); });
+    function hideShortcutInfo() { popover.hidden = true; }
+    helpButton.addEventListener('pointerenter', showShortcutInfo);
+    helpButton.addEventListener('focus', showShortcutInfo);
+    helpButton.addEventListener('click', showShortcutInfo);
+    anchor.addEventListener('pointerleave', hideShortcutInfo);
     document.addEventListener('pointerdown', event => {
       if (!anchor.contains(event.target) && !popover.hidden) hideShortcutInfo();
     });

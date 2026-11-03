@@ -135,22 +135,15 @@ const DiscordCoverHostPicker: React.FC<{
 
 const DiscordShortcutHint: React.FC<{ language: AppLanguage; shortcutLabel: string }> = ({ language, shortcutLabel }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [isPinned, setIsPinned] = useState(false);
   const hintRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!isOpen || !isPinned) return;
+    if (!isOpen) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!hintRef.current?.contains(event.target as Node)) {
-        setIsOpen(false);
-        setIsPinned(false);
-      }
+      if (!hintRef.current?.contains(event.target as Node)) setIsOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
-        setIsPinned(false);
-      }
+      if (event.key === 'Escape') setIsOpen(false);
     };
     document.addEventListener('pointerdown', closeOnOutsidePointer);
     document.addEventListener('keydown', closeOnEscape);
@@ -158,48 +151,45 @@ const DiscordShortcutHint: React.FC<{ language: AppLanguage; shortcutLabel: stri
       document.removeEventListener('pointerdown', closeOnOutsidePointer);
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [isOpen, isPinned]);
+  }, [isOpen]);
 
   return (
-    <div
-      ref={hintRef}
-      className="flex w-full flex-col items-end gap-1"
-      onPointerLeave={() => { if (!isPinned) setIsOpen(false); }}
-    >
-      <button
-        type="button"
-        aria-label={language === 'ru' ? 'Подсказка о горячей клавише Discord RPC' : 'Discord RPC keyboard shortcut help'}
-        aria-expanded={isOpen}
-        aria-controls="discord-shortcut-help"
-        aria-describedby={isOpen ? 'discord-shortcut-help' : undefined}
-        onPointerEnter={() => { if (!isPinned) setIsOpen(true); }}
-        onFocus={() => setIsOpen(true)}
-        onBlur={() => { if (!isPinned) setIsOpen(false); }}
-        onClick={() => {
-          if (isPinned) {
-            setIsPinned(false);
-            setIsOpen(false);
-          } else {
-            setIsPinned(true);
-            setIsOpen(true);
-          }
+    <div className="flex w-full justify-end">
+      <div
+        ref={hintRef}
+        className="relative h-8 w-8"
+        onPointerLeave={() => setIsOpen(false)}
+        onBlur={event => {
+          const nextTarget = event.relatedTarget;
+          if (!(nextTarget instanceof Node) || !hintRef.current?.contains(nextTarget)) setIsOpen(false);
         }}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-md3-on-surface-variant transition-colors hover:bg-md3-surface-container-high hover:text-md3-primary focus-visible:bg-md3-surface-container-high"
       >
-        <CircleHelp className="h-4 w-4" />
-      </button>
-      {isOpen && (
-        <div id="discord-shortcut-help" role="tooltip" className="w-full rounded-xl border border-md3-outline-variant/15 bg-md3-surface-container-high px-3 py-2.5 text-xs text-md3-on-surface animate-in fade-in zoom-in-95 duration-150">
-          <div className="mb-1.5 flex items-center gap-2">
-            <Keyboard className="h-4 w-4 shrink-0 text-md3-primary" />
-            <h3 className="text-xs font-bold text-md3-on-surface">{language === 'ru' ? 'Горячая клавиша Discord RPC' : 'Discord RPC keyboard shortcut'}</h3>
-          </div>
-          <div className="flex items-center justify-between gap-2.5">
-            <span className="leading-relaxed">{language === 'ru' ? 'Чтобы включить или выключить публикацию статуса, нажмите:' : 'Press to enable or disable status sharing:'}</span>
-            <kbd className="shrink-0 rounded-lg border border-md3-outline-variant/30 bg-md3-surface-container px-2.5 py-1.5 text-center font-mono text-[11px] font-bold text-md3-primary">{shortcutLabel}</kbd>
-          </div>
-        </div>
-      )}
+        <button
+          type="button"
+          onClick={() => setIsOpen(true)}
+          onMouseEnter={() => setIsOpen(true)}
+          onFocus={() => setIsOpen(true)}
+          aria-label={language === 'ru' ? 'Подсказка о горячей клавише Discord RPC' : 'Discord RPC keyboard shortcut help'}
+          aria-expanded={isOpen}
+          aria-controls="discord-shortcut-help"
+          aria-describedby={isOpen ? 'discord-shortcut-help' : undefined}
+          className="flex h-8 w-8 items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface"
+        >
+          <CircleHelp className="h-4 w-4" />
+        </button>
+        {isOpen && (
+          <section id="discord-shortcut-help" role="tooltip" aria-labelledby="discord-shortcut-title" className="pointer-events-none absolute right-0 top-full z-50 mt-2 w-[min(20rem,calc(100vw-3rem))] rounded-2xl border border-md3-outline-variant/30 bg-md3-surface-container p-4 text-left shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-md3-primary/10 text-md3-primary"><Keyboard className="h-4 w-4" /></div>
+              <div className="min-w-0">
+                <h3 id="discord-shortcut-title" className="text-sm font-bold text-md3-on-surface">{language === 'ru' ? 'Горячая клавиша Discord RPC' : 'Discord RPC keyboard shortcut'}</h3>
+                <p className="mt-1.5 text-xs leading-relaxed text-md3-on-surface-variant">{language === 'ru' ? 'Быстро включить или выключить публикацию статуса можно сочетанием:' : 'Quickly toggle Discord status sharing with:'}</p>
+                <kbd className="mt-2 inline-flex rounded-lg border border-md3-outline-variant/30 bg-md3-surface-container-high px-2.5 py-1.5 text-center font-mono text-[11px] font-bold text-md3-primary">{shortcutLabel}</kbd>
+              </div>
+            </div>
+          </section>
+        )}
+      </div>
     </div>
   );
 };
@@ -1576,12 +1566,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         ) : currentView === 'discord' ? (
           /* Dedicated Discord Integration Settings View */
           <div key="view-discord" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 anim-view-slide-right">
+            <DiscordShortcutHint
+              language={language}
+              shortcutLabel={formatShortcut(keyboardShortcuts.toggleDiscord, language)}
+            />
             {/* 1. Master Discord Toggle Card */}
             <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col gap-3">
-              <DiscordShortcutHint
-                language={language}
-                shortcutLabel={formatShortcut(keyboardShortcuts.toggleDiscord, language)}
-              />
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="w-10 h-10 rounded-2xl bg-[#5865F2]/15 text-[#5865F2] flex items-center justify-center">
