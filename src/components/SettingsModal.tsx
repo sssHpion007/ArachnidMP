@@ -163,32 +163,38 @@ const DiscordShortcutHint: React.FC<{ language: AppLanguage; shortcutLabel: stri
   return (
     <div
       ref={hintRef}
-      className="relative shrink-0"
-      onPointerEnter={() => { if (!isPinned) setIsOpen(true); }}
+      className="rounded-2xl border border-md3-outline-variant/15 bg-md3-surface-container-low px-3 py-2.5"
       onPointerLeave={() => { if (!isPinned) setIsOpen(false); }}
     >
-      <button
-        type="button"
-        aria-label={language === 'ru' ? 'Подсказка о горячей клавише Discord RPC' : 'Discord RPC keyboard shortcut help'}
-        aria-describedby="discord-shortcut-help"
-        onFocus={() => setIsOpen(true)}
-        onBlur={() => { if (!isPinned) setIsOpen(false); }}
-        onClick={() => {
-          if (isPinned) {
-            setIsPinned(false);
-            setIsOpen(false);
-          } else {
-            setIsPinned(true);
-            setIsOpen(true);
-          }
-        }}
-        className="flex h-8 w-8 items-center justify-center rounded-full text-md3-on-surface-variant transition-colors hover:bg-md3-surface-container-high hover:text-md3-primary focus-visible:bg-md3-surface-container-high"
-      >
-        <CircleHelp className="h-4 w-4" />
-      </button>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Keyboard className="h-4 w-4 shrink-0 text-md3-primary" />
+          <div className="min-w-0 text-xs font-semibold text-md3-on-surface">{language === 'ru' ? 'Горячая клавиша' : 'Keyboard shortcut'}</div>
+        </div>
+        <button
+          type="button"
+          aria-label={language === 'ru' ? 'Подсказка о горячей клавише Discord RPC' : 'Discord RPC keyboard shortcut help'}
+          aria-describedby="discord-shortcut-help"
+          onPointerEnter={() => { if (!isPinned) setIsOpen(true); }}
+          onFocus={() => setIsOpen(true)}
+          onBlur={() => { if (!isPinned) setIsOpen(false); }}
+          onClick={() => {
+            if (isPinned) {
+              setIsPinned(false);
+              setIsOpen(false);
+            } else {
+              setIsPinned(true);
+              setIsOpen(true);
+            }
+          }}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-md3-on-surface-variant transition-colors hover:bg-md3-surface-container-high hover:text-md3-primary focus-visible:bg-md3-surface-container-high"
+        >
+          <CircleHelp className="h-4 w-4" />
+        </button>
+      </div>
       {isOpen && (
-        <div id="discord-shortcut-help" role="tooltip" className="absolute right-0 top-full z-[80] mt-2 flex w-max max-w-[min(21rem,calc(100vw-3rem))] items-center gap-2.5 rounded-2xl border border-md3-outline-variant/25 bg-md3-surface-container-highest px-3.5 py-3 text-xs text-md3-on-surface shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-          <span className="leading-relaxed">{language === 'ru' ? 'Чтобы включить/выключить Discord RPC, нажмите' : 'Press to enable/disable Discord RPC:'}</span>
+        <div id="discord-shortcut-help" role="tooltip" className="mt-2 flex w-full items-center justify-between gap-2.5 rounded-xl border border-md3-outline-variant/15 bg-md3-surface-container-high px-3 py-2.5 text-xs text-md3-on-surface animate-in fade-in zoom-in-95 duration-150">
+          <span className="leading-relaxed">{language === 'ru' ? 'Чтобы включить/выключить Discord RPC, нажмите:' : 'Press to enable/disable Discord RPC:'}</span>
           <kbd className="shrink-0 rounded-lg border border-md3-outline-variant/30 bg-md3-surface-container px-2.5 py-1.5 text-center font-mono text-[11px] font-bold text-md3-primary">{shortcutLabel}</kbd>
         </div>
       )}
@@ -199,6 +205,7 @@ const DiscordShortcutHint: React.FC<{ language: AppLanguage; shortcutLabel: stri
 import { CURRENT_APP_VERSION, isNewerVersion } from '../utils/version';
 import { useModalAnimation, useCurtainAnimation } from '../utils/useModalAnimation';
 import { PluginManagerView } from './PluginManagerView';
+import { MaterialYouSwitch } from './MaterialYouSwitch';
 import { DEFAULT_KEYBOARD_SHORTCUTS, formatShortcut, getShortcutSignature, KeyboardShortcuts, ShortcutId, SHORTCUT_IDS } from '../services/keyboardShortcuts';
 import {
   ExternalPluginManifest,
@@ -1593,24 +1600,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   }`}>
                     {discordEnabled ? t.settings.discordEnabled : t.settings.discordDisabled}
                   </span>
-                  <input
-                    type="checkbox"
+                  <MaterialYouSwitch
                     checked={discordEnabled}
-                    onChange={onToggleDiscord}
-                    className="w-5 h-5 rounded accent-md3-primary cursor-pointer"
+                    label={language === 'ru'
+                      ? `Публикация активности Discord: ${discordEnabled ? 'включена' : 'выключена'}`
+                      : `Discord activity sharing: ${discordEnabled ? 'enabled' : 'disabled'}`}
+                    onClick={onToggleDiscord}
                   />
                 </div>
               </div>
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-md3-outline-variant/15 bg-md3-surface-container-low px-3 py-2.5">
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <Keyboard className="h-4 w-4 shrink-0 text-md3-primary" />
-                  <div className="min-w-0 text-xs font-semibold text-md3-on-surface">{language === 'ru' ? 'Горячая клавиша' : 'Keyboard shortcut'}</div>
-                </div>
-                <DiscordShortcutHint
-                  language={language}
-                  shortcutLabel={formatShortcut(keyboardShortcuts.toggleDiscord, language)}
-                />
-              </div>
+              <DiscordShortcutHint
+                language={language}
+                shortcutLabel={formatShortcut(keyboardShortcuts.toggleDiscord, language)}
+              />
             </div>
 
             {/* 2. Status Display Format Selection ("Слушает" vs "Слушает ArachnidMP") */}

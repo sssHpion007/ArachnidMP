@@ -6,6 +6,7 @@ import {
   PluginRuntimeEvent,
 } from '../services/pluginManager';
 import { AppLanguage } from '../i18n';
+import { MaterialYouSwitch } from './MaterialYouSwitch';
 
 interface PluginManagerViewProps {
   language: AppLanguage;
@@ -22,19 +23,6 @@ interface PluginManagerViewProps {
 }
 
 const text = (language: AppLanguage, ru: string, en: string) => language === 'ru' ? ru : en;
-
-const PluginSwitch: React.FC<{ checked: boolean; label: string; onClick: () => void }> = ({ checked, label, onClick }) => (
-  <button
-    type="button"
-    role="switch"
-    aria-label={label}
-    aria-checked={checked}
-    onClick={onClick}
-    className={`relative inline-flex h-8 w-11 shrink-0 items-center rounded-[10px] border p-1 transition-colors duration-300 ease-[cubic-bezier(0.2,0,0,1)] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-md3-primary/60 ${checked ? 'border-md3-primary/20 bg-md3-primary' : 'border-md3-outline-variant/35 bg-md3-surface-container-highest'}`}
-  >
-    <span className={`absolute left-1 top-1 h-5 w-5 rounded-[6px] shadow-sm transition-[transform,background-color] duration-300 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none ${checked ? 'translate-x-4 bg-md3-on-primary' : 'translate-x-0 bg-md3-on-surface-variant'}`} />
-  </button>
-);
 
 const getRuntimeLabel = (language: AppLanguage, event?: PluginRuntimeEvent) => {
   if (!event || event.state === 'stopped') return null;
@@ -141,7 +129,7 @@ export const PluginManagerView: React.FC<PluginManagerViewProps> = ({
               </div>
               <p className="mt-1 text-xs text-md3-on-surface-variant">{text(language, 'Добавляет интеграцию статуса в Discord.', 'Adds status integration to Discord.')}</p>
             </div>
-            <PluginSwitch
+            <MaterialYouSwitch
               checked={discordPluginEnabled}
               label={text(language, `Discord RPC: ${discordPluginEnabled ? 'включён' : 'выключен'}`, `Discord RPC: ${discordPluginEnabled ? 'enabled' : 'disabled'}`)}
               onClick={onToggleDiscordPlugin}
@@ -180,7 +168,7 @@ export const PluginManagerView: React.FC<PluginManagerViewProps> = ({
                   <p className="mt-1 text-[10px] text-md3-on-surface-variant/70">ID: <code>{plugin.id}</code> · API {plugin.apiVersion}</p>
                 </div>
                 <div className="mt-1">
-                  <PluginSwitch
+                  <MaterialYouSwitch
                     checked={trustedCurrentFiles}
                     label={text(language, `${plugin.name}: ${trustedCurrentFiles ? 'включён' : 'выключен'}`, `${plugin.name}: ${trustedCurrentFiles ? 'enabled' : 'disabled'}`)}
                     onClick={() => {
