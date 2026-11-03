@@ -304,6 +304,58 @@ fn upload_to_uguu(image_bytes: &[u8]) -> Option<String> {
     None
 }
 
+fn imgdb_direct_url(response_body: &str) -> Option<String> {
+    let response: serde_json::Value = serde_json::from_str(response_body).ok()?;
+    let url = response.get("url")?.as_str()?.trim();
+    url.starts_with("https://imgdb.io/i/").then(|| url.to_string())
+}
+
+/**
+ * Public API image-host fallback. ImgDB accepts multipart field `file` and
+ * returns a direct image URL in JSON; ttl=0 requests a non-expiring link.
+ */
+fn upload_to_imgdb(image_bytes: &[u8]) -> Option<String> {
+    let boundary = "----ArachnidCoverUpload7MA4YWxk";
+    let mut body = Vec::with_capacity(image_bytes.len() + 256);
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"file\"; filename=\"cover.jpg\"\r\n");
+    body.extend_from_slice(b"Content-Type: image/jpeg\r\n\r\n");
+    body.extend_from_slice(image_bytes);
+    body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
+
+    let response = match ureq::post("https://imgdb.io/api/v1/upload")
+        .query("ttl", "0")
+        .set("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
+        .set("Accept", "application/json")
+        .set("User-Agent", "ArachnidMusicPlayer/0.4")
+        .timeout(Duration::from_secs(10))
+        .send_bytes(&body)
+    {
+        Ok(response) => response,
+        Err(error) => {
+            log_upload_error("ImgDB", error);
+            return None;
+        }
+    };
+    let status = response.status();
+    let response_body = match response.into_string() {
+        Ok(body) => body,
+        Err(error) => {
+            crate::logger::log("WARN", "DISCORD_COVER", &format!("ImgDB returned unreadable response: {error}"));
+            return None;
+        }
+    };
+    if let Some(url) = imgdb_direct_url(&response_body) {
+        return Some(url);
+    }
+    crate::logger::log(
+        "WARN",
+        "DISCORD_COVER",
+        &format!("ImgDB returned HTTP {status} without a recognized direct image URL; response={}", response_excerpt(&response_body)),
+    );
+    None
+}
+
 fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
     if let Some(url) = upload_to_img24(image_bytes) {
         crate::logger::log("INFO", "DISCORD_COVER", "Cover uploaded through i-mg24.");
@@ -315,6 +367,10 @@ fn upload_raw_cover(image_bytes: &[u8]) -> Option<String> {
     }
     if let Some(url) = upload_to_catbox(image_bytes) {
         crate::logger::log("INFO", "DISCORD_COVER", "Cover uploaded through Catbox fallback.");
+        return Some(url);
+    }
+    if let Some(url) = upload_to_imgdb(image_bytes) {
+        crate::logger::log("INFO", "DISCORD_COVER", "Cover uploaded through ImgDB fallback.");
         return Some(url);
     }
     None
@@ -569,9 +625,19 @@ impl DiscordService {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_activity, decode_cover_data_uri, ActivityData};
+    use super::{build_activity, decode_cover_data_uri, imgdb_direct_url, ActivityData};
     use serde_json::json;
     use sha2::Digest;
+
+    #[test]
+    fn imgdb_response_must_contain_a_direct_imgdb_image_url() {
+        assert_eq!(
+            imgdb_direct_url(r#"{"url":"https://imgdb.io/i/Ym5TEo4.jpg"}"#),
+            Some("https://imgdb.io/i/Ym5TEo4.jpg".to_string())
+        );
+        assert_eq!(imgdb_direct_url(r#"{"url":"https://example.com/image.jpg"}"#), None);
+        assert_eq!(imgdb_direct_url("not json"), None);
+    }
 
     #[test]
     fn image_hash_is_based_on_decoded_bytes() {
