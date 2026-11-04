@@ -1572,10 +1572,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               shortcutLabel={formatShortcut(keyboardShortcuts.toggleDiscord, language)}
             />
             {/* 1. Master Discord Toggle Card */}
-            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col gap-3">
+            <div className={`p-4 rounded-3xl border flex flex-col gap-3 transition-all duration-300 ${
+              discordEnabled
+                ? 'bg-[#5865F2]/10 border-[#5865F2]/40 shadow-[0_8px_28px_rgba(88,101,242,0.12)]'
+                : 'bg-md3-surface-container-low border-md3-outline-variant/20'
+            }`}>
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-[#5865F2]/15 text-[#5865F2] flex items-center justify-center">
+                  <div className="w-10 h-10 shrink-0 rounded-2xl bg-[#5865F2]/15 text-[#5865F2] flex items-center justify-center">
                     <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24">
                       <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.078.078 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
                     </svg>
@@ -1589,26 +1593,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${
-                    discordEnabled
-                      ? 'bg-[#5865F2]/15 text-[#5865F2] border border-[#5865F2]/30'
-                      : 'bg-md3-surface-container-high text-md3-on-surface-variant'
-                  }`}>
-                    {discordEnabled ? t.settings.discordEnabled : t.settings.discordDisabled}
-                  </span>
-                  <MaterialYouSwitch
-                    checked={discordEnabled}
-                    label={language === 'ru'
-                      ? `Публикация активности Discord: ${discordEnabled ? 'включена' : 'выключена'}`
-                      : `Discord activity sharing: ${discordEnabled ? 'enabled' : 'disabled'}`}
-                    onClick={onToggleDiscord}
-                  />
-                </div>
+                <MaterialYouSwitch
+                  checked={discordEnabled}
+                  label={language === 'ru'
+                    ? `Публикация активности Discord: ${discordEnabled ? 'включена' : 'выключена'}`
+                    : `Discord activity sharing: ${discordEnabled ? 'enabled' : 'disabled'}`}
+                  onClick={onToggleDiscord}
+                  accent="discord"
+                />
               </div>
             </div>
 
-            {/* 2. Status Display Format Selection ("Слушает" vs "Слушает ArachnidMP") */}
+            {/* 2. Activity Display Format Selection */}
             <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
               <div>
                 <div className="text-sm font-bold text-md3-on-surface">
@@ -1619,63 +1615,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                {/* Option 1: "Слушает" */}
+              <div role="group" aria-label={t.settings.discordStatusMode} className="relative flex items-center overflow-hidden rounded-2xl border border-md3-outline-variant/20 bg-md3-surface p-1 select-none">
+                <div className={`pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-xl bg-md3-primary shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${discordStatusMode === 'listening_app' ? 'translate-x-full' : ''}`} />
                 <button
                   type="button"
+                  aria-pressed={discordStatusMode === 'listening'}
                   onClick={() => onSetDiscordStatusMode('listening')}
-                  className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col gap-1.5 ${
+                  className={`relative z-10 flex min-w-0 flex-1 items-center justify-center rounded-xl px-2 py-3 text-center text-xs transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-md3-primary/60 ${
                     discordStatusMode === 'listening'
-                      ? 'bg-md3-primary/10 border-md3-primary ring-1 ring-md3-primary shadow-xs'
-                      : 'bg-md3-surface border-md3-outline-variant/20 hover:border-md3-outline-variant/40'
+                      ? 'font-bold text-md3-on-primary'
+                      : 'font-medium text-md3-on-surface-variant hover:text-md3-on-surface'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-md3-on-surface">
-                      {t.settings.discordStatusListening}
-                    </span>
-                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                      discordStatusMode === 'listening'
-                        ? 'border-md3-primary bg-md3-primary text-md3-on-primary'
-                        : 'border-md3-outline-variant'
-                    }`}>
-                      {discordStatusMode === 'listening' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-md3-on-surface-variant leading-relaxed">
-                    {language === 'ru'
-                      ? 'Минималистичный статус без названия программы. В списке профилей отображается только слово «Слушает».'
-                      : 'Minimalist status without application name. Friends see only “Listening to” in member list.'}
-                  </p>
+                  {t.settings.discordStatusListening}
                 </button>
-
-                {/* Option 2: "Слушает ArachnidMP" */}
                 <button
                   type="button"
+                  aria-pressed={discordStatusMode === 'listening_app'}
                   onClick={() => onSetDiscordStatusMode('listening_app')}
-                  className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col gap-1.5 ${
+                  className={`relative z-10 flex min-w-0 flex-1 items-center justify-center rounded-xl px-2 py-3 text-center text-xs transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-md3-primary/60 ${
                     discordStatusMode === 'listening_app'
-                      ? 'bg-md3-primary/10 border-md3-primary ring-1 ring-md3-primary shadow-xs'
-                      : 'bg-md3-surface border-md3-outline-variant/20 hover:border-md3-outline-variant/40'
+                      ? 'font-bold text-md3-on-primary'
+                      : 'font-medium text-md3-on-surface-variant hover:text-md3-on-surface'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-md3-on-surface">
-                      {t.settings.discordStatusListeningApp}
-                    </span>
-                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                      discordStatusMode === 'listening_app'
-                        ? 'border-md3-primary bg-md3-primary text-md3-on-primary'
-                        : 'border-md3-outline-variant'
-                    }`}>
-                      {discordStatusMode === 'listening_app' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-md3-on-surface-variant leading-relaxed">
-                    {language === 'ru'
-                      ? 'Фирменный статус с указанием плеера: «Слушает ArachnidMP». Подчеркивает воспроизведение в плеере.'
-                      : 'Branded status showing player name: “Listening to ArachnidMP”. Emphasizes playback in player.'}
-                  </p>
+                  {t.settings.discordStatusListeningApp}
                 </button>
               </div>
             </div>

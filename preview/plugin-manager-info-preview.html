@@ -61,8 +61,24 @@
     .popover-copy{margin:9px 0 0;color:#c4c1ce}
     .popover-shortcut{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding:9px 11px;border:1px solid rgba(205,194,235,.14);border-radius:12px;background:#302e38;color:#bdbac8;font-size:10px;font-weight:600}
     .popover-shortcut .keycap{white-space:nowrap;margin:0}
-    .status-controls{display:flex;align-items:center;gap:10px}
-    .status-pill{padding:4px 9px;border-radius:999px;background:rgba(117,214,170,.11);color:var(--green);font-size:10px;font-weight:700}
+    .discord-master-card{margin-bottom:16px;padding:15px;border:1px solid rgba(205,194,235,.18);border-radius:18px;background:#23232b;transition:background .25s,border-color .25s,box-shadow .25s}
+    .discord-master-card[data-enabled="true"]{background:rgba(88,101,242,.13);border-color:rgba(88,101,242,.44);box-shadow:0 8px 28px rgba(88,101,242,.12)}
+    .discord-master-row,.discord-identity{display:flex;align-items:center;gap:12px}
+    .discord-master-row{justify-content:space-between}
+    .discord-identity{min-width:0}
+    .discord-app-icon{width:40px;height:40px;flex:0 0 40px;display:grid;place-items:center;border-radius:14px;background:rgba(88,101,242,.18);color:#aab2ff;font-size:20px}
+    .discord-copy{min-width:0}
+    .discord-toggle-title{font-size:12px;font-weight:750;color:#eeeaf7}
+    .discord-toggle-desc{margin-top:4px;color:#9998a6;font-size:10px;line-height:1.5}
+    .discord-switch[aria-checked="true"]{background:#5865f2;border-color:rgba(88,101,242,.45)}
+    .discord-switch[aria-checked="true"] i{background:#fff}
+    .status-mode-heading{margin-bottom:12px}
+    .segmented{position:relative;display:flex;align-items:center;overflow:hidden;padding:4px;border:1px solid var(--line);border-radius:16px;background:#222129;user-select:none}
+    .segmented-indicator{position:absolute;inset-block:4px;left:4px;width:calc(50% - 4px);border-radius:12px;background:#b49aff;box-shadow:0 2px 8px rgba(0,0,0,.2);transition:transform .28s cubic-bezier(.2,0,0,1);pointer-events:none}
+    .segmented[data-selected="listening_app"] .segmented-indicator{transform:translateX(100%)}
+    .segmented button{position:relative;z-index:1;flex:1;min-width:0;padding:10px 8px;border:0;border-radius:12px;background:transparent;color:#aaa9b8;font-size:11px;font-weight:550;transition:color .2s;white-space:nowrap}
+    .segmented button[aria-pressed="true"]{color:#251a38;font-weight:750}
+    .segmented button:hover:not([aria-pressed="true"]){color:#fff}
     .help-btn{width:34px;height:34px;border:1px solid var(--line);border-radius:50%;background:var(--surface-low);color:#c4b5ff;display:grid;place-items:center;font-size:16px;transition:.18s}
     .help-btn:hover,.help-btn:focus-visible{border-color:rgba(180,154,255,.55);background:#2b2638;color:#fff;outline:none}
     .keycap{display:inline-grid;min-width:24px;min-height:22px;margin:0 2px;padding:1px 6px;place-items:center;border:1px solid rgba(205,194,235,.25);border-bottom-width:2px;border-radius:6px;background:#302c3b;color:#e5dcff;font:700 11px ui-monospace,SFMono-Regular,Consolas,monospace;vertical-align:middle}
@@ -139,10 +155,20 @@
           </div>
         </div>
         <div class="help-area"><div class="shortcut-help-row" id="helpAnchor"><button class="help-btn" id="helpButton" type="button" aria-label="Подсказка о горячей клавише" title="Наведите или нажмите">?</button><div class="inline-help" id="popover" role="tooltip" hidden></div></div></div>
+        <div class="discord-master-card" id="discordMasterCard" data-enabled="true">
+          <div class="discord-master-row">
+            <div class="discord-identity"><div class="discord-app-icon" aria-hidden="true">◉</div><div class="discord-copy"><div class="discord-toggle-title">Включить отображение активности</div><div class="discord-toggle-desc">Транслировать текущий трек, обложку и статус воспроизведения в Discord.</div></div></div>
+            <button class="switch discord-switch" type="button" role="switch" aria-checked="true" aria-label="Отображение активности" id="discordStatusSwitch"><i></i></button>
+          </div>
+        </div>
         <div class="setting-card">
-          <div class="setting-row"><div><div class="setting-label">Публикация статуса</div><div class="setting-help">Показывать прослушиваемый трек в Discord.</div></div><div class="status-controls"><span class="status-pill" id="discordStatusLabel">Включён</span><button class="switch" type="button" role="switch" aria-checked="true" aria-label="Публикация статуса" id="discordStatusSwitch"><i></i></button></div></div>
-          <div class="setting-row"><div><div class="setting-label">Режим отображения</div><div class="setting-help">Выберите, как приложение будет отображаться в профиле.</div></div><select class="select" aria-label="Режим отображения"><option>Слушает музыку</option><option>Играет в ArachnidMP</option></select></div>
-          <div class="setting-row"><div><div class="setting-label">Хостинг обложек</div></div><div class="host-picker" id="hostPicker"><button type="button" class="host-picker-button" id="hostPickerButton" aria-haspopup="listbox" aria-expanded="false"><span id="hostSelectedLabel">Автоматически (рекомендуется)</span><span class="host-chevron">⌄</span></button><div class="host-menu" id="hostMenu" role="listbox" aria-label="Хостинг обложек" hidden><button class="host-option" type="button" role="option" aria-selected="true" data-label="Автоматически (рекомендуется)"><span><span class="host-option-name">Автоматически (рекомендуется)</span></span><span class="host-option-check">✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="i-mg24.ru"><span><span class="host-option-name">i-mg24.ru</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="Uguu"><span><span class="host-option-name">Uguu</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="Catbox"><span><span class="host-option-name">Catbox</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="ImgDB.io"><span><span class="host-option-name">ImgDB.io</span></span><span class="host-option-check" hidden>✓</span></button></div></div></div>
+          <div class="status-mode-heading"><div class="setting-label">Формат отображения активности</div><div class="setting-help">Выберите, как активность отображается в профиле Discord.</div></div>
+          <div class="segmented" id="statusModeSwitch" data-selected="listening">
+            <div class="segmented-indicator"></div>
+            <button type="button" aria-pressed="true" data-mode="listening">Слушает</button>
+            <button type="button" aria-pressed="false" data-mode="listening_app">Слушает ArachnidMP</button>
+          </div>
+          <div class="setting-row"><div class="setting-label">Хостинг обложек</div><div class="host-picker" id="hostPicker"><button type="button" class="host-picker-button" id="hostPickerButton" aria-haspopup="listbox" aria-expanded="false"><span id="hostSelectedLabel">Автоматически (рекомендуется)</span><span class="host-chevron">⌄</span></button><div class="host-menu" id="hostMenu" role="listbox" aria-label="Хостинг обложек" hidden><button class="host-option" type="button" role="option" aria-selected="true" data-label="Автоматически (рекомендуется)"><span><span class="host-option-name">Автоматически (рекомендуется)</span></span><span class="host-option-check">✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="i-mg24.ru"><span><span class="host-option-name">i-mg24.ru</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="Uguu"><span><span class="host-option-name">Uguu</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="Catbox"><span><span class="host-option-name">Catbox</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="ImgDB.io"><span><span class="host-option-name">ImgDB.io</span></span><span class="host-option-check" hidden>✓</span></button></div></div></div>
         </div>
       </section>
     </main>
@@ -189,7 +215,16 @@
       toggle.addEventListener('click', () => {
         const enabled = toggle.getAttribute('aria-checked') !== 'true';
         toggle.setAttribute('aria-checked', String(enabled));
-        if (toggle.id === 'discordStatusSwitch') document.getElementById('discordStatusLabel').textContent = enabled ? 'Включён' : 'Выключен';
+        if (toggle.id === 'discordStatusSwitch') document.getElementById('discordMasterCard').dataset.enabled = String(enabled);
+      });
+    });
+    const statusModeSwitch = document.getElementById('statusModeSwitch');
+    statusModeSwitch.querySelectorAll('button[data-mode]').forEach(button => {
+      button.addEventListener('click', () => {
+        statusModeSwitch.dataset.selected = button.dataset.mode;
+        statusModeSwitch.querySelectorAll('button[data-mode]').forEach(option => {
+          option.setAttribute('aria-pressed', String(option === button));
+        });
       });
     });
     if (localStorage.getItem(NOTICE_KEY) !== 'true') notice.hidden = false;
