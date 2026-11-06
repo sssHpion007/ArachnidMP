@@ -11,16 +11,8 @@ const NO_COVER_ICON_PATHS: Record<DiscordFallbackIcon, string> = {
   disc: '<circle cx="12" cy="12" r="10"/><path d="M6 12c0-1.7.7-3.2 1.8-4.2"/><circle cx="12" cy="12" r="2"/><path d="M18 12c0 1.7-.7 3.2-1.8 4.2"/>',
 };
 
-function getThemeRgb(token: string, fallback: string): string {
-  if (typeof document === 'undefined') return fallback;
-  const value = window.getComputedStyle(document.documentElement).getPropertyValue(token).trim();
-  return /^\d{1,3}\s+\d{1,3}\s+\d{1,3}$/.test(value) ? value : fallback;
-}
-
 function fallbackArtworkDataUri(icon: DiscordFallbackIcon = 'disc'): string {
-  const primaryRgb = getThemeRgb('--md-sys-color-primary-rgb', '168 121 255');
-  const surfaceRgb = getThemeRgb('--md-sys-color-surface-container-rgb', '40 40 44');
-  const artwork = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" fill="rgb(${surfaceRgb})"/><rect width="128" height="128" fill="rgb(${primaryRgb})" fill-opacity="0.1"/><g transform="translate(32 32) scale(2.6666667)" fill="none" stroke="rgb(${primaryRgb})" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">${NO_COVER_ICON_PATHS[icon]}</g></svg>`;
+  const artwork = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" fill="#313338"/><g transform="translate(32 32) scale(2.6666667)" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">${NO_COVER_ICON_PATHS[icon]}</g></svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(artwork)}`;
 }
 

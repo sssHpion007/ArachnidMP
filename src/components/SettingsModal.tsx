@@ -1627,8 +1627,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-start gap-3.5">
-                  {/* Use real artwork when available; otherwise mirror the main player's tinted Lucide fallback. */}
-                  <div className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-md3-outline-variant/15 bg-md3-surface-container shadow-sm">
+                  {/* Keep real artwork first; otherwise show the white Lucide fallback on Discord's dark background. */}
+                  <div className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/5 bg-[#313338] shadow-md">
                     {currentTrack?.coverArt ? (
                       <img
                         src={coverVariantUrl(currentTrack.coverArt, 96)}
@@ -1636,7 +1636,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         className="h-full w-full rounded-xl object-cover"
                       />
                     ) : (
-                      <div className="absolute inset-0 flex items-center justify-center bg-md3-primary/10 text-md3-primary">
+                      <div className="absolute inset-0 flex items-center justify-center bg-[#313338] text-white">
                         {discordFallbackIcon === 'note' ? (
                           <Music aria-label={t.settings.discordFallbackNote} className="h-8 w-8" />
                         ) : (
