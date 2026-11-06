@@ -110,7 +110,7 @@ const DiscordCoverHostPicker: React.FC<{
       </button>
 
       {isOpen && (
-        <div role="listbox" aria-label={label} className="md3-scrollbar absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[70] max-h-60 overflow-y-auto rounded-[22px] border border-md3-outline-variant/25 bg-md3-surface-container-highest/95 p-2 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150">
+        <div role="listbox" aria-label={label} className="md3-scrollbar absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[70] max-h-60 overflow-y-auto rounded-2xl border border-md3-outline-variant/30 bg-md3-surface-container-high/95 p-2.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150">
           {options.map(option => {
             const selected = option.value === value;
             return (
@@ -120,7 +120,7 @@ const DiscordCoverHostPicker: React.FC<{
                 role="option"
                 aria-selected={selected}
                 onClick={() => { onChange(option.value); setIsOpen(false); }}
-                className={`flex w-full items-center gap-2 rounded-2xl border px-3 py-3 text-left transition-colors ${selected ? 'border-md3-primary/25 bg-md3-primary/10' : 'border-transparent hover:bg-md3-surface-container-high'}`}
+                className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition-all ${selected ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs' : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'}`}
               >
                 <span className="min-w-0 flex-1 truncate text-xs font-semibold text-md3-on-surface">{option.label}</span>
                 {selected && <Check className="h-4 w-4 shrink-0 text-md3-primary" />}
@@ -1672,10 +1672,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       {currentTrack ? currentTrack.title : 'The Sentinel'}
                     </div>
                     <div className="text-[11px] text-[#dbdee1] truncate font-medium">
-                      by {currentTrack ? currentTrack.artist : 'Judas Priest'}
+                      {currentTrack ? currentTrack.artist : 'Judas Priest'}
                     </div>
                     <div className="text-[11px] text-[#949ba4] truncate">
-                      on {currentTrack ? currentTrack.album : 'Defender of the Faith'}
+                      {currentTrack ? currentTrack.album : 'Defender of the Faith'}
                     </div>
 
                     {/* Thin, filled Discord-style timeline */}
