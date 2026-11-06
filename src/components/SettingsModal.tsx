@@ -1628,12 +1628,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <div className="flex items-start gap-3.5">
                   {/* Use the real track cover when available; otherwise show a simple disc icon. */}
-                  <div className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/5 bg-[#313338] shadow-md">
+                  <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-white/5 bg-[#313338] shadow-md">
                     {currentTrack?.coverArt ? (
                       <img
                         src={coverVariantUrl(currentTrack.coverArt, 96)}
                         alt="Artwork"
-                        className="h-full w-full object-cover"
+                        className="h-full w-full rounded-xl object-cover"
                       />
                     ) : discordFallbackIcon === 'note' ? (
                       <Music aria-label={t.settings.discordFallbackNote} className="h-8 w-8 text-[#8b9099]" strokeWidth={1.5} />
