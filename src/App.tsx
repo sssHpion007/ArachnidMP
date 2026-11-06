@@ -263,6 +263,7 @@ export const App: React.FC = () => {
   // Library & Content State (No dummy stubs)
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
   const [nativeTrackTotal, setNativeTrackTotal] = useState(0);
+  const [nativeCatalogRevision, setNativeCatalogRevision] = useState(0);
   const [nativeTrackIndices, setNativeTrackIndices] = useState<number[]>([]);
   const [nativePlaylistCovers, setNativePlaylistCovers] = useState<Record<string, string[]>>({});
   const [nativePlaylistDurations, setNativePlaylistDurations] = useState<Record<string, number>>({});
@@ -273,6 +274,7 @@ export const App: React.FC = () => {
     query: string;
     sortBy: string;
     descending: boolean;
+    catalogRevision: number;
     ids: string[];
   } | null>(null);
   const [nativePageLoading, setNativePageLoading] = useState(false);
@@ -296,6 +298,7 @@ export const App: React.FC = () => {
   const loadNativeTracksRangeRef = useRef<((startIndex: number, endIndex: number, reset?: boolean, preserveViewport?: boolean) => Promise<void>) | null>(null);
   const skipNextNativePageResetRef = useRef(false);
   const preserveViewportOnNextNativeResetRef = useRef(false);
+  const nativeCatalogRefreshPendingRef = useRef(false);
   const missingCheckRunningRef = useRef(false);
   const [playlists, setPlaylists] = useState<Playlist[]>(INITIAL_PLAYLISTS);
   const nativePlaylistCoverRequests = useMemo(() => playlists
@@ -320,6 +323,7 @@ export const App: React.FC = () => {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [playlistReorderScrollPreserveToken, setPlaylistReorderScrollPreserveToken] = useState(0);
   const optimisticReorderedPlaylistIdsRef = useRef<string[] | null>(null);
+  const optimisticReorderedCatalogRevisionRef = useRef<number | null>(null);
   const orderedNativeTrackIds = useMemo(() => {
     if (selectedPlaylistId) return playlists.find(playlist => playlist.id === selectedPlaylistId)?.trackIds ?? [];
     if (currentView === 'favorites' && sortBy === 'custom') return systemFavoritesPlaylist?.trackIds ?? [];
@@ -330,9 +334,10 @@ export const App: React.FC = () => {
     if (filteredOrderedTrackIds?.source !== orderedNativeTrackIds
       || filteredOrderedTrackIds.query !== searchQuery.trim()
       || filteredOrderedTrackIds.sortBy !== sortBy
-      || filteredOrderedTrackIds.descending !== (sortOrder === 'desc')) return null;
+      || filteredOrderedTrackIds.descending !== (sortOrder === 'desc')
+      || filteredOrderedTrackIds.catalogRevision !== nativeCatalogRevision) return null;
     return filteredOrderedTrackIds.ids;
-  }, [orderedNativeTrackIds, filteredOrderedTrackIds, searchQuery, sortBy, sortOrder]);
+  }, [orderedNativeTrackIds, filteredOrderedTrackIds, searchQuery, sortBy, sortOrder, nativeCatalogRevision]);
 
   // Responsive layout state
   const [windowWidth, setWindowWidth] = useState<number>(window.innerWidth);
@@ -1142,6 +1147,7 @@ export const App: React.FC = () => {
         && filteredOrderedTrackIds.query === search
         && filteredOrderedTrackIds.sortBy === sortBy
         && filteredOrderedTrackIds.descending === descending
+        && filteredOrderedTrackIds.catalogRevision === nativeCatalogRevision
         ? filteredOrderedTrackIds.ids
         : undefined;
     if (orderedNativeTrackIds !== null && orderedTrackIds === undefined) {
@@ -1222,7 +1228,7 @@ export const App: React.FC = () => {
         setNativePageLoading(false);
       }
     }
-  }, [startupDataLoaded, isNativeBoundedTrackView, selectedAlbum, selectedArtist, selectedGenre, language, searchQuery, sortBy, sortOrder, currentView, isolatedTrackIds, orderedNativeTrackIds, filteredOrderedTrackIds]);
+  }, [startupDataLoaded, isNativeBoundedTrackView, selectedAlbum, selectedArtist, selectedGenre, language, searchQuery, sortBy, sortOrder, currentView, isolatedTrackIds, orderedNativeTrackIds, filteredOrderedTrackIds, nativeCatalogRevision]);
 
   const loadNativeTracksPage = useCallback(async (reset = false, preserveViewport = false) => {
     if (!isTauri() || !startupDataLoaded || !isNativeBoundedTrackView) return;
@@ -1244,34 +1250,46 @@ export const App: React.FC = () => {
   loadNativeTracksPageRef.current = loadNativeTracksPage;
   loadNativeTracksRangeRef.current = loadNativeTracksRange;
 
+  const refreshNativeCatalogView = useCallback(() => {
+    // Re-query ordered playlist IDs after catalog writes, then reload the visible range in place.
+    nativeCatalogRefreshPendingRef.current = true;
+    preserveViewportOnNextNativeResetRef.current = true;
+    setNativeCatalogRevision(revision => revision + 1);
+  }, []);
+
   useEffect(() => {
     if (!isTauri() || orderedNativeTrackIds === null) {
       optimisticReorderedPlaylistIdsRef.current = null;
+      optimisticReorderedCatalogRevisionRef.current = null;
       setFilteredOrderedTrackIds(null);
       return;
     }
     const query = searchQuery.trim();
     const descending = sortOrder === 'desc';
+    const catalogRevision = nativeCatalogRevision;
     if (optimisticReorderedPlaylistIdsRef.current === orderedNativeTrackIds
+      && optimisticReorderedCatalogRevisionRef.current === catalogRevision
       && !query
       && sortBy === 'custom'
       && !descending) {
       optimisticReorderedPlaylistIdsRef.current = null;
+      optimisticReorderedCatalogRevisionRef.current = null;
       return;
     }
     optimisticReorderedPlaylistIdsRef.current = null;
+    optimisticReorderedCatalogRevisionRef.current = null;
     let active = true;
     setFilteredOrderedTrackIds(null);
     void libraryRepository.orderedSubsetIds(orderedNativeTrackIds, query, sortBy, descending)
       .then(ids => {
-        if (active) setFilteredOrderedTrackIds({ source: orderedNativeTrackIds, query, sortBy, descending, ids });
+        if (active) setFilteredOrderedTrackIds({ source: orderedNativeTrackIds, query, sortBy, descending, catalogRevision, ids });
       })
       .catch(error => {
         console.warn('Unable to filter and order SQLite track IDs:', error);
-        if (active) setFilteredOrderedTrackIds({ source: orderedNativeTrackIds, query, sortBy, descending, ids: [] });
+        if (active) setFilteredOrderedTrackIds({ source: orderedNativeTrackIds, query, sortBy, descending, catalogRevision, ids: [] });
       });
     return () => { active = false; };
-  }, [orderedNativeTrackIds, searchQuery, sortBy, sortOrder]);
+  }, [orderedNativeTrackIds, searchQuery, sortBy, sortOrder, nativeCatalogRevision]);
 
   useEffect(() => {
     if (!isTauri() || !startupDataLoaded || currentView !== 'favorites' || searchQuery.trim() || sortBy === 'custom') {
@@ -1333,9 +1351,13 @@ export const App: React.FC = () => {
   useLayoutEffect(() => {
     if (!isTauri() || !startupDataLoaded || !isNativeBoundedTrackView) return;
     if (orderedNativeTrackIds !== null && readyOrderedNativeTrackIds === null) return;
-    if (skipNextNativePageResetRef.current) {
+    if (skipNextNativePageResetRef.current && !nativeCatalogRefreshPendingRef.current) {
       skipNextNativePageResetRef.current = false;
       return;
+    }
+    if (nativeCatalogRefreshPendingRef.current) {
+      nativeCatalogRefreshPendingRef.current = false;
+      skipNextNativePageResetRef.current = false;
     }
     const preserveViewport = preserveViewportOnNextNativeResetRef.current;
     preserveViewportOnNextNativeResetRef.current = false;
@@ -1355,6 +1377,7 @@ export const App: React.FC = () => {
     orderedNativeTrackIds,
     readyOrderedNativeTrackIds,
     isolatedTrackIds,
+    nativeCatalogRevision,
   ]);
 
 
@@ -1586,9 +1609,9 @@ export const App: React.FC = () => {
                 try {
                   const scanResult = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: await getScanPaths() });
                   applyNativeTrackIdReplacements(scanResult.replacements);
-                  // Refresh only the current viewport: a full reset briefly empties the track list,
-                  // and a one-row bootstrap can leave a playlist without its visible range loaded.
-                  await loadNativeTracksPageRef.current?.(true, true);
+                  // Invalidate ordered IDs after the scan; the catalog revision waits for a fresh
+                  // playlist query before the viewport-preserving table refresh runs.
+                  refreshNativeCatalogView();
                   await verifyNativeLibraryExistence(true);
                 } catch (error) {
                   console.warn('Startup library scan error:', error);
@@ -3499,6 +3522,7 @@ export const App: React.FC = () => {
             const scanResult = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: res.paths });
             applyNativeTrackIdReplacements(scanResult.replacements);
             const newPlTracks = hydrateNativeSummaryRows(await libraryRepository.byPaths(res.paths));
+            refreshNativeCatalogView();
             if (newPlTracks.length > 0) {
               const newPl: Playlist = {
                 id: `pl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -3508,9 +3532,7 @@ export const App: React.FC = () => {
                 order: playlists.length,
               };
               setPlaylists(prev => [...prev, newPl]);
-              if (isNativeBoundedTrackView) {
-                await loadNativeTracksPage(true);
-              } else {
+              if (!isNativeBoundedTrackView) {
                 setTracks(prev => appendUniqueTracks(prev, newPlTracks));
               }
             }
@@ -3531,7 +3553,7 @@ export const App: React.FC = () => {
         if (scannedRows.length > 0) {
           processImportedTracks(hydrateNativeSummaryRows(scannedRows), knownExistingIds);
         }
-        if (scanResult.replacements.length > 0) await loadNativeTracksPage(true);
+        refreshNativeCatalogView();
       } catch (err) {
         console.warn('Error reading Tauri dropped files:', err);
       }
@@ -3599,7 +3621,7 @@ export const App: React.FC = () => {
           scanResult.replacements.forEach(({ retainedId }) => knownExistingIds.add(retainedId));
           const rows = await libraryRepository.byPaths(paths);
           processImportedTracks(hydrateNativeSummaryRows(rows), knownExistingIds);
-          if (scanResult.replacements.length > 0) await loadNativeTracksPage(true);
+          refreshNativeCatalogView();
         }
       } catch (err) {
         console.warn('Native open file dialog error:', err);
@@ -4378,6 +4400,7 @@ export const App: React.FC = () => {
           const scanResult = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: res.paths });
           applyNativeTrackIdReplacements(scanResult.replacements);
           const addedTracks = hydrateNativeSummaryRows(await libraryRepository.byPaths(res.paths));
+          refreshNativeCatalogView();
           if (addedTracks.length > 0) {
             const newPl: Playlist = {
               id: `pl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -4387,9 +4410,7 @@ export const App: React.FC = () => {
               order: playlists.length,
             };
             setPlaylists(prev => [...prev, newPl]);
-            if (isNativeBoundedTrackView) {
-              await loadNativeTracksPage(true);
-            } else {
+            if (!isNativeBoundedTrackView) {
               setTracks(prev => appendUniqueTracks(prev, addedTracks));
             }
           }
@@ -4444,7 +4465,7 @@ export const App: React.FC = () => {
     try {
       const result = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: [folder] });
       applyNativeTrackIdReplacements(result.replacements);
-      await loadNativeTracksPage(true);
+      refreshNativeCatalogView();
       await refreshLibraryFolderTrackCounts(nextWatchedFolders);
       return result.scanned;
     } catch (error) {
@@ -4539,13 +4560,13 @@ export const App: React.FC = () => {
       const foldersToScan = Array.from(new Set([portableMusicPath, ...watchedFolders]));
       const scanResult = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: foldersToScan });
       applyNativeTrackIdReplacements(scanResult.replacements);
-      await loadNativeTracksPage(true);
+      refreshNativeCatalogView();
       return scanResult.scanned;
     } catch (error) {
       console.warn('Scan library error:', error);
       throw error;
     }
-  }, [watchedFolders, loadNativeTracksPage, applyNativeTrackIdReplacements]);
+  }, [watchedFolders, applyNativeTrackIdReplacements, refreshNativeCatalogView]);
 
   const pendingTrayActionRef = useRef<'reset-theme' | 'scan-library' | null>(null);
   useEffect(() => {
@@ -4722,11 +4743,13 @@ export const App: React.FC = () => {
       preserveViewportOnNextNativeResetRef.current = true;
       if (!searchQuery.trim()) {
         optimisticReorderedPlaylistIdsRef.current = reorderedTrackIds;
+        optimisticReorderedCatalogRevisionRef.current = nativeCatalogRevision;
         setFilteredOrderedTrackIds({
           source: reorderedTrackIds,
           query: '',
           sortBy: 'custom',
           descending: false,
+          catalogRevision: nativeCatalogRevision,
           ids: reorderedTrackIds,
         });
       }
