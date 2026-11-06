@@ -200,6 +200,11 @@ class AudioEngine {
     this.onLoopRepeatCallback = callbacks.onLoopRepeat;
   }
 
+  public setOutputDevice(deviceId: string): Promise<void> {
+    if (!isTauri()) return Promise.resolve();
+    return invoke<void>('native_set_output_device', { deviceId });
+  }
+
   public setFadeConfig(mode: FadeMode, durationSec: number) {
     this.fadeMode = mode;
     this.fadeDuration = Math.max(0.2, durationSec);

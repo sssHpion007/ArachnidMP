@@ -396,7 +396,8 @@ export const App: React.FC = () => {
   const miniLyricsSaveHandlerRef = useRef<(trackId: string, lyrics: string, isInstrumental: boolean, lyricist?: string) => void>(() => {});
   const miniLyricsReloadHandlerRef = useRef<(trackId: string) => void>(() => {});
 
-  // Audio Fading Settings
+  // Audio output and fading settings
+  const [outputDeviceId, setOutputDeviceId] = useState('default');
   const [fadeMode, setFadeMode] = useState<FadeMode>('track_change_and_pause');
   const [fadeDuration, setFadeDuration] = useState<number>(2.0);
 
@@ -1704,6 +1705,7 @@ export const App: React.FC = () => {
           } else if (typeof parsed.isDynamicColor === 'boolean') {
             setColorSchemeMode(parsed.isDynamicColor ? 'dynamic' : 'custom');
           }
+          if (typeof parsed.outputDeviceId === 'string' && parsed.outputDeviceId.length > 0) setOutputDeviceId(parsed.outputDeviceId);
           if (parsed.fadeMode) setFadeMode(parsed.fadeMode);
           if (typeof parsed.fadeDuration === 'number') setFadeDuration(parsed.fadeDuration);
           if (Array.isArray(parsed.watchedFolders)) setWatchedFolders(parsed.watchedFolders);
@@ -1810,6 +1812,7 @@ export const App: React.FC = () => {
       navigationTabOrder,
       colorSchemeMode,
       isDynamicColor: colorSchemeMode === 'dynamic',
+      outputDeviceId,
       fadeMode,
       fadeDuration,
       watchedFolders,
@@ -1820,7 +1823,7 @@ export const App: React.FC = () => {
     invoke('save_portable_settings', { data: JSON.stringify(settings) }).catch(error => {
       console.warn('Failed to save settings:', error);
     });
-  }, [themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, discordPluginEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordFallbackIcon, discordStatusMode, discordCustomClientId, discordCoverHost, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface, startupDataLoaded]);
+  }, [themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, discordPluginEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordFallbackIcon, discordStatusMode, discordCustomClientId, discordCoverHost, visibleTabs, navigationTabOrder, colorSchemeMode, outputDeviceId, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface, startupDataLoaded]);
 
   // Browser-only fallback retains its existing single localStorage document format.
   useEffect(() => {
@@ -1849,6 +1852,7 @@ export const App: React.FC = () => {
       navigationTabOrder,
       colorSchemeMode,
       isDynamicColor: colorSchemeMode === 'dynamic',
+      outputDeviceId,
       fadeMode,
       fadeDuration,
       watchedFolders,
@@ -1861,7 +1865,7 @@ export const App: React.FC = () => {
     } catch (error) {
       console.warn('Failed to save browser library data:', error);
     }
-  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, discordPluginEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordFallbackIcon, discordStatusMode, discordCustomClientId, discordCoverHost, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface]);
+  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, discordPluginEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordFallbackIcon, discordStatusMode, discordCustomClientId, discordCoverHost, visibleTabs, navigationTabOrder, colorSchemeMode, outputDeviceId, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface]);
 
   // Reveal the native window only after portable preferences have loaded, so the
   // selected startup layout is already active when the user sees it.
@@ -1991,6 +1995,14 @@ export const App: React.FC = () => {
   useEffect(() => {
     audioEngine.setVolume(volume);
   }, [volume]);
+
+  // Sync native audio output selection after saved preferences have loaded.
+  useEffect(() => {
+    if (!startupDataLoaded || !isTauri()) return;
+    void audioEngine.setOutputDevice(outputDeviceId).catch(error => {
+      console.warn('Failed to apply audio output device:', error);
+    });
+  }, [outputDeviceId, startupDataLoaded]);
 
   // Sync Audio Engine Fade Configuration
   useEffect(() => {
@@ -6101,6 +6113,8 @@ export const App: React.FC = () => {
         currentTrack={currentTrack}
         isPlaying={isPlaying}
         currentTime={currentTime}
+        outputDeviceId={outputDeviceId}
+        onSetOutputDeviceId={setOutputDeviceId}
         fadeMode={fadeMode}
         onSetFadeMode={setFadeMode}
         fadeDuration={fadeDuration}

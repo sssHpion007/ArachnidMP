@@ -90,6 +90,11 @@ export interface Translations {
     crossfadeAlways: string;
     crossfadeAlwaysDesc: string;
     fadeDuration: string;
+    outputDevice: string;
+    outputDeviceDesc: string;
+    systemDefaultOutput: string;
+    noOutputDevices: string;
+    refreshOutputDevices: string;
     navigationTabs: string;
     navigationTabsDesc: string;
     visibleNavigationTabs: string;
@@ -325,6 +330,11 @@ export const RU_TRANSLATIONS: Translations = {
     crossfadeAlways: 'Всегда',
     crossfadeAlwaysDesc: 'Затухание при переключении, паузе и повторе трека',
     fadeDuration: 'Длительность затухания',
+    outputDevice: 'Устройство вывода',
+    outputDeviceDesc: 'Выберите, куда выводить звук. «По умолчанию» использует устройство, выбранное в системе.',
+    systemDefaultOutput: 'По умолчанию (системное устройство)',
+    noOutputDevices: 'Устройства вывода не найдены',
+    refreshOutputDevices: 'Обновить список устройств',
     navigationTabs: 'Вкладки навигации',
     navigationTabsDesc: 'Добавляйте вкладки из списка, убирайте ненужные и меняйте порядок. В панели должна остаться хотя бы одна вкладка.',
     visibleNavigationTabs: 'Показываются в панели',
@@ -560,6 +570,11 @@ export const EN_TRANSLATIONS: Translations = {
     crossfadeAlways: 'Always',
     crossfadeAlwaysDesc: 'Fade on manual switches, pause, and repeat-one loops',
     fadeDuration: 'Fade Duration',
+    outputDevice: 'Output Device',
+    outputDeviceDesc: 'Choose where audio plays. “Default” follows the output device selected by your system.',
+    systemDefaultOutput: 'Default (system output)',
+    noOutputDevices: 'No output devices found',
+    refreshOutputDevices: 'Refresh device list',
     navigationTabs: 'Navigation Tabs',
     navigationTabsDesc: 'Add tabs from the list, remove the ones you do not need, and reorder them. Keep at least one tab in the bar.',
     visibleNavigationTabs: 'Shown in the navigation bar',

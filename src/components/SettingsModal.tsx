@@ -133,6 +133,126 @@ const DiscordCoverHostPicker: React.FC<{
   );
 };
 
+type OutputDeviceInfo = { id: string; name: string; isDefault: boolean };
+
+const OutputDevicePicker: React.FC<{
+  value: string;
+  language: AppLanguage;
+  onChange: (deviceId: string) => void;
+}> = ({ value, language, onChange }) => {
+  const t = getTranslations(language).settings;
+  const [isOpen, setIsOpen] = useState(false);
+  const [devices, setDevices] = useState<OutputDeviceInfo[]>([]);
+  const [devicesLoaded, setDevicesLoaded] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const defaultId = 'default';
+
+  const refreshDevices = useCallback(async () => {
+    if (!isTauri()) return;
+    setIsLoading(true);
+    try {
+      const result = await invoke<OutputDeviceInfo[]>('native_list_output_devices');
+      setDevices(Array.isArray(result) ? result : []);
+      setDevicesLoaded(true);
+    } catch (error) {
+      console.warn('Failed to list output devices:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void refreshDevices(); }, [refreshDevices]);
+  useEffect(() => {
+    if (devicesLoaded && value !== defaultId && !devices.some(device => device.id === value)) onChange(defaultId);
+  }, [devicesLoaded, devices, value, onChange]);
+  useEffect(() => {
+    if (!isOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node)) setIsOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [isOpen]);
+
+  const defaultLabel = t.systemDefaultOutput;
+  const selectedDevice = devices.find(device => device.id === value);
+  const selectedLabel = value === defaultId ? defaultLabel : (selectedDevice?.name ?? defaultLabel);
+  const options = [
+    { id: defaultId, label: defaultLabel },
+    ...devices.map(device => ({
+      id: device.id,
+      label: device.isDefault ? `${device.name} (${language === 'ru' ? 'системное по умолчанию' : 'system default'})` : device.name,
+    })),
+  ];
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-bold text-md3-on-surface">{t.outputDevice}</div>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-md3-on-surface-variant">{t.outputDeviceDesc}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void refreshDevices()}
+          disabled={isLoading || !isTauri()}
+          aria-label={t.refreshOutputDevices}
+          title={t.refreshOutputDevices}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-md3-on-surface-variant transition-colors hover:bg-md3-surface-container-high hover:text-md3-on-surface disabled:opacity-40"
+        >
+          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+      <div className="relative" ref={pickerRef}>
+        <button
+          type="button"
+          aria-haspopup="listbox"
+          aria-expanded={isOpen}
+          onClick={() => setIsOpen(open => !open)}
+          className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-md3-primary/50 ${isOpen ? 'border-md3-primary/45 bg-md3-surface-container-high' : 'border-md3-outline-variant/25 bg-md3-surface hover:border-md3-outline-variant/45 hover:bg-md3-surface-container-high'}`}
+        >
+          <span className="flex min-w-0 items-center gap-2.5">
+            <Volume2 className="h-4 w-4 shrink-0 text-md3-primary" />
+            <span className="truncate text-sm font-semibold text-md3-on-surface">{selectedLabel}</span>
+          </span>
+          <ChevronDown className={`h-4 w-4 shrink-0 text-md3-on-surface-variant transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        </button>
+        {isOpen && (
+          <div role="listbox" aria-label={t.outputDevice} className="md3-scrollbar absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[70] max-h-60 overflow-y-auto rounded-2xl border border-md3-outline-variant/30 bg-md3-surface-container-high/95 p-2.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150">
+            {options.map(option => {
+              const selected = option.id === value;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => { onChange(option.id); setIsOpen(false); }}
+                  className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition-all ${selected ? 'border-md3-primary bg-md3-primary/10 shadow-xs' : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'}`}
+                >
+                  <span className="min-w-0 flex-1 truncate text-xs font-semibold text-md3-on-surface">{option.label}</span>
+                  {selected && <Check className="h-4 w-4 shrink-0 text-md3-primary" />}
+                </button>
+              );
+            })}
+            {isTauri() && devices.length === 0 && (
+              <p className="px-3 py-2 text-[11px] text-md3-on-surface-variant">{t.noOutputDevices}</p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const DiscordShortcutHint: React.FC<{ language: AppLanguage; shortcutLabel: string }> = ({ language, shortcutLabel }) => {
   const [isOpen, setIsOpen] = useState(false);
   const hintRef = useRef<HTMLDivElement>(null);
@@ -271,6 +391,8 @@ interface SettingsModalProps {
   currentTrack: Track | null;
   isPlaying: boolean;
   currentTime: number;
+  outputDeviceId: string;
+  onSetOutputDeviceId: (deviceId: string) => void;
   fadeMode: FadeMode;
   onSetFadeMode: (mode: FadeMode) => void;
   fadeDuration: number;
@@ -358,6 +480,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   currentTrack,
   isPlaying,
   currentTime,
+  outputDeviceId,
+  onSetOutputDeviceId,
   fadeMode,
   onSetFadeMode,
   fadeDuration,
@@ -2782,6 +2906,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     )}
                 </div>
               )}
+            </div>
+
+            <div className="space-y-3 border-t border-md3-outline-variant/20 pt-4">
+              <OutputDevicePicker value={outputDeviceId} language={language} onChange={onSetOutputDeviceId} />
             </div>
 
             {/* 2. Section: Track Fading (Затухание трека) */}

@@ -3340,6 +3340,8 @@ pub fn run() {
             native_scrub_hold,
             native_scrub_cancel,
             native_set_volume,
+            native_list_output_devices,
+            native_set_output_device,
             native_set_repeat_one,
             native_set_fade_config,
             native_get_state,
@@ -3831,6 +3833,16 @@ fn native_scrub_cancel(state: tauri::State<'_, AppState>) -> Result<(), String> 
 #[tauri::command]
 fn native_set_volume(state: tauri::State<'_, AppState>, volume: f32) -> Result<(), String> {
     state.player.set_volume(volume)
+}
+
+#[tauri::command]
+fn native_list_output_devices() -> Result<Vec<player::OutputDeviceInfo>, String> {
+    player::list_output_devices()
+}
+
+#[tauri::command]
+fn native_set_output_device(state: tauri::State<'_, AppState>, device_id: String) -> Result<(), String> {
+    state.player.set_output_device(device_id)
 }
 
 #[tauri::command]

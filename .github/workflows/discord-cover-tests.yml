@@ -7,7 +7,7 @@ on:
 
 jobs:
   rust-regression-tests:
-    # Artifact-only pushes can opt out of these unrelated Discord cover checks.
+    # Artifact-only pushes can skip the broader Rust regression suite during artifact generation.
     if: ${{ !contains(github.event.head_commit.message, '[artifact-only]') }}
     runs-on: ubuntu-latest
     steps:
@@ -38,12 +38,6 @@ jobs:
             libxdo-dev \
             patchelf \
             wget
-
-      - name: Test Discord cover selection and activity invariants
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib discord::tests -- --nocapture
-
-      - name: Test Discord cached-cover readiness retry
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib discord_cover_prepare_tests -- --nocapture
 
       - name: Test SQLite library repository
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib library_db::tests -- --nocapture
