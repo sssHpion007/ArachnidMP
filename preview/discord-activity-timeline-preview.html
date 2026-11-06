@@ -3,19 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Discord RPC preview</title>
+  <title>Discord RPC settings preview</title>
   <style>
     :root { color-scheme: dark; font-family: Arial, Helvetica, sans-serif; }
     * { box-sizing: border-box; }
     body { min-height: 100vh; margin: 0; display: grid; place-items: center; background: #1e1f22; color: #f2f3f5; }
-    .preview { display: grid; justify-items: center; gap: 14px; padding: 18px; }
-    .picker { width: min(353px, calc(100vw - 24px)); padding: 12px; border: 1px solid #ffffff18; border-radius: 14px; background: #2b2d31; }
-    .picker-title { margin: 0 0 9px; color: #c6c8ce; font-size: 12px; font-weight: 700; }
-    .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .choice { min-height: 40px; display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid #ffffff20; border-radius: 10px; background: #1e1f22; color: #b5b8c0; font-size: 12px; cursor: pointer; }
-    .choice[aria-pressed="true"] { border-color: #8794ff99; background: #5865f222; color: #aab2ff; font-weight: 700; }
-    .choice svg { width: 17px; height: 17px; stroke: currentColor; stroke-width: 1.7; fill: none; }
-    .profile-card { width: min(353px, calc(100vw - 24px)); padding: 10px 12px 12px; border-radius: 12px; background: #2b2d31; box-shadow: 0 8px 24px #0004; }
+    .settings-preview { width: min(390px, calc(100vw - 24px)); display: grid; gap: 12px; padding: 16px 0; }
+    .profile-card, .setting-card { border: 1px solid #ffffff18; border-radius: 14px; background: #2b2d31; box-shadow: 0 8px 24px #0003; }
+    .profile-card { padding: 10px 12px 12px; }
     .activity-label { height: 19px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; font-size: 14px; font-weight: 700; }
     .more { color: #aeb1b7; letter-spacing: 2px; transform: translateY(-2px); }
     .activity { display: grid; grid-template-columns: 75px minmax(0, 1fr); gap: 10px; min-height: 76px; }
@@ -31,27 +26,23 @@
     .time-end { text-align: right; }
     .track { height: 2px; overflow: hidden; border-radius: 999px; background: #51535a; }
     .played { width: 18.4%; height: 100%; border-radius: inherit; background: #f2f3f5; }
-    .note { max-width: 353px; color: #949ba4; font-size: 11px; text-align: center; }
+    .setting-card { padding: 14px; }
+    .setting-title { margin: 0 0 10px; color: #f2f3f5; font-size: 13px; font-weight: 700; }
+    .setting-description { margin: -4px 0 11px; color: #aeb1b7; font-size: 11px; line-height: 1.4; }
+    .segmented { position: relative; display: flex; overflow: hidden; padding: 4px; border: 1px solid #ffffff20; border-radius: 14px; background: #1e1f22; }
+    .selection { pointer-events: none; position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px); border-radius: 10px; background: #5865f2; box-shadow: 0 2px 7px #0005; transition: transform 300ms cubic-bezier(.2,0,0,1); }
+    .selection.right { transform: translateX(100%); }
+    .segment { position: relative; z-index: 1; flex: 1; min-width: 0; min-height: 39px; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 7px 8px; border: 0; border-radius: 10px; background: transparent; color: #aeb1b7; font-size: 12px; cursor: pointer; }
+    .segment svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.7; fill: none; }
+    .segment[aria-pressed="true"] { color: #fff; font-weight: 700; }
+    .note { color: #949ba4; font-size: 11px; text-align: center; }
   </style>
 </head>
 <body>
-  <div class="preview">
-    <section class="picker" aria-label="Настройка значка без обложки">
-      <h1 class="picker-title">Значок без обложки</h1>
-      <div class="choices" role="group" aria-label="Выберите значок">
-        <button type="button" class="choice" data-icon="note" aria-pressed="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-          Нота
-        </button>
-        <button type="button" class="choice" data-icon="disc" aria-pressed="true">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.25"/><circle cx="12" cy="12" r="3.1"/><path d="M12 2.75v6.15M21.25 12H15.1M12 21.25V15.1M2.75 12H8.9"/></svg>
-          Диск
-        </button>
-      </div>
-    </section>
-    <main class="profile-card" aria-label="Предпросмотр активности Discord">
+  <main class="settings-preview">
+    <section class="profile-card" aria-label="Предпросмотр активности Discord">
       <div class="activity-label"><span>Слушает</span><span class="more" aria-hidden="true">•••</span></div>
-      <section class="activity">
+      <div class="activity">
         <div class="artwork" role="img" aria-label="Обложки нет — значок диска">
           <svg id="disc-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.25"/><circle cx="12" cy="12" r="3.1"/><path d="M12 2.75v6.15M21.25 12H15.1M12 21.25V15.1M2.75 12H8.9"/></svg>
           <svg id="note-icon" viewBox="0 0 24 24" aria-hidden="true" style="display:none"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
@@ -62,17 +53,42 @@
           <div class="album">Defender of the Faith</div>
           <div class="timeline" aria-label="00:56 из 05:04"><span>00:56</span><div class="track"><div class="played"></div></div><span class="time-end">05:04</span></div>
         </div>
-      </section>
-    </main>
-    <div class="note">При наличии обложки она заменит выбранный значок.</div>
-  </div>
+      </div>
+    </section>
+    <section class="setting-card">
+      <h1 class="setting-title">Формат отображения активности</h1>
+      <p class="setting-description">Выберите, как активность отображается в профиле Discord</p>
+      <div class="segmented" role="group" aria-label="Формат отображения активности">
+        <div class="selection" aria-hidden="true"></div>
+        <button class="segment" aria-pressed="true">Слушает</button>
+        <button class="segment" aria-pressed="false">Слушает ArachnidMP</button>
+      </div>
+    </section>
+    <section class="setting-card">
+      <h2 class="setting-title">Значок без обложки</h2>
+      <div class="segmented" role="group" aria-label="Выберите значок без обложки">
+        <div class="selection right" id="fallback-selection" aria-hidden="true"></div>
+        <button type="button" class="segment fallback-choice" data-icon="note" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          Нота
+        </button>
+        <button type="button" class="segment fallback-choice" data-icon="disc" aria-pressed="true">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.25"/><circle cx="12" cy="12" r="3.1"/><path d="M12 2.75v6.15M21.25 12H15.1M12 21.25V15.1M2.75 12H8.9"/></svg>
+          Диск
+        </button>
+      </div>
+    </section>
+    <div class="note">При наличии обложки отображается она; иначе — выбранный значок.</div>
+  </main>
   <script>
-    const choices = [...document.querySelectorAll('.choice')];
+    const choices = [...document.querySelectorAll('.fallback-choice')];
+    const selection = document.getElementById('fallback-selection');
     const discIcon = document.getElementById('disc-icon');
     const noteIcon = document.getElementById('note-icon');
     const artwork = document.querySelector('.artwork');
     function setFallbackIcon(icon) {
       choices.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.icon === icon)));
+      selection.classList.toggle('right', icon === 'disc');
       discIcon.style.display = icon === 'disc' ? '' : 'none';
       noteIcon.style.display = icon === 'note' ? '' : 'none';
       artwork.setAttribute('aria-label', `Обложки нет — значок ${icon === 'disc' ? 'диска' : 'ноты'}`);

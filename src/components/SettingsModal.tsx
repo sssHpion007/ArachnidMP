@@ -1688,30 +1688,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
-            <div className="rounded-3xl border border-md3-outline-variant/20 bg-md3-surface-container-low p-4 space-y-3">
-              <div className="text-sm font-bold text-md3-on-surface">{t.settings.discordFallbackIcon}</div>
-              <div role="group" aria-label={t.settings.discordFallbackIcon} className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  aria-pressed={discordFallbackIcon === 'note'}
-                  onClick={() => onSetDiscordFallbackIcon('note')}
-                  className={`flex min-h-12 items-center justify-center gap-2 rounded-2xl border px-3 py-2 text-xs transition-colors ${discordFallbackIcon === 'note' ? 'border-md3-primary/50 bg-md3-primary/10 text-md3-primary font-bold' : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:text-md3-on-surface'}`}
-                >
-                  <Music className="h-4 w-4" aria-hidden="true" />
-                  <span>{t.settings.discordFallbackNote}</span>
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={discordFallbackIcon === 'disc'}
-                  onClick={() => onSetDiscordFallbackIcon('disc')}
-                  className={`flex min-h-12 items-center justify-center gap-2 rounded-2xl border px-3 py-2 text-xs transition-colors ${discordFallbackIcon === 'disc' ? 'border-md3-primary/50 bg-md3-primary/10 text-md3-primary font-bold' : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:text-md3-on-surface'}`}
-                >
-                  <Disc className="h-4 w-4" aria-hidden="true" />
-                  <span>{t.settings.discordFallbackDisc}</span>
-                </button>
-              </div>
-            </div>
-
             {/* 3. Activity Display Format Selection */}
             <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
               <div>
@@ -1752,7 +1728,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
-            {/* 4. Playback State Icons (2 separate checkboxes: Play and Pause) */}
+            {/* 4. No-cover icon selection */}
+            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
+              <div className="text-sm font-bold text-md3-on-surface">
+                {t.settings.discordFallbackIcon}
+              </div>
+              <div role="group" aria-label={t.settings.discordFallbackIcon} className="relative flex items-center overflow-hidden rounded-2xl border border-md3-outline-variant/20 bg-md3-surface p-1 select-none">
+                <div className={`pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-xl bg-md3-primary shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${discordFallbackIcon === 'disc' ? 'translate-x-full' : ''}`} />
+                <button
+                  type="button"
+                  aria-pressed={discordFallbackIcon === 'note'}
+                  onClick={() => onSetDiscordFallbackIcon('note')}
+                  className={`relative z-10 flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-2 py-3 text-center text-xs transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-md3-primary/60 ${discordFallbackIcon === 'note' ? 'font-bold text-md3-on-primary' : 'font-medium text-md3-on-surface-variant hover:text-md3-on-surface'}`}
+                >
+                  <Music className="h-4 w-4" aria-hidden="true" />
+                  {t.settings.discordFallbackNote}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={discordFallbackIcon === 'disc'}
+                  onClick={() => onSetDiscordFallbackIcon('disc')}
+                  className={`relative z-10 flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-2 py-3 text-center text-xs transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-md3-primary/60 ${discordFallbackIcon === 'disc' ? 'font-bold text-md3-on-primary' : 'font-medium text-md3-on-surface-variant hover:text-md3-on-surface'}`}
+                >
+                  <Disc className="h-4 w-4" aria-hidden="true" />
+                  {t.settings.discordFallbackDisc}
+                </button>
+              </div>
+            </div>
+
+            {/* 5. Playback State Icons (2 separate checkboxes: Play and Pause) */}
             <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
               <div>
                 <div className="text-sm font-bold text-md3-on-surface">
@@ -1798,7 +1802,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
-            {/* 5. Cover upload host selector */}
+            {/* 6. Cover upload host selector */}
             <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
               <div>
                 <div className="text-sm font-bold text-md3-on-surface">
@@ -1813,7 +1817,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               />
             </div>
 
-            {/* 6. Additional Settings: TopBar Switch & Custom Client ID */}
+            {/* 7. Additional Settings: TopBar Switch & Custom Client ID */}
             <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
               {/* Show Discord Quick Switch in TopBar */}
               <label className="flex items-center justify-between p-3 rounded-2xl bg-md3-surface border border-md3-outline-variant/15 hover:border-md3-outline-variant/30 transition-colors cursor-pointer">
