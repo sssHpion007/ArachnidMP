@@ -81,9 +81,14 @@ export const PluginManagerView: React.FC<PluginManagerViewProps> = ({
 
       <section className="space-y-3">
         <div className="flex items-center justify-between px-1">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-md3-on-surface-variant">
-            {text(language, 'Установленные плагины', 'Installed plugins')}
-          </h4>
+          <div className="flex min-w-0 items-center gap-2">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-md3-on-surface-variant">
+              {text(language, 'Установленные плагины', 'Installed plugins')}
+            </h4>
+            <span className="shrink-0 rounded-full bg-md3-primary/10 px-2 py-0.5 text-[10px] font-semibold text-md3-primary">
+              {externalPlugins.length + 1} {text(language, 'плагинов', 'plugins')}
+            </span>
+          </div>
           <div className="relative">
             <button
               type="button"

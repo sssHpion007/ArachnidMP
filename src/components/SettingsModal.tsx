@@ -1352,6 +1352,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     return 'CSS';
   };
 
+  const discordPreviewProgressPercent = currentTrack?.duration
+    ? Math.min(100, Math.max(0, (currentTime / currentTrack.duration) * 100))
+    : isPlaying ? 45 : 0;
+
   return (
     <div 
       onClick={handleClose}
@@ -1601,108 +1605,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
-            {/* 2. Activity Display Format Selection */}
-            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
-              <div>
-                <div className="text-sm font-bold text-md3-on-surface">
-                  {t.settings.discordStatusMode}
-                </div>
-                <div className="text-xs text-md3-on-surface-variant">
-                  {t.settings.discordStatusModeDesc}
-                </div>
-              </div>
-
-              <div role="group" aria-label={t.settings.discordStatusMode} className="relative flex items-center overflow-hidden rounded-2xl border border-md3-outline-variant/20 bg-md3-surface p-1 select-none">
-                <div className={`pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-xl bg-md3-primary shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${discordStatusMode === 'listening_app' ? 'translate-x-full' : ''}`} />
-                <button
-                  type="button"
-                  aria-pressed={discordStatusMode === 'listening'}
-                  onClick={() => onSetDiscordStatusMode('listening')}
-                  className={`relative z-10 flex min-w-0 flex-1 items-center justify-center rounded-xl px-2 py-3 text-center text-xs transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-md3-primary/60 ${
-                    discordStatusMode === 'listening'
-                      ? 'font-bold text-md3-on-primary'
-                      : 'font-medium text-md3-on-surface-variant hover:text-md3-on-surface'
-                  }`}
-                >
-                  {t.settings.discordStatusListening}
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={discordStatusMode === 'listening_app'}
-                  onClick={() => onSetDiscordStatusMode('listening_app')}
-                  className={`relative z-10 flex min-w-0 flex-1 items-center justify-center rounded-xl px-2 py-3 text-center text-xs transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-md3-primary/60 ${
-                    discordStatusMode === 'listening_app'
-                      ? 'font-bold text-md3-on-primary'
-                      : 'font-medium text-md3-on-surface-variant hover:text-md3-on-surface'
-                  }`}
-                >
-                  {t.settings.discordStatusListeningApp}
-                </button>
-              </div>
-            </div>
-
-            {/* 3. Playback State Icons (2 separate checkboxes: Play and Pause) */}
-            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
-              <div>
-                <div className="text-sm font-bold text-md3-on-surface">
-                  {t.settings.discordIcons}
-                </div>
-                <div className="text-xs text-md3-on-surface-variant">
-                  {t.settings.discordIconsDesc}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <label className="flex min-h-14 items-center justify-between gap-2 rounded-2xl border border-md3-outline-variant/15 bg-md3-surface p-3 transition-colors hover:border-md3-outline-variant/30 cursor-pointer">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10">
-                      <img src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png" alt="" className="h-4 w-4 object-contain" />
-                    </div>
-                    <span className="min-w-0 text-xs font-semibold text-md3-on-surface">{t.settings.discordShowPlayIcon}</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={discordShowPlayIcon}
-                    onChange={onToggleDiscordPlayIcon}
-                    aria-label={t.settings.discordShowPlayIcon}
-                    className="h-4 w-4 shrink-0 cursor-pointer rounded accent-md3-primary"
-                  />
-                </label>
-
-                <label className="flex min-h-14 items-center justify-between gap-2 rounded-2xl border border-md3-outline-variant/15 bg-md3-surface p-3 transition-colors hover:border-md3-outline-variant/30 cursor-pointer">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/10">
-                      <img src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png" alt="" className="h-4 w-4 object-contain" />
-                    </div>
-                    <span className="min-w-0 text-xs font-semibold text-md3-on-surface">{t.settings.discordShowPauseIcon}</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={discordShowPauseIcon}
-                    onChange={onToggleDiscordPauseIcon}
-                    aria-label={t.settings.discordShowPauseIcon}
-                    className="h-4 w-4 shrink-0 cursor-pointer rounded accent-md3-primary"
-                  />
-                </label>
-              </div>
-            </div>
-
-            {/* Cover upload host selector */}
-            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
-              <div>
-                <div className="text-sm font-bold text-md3-on-surface">
-                  {t.settings.discordCoverHost}
-                </div>
-              </div>
-              <DiscordCoverHostPicker
-                value={discordCoverHost}
-                options={discordCoverHostOptions}
-                label={t.settings.discordCoverHost}
-                onChange={onSetDiscordCoverHost}
-              />
-            </div>
-
-            {/* 4. Live Discord Mockup Profile Card */}
+            {/* 2. Live Discord Mockup Profile Card */}
             <div className="p-4 rounded-3xl bg-[#2b2d31] border border-white/10 space-y-3 shadow-lg">
               <div className="text-[11px] font-bold text-[#949ba4] uppercase tracking-wider flex items-center justify-between">
                 <span>{t.settings.discordPreview}</span>
@@ -1769,16 +1672,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                     {/* Real Timeline Progress Bar */}
                     <div className="space-y-1 pt-1.5">
-                      <div className="w-full bg-[#4e5058] h-1.5 rounded-full overflow-hidden">
+                      <div className="relative h-1.5 w-full rounded-full bg-[#4e5058]">
                         <div
-                          className="bg-white h-full rounded-full transition-all duration-300"
-                          style={{
-                            width: `${
-                              currentTrack && currentTrack.duration
-                                ? Math.min(100, Math.max(0, (currentTime / currentTrack.duration) * 100))
-                                : isPlaying ? 45 : 0
-                            }%`
-                          }}
+                          className="h-full rounded-full bg-white transition-[width] duration-300"
+                          style={{ width: `${discordPreviewProgressPercent}%` }}
+                        />
+                        <div
+                          aria-hidden="true"
+                          className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_0_0_2px_rgba(30,31,34,0.45)] transition-[left] duration-300"
+                          style={{ left: `${discordPreviewProgressPercent}%` }}
                         />
                       </div>
                       <div className="flex justify-between text-[10px] text-[#949ba4] font-mono">
@@ -1791,7 +1693,108 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
-            {/* 5. Additional Settings: TopBar Switch & Custom Client ID */}
+            {/* 3. Activity Display Format Selection */}
+            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
+              <div>
+                <div className="text-sm font-bold text-md3-on-surface">
+                  {t.settings.discordStatusMode}
+                </div>
+                <div className="text-xs text-md3-on-surface-variant">
+                  {t.settings.discordStatusModeDesc}
+                </div>
+              </div>
+
+              <div role="group" aria-label={t.settings.discordStatusMode} className="relative flex items-center overflow-hidden rounded-2xl border border-md3-outline-variant/20 bg-md3-surface p-1 select-none">
+                <div className={`pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-xl bg-md3-primary shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${discordStatusMode === 'listening_app' ? 'translate-x-full' : ''}`} />
+                <button
+                  type="button"
+                  aria-pressed={discordStatusMode === 'listening'}
+                  onClick={() => onSetDiscordStatusMode('listening')}
+                  className={`relative z-10 flex min-w-0 flex-1 items-center justify-center rounded-xl px-2 py-3 text-center text-xs transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-md3-primary/60 ${
+                    discordStatusMode === 'listening'
+                      ? 'font-bold text-md3-on-primary'
+                      : 'font-medium text-md3-on-surface-variant hover:text-md3-on-surface'
+                  }`}
+                >
+                  {t.settings.discordStatusListening}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={discordStatusMode === 'listening_app'}
+                  onClick={() => onSetDiscordStatusMode('listening_app')}
+                  className={`relative z-10 flex min-w-0 flex-1 items-center justify-center rounded-xl px-2 py-3 text-center text-xs transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-md3-primary/60 ${
+                    discordStatusMode === 'listening_app'
+                      ? 'font-bold text-md3-on-primary'
+                      : 'font-medium text-md3-on-surface-variant hover:text-md3-on-surface'
+                  }`}
+                >
+                  {t.settings.discordStatusListeningApp}
+                </button>
+              </div>
+            </div>
+
+            {/* 4. Playback State Icons (2 separate checkboxes: Play and Pause) */}
+            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
+              <div>
+                <div className="text-sm font-bold text-md3-on-surface">
+                  {t.settings.discordIcons}
+                </div>
+                <div className="text-xs text-md3-on-surface-variant">
+                  {t.settings.discordIconsDesc}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <label className="flex min-h-14 items-center justify-between gap-2 rounded-2xl border border-md3-outline-variant/15 bg-md3-surface p-3 transition-colors hover:border-md3-outline-variant/30 cursor-pointer">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10">
+                      <img src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png" alt="" className="h-4 w-4 object-contain" />
+                    </div>
+                    <span className="min-w-0 text-xs font-semibold text-md3-on-surface">{t.settings.discordShowPlayIcon}</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={discordShowPlayIcon}
+                    onChange={onToggleDiscordPlayIcon}
+                    aria-label={t.settings.discordShowPlayIcon}
+                    className="h-4 w-4 shrink-0 cursor-pointer rounded accent-md3-primary"
+                  />
+                </label>
+
+                <label className="flex min-h-14 items-center justify-between gap-2 rounded-2xl border border-md3-outline-variant/15 bg-md3-surface p-3 transition-colors hover:border-md3-outline-variant/30 cursor-pointer">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/10">
+                      <img src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png" alt="" className="h-4 w-4 object-contain" />
+                    </div>
+                    <span className="min-w-0 text-xs font-semibold text-md3-on-surface">{t.settings.discordShowPauseIcon}</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={discordShowPauseIcon}
+                    onChange={onToggleDiscordPauseIcon}
+                    aria-label={t.settings.discordShowPauseIcon}
+                    className="h-4 w-4 shrink-0 cursor-pointer rounded accent-md3-primary"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* 5. Cover upload host selector */}
+            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
+              <div>
+                <div className="text-sm font-bold text-md3-on-surface">
+                  {t.settings.discordCoverHost}
+                </div>
+              </div>
+              <DiscordCoverHostPicker
+                value={discordCoverHost}
+                options={discordCoverHostOptions}
+                label={t.settings.discordCoverHost}
+                onChange={onSetDiscordCoverHost}
+              />
+            </div>
+
+            {/* 6. Additional Settings: TopBar Switch & Custom Client ID */}
             <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
               {/* Show Discord Quick Switch in TopBar */}
               <label className="flex items-center justify-between p-3 rounded-2xl bg-md3-surface border border-md3-outline-variant/15 hover:border-md3-outline-variant/30 transition-colors cursor-pointer">
@@ -3182,12 +3185,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <span className="text-xs font-bold text-md3-on-surface group-hover:text-md3-primary transition-colors">
                         {language === 'ru' ? 'Менеджер плагинов' : 'Plugin manager'}
                       </span>
-                      <span className="rounded-full bg-md3-primary/10 px-2 py-0.5 text-[10px] font-semibold text-md3-primary">
-                        {externalPlugins.length + 1} {language === 'ru' ? 'плагинов' : 'plugins'}
-                      </span>
                     </div>
                     <div className="text-[11px] text-md3-on-surface-variant">
-                      {language === 'ru' ? 'Discord RPC и сторонние расширения' : 'Discord RPC and third-party extensions'}
+                      {language === 'ru' ? 'Управление расширениями' : 'Manage extensions'}
                     </div>
                   </div>
                 </div>
