@@ -1588,9 +1588,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div className="text-sm font-bold text-md3-on-surface">
                       {t.settings.discordToggle}
                     </div>
-                    <div className="text-xs text-md3-on-surface-variant">
-                      {t.settings.discordToggleDesc}
-                    </div>
                   </div>
                 </div>
                 <MaterialYouSwitch
@@ -1655,58 +1652,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              <div className="space-y-2 pt-1">
-                {/* Checkbox 1: Play Icon */}
-                <label className="flex items-center justify-between p-3 rounded-2xl bg-md3-surface border border-md3-outline-variant/15 hover:border-md3-outline-variant/30 transition-colors cursor-pointer">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
-                      <img
-                        src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png"
-                        alt="Play"
-                        className="w-4 h-4 object-contain"
-                      />
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <label className="flex min-h-14 items-center justify-between gap-2 rounded-2xl border border-md3-outline-variant/15 bg-md3-surface p-3 transition-colors hover:border-md3-outline-variant/30 cursor-pointer">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10">
+                      <img src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png" alt="" className="h-4 w-4 object-contain" />
                     </div>
-                    <div>
-                      <div className="text-xs font-semibold text-md3-on-surface">
-                        {t.settings.discordShowPlayIcon}
-                      </div>
-                      <div className="text-[11px] text-md3-on-surface-variant">
-                        {t.settings.discordShowPlayIconDesc}
-                      </div>
-                    </div>
+                    <span className="min-w-0 text-xs font-semibold text-md3-on-surface">{t.settings.discordShowPlayIcon}</span>
                   </div>
                   <input
                     type="checkbox"
                     checked={discordShowPlayIcon}
                     onChange={onToggleDiscordPlayIcon}
-                    className="w-4 h-4 rounded accent-md3-primary cursor-pointer ml-3 shrink-0"
+                    aria-label={t.settings.discordShowPlayIcon}
+                    className="h-4 w-4 shrink-0 cursor-pointer rounded accent-md3-primary"
                   />
                 </label>
 
-                {/* Checkbox 2: Pause Icon */}
-                <label className="flex items-center justify-between p-3 rounded-2xl bg-md3-surface border border-md3-outline-variant/15 hover:border-md3-outline-variant/30 transition-colors cursor-pointer">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
-                      <img
-                        src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png"
-                        alt="Pause"
-                        className="w-4 h-4 object-contain"
-                      />
+                <label className="flex min-h-14 items-center justify-between gap-2 rounded-2xl border border-md3-outline-variant/15 bg-md3-surface p-3 transition-colors hover:border-md3-outline-variant/30 cursor-pointer">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/10">
+                      <img src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png" alt="" className="h-4 w-4 object-contain" />
                     </div>
-                    <div>
-                      <div className="text-xs font-semibold text-md3-on-surface">
-                        {t.settings.discordShowPauseIcon}
-                      </div>
-                      <div className="text-[11px] text-md3-on-surface-variant">
-                        {t.settings.discordShowPauseIconDesc}
-                      </div>
-                    </div>
+                    <span className="min-w-0 text-xs font-semibold text-md3-on-surface">{t.settings.discordShowPauseIcon}</span>
                   </div>
                   <input
                     type="checkbox"
                     checked={discordShowPauseIcon}
                     onChange={onToggleDiscordPauseIcon}
-                    className="w-4 h-4 rounded accent-md3-primary cursor-pointer ml-3 shrink-0"
+                    aria-label={t.settings.discordShowPauseIcon}
+                    className="h-4 w-4 shrink-0 cursor-pointer rounded accent-md3-primary"
                   />
                 </label>
               </div>

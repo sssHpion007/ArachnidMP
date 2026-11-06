@@ -103,7 +103,6 @@ export interface Translations {
     discordEnabled: string;
     discordDisabled: string;
     discordToggle: string;
-    discordToggleDesc: string;
     discordSettings: string;
     discordSettingsDesc: string;
     discordStatusMode: string;
@@ -119,9 +118,7 @@ export interface Translations {
     discordCoverHostCatbox: string;
     discordCoverHostImgdb: string;
     discordShowPlayIcon: string;
-    discordShowPlayIconDesc: string;
     discordShowPauseIcon: string;
-    discordShowPauseIconDesc: string;
     discordTimelineTitle: string;
     discordTimelineInfo: string;
     discordCoverTitle: string;
@@ -338,7 +335,6 @@ export const RU_TRANSLATIONS: Translations = {
     discordEnabled: 'Включено',
     discordDisabled: 'Выключено',
     discordToggle: 'Включить отображение активности',
-    discordToggleDesc: 'Транслировать текущий трек, обложку и статус воспроизведения в Discord',
     discordSettings: 'Настройки Discord',
     discordSettingsDesc: 'Настройки отображения активности',
     discordStatusMode: 'Формат отображения активности',
@@ -346,17 +342,15 @@ export const RU_TRANSLATIONS: Translations = {
     discordStatusListening: 'Слушает',
     discordStatusListeningApp: 'Слушает ArachnidMP',
     discordIcons: 'Значки состояния воспроизведения',
-    discordIconsDesc: 'Отображение значка в углу обложки при воспроизведении и на паузе',
+    discordIconsDesc: 'Отображение значка в углу обложки во время воспроизведения и паузы',
     discordCoverHost: 'Хостинг обложек',
     discordCoverHostAuto: 'Автоматически (рекомендуется)',
     discordCoverHostImg24: 'i-mg24.ru',
     discordCoverHostUguu: 'Uguu',
     discordCoverHostCatbox: 'Catbox',
     discordCoverHostImgdb: 'ImgDB.io',
-    discordShowPlayIcon: 'Показывать значок воспроизведения',
-    discordShowPlayIconDesc: 'Отображать значок Play во время звучания трека',
-    discordShowPauseIcon: 'Показывать значок паузы',
-    discordShowPauseIconDesc: 'Отображать значок Pause при остановке на паузу',
+    discordShowPlayIcon: 'Воспроизведение',
+    discordShowPauseIcon: 'Пауза',
     discordTimelineTitle: 'Интерактивная шкала прогресса',
     discordTimelineInfo: 'Discord рассчитывает таймлайн (прошло / осталось) и отображает шкалу времени от начала до конца трека',
     discordCoverTitle: 'Обложка высокого разрешения (HD)',
@@ -573,7 +567,6 @@ export const EN_TRANSLATIONS: Translations = {
     discordEnabled: 'Enabled',
     discordDisabled: 'Disabled',
     discordToggle: 'Enable activity sharing',
-    discordToggleDesc: 'Broadcast current track, cover artwork, and status to Discord',
     discordSettings: 'Discord Settings',
     discordSettingsDesc: 'Activity display settings',
     discordStatusMode: 'Activity Display Format',
@@ -581,17 +574,15 @@ export const EN_TRANSLATIONS: Translations = {
     discordStatusListening: 'Listening to',
     discordStatusListeningApp: 'Listening to ArachnidMP',
     discordIcons: 'Playback State Icons',
-    discordIconsDesc: 'Show small badge on artwork during playback and pause',
+    discordIconsDesc: 'Show a corner badge on artwork during playback and pause',
     discordCoverHost: 'Cover image hosting',
     discordCoverHostAuto: 'Automatic (recommended)',
     discordCoverHostImg24: 'i-mg24.ru',
     discordCoverHostUguu: 'Uguu',
     discordCoverHostCatbox: 'Catbox',
     discordCoverHostImgdb: 'ImgDB.io',
-    discordShowPlayIcon: 'Show Play Icon',
-    discordShowPlayIconDesc: 'Display green Play badge when audio is playing',
-    discordShowPauseIcon: 'Show Pause Icon',
-    discordShowPauseIconDesc: 'Display orange Pause badge when playback is paused',
+    discordShowPlayIcon: 'Playback',
+    discordShowPauseIcon: 'Pause',
     discordTimelineTitle: 'Interactive Timeline Bar',
     discordTimelineInfo: 'Discord automatically calculates and displays the live timeline bar from start to finish',
     discordCoverTitle: 'High-Resolution Cover Art',
