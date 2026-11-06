@@ -1586,7 +1586,9 @@ export const App: React.FC = () => {
                 try {
                   const scanResult = await invoke<NativeLibraryScanResult>('scan_library_to_database', { paths: await getScanPaths() });
                   applyNativeTrackIdReplacements(scanResult.replacements);
-                  await loadNativeTracksPageRef.current?.(true);
+                  // Refresh only the current viewport: a full reset briefly empties the track list,
+                  // and a one-row bootstrap can leave a playlist without its visible range loaded.
+                  await loadNativeTracksPageRef.current?.(true, true);
                   await verifyNativeLibraryExistence(true);
                 } catch (error) {
                   console.warn('Startup library scan error:', error);
