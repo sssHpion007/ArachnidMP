@@ -1628,24 +1628,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 <div className="flex items-start gap-3.5">
                   {/* Keep real artwork first; otherwise show the white Lucide fallback on Discord's dark background. */}
-                  <div className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/5 bg-[#313338] shadow-md">
-                    {currentTrack?.coverArt ? (
-                      <img
-                        src={coverVariantUrl(currentTrack.coverArt, 96)}
-                        alt="Artwork"
-                        className="h-full w-full rounded-xl object-cover"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center bg-[#313338] text-white">
-                        {discordFallbackIcon === 'note' ? (
-                          <Music aria-label={t.settings.discordFallbackNote} className="h-8 w-8" />
-                        ) : (
-                          <Disc3 aria-label={t.settings.discordFallbackDisc} className={`h-8 w-8 ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }} />
-                        )}
-                      </div>
-                    )}
+                  <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-white/5 bg-[#313338] shadow-md">
+                    <div className="absolute inset-0 overflow-hidden rounded-xl">
+                      {currentTrack?.coverArt ? (
+                        <img
+                          src={coverVariantUrl(currentTrack.coverArt, 96)}
+                          alt="Artwork"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-[#313338] text-white">
+                          {discordFallbackIcon === 'note' ? (
+                            <Music aria-label={t.settings.discordFallbackNote} className="h-8 w-8" />
+                          ) : (
+                            <Disc3 aria-label={t.settings.discordFallbackDisc} className={`h-8 w-8 ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }} />
+                          )}
+                        </div>
+                      )}
+                    </div>
                     {isPlaying && discordShowPlayIcon && (
-                      <div className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#1e1f22] bg-[#1e1f22] shadow-md">
+                      <div className="absolute -bottom-1 -right-1 z-10 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#1e1f22] bg-[#1e1f22] shadow-md">
                         <img
                           src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png"
                           alt="Playing"
@@ -1654,7 +1656,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                     )}
                     {!isPlaying && discordShowPauseIcon && (
-                      <div className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#1e1f22] bg-[#1e1f22] shadow-md">
+                      <div className="absolute -bottom-1 -right-1 z-10 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#1e1f22] bg-[#1e1f22] shadow-md">
                         <img
                           src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png"
                           alt="Paused"
