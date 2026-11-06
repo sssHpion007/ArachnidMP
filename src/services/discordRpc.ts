@@ -6,7 +6,7 @@ const PLAYING_ICON_URL = 'https://raw.githubusercontent.com/FozerG/WinYandexMusi
 const PAUSED_ICON_URL = 'https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png';
 
 const NO_COVER_ARTWORK: Record<DiscordFallbackIcon, string> = {
-  note: '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" rx="18" fill="#313338"/><g fill="none" stroke="#d4d7de" stroke-linecap="round" stroke-linejoin="round" stroke-width="8"><path d="M77 34v49M77 34l34-7v48M77 47l34-7"/><circle cx="62" cy="86" r="12" fill="#d4d7de" stroke="none"/><circle cx="96" cy="77" r="12" fill="#d4d7de" stroke="none"/></g></svg>',
+  note: '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" rx="18" fill="#313338"/><g transform="translate(18 18) scale(3.8)" fill="none" stroke="#d4d7de" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></g></svg>',
   disc: '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" rx="18" fill="#313338"/><g fill="none" stroke="#d4d7de" stroke-width="7"><circle cx="64" cy="64" r="39"/><circle cx="64" cy="64" r="12"/><path d="M64 25v27M103 64H76M64 103V76M25 64h27"/></g></svg>',
 };
 
