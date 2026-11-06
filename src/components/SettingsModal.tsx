@@ -136,6 +136,7 @@ const DiscordCoverHostPicker: React.FC<{
 const DiscordShortcutHint: React.FC<{ language: AppLanguage; shortcutLabel: string }> = ({ language, shortcutLabel }) => {
   const [isOpen, setIsOpen] = useState(false);
   const hintRef = useRef<HTMLDivElement>(null);
+  const closeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -150,15 +151,33 @@ const DiscordShortcutHint: React.FC<{ language: AppLanguage; shortcutLabel: stri
     return () => {
       document.removeEventListener('pointerdown', closeOnOutsidePointer);
       document.removeEventListener('keydown', closeOnEscape);
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
     };
   }, [isOpen]);
 
+  const cancelClose = () => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimerRef.current = window.setTimeout(() => {
+      setIsOpen(false);
+      closeTimerRef.current = null;
+    }, 250);
+  };
+
   return (
-    <div className="flex w-full justify-end">
       <div
         ref={hintRef}
-        className="relative h-8 w-8"
-        onPointerLeave={() => setIsOpen(false)}
+        className="relative h-8 w-8 shrink-0"
+        onPointerEnter={cancelClose}
+        onPointerLeave={scheduleClose}
         onBlur={event => {
           const nextTarget = event.relatedTarget;
           if (!(nextTarget instanceof Node) || !hintRef.current?.contains(nextTarget)) setIsOpen(false);
@@ -178,7 +197,7 @@ const DiscordShortcutHint: React.FC<{ language: AppLanguage; shortcutLabel: stri
           <CircleHelp className="h-4 w-4" />
         </button>
         {isOpen && (
-          <section id="discord-shortcut-help" role="tooltip" aria-labelledby="discord-shortcut-title" className="pointer-events-none absolute right-0 top-full z-50 mt-2 w-[min(24rem,calc(100vw-3rem))] rounded-2xl border border-md3-outline-variant/30 bg-md3-surface-container p-4 text-left shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+          <section id="discord-shortcut-help" role="tooltip" aria-labelledby="discord-shortcut-title" onPointerEnter={cancelClose} onPointerLeave={scheduleClose} className="absolute right-0 top-full z-50 mt-2 w-[min(24rem,calc(100vw-3rem))] rounded-2xl border border-md3-outline-variant/30 bg-md3-surface-container p-4 text-left shadow-2xl animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-md3-primary/10 text-md3-primary"><Keyboard className="h-4 w-4" /></div>
               <h3 id="discord-shortcut-title" className="text-sm font-bold text-md3-on-surface">{language === 'ru' ? 'Горячая клавиша' : 'Keyboard shortcut'}</h3>
@@ -191,7 +210,6 @@ const DiscordShortcutHint: React.FC<{ language: AppLanguage; shortcutLabel: stri
           </section>
         )}
       </div>
-    </div>
   );
 };
 
@@ -822,21 +840,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     deleteSelected: t.shortcuts.deleteTracks,
     deleteFromDisk: t.shortcuts.deleteTracksFromDisk,
   };
-  const shortcutGroups: Array<{ title: string; icon: React.ElementType; ids: ShortcutId[] }> = [
-    { title: t.shortcuts.playbackAndSound, icon: Music, ids: ['playPause', 'nextTrack', 'previousTrack', 'seekBackward', 'seekForward', 'volumeUp', 'volumeDown', 'mute', 'shuffle', 'repeat'] },
-    { title: t.shortcuts.libraryAndManagement, icon: ListMusic, ids: ['toggleQueue', 'clearQueue', 'playSelected', 'editTags', 'selectAll', 'deleteSelected', 'deleteFromDisk'] },
-    { title: t.shortcuts.navigationAndPanels, icon: LayoutGrid, ids: ['miniPlayer', 'search', 'lyrics', 'lyricsWindow', 'toggleDiscord', 'settings', 'equalizer'] },
+  type ShortcutGroupId = 'playbackAndSound' | 'libraryAndManagement' | 'navigationAndPanels';
+  const shortcutGroups: Array<{ id: ShortcutGroupId; title: string; icon: React.ElementType; ids: ShortcutId[] }> = [
+    { id: 'playbackAndSound', title: t.shortcuts.playbackAndSound, icon: Music, ids: ['playPause', 'nextTrack', 'previousTrack', 'seekBackward', 'seekForward', 'volumeUp', 'volumeDown', 'mute', 'shuffle', 'repeat'] },
+    { id: 'libraryAndManagement', title: t.shortcuts.libraryAndManagement, icon: ListMusic, ids: ['toggleQueue', 'clearQueue', 'playSelected', 'editTags', 'selectAll', 'deleteSelected', 'deleteFromDisk'] },
+    { id: 'navigationAndPanels', title: t.shortcuts.navigationAndPanels, icon: LayoutGrid, ids: ['miniPlayer', 'search', 'lyrics', 'lyricsWindow', 'toggleDiscord', 'settings', 'equalizer'] },
   ];
-  const fixedShortcutRows = [
-    { label: t.shortcuts.trackNav, keys: '↑ / ↓' },
-    { label: t.shortcuts.scrollToTop, keys: 'Home' },
-    { label: t.shortcuts.scrollToBottom, keys: 'End' },
-    { label: t.shortcuts.scrollByPage, keys: 'Page Up / Page Down' },
-    { label: t.shortcuts.saveTags, keys: 'Ctrl / ⌘ + Enter' },
-    { label: t.shortcuts.switchTabs, keys: 'Tab / Shift + Tab' },
-    { label: t.shortcuts.dismiss, keys: 'Escape' },
-    { label: t.shortcuts.mediaKeys, keys: '⏮ / ⏯ / ⏭ / ⏹' },
+  const fixedShortcutRows: Array<{ group: ShortcutGroupId; label: string; keys: string }> = [
+    { group: 'playbackAndSound', label: t.shortcuts.mediaKeys, keys: '⏮ / ⏯ / ⏭ / ⏹' },
+    { group: 'libraryAndManagement', label: t.shortcuts.trackNav, keys: '↑ / ↓' },
+    { group: 'libraryAndManagement', label: t.shortcuts.scrollToTop, keys: 'Home' },
+    { group: 'libraryAndManagement', label: t.shortcuts.scrollToBottom, keys: 'End' },
+    { group: 'libraryAndManagement', label: t.shortcuts.scrollByPage, keys: 'Page Up / Page Down' },
+    { group: 'libraryAndManagement', label: t.shortcuts.saveTags, keys: 'Ctrl / ⌘ + Enter' },
+    { group: 'navigationAndPanels', label: t.shortcuts.switchTabs, keys: 'Tab / Shift + Tab' },
+    { group: 'navigationAndPanels', label: t.shortcuts.dismiss, keys: 'Escape' },
   ];
+  const resetShortcut = (id: ShortcutId) => {
+    onSetKeyboardShortcuts({ ...keyboardShortcuts, [id]: { ...DEFAULT_KEYBOARD_SHORTCUTS[id] } });
+    if (recordingShortcutId === id) setRecordingShortcutId(null);
+    setShortcutCaptureError(null);
+  };
   const captureShortcut = (event: React.KeyboardEvent<HTMLButtonElement>, id: ShortcutId) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1464,6 +1488,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
             )}
 
+            {currentView === 'discord' && (
+              <DiscordShortcutHint
+                language={language}
+                shortcutLabel={formatShortcut(keyboardShortcuts.toggleDiscord, language)}
+              />
+            )}
             <button
               onClick={handleClose}
               className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface cursor-pointer outline-none focus:outline-none"
@@ -1507,12 +1537,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <GroupIcon className="h-4 w-4" />
                     <span>{group.title}</span>
                   </div>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div className="space-y-2">
                     {group.ids.map(id => {
                       const recording = recordingShortcutId === id;
                       return (
-                        <div key={id} className="flex min-h-14 items-center justify-between gap-3 rounded-xl border border-md3-outline-variant/15 bg-md3-surface p-2.5">
-                          <span className="min-w-0 text-xs text-md3-on-surface-variant">{shortcutLabels[id]}</span>
+                        <div key={id} className="flex min-h-14 items-center gap-2 rounded-xl border border-md3-outline-variant/15 bg-md3-surface p-2.5">
+                          <span className="min-w-0 flex-1 text-xs text-md3-on-surface-variant">{shortcutLabels[id]}</span>
                           <button
                             type="button"
                             data-shortcut-recorder={recording ? 'true' : undefined}
@@ -1529,33 +1559,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           >
                             {recording ? (language === 'ru' ? 'Нажмите клавиши…' : 'Press keys…') : formatShortcut(keyboardShortcuts[id], language)}
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => resetShortcut(id)}
+                            title={language === 'ru' ? `Сбросить сочетание: ${shortcutLabels[id]}` : `Reset shortcut: ${shortcutLabels[id]}`}
+                            aria-label={language === 'ru' ? `Сбросить сочетание: ${shortcutLabels[id]}` : `Reset shortcut: ${shortcutLabels[id]}`}
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-md3-on-surface-variant transition-colors hover:bg-md3-primary/10 hover:text-md3-primary"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       );
                     })}
+                    {fixedShortcutRows.filter(row => row.group === group.id).map(row => (
+                      <div key={row.label} className="flex min-h-14 items-center justify-between gap-3 rounded-xl border border-md3-outline-variant/15 bg-md3-surface p-2.5">
+                        <span className="min-w-0 text-xs text-md3-on-surface-variant">{row.label}</span>
+                        <kbd className="shrink-0 rounded-lg border border-md3-outline-variant/30 bg-md3-surface-container-high px-2.5 py-1.5 text-center font-mono text-[11px] font-bold text-md3-on-surface-variant">{row.keys}</kbd>
+                      </div>
+                    ))}
                   </div>
                 </section>
               );
             })}
 
-            <section className="space-y-3">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-md3-on-surface-variant">
-                <Keyboard className="h-4 w-4" />
-                <span>{language === 'ru' ? 'Фиксированные сочетания' : 'Fixed shortcuts'}</span>
-              </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {fixedShortcutRows.map(row => (
-                  <div key={row.label} className="flex min-h-14 items-center justify-between gap-3 rounded-xl border border-md3-outline-variant/15 bg-md3-surface p-2.5">
-                    <span className="min-w-0 text-xs text-md3-on-surface-variant">{row.label}</span>
-                    <kbd className="shrink-0 rounded-lg border border-md3-outline-variant/30 bg-md3-surface-container-high px-2.5 py-1.5 text-center font-mono text-[11px] font-bold text-md3-on-surface-variant">{row.keys}</kbd>
-                  </div>
-                ))}
-              </div>
-            </section>
-
             <div className="rounded-xl border border-md3-outline-variant/15 bg-md3-surface-container-low px-3.5 py-3 text-xs leading-relaxed text-md3-on-surface-variant">
               {language === 'ru'
-                ? 'Фиксированные сочетания нужны для системной навигации и управления. Для назначаемых сочетаний с Ctrl на macOS также принимается Cmd.'
-                : 'Fixed shortcuts preserve system navigation and control. On macOS, Cmd also works for assignable shortcuts that use Ctrl.'}
+                ? 'Часть сочетаний закреплена за системной навигацией и управлением. Для сочетаний с Ctrl на macOS также принимается Cmd.'
+                : 'Some shortcuts are reserved for system navigation and control. On macOS, Cmd also works for shortcuts that use Ctrl.'}
             </div>
           </div>
         ) : currentView === 'plugins' ? (
@@ -1575,10 +1605,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         ) : currentView === 'discord' ? (
           /* Dedicated Discord Integration Settings View */
           <div key="view-discord" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 anim-view-slide-right">
-            <DiscordShortcutHint
-              language={language}
-              shortcutLabel={formatShortcut(keyboardShortcuts.toggleDiscord, language)}
-            />
             {/* 1. Master Discord Toggle Card */}
             <div className={`p-4 rounded-3xl border flex flex-col gap-3 transition-all duration-300 ${
               discordEnabled

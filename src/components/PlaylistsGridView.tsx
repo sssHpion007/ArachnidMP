@@ -839,6 +839,8 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   // Pointer-based Drag State (100% bypasses Windows OS DnD bugs and 🚫 cursor)
   const [dragState, setDragState] = useState<DragState | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
+  const suppressNextCardClickRef = useRef(false);
+  const suppressNextCardClickTimerRef = useRef<number | null>(null);
 
   // Hover target states for visual feedback
   const [hoveredFolderId, setHoveredFolderId] = useState<string | null>(null);
@@ -1240,6 +1242,17 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
       document.body.style.cursor = '';
       (window as any).__isInternalDragging = false;
 
+      if (current?.isDragging) {
+        suppressNextCardClickRef.current = true;
+        if (suppressNextCardClickTimerRef.current !== null) {
+          window.clearTimeout(suppressNextCardClickTimerRef.current);
+        }
+        suppressNextCardClickTimerRef.current = window.setTimeout(() => {
+          suppressNextCardClickRef.current = false;
+          suppressNextCardClickTimerRef.current = null;
+        }, 0);
+      }
+
       if (!current || !current.isDragging) {
         setDragState(null);
         dragStateRef.current = null;
@@ -1366,6 +1379,16 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     };
   }, [dragState, playlists, groups, folders, onMovePlaylistToFolder, onMovePlaylistToGroup, onMoveFolderToFolder, onMoveFolderToGroup, onReorderPlaylists, onReorderFolders, onReorderItems, onReorderGroups]);
 
+  const consumeSuppressedCardClick = () => {
+    if (!suppressNextCardClickRef.current) return false;
+    suppressNextCardClickRef.current = false;
+    if (suppressNextCardClickTimerRef.current !== null) {
+      window.clearTimeout(suppressNextCardClickTimerRef.current);
+      suppressNextCardClickTimerRef.current = null;
+    }
+    return true;
+  };
+
   // Render a Single Folder Card
   const renderFolderCard = (folder: PlaylistFolder) => {
     const stats = getFolderStats(folder.id);
@@ -1393,6 +1416,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
           });
         }}
         onClick={() => {
+          if (consumeSuppressedCardClick()) return;
           if (!dragState?.isDragging) {
             handleOpenFolder(folder.id);
           }
@@ -1438,6 +1462,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
           });
         }}
         onClick={() => {
+          if (consumeSuppressedCardClick()) return;
           if (!dragState?.isDragging) {
             onSelectPlaylist(playlist.id);
           }
