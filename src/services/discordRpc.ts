@@ -1,9 +1,18 @@
-import { DiscordPresenceInfo } from '../types/music';
+import { DiscordFallbackIcon, DiscordPresenceInfo } from '../types/music';
 import { isCachedCoverUrl } from '../utils/coverArt';
 
 const DEFAULT_LOGO_URL = 'https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png';
 const PLAYING_ICON_URL = 'https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png';
 const PAUSED_ICON_URL = 'https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png';
+
+const NO_COVER_ARTWORK: Record<DiscordFallbackIcon, string> = {
+  note: '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" rx="18" fill="#313338"/><g fill="none" stroke="#d4d7de" stroke-linecap="round" stroke-linejoin="round" stroke-width="8"><path d="M77 34v49M77 34l34-7v48M77 47l34-7"/><circle cx="62" cy="86" r="12" fill="#d4d7de" stroke="none"/><circle cx="96" cy="77" r="12" fill="#d4d7de" stroke="none"/></g></svg>',
+  disc: '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" rx="18" fill="#313338"/><g fill="none" stroke="#d4d7de" stroke-width="7"><circle cx="64" cy="64" r="39"/><circle cx="64" cy="64" r="12"/><path d="M64 25v27M103 64H76M64 103V76M25 64h27"/></g></svg>',
+};
+
+function fallbackArtworkDataUri(icon: DiscordFallbackIcon = 'disc'): string {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(NO_COVER_ARTWORK[icon])}`;
+}
 
 /**
  * Compresses local or embedded cover art to a lightweight JPEG before sending it
@@ -120,10 +129,13 @@ class DiscordRpcService {
       return;
     }
 
-    // Prepare optimized cover art
-    let coverArt = DEFAULT_LOGO_URL;
-    if (info.coverArt && info.coverArt.trim().length > 0) {
-      const sourceCover = info.coverArt.trim();
+    // Use real artwork when present; otherwise render the selected no-cover icon
+    // as a bounded JPEG and pass it through the same host/cache path as album art.
+    const sourceCover = info.coverArt?.trim();
+    let coverArt = sourceCover
+      ? DEFAULT_LOGO_URL
+      : await compressCoverForDiscord(fallbackArtworkDataUri(info.fallbackIcon ?? 'disc'), 384);
+    if (sourceCover) {
       if (isCachedCoverUrl(sourceCover)) {
         // Keep cached artwork local: the native RPC command reads the bounded SQLite
         // thumbnail directly, avoiding WebView CORS/custom-protocol canvas restrictions.

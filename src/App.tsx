@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, startTransition } from 'react';
-import { Track, TrackDetails, TrackSummary, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode, FadeMode, FolderCoverType, DiscordCoverHost } from './types/music';
+import { Track, TrackDetails, TrackSummary, Playlist, PlaylistFolder, PlaylistGroup, ThemeMode, FadeMode, FolderCoverType, DiscordCoverHost, DiscordFallbackIcon } from './types/music';
 import { TitleBar } from './components/TitleBar';
 import { TopBar, MainViewType } from './components/TopBar';
 import { TrackTable } from './components/TrackTable';
@@ -473,6 +473,7 @@ export const App: React.FC = () => {
   const [showDiscordButton, setShowDiscordButton] = useState<boolean>(true);
   const [discordShowPlayIcon, setDiscordShowPlayIcon] = useState<boolean>(true);
   const [discordShowPauseIcon, setDiscordShowPauseIcon] = useState<boolean>(true);
+  const [discordFallbackIcon, setDiscordFallbackIcon] = useState<DiscordFallbackIcon>('disc');
   const [discordStatusMode, setDiscordStatusMode] = useState<'listening' | 'listening_app'>('listening_app');
   const [discordCustomClientId, setDiscordCustomClientId] = useState<string>('');
   const [discordCoverHost, setDiscordCoverHost] = useState<DiscordCoverHost>('auto');
@@ -518,6 +519,7 @@ export const App: React.FC = () => {
   const discordPluginEnabledRef = useRef<boolean>(discordPluginEnabled);
   const discordShowPlayIconRef = useRef<boolean>(discordShowPlayIcon);
   const discordShowPauseIconRef = useRef<boolean>(discordShowPauseIcon);
+  const discordFallbackIconRef = useRef<DiscordFallbackIcon>(discordFallbackIcon);
   const discordStatusModeRef = useRef<'listening' | 'listening_app'>(discordStatusMode);
   const discordCustomClientIdRef = useRef<string>(discordCustomClientId);
   const discordCoverHostRef = useRef<DiscordCoverHost>(discordCoverHost);
@@ -1030,10 +1032,11 @@ export const App: React.FC = () => {
     discordPluginEnabledRef.current = discordPluginEnabled;
     discordShowPlayIconRef.current = discordShowPlayIcon;
     discordShowPauseIconRef.current = discordShowPauseIcon;
+    discordFallbackIconRef.current = discordFallbackIcon;
     discordStatusModeRef.current = discordStatusMode;
     discordCustomClientIdRef.current = discordCustomClientId;
     discordCoverHostRef.current = discordCoverHost;
-  }, [discordEnabled, discordPluginEnabled, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, discordCoverHost]);
+  }, [discordEnabled, discordPluginEnabled, discordShowPlayIcon, discordShowPauseIcon, discordFallbackIcon, discordStatusMode, discordCustomClientId, discordCoverHost]);
 
   useEffect(() => {
     selectedPlaylistIdRef.current = selectedPlaylistId;
@@ -1651,6 +1654,7 @@ export const App: React.FC = () => {
           if (typeof parsed.showDiscordButton === 'boolean') setShowDiscordButton(parsed.showDiscordButton);
           if (typeof parsed.discordShowPlayIcon === 'boolean') setDiscordShowPlayIcon(parsed.discordShowPlayIcon);
           if (typeof parsed.discordShowPauseIcon === 'boolean') setDiscordShowPauseIcon(parsed.discordShowPauseIcon);
+          if (parsed.discordFallbackIcon === 'note' || parsed.discordFallbackIcon === 'disc') setDiscordFallbackIcon(parsed.discordFallbackIcon);
           if (parsed.discordStatusMode === 'listening' || parsed.discordStatusMode === 'listening_app') {
             setDiscordStatusMode(parsed.discordStatusMode);
           }
@@ -1773,6 +1777,7 @@ export const App: React.FC = () => {
       showDiscordButton,
       discordShowPlayIcon,
       discordShowPauseIcon,
+      discordFallbackIcon,
       discordStatusMode,
       discordCustomClientId,
       discordCoverHost,
@@ -1790,7 +1795,7 @@ export const App: React.FC = () => {
     invoke('save_portable_settings', { data: JSON.stringify(settings) }).catch(error => {
       console.warn('Failed to save settings:', error);
     });
-  }, [themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, discordPluginEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, discordCoverHost, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface, startupDataLoaded]);
+  }, [themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, discordPluginEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordFallbackIcon, discordStatusMode, discordCustomClientId, discordCoverHost, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface, startupDataLoaded]);
 
   // Browser-only fallback retains its existing single localStorage document format.
   useEffect(() => {
@@ -1811,6 +1816,7 @@ export const App: React.FC = () => {
       showDiscordButton,
       discordShowPlayIcon,
       discordShowPauseIcon,
+      discordFallbackIcon,
       discordStatusMode,
       discordCustomClientId,
       discordCoverHost,
@@ -1830,7 +1836,7 @@ export const App: React.FC = () => {
     } catch (error) {
       console.warn('Failed to save browser library data:', error);
     }
-  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, discordPluginEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordStatusMode, discordCustomClientId, discordCoverHost, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface]);
+  }, [tracks, playlists, playlistFolders, playlistGroups, themeMode, seedColor, secondarySeedColor, appTheme, language, discordEnabled, discordPluginEnabled, keyboardShortcuts, showDiscordButton, discordShowPlayIcon, discordShowPauseIcon, discordFallbackIcon, discordStatusMode, discordCustomClientId, discordCoverHost, visibleTabs, navigationTabOrder, colorSchemeMode, fadeMode, fadeDuration, watchedFolders, autoScanOnStartup, closeBehavior, startupInterface]);
 
   // Reveal the native window only after portable preferences have loaded, so the
   // selected startup layout is already active when the user sees it.
@@ -1930,6 +1936,7 @@ export const App: React.FC = () => {
             currentTime: 0,
             isPlaying: true,
             coverArt: cur.coverArt,
+            fallbackIcon: discordFallbackIconRef.current,
             coverHost: discordCoverHostRef.current,
             showPlayIcon: discordShowPlayIconRef.current,
             showPauseIcon: discordShowPauseIconRef.current,
@@ -2160,6 +2167,7 @@ export const App: React.FC = () => {
         currentTime: curTime,
         isPlaying: isPlaying,
         coverArt: currentTrack.coverArt,
+        fallbackIcon: discordFallbackIcon,
         coverHost: discordCoverHost,
         showPlayIcon: discordShowPlayIcon,
         showPauseIcon: discordShowPauseIcon,
@@ -2190,6 +2198,7 @@ export const App: React.FC = () => {
     currentTrack?.artist,
     currentTrack?.album,
     currentTrack?.coverArt,
+    discordFallbackIcon,
     isPlaying,
     discordEnabled,
     discordPluginEnabled,
@@ -3991,6 +4000,7 @@ export const App: React.FC = () => {
           currentTime: 0,
           isPlaying: true,
           coverArt: cur.coverArt,
+          fallbackIcon: discordFallbackIconRef.current,
           coverHost: discordCoverHostRef.current,
           showPlayIcon: discordShowPlayIconRef.current,
           showPauseIcon: discordShowPauseIconRef.current,
@@ -4031,6 +4041,7 @@ export const App: React.FC = () => {
         currentTime: time,
         isPlaying: isPlaying,
         coverArt: currentTrack.coverArt,
+        fallbackIcon: discordFallbackIcon,
         coverHost: discordCoverHost,
         showPlayIcon: discordShowPlayIcon,
         showPauseIcon: discordShowPauseIcon,
@@ -6050,6 +6061,8 @@ export const App: React.FC = () => {
         onToggleDiscordPlayIcon={() => setDiscordShowPlayIcon(prev => !prev)}
         discordShowPauseIcon={discordShowPauseIcon}
         onToggleDiscordPauseIcon={() => setDiscordShowPauseIcon(prev => !prev)}
+        discordFallbackIcon={discordFallbackIcon}
+        onSetDiscordFallbackIcon={setDiscordFallbackIcon}
         discordStatusMode={discordStatusMode}
         onSetDiscordStatusMode={setDiscordStatusMode}
         discordCustomClientId={discordCustomClientId}

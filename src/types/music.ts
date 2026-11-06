@@ -116,6 +116,8 @@ export interface PlayerState {
   history: Track[];
 }
 
+export type DiscordFallbackIcon = 'note' | 'disc';
+
 export interface DiscordPresenceInfo {
   enabled: boolean;
   trackName: string;
@@ -125,6 +127,7 @@ export interface DiscordPresenceInfo {
   currentTime: number;
   isPlaying: boolean;
   coverArt?: string;
+  fallbackIcon?: DiscordFallbackIcon;
   showPlayIcon?: boolean;
   showPauseIcon?: boolean;
   statusMode?: 'listening' | 'listening_app';

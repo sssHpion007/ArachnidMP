@@ -119,6 +119,9 @@ export interface Translations {
     discordCoverHostImgdb: string;
     discordShowPlayIcon: string;
     discordShowPauseIcon: string;
+    discordFallbackIcon: string;
+    discordFallbackNote: string;
+    discordFallbackDisc: string;
     discordTimelineTitle: string;
     discordTimelineInfo: string;
     discordCoverTitle: string;
@@ -351,6 +354,9 @@ export const RU_TRANSLATIONS: Translations = {
     discordCoverHostImgdb: 'ImgDB.io',
     discordShowPlayIcon: 'Воспроизведение',
     discordShowPauseIcon: 'Пауза',
+    discordFallbackIcon: 'Значок без обложки',
+    discordFallbackNote: 'Нота',
+    discordFallbackDisc: 'Диск',
     discordTimelineTitle: 'Интерактивная шкала прогресса',
     discordTimelineInfo: 'Discord рассчитывает таймлайн (прошло / осталось) и отображает шкалу времени от начала до конца трека',
     discordCoverTitle: 'Обложка высокого разрешения (HD)',
@@ -583,6 +589,9 @@ export const EN_TRANSLATIONS: Translations = {
     discordCoverHostImgdb: 'ImgDB.io',
     discordShowPlayIcon: 'Playback',
     discordShowPauseIcon: 'Pause',
+    discordFallbackIcon: 'Icon when cover is missing',
+    discordFallbackNote: 'Note',
+    discordFallbackDisc: 'Disc',
     discordTimelineTitle: 'Interactive Timeline Bar',
     discordTimelineInfo: 'Discord automatically calculates and displays the live timeline bar from start to finish',
     discordCoverTitle: 'High-Resolution Cover Art',

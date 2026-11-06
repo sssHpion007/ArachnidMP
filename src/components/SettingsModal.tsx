@@ -50,7 +50,7 @@ import {
 } from 'lucide-react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { ThemeMode, Track, FadeMode, DiscordCoverHost } from '../types/music';
+import { ThemeMode, Track, FadeMode, DiscordCoverHost, DiscordFallbackIcon } from '../types/music';
 import { coverVariantUrl } from '../utils/coverArt';
 import { CustomThemeInfo } from '../types/theme';
 import { ThemePaletteModal } from './ThemePaletteModal';
@@ -238,6 +238,8 @@ interface SettingsModalProps {
   onToggleDiscordPlayIcon: () => void;
   discordShowPauseIcon: boolean;
   onToggleDiscordPauseIcon: () => void;
+  discordFallbackIcon: DiscordFallbackIcon;
+  onSetDiscordFallbackIcon: (icon: DiscordFallbackIcon) => void;
   discordStatusMode: 'listening' | 'listening_app';
   onSetDiscordStatusMode: (mode: 'listening' | 'listening_app') => void;
   discordCustomClientId: string;
@@ -323,6 +325,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onToggleDiscordPlayIcon,
   discordShowPauseIcon,
   onToggleDiscordPauseIcon,
+  discordFallbackIcon,
+  onSetDiscordFallbackIcon,
   discordStatusMode,
   onSetDiscordStatusMode,
   discordCustomClientId,
@@ -1623,36 +1627,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-start gap-3.5">
-                  {/* Large Album Art with Small Play/Pause Badge */}
-                  <div className="relative w-16 h-16 rounded-xl bg-[#313338] overflow-hidden shrink-0 border border-white/5 shadow-md">
-                    {currentTrack && currentTrack.coverArt ? (
+                  {/* Use the real track cover when available; otherwise show a simple disc icon. */}
+                  <div className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/5 bg-[#313338] shadow-md">
+                    {currentTrack?.coverArt ? (
                       <img
                         src={coverVariantUrl(currentTrack.coverArt, 96)}
                         alt="Artwork"
-                        className="w-full h-full object-cover"
+                        className="h-full w-full object-cover"
                       />
+                    ) : discordFallbackIcon === 'note' ? (
+                      <Music aria-label={t.settings.discordFallbackNote} className="h-8 w-8 text-[#8b9099]" strokeWidth={1.5} />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#5865F2]/20 to-[#5865F2]/40 text-[#5865F2] font-black text-xl">
-                        A
-                      </div>
+                      <Disc aria-label={t.settings.discordFallbackDisc} className="h-8 w-8 text-[#8b9099]" strokeWidth={1.5} />
                     )}
-
-                    {/* Small Play/Pause Badge */}
                     {isPlaying && discordShowPlayIcon && (
-                      <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-[#1e1f22] border-2 border-[#1e1f22] flex items-center justify-center shadow-md">
+                      <div className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#1e1f22] bg-[#1e1f22] shadow-md">
                         <img
                           src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png"
                           alt="Playing"
-                          className="w-full h-full object-contain rounded-full"
+                          className="h-full w-full rounded-full object-contain"
                         />
                       </div>
                     )}
                     {!isPlaying && discordShowPauseIcon && (
-                      <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-[#1e1f22] border-2 border-[#1e1f22] flex items-center justify-center shadow-md">
+                      <div className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#1e1f22] bg-[#1e1f22] shadow-md">
                         <img
                           src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png"
                           alt="Paused"
-                          className="w-full h-full object-contain rounded-full"
+                          className="h-full w-full rounded-full object-contain"
                         />
                       </div>
                     )}
@@ -1661,35 +1663,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {/* Metadata and Real Timeline Progress Bar */}
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="font-bold text-xs text-white truncate">
-                      {currentTrack ? currentTrack.title : 'Bohemian Rhapsody'}
+                      {currentTrack ? currentTrack.title : 'The Sentinel'}
                     </div>
                     <div className="text-[11px] text-[#dbdee1] truncate font-medium">
-                      by {currentTrack ? currentTrack.artist : 'Queen'}
+                      by {currentTrack ? currentTrack.artist : 'Judas Priest'}
                     </div>
                     <div className="text-[11px] text-[#949ba4] truncate">
-                      on {currentTrack ? currentTrack.album : 'A Night at the Opera'}
+                      on {currentTrack ? currentTrack.album : 'Defender of the Faith'}
                     </div>
 
-                    {/* Real Timeline Progress Bar */}
-                    <div className="space-y-1 pt-1.5">
-                      <div className="relative h-1.5 w-full rounded-full bg-[#4e5058]">
+                    {/* Thin, filled Discord-style timeline */}
+                    <div className="flex items-center gap-2 pt-1.5 text-[10px] text-[#949ba4] font-mono">
+                      <span className="shrink-0">{formatTime(currentTime)}</span>
+                      <div className="h-[2px] min-w-0 flex-1 overflow-hidden rounded-full bg-[#4e5058]">
                         <div
-                          className="h-full rounded-full bg-white transition-[width] duration-300"
+                          className="h-full rounded-full bg-[#f2f3f5] transition-[width] duration-300"
                           style={{ width: `${discordPreviewProgressPercent}%` }}
                         />
-                        <div
-                          aria-hidden="true"
-                          className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_0_0_2px_rgba(30,31,34,0.45)] transition-[left] duration-300"
-                          style={{ left: `${discordPreviewProgressPercent}%` }}
-                        />
                       </div>
-                      <div className="flex justify-between text-[10px] text-[#949ba4] font-mono">
-                        <span>{formatTime(currentTime)}</span>
-                        <span>{currentTrack && currentTrack.duration ? formatTime(currentTrack.duration) : '5:55'}</span>
-                      </div>
+                      <span className="shrink-0">{currentTrack && currentTrack.duration ? formatTime(currentTrack.duration) : '5:04'}</span>
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-md3-outline-variant/20 bg-md3-surface-container-low p-4 space-y-3">
+              <div className="text-sm font-bold text-md3-on-surface">{t.settings.discordFallbackIcon}</div>
+              <div role="group" aria-label={t.settings.discordFallbackIcon} className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  aria-pressed={discordFallbackIcon === 'note'}
+                  onClick={() => onSetDiscordFallbackIcon('note')}
+                  className={`flex min-h-12 items-center justify-center gap-2 rounded-2xl border px-3 py-2 text-xs transition-colors ${discordFallbackIcon === 'note' ? 'border-md3-primary/50 bg-md3-primary/10 text-md3-primary font-bold' : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:text-md3-on-surface'}`}
+                >
+                  <Music className="h-4 w-4" aria-hidden="true" />
+                  <span>{t.settings.discordFallbackNote}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={discordFallbackIcon === 'disc'}
+                  onClick={() => onSetDiscordFallbackIcon('disc')}
+                  className={`flex min-h-12 items-center justify-center gap-2 rounded-2xl border px-3 py-2 text-xs transition-colors ${discordFallbackIcon === 'disc' ? 'border-md3-primary/50 bg-md3-primary/10 text-md3-primary font-bold' : 'border-md3-outline-variant/20 bg-md3-surface text-md3-on-surface-variant hover:text-md3-on-surface'}`}
+                >
+                  <Disc className="h-4 w-4" aria-hidden="true" />
+                  <span>{t.settings.discordFallbackDisc}</span>
+                </button>
               </div>
             </div>
 
