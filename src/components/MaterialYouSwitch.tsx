@@ -4,14 +4,16 @@ interface MaterialYouSwitchProps {
   checked: boolean;
   label: string;
   onClick: () => void;
-  accent?: 'theme' | 'discord';
+  accent?: 'theme' | 'discord' | 'amber';
 }
 
 export const MaterialYouSwitch: React.FC<MaterialYouSwitchProps> = ({ checked, label, onClick, accent = 'theme' }) => {
   const activeTrackClass = accent === 'discord'
     ? 'border-[#5865F2]/30 bg-[#5865F2]'
-    : 'border-md3-primary/20 bg-md3-primary';
-  const activeThumbClass = accent === 'discord' ? 'bg-white' : 'bg-md3-on-primary';
+    : accent === 'amber'
+      ? 'border-amber-500/30 bg-amber-500'
+      : 'border-md3-primary/20 bg-md3-primary';
+  const activeThumbClass = accent === 'theme' ? 'bg-md3-on-primary' : 'bg-white';
 
   return (
     <button

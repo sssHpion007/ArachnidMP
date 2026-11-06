@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Layers, X, Check, Shield, ShieldAlert } from 'lucide-react';
+import { Layers, X, Check, Lock } from 'lucide-react';
 import { PlaylistGroup } from '../types/music';
 import { AppLanguage } from '../i18n';
 import { useModalAnimation } from '../utils/useModalAnimation';
 import { HexColorInput } from './HexColorInput';
 import { FOLDER_ICONS, FolderIconOption } from '../theme/folderIcons';
+import { MaterialYouSwitch } from './MaterialYouSwitch';
 
 interface CreateGroupModalProps {
   isOpen: boolean;
@@ -92,7 +93,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
       className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md select-none cursor-default ${backdropClass}`}
     >
       <div
-        className={`w-full max-w-md max-h-[92vh] bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col cursor-default ${dialogClass}`}
+        className={`w-full max-w-lg max-h-[92vh] bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col cursor-default ${dialogClass}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -145,7 +146,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
             <label className="block text-xs font-semibold text-md3-on-surface-variant mb-2">
               {language === 'ru' ? 'Значок группы' : 'Group Icon'}
             </label>
-            <div className="grid grid-cols-6 sm:grid-cols-8 gap-2 rounded-2xl border border-md3-outline-variant/20 bg-md3-surface-container-highest/60 p-3">
+            <div className="grid grid-cols-6 sm:grid-cols-9 gap-2 rounded-2xl border border-md3-outline-variant/20 bg-md3-surface-container-highest/60 p-3">
               <button
                 type="button"
                 onClick={() => setIcon('')}
@@ -227,7 +228,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
               <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
                 isIsolated ? 'bg-amber-500 text-white' : 'bg-md3-surface-container text-md3-on-surface-variant'
               }`}>
-                {isIsolated ? <ShieldAlert className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
+                <Lock className="w-4 h-4" strokeWidth={2.2} />
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
@@ -248,13 +249,14 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
               </div>
             </div>
 
-            {/* Toggle switch */}
-            <div className={`w-9 h-5 rounded-full p-0.5 transition-colors shrink-0 mt-1 ${
-              isIsolated ? 'bg-amber-500' : 'bg-md3-surface-container-highest border border-md3-outline-variant/40'
-            }`}>
-              <div className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                isIsolated ? 'translate-x-4' : 'translate-x-0'
-              }`} />
+            {/* Stop bubbling so the switch toggles exactly once inside the clickable card. */}
+            <div className="shrink-0 mt-1" onClick={(event) => event.stopPropagation()}>
+              <MaterialYouSwitch
+                checked={isIsolated}
+                label={language === 'ru' ? 'Изолированный контейнер' : 'Isolated Container'}
+                accent="amber"
+                onClick={() => setIsIsolated((value) => !value)}
+              />
             </div>
           </div>
 

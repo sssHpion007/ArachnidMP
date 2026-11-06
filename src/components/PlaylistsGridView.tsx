@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Plus, 
   Play, 
@@ -16,9 +17,10 @@ import {
   FolderOpen,
   Palette,
   GripVertical,
-  ShieldAlert,
+  Lock,
   FileUp
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { Playlist, PlaylistFolder, PlaylistGroup, Track, FolderCoverType } from '../types/music';
 import { coverVariantUrl } from '../utils/coverArt';
 import { shouldShowPlaylistCoverFallback } from '../utils/playlistCoverFallback';
@@ -77,6 +79,124 @@ interface DragState {
   currentY: number;
   isDragging: boolean;
 }
+
+interface CreationMenuOption {
+  label: string;
+  Icon: LucideIcon;
+  onSelect: () => void;
+}
+
+interface CreationActionMenuProps {
+  options: CreationMenuOption[];
+  triggerIcon: LucideIcon;
+  triggerLabel?: string;
+  triggerTitle: string;
+  triggerClassName: string;
+  triggerIconClassName?: string;
+}
+
+const CreationActionMenu: React.FC<CreationActionMenuProps> = ({
+  options,
+  triggerIcon: TriggerIcon,
+  triggerLabel,
+  triggerTitle,
+  triggerClassName,
+  triggerIconClassName,
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!isOpen || !triggerRef.current || !menuRef.current) return;
+    const anchor = triggerRef.current.getBoundingClientRect();
+    const menu = menuRef.current.getBoundingClientRect();
+    const margin = 12;
+    const gap = 8;
+    const left = Math.min(
+      Math.max(margin, anchor.right - menu.width),
+      window.innerWidth - menu.width - margin
+    );
+    const below = anchor.bottom + gap;
+    const top = below + menu.height <= window.innerHeight - margin
+      ? below
+      : Math.max(margin, anchor.top - menu.height - gap);
+    setPosition({ top, left });
+  }, [isOpen, options.length]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!triggerRef.current?.contains(target) && !menuRef.current?.contains(target)) {
+        setIsOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+    const closeOnViewportChange = () => setIsOpen(false);
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', closeOnViewportChange);
+    window.addEventListener('scroll', closeOnViewportChange, true);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', closeOnViewportChange);
+      window.removeEventListener('scroll', closeOnViewportChange, true);
+    };
+  }, [isOpen]);
+
+  const menu = isOpen && typeof document !== 'undefined' ? createPortal(
+    <div
+      ref={menuRef}
+      role="menu"
+      style={{ top: position.top, left: position.left }}
+      className="fixed z-[100] min-w-[13rem] max-w-[calc(100vw-24px)] rounded-2xl border border-md3-outline-variant/25 bg-md3-surface-container/95 p-1.5 shadow-2xl backdrop-blur-xl"
+    >
+      {options.map(({ label, Icon, onSelect }) => (
+        <button
+          key={label}
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            setIsOpen(false);
+            onSelect();
+          }}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-md3-on-surface transition-colors hover:bg-md3-surface-container-high"
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-md3-primary/10 text-md3-primary">
+            <Icon className="h-4 w-4" />
+          </span>
+          <span>{label}</span>
+        </button>
+      ))}
+    </div>,
+    document.body
+  ) : null;
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-label={triggerTitle}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        title={triggerTitle}
+        onClick={() => setIsOpen((open) => !open)}
+        className={triggerClassName}
+      >
+        <TriggerIcon className={triggerIconClassName ?? 'h-4 w-4 shrink-0'} />
+        {triggerLabel && <span>{triggerLabel}</span>}
+      </button>
+      {menu}
+    </>
+  );
+};
 
 interface GridItem {
   id: string;
@@ -1521,24 +1641,17 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
             </div>
           </div>
 
-          {/* Action Buttons inside folder */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto">
-            <button
-              onClick={() => onCreateFolder(currentFolder.id, currentFolder.groupId)}
-              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3.5 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
-              title={language === 'ru' ? "Создать подпапку" : "Create subfolder"}
-            >
-              <FolderPlus className="w-4 h-4 text-md3-primary" />
-              <span className="hidden sm:inline">{language === 'ru' ? 'Новая подпапка' : 'New Subfolder'}</span>
-            </button>
-            <button
-              onClick={() => onCreatePlaylist(currentFolder.id, currentFolder.groupId)}
-              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-4 sm:py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 shadow-md transition-all cursor-pointer"
-              title={language === 'ru' ? "Создать плейлист" : "Create playlist"}
-            >
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">{language === 'ru' ? 'Новый плейлист' : 'New Playlist'}</span>
-            </button>
+          <div className="shrink-0 ml-auto">
+            <CreationActionMenu
+              triggerIcon={Plus}
+              triggerLabel={language === 'ru' ? 'Создать' : 'Create'}
+              triggerTitle={language === 'ru' ? 'Создать в папке' : 'Create in folder'}
+              triggerClassName="flex h-9 items-center justify-center gap-2 rounded-full bg-md3-primary px-4 text-xs font-semibold text-md3-on-primary shadow-md transition-all hover:opacity-90 cursor-pointer"
+              options={[
+                { label: language === 'ru' ? 'Плейлист' : 'Playlist', Icon: ListMusic, onSelect: () => onCreatePlaylist(currentFolder.id, currentFolder.groupId) },
+                { label: language === 'ru' ? 'Подпапку' : 'Subfolder', Icon: FolderPlus, onSelect: () => onCreateFolder(currentFolder.id, currentFolder.groupId) },
+              ]}
+            />
           </div>
         </div>
 
@@ -1552,22 +1665,16 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
             <p className="text-xs text-md3-on-surface-variant max-w-sm mb-5">
               Создайте плейлист, добавьте подпапку или перетащите сюда плейлисты из других мест.
             </p>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => onCreateFolder(currentFolder.id, currentFolder.groupId)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest transition-colors"
-              >
-                <FolderPlus className="w-4 h-4 text-md3-primary" />
-                <span>Создать подпапку</span>
-              </button>
-              <button
-                onClick={() => onCreatePlaylist(currentFolder.id, currentFolder.groupId)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 transition-opacity"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Создать плейлист</span>
-              </button>
-            </div>
+            <CreationActionMenu
+              triggerIcon={Plus}
+              triggerLabel={language === 'ru' ? 'Создать' : 'Create'}
+              triggerTitle={language === 'ru' ? 'Создать в папке' : 'Create in folder'}
+              triggerClassName="flex h-9 items-center justify-center gap-2 rounded-full bg-md3-primary px-4 text-xs font-semibold text-md3-on-primary shadow-md transition-all hover:opacity-90 cursor-pointer"
+              options={[
+                { label: language === 'ru' ? 'Плейлист' : 'Playlist', Icon: ListMusic, onSelect: () => onCreatePlaylist(currentFolder.id, currentFolder.groupId) },
+                { label: language === 'ru' ? 'Подпапку' : 'Subfolder', Icon: FolderPlus, onSelect: () => onCreateFolder(currentFolder.id, currentFolder.groupId) },
+              ]}
+            />
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -1666,35 +1773,18 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
             <div className="h-5 w-px bg-md3-outline-variant/30 hidden sm:block" />
           )}
 
-          {/* Creation Actions Group (Group, Folder, Playlist) */}
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            <button
-              onClick={onCreateGroup}
-              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3.5 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
-              title={language === 'ru' ? "Создать группу плейлистов" : "Create playlist group"}
-            >
-              <Layers className="w-4 h-4 text-md3-primary" />
-              <span className="hidden sm:inline">{language === 'ru' ? 'Новая группа' : 'New Group'}</span>
-            </button>
-
-            <button
-              onClick={() => onCreateFolder(null, null)}
-              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3.5 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
-              title={language === 'ru' ? "Создать папку" : "Create folder"}
-            >
-              <FolderPlus className="w-4 h-4 text-md3-primary" />
-              <span className="hidden sm:inline">{language === 'ru' ? 'Новая папка' : 'New Folder'}</span>
-            </button>
-
-            <button
-              onClick={() => onCreatePlaylist(null, null)}
-              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-4 sm:py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 shadow-md transition-all cursor-pointer"
-              title={language === 'ru' ? "Создать плейлист" : "Create playlist"}
-            >
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">{language === 'ru' ? 'Новый плейлист' : 'New Playlist'}</span>
-            </button>
-          </div>
+          {/* Unified creation menu */}
+          <CreationActionMenu
+            triggerIcon={Plus}
+            triggerLabel={language === 'ru' ? 'Создать' : 'Create'}
+            triggerTitle={language === 'ru' ? 'Создать...' : 'Create...'}
+            triggerClassName="flex h-9 items-center justify-center gap-2 rounded-full bg-md3-primary px-4 text-xs font-semibold text-md3-on-primary shadow-md transition-all hover:opacity-90 cursor-pointer"
+            options={[
+              { label: language === 'ru' ? 'Плейлист' : 'Playlist', Icon: ListMusic, onSelect: () => onCreatePlaylist(null, null) },
+              { label: language === 'ru' ? 'Папку' : 'Folder', Icon: FolderPlus, onSelect: () => onCreateFolder(null, null) },
+              { label: language === 'ru' ? 'Группу' : 'Group', Icon: Layers, onSelect: onCreateGroup },
+            ]}
+          />
         </div>
       </div>
 
@@ -1748,17 +1838,20 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                       onToggleGroupCollapse(group.id);
                     }
                   }}
-                  style={groupHeaderBg ? { backgroundColor: groupHeaderBg } : undefined}
+                  style={{
+                    ...(groupHeaderBg ? { backgroundColor: groupHeaderBg } : {}),
+                    '--group-accent': groupColor || 'var(--md-sys-color-primary)',
+                  } as React.CSSProperties}
                   className="w-full flex items-center justify-between px-4 py-3 bg-md3-surface-container/60 hover:bg-md3-surface-container cursor-pointer transition-colors touch-none"
                 >
                   <div className="flex items-center gap-2.5 min-w-0 pointer-events-none">
                     <button
                       type="button"
-                      className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface transition-transform pointer-events-auto"
+                      className="p-1 rounded-full text-[var(--group-accent)] transition-all pointer-events-auto hover:bg-[color-mix(in_srgb,var(--group-accent)_18%,transparent)]"
                     >
                       <ChevronDown
                         className={`w-4 h-4 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-                          isCollapsed ? '-rotate-90 text-md3-on-surface-variant' : 'rotate-0 text-md3-primary'
+                          isCollapsed ? '-rotate-90' : 'rotate-0'
                         }`}
                       />
                     </button>
@@ -1773,7 +1866,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                     >
                       {group.name}
                     </h3>
-                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-md3-surface-container-highest text-md3-on-surface-variant font-medium">
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--group-accent)_16%,transparent)] px-1.5 text-[11px] leading-none font-semibold tabular-nums text-[var(--group-accent)]">
                       {totalGroupItems}
                     </span>
                     {group.isIsolated && (
@@ -1781,8 +1874,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                         className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-500 border border-amber-500/30 font-medium flex items-center gap-1 shrink-0"
                         title={language === 'ru' ? 'Изолированный контейнер: треки скрыты из общего списка библиотеки' : 'Isolated container: tracks are hidden from global library'}
                       >
-                        <ShieldAlert className="w-3 h-3" />
-                        <span>{language === 'ru' ? 'Изолированная' : 'Isolated'}</span>
+                        <Lock className="w-3 h-3" strokeWidth={2.2} />
                       </span>
                     )}
                   </div>
@@ -1791,12 +1883,12 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                   <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
                     {/* Up / Down Move Buttons */}
                     {onMoveGroup && (
-                      <div className="flex items-center bg-md3-surface-container-highest/60 rounded-full p-0.5 mr-1 border border-md3-outline-variant/20">
+                      <div className="flex items-center bg-[color-mix(in_srgb,var(--group-accent)_30%,var(--md-sys-color-surface-container-lowest))] rounded-full p-0.5 mr-1 border border-md3-outline-variant/20">
                         <button
                           disabled={groupIndex === 0}
                           onClick={() => onMoveGroup(group.id, 'up')}
                           title="Переместить группу выше"
-                          className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-primary disabled:opacity-25 disabled:pointer-events-none transition-colors"
+                          className="p-1 rounded-full text-[var(--group-accent)] hover:bg-[color-mix(in_srgb,var(--group-accent)_18%,transparent)] disabled:opacity-25 disabled:pointer-events-none transition-colors"
                         >
                           <ArrowUp className="w-3.5 h-3.5" />
                         </button>
@@ -1804,38 +1896,34 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                           disabled={groupIndex === groups.length - 1}
                           onClick={() => onMoveGroup(group.id, 'down')}
                           title="Переместить группу ниже"
-                          className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-primary disabled:opacity-25 disabled:pointer-events-none transition-colors"
+                          className="p-1 rounded-full text-[var(--group-accent)] hover:bg-[color-mix(in_srgb,var(--group-accent)_18%,transparent)] disabled:opacity-25 disabled:pointer-events-none transition-colors"
                         >
                           <ArrowDown className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     )}
 
-                    <button
-                      onClick={() => onCreatePlaylist(null, group.id)}
-                      title="Добавить плейлист в эту группу"
-                      className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-primary hover:bg-md3-surface-container-highest transition-colors"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => onCreateFolder(null, group.id)}
-                      title="Добавить папку в эту группу"
-                      className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-primary hover:bg-md3-surface-container-highest transition-colors"
-                    >
-                      <FolderPlus className="w-3.5 h-3.5" />
-                    </button>
+                    <CreationActionMenu
+                      triggerIcon={Plus}
+                      triggerTitle={language === 'ru' ? 'Добавить в группу' : 'Add to group'}
+                      triggerClassName="p-1.5 rounded-full text-[var(--group-accent)] hover:bg-[color-mix(in_srgb,var(--group-accent)_18%,transparent)] transition-colors"
+                      triggerIconClassName="h-3.5 w-3.5"
+                      options={[
+                        { label: language === 'ru' ? 'Плейлист' : 'Playlist', Icon: ListMusic, onSelect: () => onCreatePlaylist(null, group.id) },
+                        { label: language === 'ru' ? 'Папку' : 'Folder', Icon: FolderPlus, onSelect: () => onCreateFolder(null, group.id) },
+                      ]}
+                    />
                     <button
                       onClick={() => onEditGroup ? onEditGroup(group) : onRenameGroup(group)}
                       title={language === 'ru' ? 'Настройки группы (цвет, изоляция, название)' : 'Group settings (color, isolation, name)'}
-                      className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-primary hover:bg-md3-surface-container-highest transition-colors"
+                      className="p-1.5 rounded-full text-[var(--group-accent)] hover:bg-[color-mix(in_srgb,var(--group-accent)_18%,transparent)] transition-colors"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={() => onDeleteGroup(group.id)}
                       title="Удалить группу (элементы сохранятся)"
-                      className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      className="p-1.5 rounded-full text-[var(--group-accent)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -1906,22 +1994,17 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
               <p className="text-xs text-md3-on-surface-variant mb-4">
                 Создайте первый плейлист или папку для вашей медиатеки
               </p>
-              <div className="flex items-center justify-center gap-2">
-                <button
-                  onClick={() => onCreateFolder(null, null)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest"
-                >
-                  <FolderPlus className="w-4 h-4 text-md3-primary" />
-                  <span>Папка</span>
-                </button>
-                <button
-                  onClick={() => onCreatePlaylist(null, null)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Плейлист</span>
-                </button>
-              </div>
+              <CreationActionMenu
+                triggerIcon={Plus}
+                triggerLabel={language === 'ru' ? 'Создать' : 'Create'}
+                triggerTitle={language === 'ru' ? 'Создать...' : 'Create...'}
+                triggerClassName="flex h-9 items-center justify-center gap-2 rounded-full bg-md3-primary px-4 text-xs font-semibold text-md3-on-primary shadow-md transition-all hover:opacity-90 cursor-pointer"
+                options={[
+                  { label: language === 'ru' ? 'Плейлист' : 'Playlist', Icon: ListMusic, onSelect: () => onCreatePlaylist(null, null) },
+                  { label: language === 'ru' ? 'Папку' : 'Folder', Icon: FolderPlus, onSelect: () => onCreateFolder(null, null) },
+                  { label: language === 'ru' ? 'Группу' : 'Group', Icon: Layers, onSelect: onCreateGroup },
+                ]}
+              />
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">

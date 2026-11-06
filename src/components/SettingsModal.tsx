@@ -2194,20 +2194,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 {onToggleAutoScanOnStartup && (
-                  <button
-                    type="button"
-                    tabIndex={-1}
+                  <MaterialYouSwitch
+                    checked={autoScanOnStartup}
+                    label={`${t.settings.autoScanStartup}: ${autoScanOnStartup
+                      ? (language === 'ru' ? 'включено' : 'enabled')
+                      : (language === 'ru' ? 'выключено' : 'disabled')}`}
                     onClick={onToggleAutoScanOnStartup}
-                    className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer outline-none focus:outline-none shrink-0 ${
-                      autoScanOnStartup ? 'bg-md3-primary' : 'bg-md3-surface-container-highest border border-md3-outline-variant/40'
-                    }`}
-                  >
-                    <div
-                      className={`w-4 h-4 rounded-full bg-white transition-transform duration-200 absolute top-1 ${
-                        autoScanOnStartup ? 'left-7' : 'left-1'
-                      }`}
-                    />
-                  </button>
+                  />
                 )}
               </div>
 
