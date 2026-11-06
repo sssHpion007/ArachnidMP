@@ -5,13 +5,23 @@ const DEFAULT_LOGO_URL = 'https://raw.githubusercontent.com/sssHpion007/Arachnid
 const PLAYING_ICON_URL = 'https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png';
 const PAUSED_ICON_URL = 'https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png';
 
-const NO_COVER_ARTWORK: Record<DiscordFallbackIcon, string> = {
-  note: '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" rx="18" fill="#313338"/><g transform="translate(18 18) scale(3.8)" fill="none" stroke="#d4d7de" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></g></svg>',
-  disc: '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" rx="18" fill="#313338"/><g fill="none" stroke="#d4d7de" stroke-width="7"><circle cx="64" cy="64" r="39"/><circle cx="64" cy="64" r="12"/><path d="M64 25v27M103 64H76M64 103V76M25 64h27"/></g></svg>',
+const NO_COVER_ICON_PATHS: Record<DiscordFallbackIcon, string> = {
+  note: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  // Lucide Disc3, matching the no-cover artwork in NowPlayingBar.
+  disc: '<circle cx="12" cy="12" r="10"/><path d="M6 12c0-1.7.7-3.2 1.8-4.2"/><circle cx="12" cy="12" r="2"/><path d="M18 12c0 1.7-.7 3.2-1.8 4.2"/>',
 };
 
+function getThemeRgb(token: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback;
+  const value = window.getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+  return /^\d{1,3}\s+\d{1,3}\s+\d{1,3}$/.test(value) ? value : fallback;
+}
+
 function fallbackArtworkDataUri(icon: DiscordFallbackIcon = 'disc'): string {
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(NO_COVER_ARTWORK[icon])}`;
+  const primaryRgb = getThemeRgb('--md-sys-color-primary-rgb', '168 121 255');
+  const surfaceRgb = getThemeRgb('--md-sys-color-surface-container-rgb', '40 40 44');
+  const artwork = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" fill="rgb(${surfaceRgb})"/><rect width="128" height="128" fill="rgb(${primaryRgb})" fill-opacity="0.1"/><g transform="translate(32 32) scale(2.6666667)" fill="none" stroke="rgb(${primaryRgb})" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">${NO_COVER_ICON_PATHS[icon]}</g></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(artwork)}`;
 }
 
 /**

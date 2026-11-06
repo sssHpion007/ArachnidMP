@@ -15,7 +15,7 @@ import {
   LayoutGrid,
   Music,
   ListMusic,
-  Disc,
+  Disc3,
   Mic2,
   Heart,
   Tag,
@@ -1627,18 +1627,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-start gap-3.5">
-                  {/* Use the real track cover when available; otherwise show a simple disc icon. */}
-                  <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-white/5 bg-[#313338] shadow-md">
+                  {/* Use real artwork when available; otherwise mirror the main player's tinted Lucide fallback. */}
+                  <div className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-md3-outline-variant/15 bg-md3-surface-container shadow-sm">
                     {currentTrack?.coverArt ? (
                       <img
                         src={coverVariantUrl(currentTrack.coverArt, 96)}
                         alt="Artwork"
                         className="h-full w-full rounded-xl object-cover"
                       />
-                    ) : discordFallbackIcon === 'note' ? (
-                      <Music aria-label={t.settings.discordFallbackNote} className="h-8 w-8 text-[#8b9099]" strokeWidth={1.5} />
                     ) : (
-                      <Disc aria-label={t.settings.discordFallbackDisc} className="h-8 w-8 text-[#8b9099]" strokeWidth={1.5} />
+                      <div className="absolute inset-0 flex items-center justify-center bg-md3-primary/10 text-md3-primary">
+                        {discordFallbackIcon === 'note' ? (
+                          <Music aria-label={t.settings.discordFallbackNote} className="h-8 w-8" />
+                        ) : (
+                          <Disc3 aria-label={t.settings.discordFallbackDisc} className={`h-8 w-8 ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }} />
+                        )}
+                      </div>
                     )}
                     {isPlaying && discordShowPlayIcon && (
                       <div className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#1e1f22] bg-[#1e1f22] shadow-md">
@@ -1750,7 +1754,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   onClick={() => onSetDiscordFallbackIcon('disc')}
                   className={`relative z-10 flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-2 py-3 text-center text-xs transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-md3-primary/60 ${discordFallbackIcon === 'disc' ? 'font-bold text-md3-on-primary' : 'font-medium text-md3-on-surface-variant hover:text-md3-on-surface'}`}
                 >
-                  <Disc className="h-4 w-4" aria-hidden="true" />
+                  <Disc3 className="h-4 w-4" aria-hidden="true" />
                   {t.settings.discordFallbackDisc}
                 </button>
               </div>
