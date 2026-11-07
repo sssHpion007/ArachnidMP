@@ -43,6 +43,7 @@ export interface Translations {
     title: string;
     subtitle: string;
     appearance: string;
+    audioSettings: string;
     themeMode: string;
     dark: string;
     amoled: string;
@@ -283,6 +284,7 @@ export const RU_TRANSLATIONS: Translations = {
     title: 'Настройки',
     subtitle: 'Внешний вид, функции, язык',
     appearance: 'Внешний вид',
+    audioSettings: 'Настройки звука',
     themeMode: 'Режим темы',
     dark: 'Тёмная',
     amoled: 'AMOLED',
@@ -523,6 +525,7 @@ export const EN_TRANSLATIONS: Translations = {
     title: 'Settings',
     subtitle: 'Appearance, features, language',
     appearance: 'Appearance',
+    audioSettings: 'Audio Settings',
     themeMode: 'Theme Mode',
     dark: 'Dark',
     amoled: 'AMOLED',

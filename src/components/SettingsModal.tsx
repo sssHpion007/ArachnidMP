@@ -197,7 +197,7 @@ const OutputDevicePicker: React.FC<{
     <div className="space-y-2.5">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-sm font-bold text-md3-on-surface">{t.outputDevice}</div>
+          <div className="text-xs font-semibold text-md3-on-surface">{t.outputDevice}</div>
           <p className="mt-0.5 text-[11px] leading-relaxed text-md3-on-surface-variant">{t.outputDeviceDesc}</p>
         </div>
         <button
@@ -2387,26 +2387,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div key="view-main-settings" ref={mainSettingsContainerRef} className={`p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 ${navDirection === 'backward' ? 'anim-view-slide-left' : ''}`}>
             {/* 1. Section: Appearance (Внешний вид) */}
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
-                  <Palette className="w-4 h-4 text-md3-primary" />
-                  <span>{t.settings.appearance}</span>
-                </div>
-                <button
-                  onClick={handleOpenThemesFolder}
-                  title={t.settings.openThemesFolder}
-                  className="text-[11px] flex items-center gap-1.5 text-md3-primary hover:underline cursor-pointer"
-                >
-                  <FolderOpen className="w-3.5 h-3.5" />
-                  <span>{t.settings.openThemesFolder}</span>
-                </button>
+              <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
+                <Palette className="w-4 h-4 text-md3-primary" />
+                <span>{t.settings.appearance}</span>
               </div>
 
               {/* Theme Style Selector (ШТОРКА ТЕМЫ ОФОРМЛЕНИЯ) */}
               <div className="space-y-2">
-                <div className="text-xs font-semibold text-md3-on-surface flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5 text-md3-primary" />
-                  <span>{t.settings.themeStyle}</span>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-semibold text-md3-on-surface">{t.settings.themeStyle}</span>
+                  <button
+                    onClick={handleOpenThemesFolder}
+                    title={t.settings.openThemesFolder}
+                    className="flex shrink-0 items-center gap-1.5 text-[11px] text-md3-primary hover:underline cursor-pointer"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    <span>{t.settings.openThemesFolder}</span>
+                  </button>
                 </div>
 
                 {/* Шторка trigger card */}
@@ -2908,15 +2905,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
             </div>
 
-            <div className="space-y-3 border-t border-md3-outline-variant/20 pt-4">
+            <div className="space-y-4 border-t border-md3-outline-variant/20 pt-4">
+              <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
+                <Volume2 className="w-4 h-4 text-md3-primary" />
+                <span>{t.settings.audioSettings}</span>
+              </div>
               <OutputDevicePicker value={outputDeviceId} language={language} onChange={onSetOutputDeviceId} />
             </div>
 
             {/* 2. Section: Track Fading (Затухание трека) */}
             <div className="space-y-3 pt-4 border-t border-md3-outline-variant/20">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
-                  <Volume2 className="w-4 h-4 text-md3-primary" />
+                <div className="text-xs font-semibold text-md3-on-surface">
                   <span>{t.settings.crossfade}</span>
                 </div>
                 <div className="text-xs text-md3-on-surface-variant font-mono">
@@ -3113,208 +3113,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
 
-            {/* Window close and startup mode */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-              <section className="p-4 rounded-3xl bg-md3-surface border border-md3-outline-variant/20 space-y-3">
-                <div>
-                  <div className="text-xs font-bold text-md3-on-surface">
-                    {language === 'ru' ? 'При закрытии' : 'When closing'}
-                  </div>
-                </div>
-                <div
-                  ref={closeBehaviorContainerRef}
-                  role="radiogroup"
-                  aria-label={language === 'ru' ? 'Действие крестика' : 'Close button action'}
-                  className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
-                >
-                  <div
-                    className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
-                    style={{
-                      left: `${closeBehaviorIndicatorStyle.left}px`,
-                      width: `${closeBehaviorIndicatorStyle.width}px`,
-                      height: `${closeBehaviorIndicatorStyle.height}px`,
-                      opacity: closeBehaviorIndicatorStyle.opacity,
-                      boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
-                    }}
-                  />
-                  <button
-                    ref={el => { closeBehaviorRefs.current.exit = el; }}
-                    type="button"
-                    role="radio"
-                    aria-checked={closeBehavior === 'exit'}
-                    tabIndex={-1}
-                    onMouseDown={event => event.preventDefault()}
-                    onClick={() => { enableIndicatorTransitions(); onSetCloseBehavior?.('exit'); }}
-                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'exit' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
-                  >
-                    <X className="w-4 h-4 shrink-0" />
-                    <span className="min-w-0 truncate">{language === 'ru' ? 'Закрыть' : 'Quit'}</span>
-                  </button>
-                  <button
-                    ref={el => { closeBehaviorRefs.current.tray = el; }}
-                    type="button"
-                    role="radio"
-                    aria-checked={closeBehavior === 'tray'}
-                    tabIndex={-1}
-                    onMouseDown={event => event.preventDefault()}
-                    onClick={() => { enableIndicatorTransitions(); onSetCloseBehavior?.('tray'); }}
-                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'tray' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
-                  >
-                    <Radio className="w-4 h-4 shrink-0" />
-                    <span className="min-w-0 truncate">{language === 'ru' ? 'В трей' : 'To tray'}</span>
-                  </button>
-                </div>
-              </section>
-
-              <section className="p-4 rounded-3xl bg-md3-surface border border-md3-outline-variant/20 space-y-3">
-                <div>
-                  <div className="text-xs font-bold text-md3-on-surface">
-                    {language === 'ru' ? 'При запуске' : 'On startup'}
-                  </div>
-                </div>
-                <div
-                  ref={startupInterfaceContainerRef}
-                  role="radiogroup"
-                  aria-label={language === 'ru' ? 'Интерфейс при запуске' : 'Startup interface'}
-                  className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
-                >
-                  <div
-                    className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
-                    style={{
-                      left: `${startupInterfaceIndicatorStyle.left}px`,
-                      width: `${startupInterfaceIndicatorStyle.width}px`,
-                      height: `${startupInterfaceIndicatorStyle.height}px`,
-                      opacity: startupInterfaceIndicatorStyle.opacity,
-                      boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
-                    }}
-                  />
-                  <button
-                    ref={el => { startupInterfaceRefs.current.full = el; }}
-                    type="button"
-                    role="radio"
-                    aria-checked={startupInterface === 'full'}
-                    tabIndex={-1}
-                    onMouseDown={event => event.preventDefault()}
-                    onClick={() => { enableIndicatorTransitions(); onSetStartupInterface?.('full'); }}
-                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'full' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
-                  >
-                    <Monitor className="w-4 h-4 shrink-0" />
-                    <span className="min-w-0 truncate">{language === 'ru' ? 'Полный' : 'Full'}</span>
-                  </button>
-                  <button
-                    ref={el => { startupInterfaceRefs.current.mini = el; }}
-                    type="button"
-                    role="radio"
-                    aria-checked={startupInterface === 'mini'}
-                    tabIndex={-1}
-                    onMouseDown={event => event.preventDefault()}
-                    onClick={() => { enableIndicatorTransitions(); onSetStartupInterface?.('mini'); }}
-                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'mini' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
-                  >
-                    <Music className="w-4 h-4 shrink-0" />
-                    <span className="min-w-0 truncate">{language === 'ru' ? 'Мини' : 'Mini'}</span>
-                  </button>
-                </div>
-              </section>
-            </div>
-
-            {/* 5. Section: Language (ШТОРКА ЯЗЫКА ИНТЕРФЕЙСА) - Перед горячими клавишами */}
-            <div className="space-y-3 pt-4 border-t border-md3-outline-variant/20">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
-                  <Globe className="w-4 h-4 text-md3-primary" />
-                  <span>{t.settings.language}</span>
-                </div>
-                <button
-                  onClick={handleOpenLocalesFolder}
-                  title={t.settings.openLocalesFolder}
-                  className="text-[11px] flex items-center gap-1.5 text-md3-primary hover:underline cursor-pointer"
-                >
-                  <FolderOpen className="w-3.5 h-3.5" />
-                  <span>{t.settings.openLocalesFolder}</span>
-                </button>
-              </div>
-
-              {/* Шторка trigger card */}
-              <div className="relative z-20">
-                <div className="rounded-2xl border border-md3-outline-variant/20 bg-md3-surface shadow-xs">
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => setIsLangCurtainOpen(!isLangCurtainOpen)}
-                    className="w-full p-3.5 flex items-center justify-between text-left cursor-pointer hover:bg-md3-surface-container-high/60 transition-colors rounded-2xl outline-none focus:outline-none"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center shrink-0">
-                        <Globe className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-md3-on-surface">
-                          {language === 'ru' ? 'Русский' : 'English'}
-                        </div>
-                      </div>
-                    </div>
-                    <ChevronDown className={`w-4 h-4 text-md3-on-surface-variant transition-transform duration-200 shrink-0 ${isLangCurtainOpen ? 'rotate-180 text-md3-primary' : ''}`} />
-                  </button>
-                </div>
-
-                {/* Раскрывающаяся шторка поверх содержимого */}
-                {isLangCurtainRendered && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setIsLangCurtainOpen(false)} />
-                    <div className={`absolute left-0 right-0 top-full mt-2 z-50 p-2.5 rounded-2xl bg-md3-surface-container-high/95 backdrop-blur-xl border border-md3-outline-variant/30 shadow-2xl space-y-2 origin-top ${langCurtainClass}`}>
-                      <div className="max-h-48 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
-                        
-                        {/* Русский */}
-                        <button
-                          type="button"
-                          tabIndex={-1}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            onSetLanguage('ru');
-                            setIsLangCurtainOpen(false);
-                          }}
-                          className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left outline-none focus:outline-none ${
-                            language === 'ru'
-                              ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                              : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <span className="text-xs font-bold text-md3-on-surface">Русский</span>
-                          </div>
-                          {language === 'ru' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
-                        </button>
-
-                        {/* English */}
-                        <button
-                          type="button"
-                          tabIndex={-1}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            onSetLanguage('en');
-                            setIsLangCurtainOpen(false);
-                          }}
-                          className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left outline-none focus:outline-none ${
-                            language === 'en'
-                              ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                              : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <span className="text-xs font-bold text-md3-on-surface">English</span>
-                          </div>
-                          {language === 'en' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
-                        </button>
-
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-
             {/* 6a. Button to Open Library Folders Menu */}
             <div className="pt-2">
               <button
@@ -3417,6 +3215,208 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
                 <ChevronRight className="w-4 h-4 text-md3-on-surface-variant group-hover:text-md3-primary group-hover:translate-x-0.5 transition-all" />
               </button>
+            </div>
+
+            {/* Window close and startup mode */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+              <section className="p-4 rounded-3xl bg-md3-surface border border-md3-outline-variant/20 space-y-3">
+                <div>
+                  <div className="text-xs font-bold text-md3-on-surface">
+                    {language === 'ru' ? 'При запуске' : 'On startup'}
+                  </div>
+                </div>
+                <div
+                  ref={startupInterfaceContainerRef}
+                  role="radiogroup"
+                  aria-label={language === 'ru' ? 'Интерфейс при запуске' : 'Startup interface'}
+                  className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
+                >
+                  <div
+                    className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
+                    style={{
+                      left: `${startupInterfaceIndicatorStyle.left}px`,
+                      width: `${startupInterfaceIndicatorStyle.width}px`,
+                      height: `${startupInterfaceIndicatorStyle.height}px`,
+                      opacity: startupInterfaceIndicatorStyle.opacity,
+                      boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
+                    }}
+                  />
+                  <button
+                    ref={el => { startupInterfaceRefs.current.full = el; }}
+                    type="button"
+                    role="radio"
+                    aria-checked={startupInterface === 'full'}
+                    tabIndex={-1}
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => { enableIndicatorTransitions(); onSetStartupInterface?.('full'); }}
+                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'full' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
+                  >
+                    <Monitor className="w-4 h-4 shrink-0" />
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'Полный' : 'Full'}</span>
+                  </button>
+                  <button
+                    ref={el => { startupInterfaceRefs.current.mini = el; }}
+                    type="button"
+                    role="radio"
+                    aria-checked={startupInterface === 'mini'}
+                    tabIndex={-1}
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => { enableIndicatorTransitions(); onSetStartupInterface?.('mini'); }}
+                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'mini' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
+                  >
+                    <Music className="w-4 h-4 shrink-0" />
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'Мини' : 'Mini'}</span>
+                  </button>
+                </div>
+              </section>
+
+              <section className="p-4 rounded-3xl bg-md3-surface border border-md3-outline-variant/20 space-y-3">
+                <div>
+                  <div className="text-xs font-bold text-md3-on-surface">
+                    {language === 'ru' ? 'При закрытии' : 'When closing'}
+                  </div>
+                </div>
+                <div
+                  ref={closeBehaviorContainerRef}
+                  role="radiogroup"
+                  aria-label={language === 'ru' ? 'Действие крестика' : 'Close button action'}
+                  className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
+                >
+                  <div
+                    className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
+                    style={{
+                      left: `${closeBehaviorIndicatorStyle.left}px`,
+                      width: `${closeBehaviorIndicatorStyle.width}px`,
+                      height: `${closeBehaviorIndicatorStyle.height}px`,
+                      opacity: closeBehaviorIndicatorStyle.opacity,
+                      boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
+                    }}
+                  />
+                  <button
+                    ref={el => { closeBehaviorRefs.current.exit = el; }}
+                    type="button"
+                    role="radio"
+                    aria-checked={closeBehavior === 'exit'}
+                    tabIndex={-1}
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => { enableIndicatorTransitions(); onSetCloseBehavior?.('exit'); }}
+                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'exit' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
+                  >
+                    <X className="w-4 h-4 shrink-0" />
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'Закрыть' : 'Quit'}</span>
+                  </button>
+                  <button
+                    ref={el => { closeBehaviorRefs.current.tray = el; }}
+                    type="button"
+                    role="radio"
+                    aria-checked={closeBehavior === 'tray'}
+                    tabIndex={-1}
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => { enableIndicatorTransitions(); onSetCloseBehavior?.('tray'); }}
+                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'tray' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
+                  >
+                    <Radio className="w-4 h-4 shrink-0" />
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'В трей' : 'To tray'}</span>
+                  </button>
+                </div>
+              </section>
+            </div>
+
+            {/* Interface language settings */}
+            <div className="space-y-3 pt-4 border-t border-md3-outline-variant/20">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
+                  <Globe className="w-4 h-4 text-md3-primary" />
+                  <span>{t.settings.language}</span>
+                </div>
+                <button
+                  onClick={handleOpenLocalesFolder}
+                  title={t.settings.openLocalesFolder}
+                  className="text-[11px] flex items-center gap-1.5 text-md3-primary hover:underline cursor-pointer"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  <span>{t.settings.openLocalesFolder}</span>
+                </button>
+              </div>
+
+              {/* Шторка trigger card */}
+              <div className="relative z-20">
+                <div className="rounded-2xl border border-md3-outline-variant/20 bg-md3-surface shadow-xs">
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setIsLangCurtainOpen(!isLangCurtainOpen)}
+                    className="w-full p-3.5 flex items-center justify-between text-left cursor-pointer hover:bg-md3-surface-container-high/60 transition-colors rounded-2xl outline-none focus:outline-none"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center shrink-0">
+                        <Globe className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-md3-on-surface">
+                          {language === 'ru' ? 'Русский' : 'English'}
+                        </div>
+                      </div>
+                    </div>
+                    <ChevronDown className={`w-4 h-4 text-md3-on-surface-variant transition-transform duration-200 shrink-0 ${isLangCurtainOpen ? 'rotate-180 text-md3-primary' : ''}`} />
+                  </button>
+                </div>
+
+                {/* Раскрывающаяся шторка поверх содержимого */}
+                {isLangCurtainRendered && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setIsLangCurtainOpen(false)} />
+                    <div className={`absolute left-0 right-0 top-full mt-2 z-50 p-2.5 rounded-2xl bg-md3-surface-container-high/95 backdrop-blur-xl border border-md3-outline-variant/30 shadow-2xl space-y-2 origin-top ${langCurtainClass}`}>
+                      <div className="max-h-48 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
+                        
+                        {/* Русский */}
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            onSetLanguage('ru');
+                            setIsLangCurtainOpen(false);
+                          }}
+                          className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left outline-none focus:outline-none ${
+                            language === 'ru'
+                              ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                              : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-xs font-bold text-md3-on-surface">Русский</span>
+                          </div>
+                          {language === 'ru' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
+                        </button>
+
+                        {/* English */}
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            onSetLanguage('en');
+                            setIsLangCurtainOpen(false);
+                          }}
+                          className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left outline-none focus:outline-none ${
+                            language === 'en'
+                              ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                              : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-xs font-bold text-md3-on-surface">English</span>
+                          </div>
+                          {language === 'en' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
+                        </button>
+
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
 
             {/* 7. About Application & Updates Card */}
