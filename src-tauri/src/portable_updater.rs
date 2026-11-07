@@ -17,8 +17,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const HELPER_FLAG: &str = "--arachnid-portable-update-helper";
 const HELPER_NAME: &str = "helper.exe";
+const INSTALL_NAME: &str = "arachnidmp.exe";
 const PAYLOAD_NAME: &str = "payload.exe";
 const BACKUP_NAME: &str = "previous.exe";
+const SOURCE_BACKUP_NAME: &str = "previous-source.exe";
 const STAGE_PREFIX: &str = ".arachnid-update-";
 const READY_FILE: &str = "ready";
 const ERROR_FILE: &str = "helper-error.txt";
@@ -49,10 +51,12 @@ extern "system" {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Transaction {
+    source_name: String,
     target_name: String,
     parent_pid: u32,
     payload_sha256: String,
-    original_sha256: String,
+    source_sha256: String,
+    target_sha256: Option<String>,
     log_path: String,
 }
 
@@ -111,7 +115,7 @@ fn validate_payload(payload: &[u8], expected_sha256: &str) -> Result<(), String>
 pub fn prepare(executable: &Path, payload: &[u8], expected_sha256: &str) -> Result<PathBuf, String> {
     validate_payload(payload, expected_sha256)?;
 
-    let target_name = executable
+    let source_name = executable
         .file_name()
         .and_then(|name| name.to_str())
         .filter(|name| valid_target_name(name))
@@ -119,6 +123,8 @@ pub fn prepare(executable: &Path, payload: &[u8], expected_sha256: &str) -> Resu
     let root = executable
         .parent()
         .ok_or_else(|| "Cannot determine the portable app directory.".to_string())?;
+    let target_name = INSTALL_NAME;
+    let source_is_target = source_name.eq_ignore_ascii_case(target_name);
     let stage = root.join(format!("{STAGE_PREFIX}{}", unique_id()));
     fs::create_dir(&stage).map_err(|error| {
         format!(
@@ -129,13 +135,26 @@ pub fn prepare(executable: &Path, payload: &[u8], expected_sha256: &str) -> Resu
     let result = (|| {
         let original = fs::read(executable)
             .map_err(|error| format!("Cannot read the current executable: {error}"))?;
+        let source_sha256 = sha256(&original);
+        let target_sha256 = if source_is_target {
+            Some(source_sha256.clone())
+        } else {
+            let target_path = root.join(target_name);
+            match fs::read(&target_path) {
+                Ok(bytes) => Some(sha256(&bytes)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => return Err(format!("Cannot inspect the arachnidmp.exe destination: {error}")),
+            }
+        };
         write_synced(&stage.join(HELPER_NAME), &original)?;
         write_synced(&stage.join(PAYLOAD_NAME), payload)?;
         let transaction = Transaction {
+            source_name: source_name.to_string(),
             target_name: target_name.to_string(),
             parent_pid: std::process::id(),
             payload_sha256: expected_sha256.to_string(),
-            original_sha256: sha256(&original),
+            source_sha256,
+            target_sha256,
             log_path: std::env::temp_dir()
                 .join(format!("Arachnid-Update-Log-{}.txt", unique_id()))
                 .to_string_lossy()
@@ -192,8 +211,16 @@ fn read_transaction(stage: &Path) -> Result<Transaction, String> {
         &fs::read(stage.join("transaction.json")).map_err(|error| error.to_string())?,
     )
     .map_err(|error| format!("Cannot read updater transaction: {error}"))?;
-    if !valid_target_name(&transaction.target_name) {
-        return Err("Invalid updater target filename.".to_string());
+    if !valid_target_name(&transaction.source_name) {
+        return Err("Invalid updater source filename.".to_string());
+    }
+    if transaction.target_name != INSTALL_NAME {
+        return Err("Updater target filename must be arachnidmp.exe.".to_string());
+    }
+    if transaction.source_name.eq_ignore_ascii_case(INSTALL_NAME)
+        && transaction.target_sha256.is_none()
+    {
+        return Err("Updater destination state is inconsistent with the current executable name.".to_string());
     }
     Ok(transaction)
 }
@@ -276,49 +303,102 @@ fn replace_and_launch(
     let root = stage
         .parent()
         .ok_or_else(|| "Invalid application directory.".to_string())?;
+    let source = root.join(&transaction.source_name);
     let target = root.join(&transaction.target_name);
     let payload = stage.join(PAYLOAD_NAME);
     let backup = stage.join(BACKUP_NAME);
+    let source_is_target = transaction.source_name.eq_ignore_ascii_case(&transaction.target_name);
+    let target_had_original = transaction.target_sha256.is_some();
 
     let payload_bytes = fs::read(&payload).map_err(|error| format!("Cannot read update payload: {error}"))?;
     if sha256(&payload_bytes) != transaction.payload_sha256 {
         return Err("Staged update changed after checksum verification; refusing to install.".to_string());
     }
-    let original_bytes = fs::read(&target).map_err(|error| format!("Cannot read the current app: {error}"))?;
-    if sha256(&original_bytes) != transaction.original_sha256 {
+    let source_bytes = fs::read(&source).map_err(|error| format!("Cannot read the current app: {error}"))?;
+    if sha256(&source_bytes) != transaction.source_sha256 {
         return Err("The current executable changed during update; refusing to overwrite it.".to_string());
     }
 
-    if let Err(error) = replace_file_atomically(&target, &payload, &backup) {
-        let target_is_original = fs::read(&target)
-            .is_ok_and(|bytes| sha256(&bytes) == transaction.original_sha256);
-        if target_is_original {
-            return Err(format!("Windows could not replace the executable; original is intact: {error}"));
+    match &transaction.target_sha256 {
+        Some(expected) => {
+            let target_bytes = fs::read(&target)
+                .map_err(|error| format!("The arachnidmp.exe destination changed during update: {error}"))?;
+            if sha256(&target_bytes) != *expected {
+                return Err("The arachnidmp.exe destination changed during update; refusing to overwrite it.".to_string());
+            }
         }
-        let backup_is_original = fs::read(&backup)
-            .is_ok_and(|bytes| sha256(&bytes) == transaction.original_sha256);
-        if backup_is_original {
-            return match restore_original(&target, &backup, stage) {
-                Ok(()) => Err(format!("Windows replacement failed; original was restored: {error}")),
-                Err(rollback) => Err(format!("Windows replacement failed ({error}); {rollback}")),
+        None if target.exists() => {
+            return Err("An arachnidmp.exe file appeared during update; refusing to overwrite it.".to_string());
+        }
+        None => {}
+    }
+
+    if target_had_original {
+        if let Err(error) = replace_file_atomically(&target, &payload, &backup) {
+            let target_is_original = fs::read(&target)
+                .is_ok_and(|bytes| Some(sha256(&bytes)) == transaction.target_sha256);
+            if target_is_original {
+                return Err(format!("Windows could not replace the executable; original is intact: {error}"));
+            }
+            let backup_is_original = fs::read(&backup)
+                .is_ok_and(|bytes| Some(sha256(&bytes)) == transaction.target_sha256);
+            if backup_is_original {
+                return match restore_original(&target, &backup, stage) {
+                    Ok(()) => Err(format!("Windows replacement failed; original was restored: {error}")),
+                    Err(rollback) => Err(format!("Windows replacement failed ({error}); {rollback}")),
+                };
+            }
+            return Err(format!(
+                "Windows replacement failed and the original was not found at the expected paths; update files were preserved for recovery: {error}"
+            ));
+        }
+    } else if let Err(error) = fs::rename(&payload, &target) {
+        return Err(format!("Cannot install the update as arachnidmp.exe: {error}"));
+    }
+
+    let source_backup = stage.join(SOURCE_BACKUP_NAME);
+    if !source_is_target {
+        if let Err(error) = fs::rename(&source, &source_backup) {
+            let rollback = if target_had_original {
+                restore_original(&target, &backup, stage)
+            } else {
+                fs::remove_file(&target).map_err(|remove_error| format!("Cannot roll back arachnidmp.exe: {remove_error}"))
+            };
+            return match rollback {
+                Ok(()) => Err(format!("Cannot stage the old executable for removal; update rolled back: {error}")),
+                Err(rollback) => Err(format!("Cannot stage the old executable ({error}); rollback failed: {rollback}")),
             };
         }
-        return Err(format!(
-            "Windows replacement failed and the original was not found at the expected paths; update files were preserved for recovery: {error}"
-        ));
     }
 
     if let Err(error) = launch_and_validate(&target) {
-        let restore = restore_original(&target, &backup, stage);
-        return match restore {
-            Ok(()) => Err(format!("New version failed startup validation; previous version restored: {error}")),
-            Err(rollback) => Err(format!("New version failed startup validation ({error}); {rollback}")),
+        let target_rollback = if target_had_original {
+            restore_original(&target, &backup, stage)
+        } else {
+            fs::remove_file(&target).map_err(|remove_error| {
+                format!("Could not remove the failed arachnidmp.exe update: {remove_error}")
+            })
+        };
+        let source_rollback = if source_is_target {
+            Ok(())
+        } else {
+            fs::rename(&source_backup, &source)
+                .map_err(|restore_error| format!("Could not restore the previous executable: {restore_error}"))
+        };
+        return match (target_rollback, source_rollback) {
+            (Ok(()), Ok(())) => Err(format!("New version failed startup validation; previous version restored: {error}")),
+            (target, source) => Err(format!(
+                "New version failed startup validation ({error}); target rollback: {}; previous executable restore: {}",
+                target.err().unwrap_or_else(|| "ok".to_string()),
+                source.err().unwrap_or_else(|| "ok".to_string())
+            )),
         };
     }
 
-    fs::remove_file(&backup)
-        .map_err(|error| format!("New version started, but backup cleanup failed: {error}"))?;
-    write_synced(&stage.join(COMPLETED_FILE), b"ok")?;
+    // The legacy source name has been moved into the staging directory, so only
+    // arachnidmp.exe remains beside the app after a successful upgrade.
+    let _ = fs::remove_file(&backup);
+    let _ = write_synced(&stage.join(COMPLETED_FILE), b"ok");
     Ok(())
 }
 
@@ -374,9 +454,13 @@ pub fn run_helper() -> Result<(), String> {
         Err(error) => {
             log_line(&log_path, &format!("ERROR: {error}"));
             let _ = fs::write(stage.join(ERROR_FILE), error.as_bytes());
-            let target = root.join(&transaction.target_name);
-            if fs::read(&target).is_ok_and(|bytes| sha256(&bytes) == transaction.original_sha256) {
-                let _ = Command::new(&target).current_dir(root).spawn();
+            let source = root.join(&transaction.source_name);
+            let staged_source = stage.join(SOURCE_BACKUP_NAME);
+            if !source.exists() && staged_source.exists() {
+                let _ = fs::rename(&staged_source, &source);
+            }
+            if fs::read(&source).is_ok_and(|bytes| sha256(&bytes) == transaction.source_sha256) {
+                let _ = Command::new(&source).current_dir(root).spawn();
                 log_line(&log_path, "Restarted the verified original executable after update failure.");
                 // Safe to clean this transaction once the helper itself exits.
                 let _ = write_synced(&stage.join(COMPLETED_FILE), b"rolled-back");
@@ -446,36 +530,40 @@ mod tests {
     fn fixture() -> (PathBuf, PathBuf, Transaction) {
         let root = std::env::temp_dir().join(format!("arachnid-updater-test-{}", unique_id()));
         fs::create_dir_all(&root).unwrap();
-        let target = root.join("Custom Arachnid.exe");
-        fs::write(&target, b"old executable contents").unwrap();
+        let source = root.join("Arachnid-Portable.exe");
+        fs::write(&source, b"old executable contents").unwrap();
         let stage = root.join(format!("{STAGE_PREFIX}test-{}", unique_id()));
         fs::create_dir(&stage).unwrap();
         let payload = b"new executable contents";
         fs::write(stage.join(PAYLOAD_NAME), payload).unwrap();
         let transaction = Transaction {
-            target_name: "Custom Arachnid.exe".into(),
+            source_name: "Arachnid-Portable.exe".into(),
+            target_name: INSTALL_NAME.into(),
             parent_pid: std::process::id(),
             payload_sha256: sha256(payload),
-            original_sha256: sha256(b"old executable contents"),
+            source_sha256: sha256(b"old executable contents"),
+            target_sha256: None,
             log_path: root.join("updater.log").to_string_lossy().into_owned(),
         };
         (root, stage, transaction)
     }
 
     #[test]
-    fn replaces_only_the_executable_and_preserves_adjacent_data() {
+    fn updates_legacy_portable_name_to_arachnidmp_and_preserves_adjacent_data() {
         let (root, stage, transaction) = fixture();
         fs::create_dir(root.join("config")).unwrap();
         fs::write(root.join("config/settings.json"), b"user data").unwrap();
         fs::write(root.join("portable"), b"").unwrap();
         replace_and_launch(&stage, &transaction, |target| {
-            assert_eq!(target, root.join("Custom Arachnid.exe"));
+            assert_eq!(target, root.join(INSTALL_NAME));
             assert_eq!(fs::read(target).unwrap(), b"new executable contents");
             Ok(())
         })
         .unwrap();
         assert_eq!(fs::read(root.join("config/settings.json")).unwrap(), b"user data");
         assert!(root.join("portable").is_file());
+        assert!(!root.join("Arachnid-Portable.exe").exists());
+        assert_eq!(fs::read(root.join(INSTALL_NAME)).unwrap(), b"new executable contents");
         assert!(!stage.join(BACKUP_NAME).exists());
         assert!(stage.join(COMPLETED_FILE).is_file());
         let _ = fs::remove_dir_all(root);
@@ -485,9 +573,25 @@ mod tests {
     fn failed_startup_validation_restores_the_original_executable() {
         let (root, stage, transaction) = fixture();
         assert!(replace_and_launch(&stage, &transaction, |_| Err("startup failed".to_string())).is_err());
-        assert_eq!(fs::read(root.join(&transaction.target_name)).unwrap(), b"old executable contents");
+        assert_eq!(fs::read(root.join(&transaction.source_name)).unwrap(), b"old executable contents");
+        assert!(!root.join(&transaction.target_name).exists());
         assert!(!stage.join(BACKUP_NAME).exists());
-        assert_eq!(fs::read(stage.join("failed-new.exe")).unwrap(), b"new executable contents");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn failed_startup_restores_existing_arachnidmp_and_keeps_legacy_source() {
+        let (root, stage, mut transaction) = fixture();
+        let target = root.join(&transaction.target_name);
+        let previous_target = b"previous arachnidmp executable";
+        fs::write(&target, previous_target).unwrap();
+        transaction.target_sha256 = Some(sha256(previous_target));
+
+        assert!(replace_and_launch(&stage, &transaction, |_| Err("startup failed".to_string())).is_err());
+
+        assert_eq!(fs::read(&target).unwrap(), previous_target);
+        assert_eq!(fs::read(root.join(&transaction.source_name)).unwrap(), b"old executable contents");
+        assert!(!stage.join(BACKUP_NAME).exists());
         let _ = fs::remove_dir_all(root);
     }
 
@@ -496,7 +600,8 @@ mod tests {
         let (root, stage, transaction) = fixture();
         fs::write(stage.join(PAYLOAD_NAME), b"tampered").unwrap();
         assert!(replace_and_launch(&stage, &transaction, |_| Err("must not launch".to_string())).is_err());
-        assert_eq!(fs::read(root.join(&transaction.target_name)).unwrap(), b"old executable contents");
+        assert_eq!(fs::read(root.join(&transaction.source_name)).unwrap(), b"old executable contents");
+        assert!(!root.join(&transaction.target_name).exists());
         let _ = fs::remove_dir_all(root);
     }
 
@@ -519,13 +624,14 @@ mod tests {
 
         let (root, stage, transaction) = fixture();
         let target = root.join(&transaction.target_name);
+        fs::write(&target, b"existing target executable").unwrap();
         let _lock = std::fs::OpenOptions::new()
             .read(true)
             .share_mode(1) // FILE_SHARE_READ only; deny write/delete replacement.
             .open(&target)
             .unwrap();
         assert!(replace_file_atomically(&target, &stage.join(PAYLOAD_NAME), &stage.join(BACKUP_NAME)).is_err());
-        assert_eq!(fs::read(&target).unwrap(), b"old executable contents");
+        assert_eq!(fs::read(&target).unwrap(), b"existing target executable");
         assert!(!stage.join(BACKUP_NAME).exists());
         assert_eq!(fs::read(stage.join(PAYLOAD_NAME)).unwrap(), b"new executable contents");
         drop(_lock);

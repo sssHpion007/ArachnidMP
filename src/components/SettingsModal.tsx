@@ -1049,7 +1049,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       const cleanLatest = tagName.replace(/^v/, '');
 
       const assets = Array.isArray(data.assets) ? data.assets : [];
-      const exeAsset = assets.find((a: any) => a.name?.toLowerCase().endsWith('.exe')) || assets[0];
+      const exeAsset = assets.find((a: any) => a.name?.toLowerCase() === 'arachnidmp.exe')
+        || assets.find((a: any) => a.name?.toLowerCase().endsWith('.exe'))
+        || assets[0];
 
       setLatestRelease({
         tagName,
@@ -1314,7 +1316,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         const data = cachedReleaseData;
         const tagName = data.tag_name || '';
         const assets = Array.isArray(data.assets) ? data.assets : [];
-        const exeAsset = assets.find((a: any) => a.name?.toLowerCase().endsWith('.exe')) || assets[0];
+        const exeAsset = assets.find((a: any) => a.name?.toLowerCase() === 'arachnidmp.exe')
+          || assets.find((a: any) => a.name?.toLowerCase().endsWith('.exe'))
+          || assets[0];
 
         setLatestRelease({
           tagName,
