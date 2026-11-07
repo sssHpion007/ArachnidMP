@@ -7,6 +7,7 @@ on:
       - 'arena/034a5a55-arachnidmp'
       - 'arena/cd6430e2-arachnidmp'
       - 'arena/6fcee020-arachnidmp'
+      - 'arena/1d4c5876-arachnidmp'
     tags:
       - 'v*'
   workflow_dispatch:
@@ -194,22 +195,25 @@ jobs:
           if (-not (Test-Path $builtExe)) { throw "Built portable EXE not found." }
           $root = Join-Path $env:TEMP "Arachnid 更新 Native Updater Smoke $PID"
           $stage = Join-Path $root ".arachnid-update-ci-$PID"
-          $target = Join-Path $root "Arachnid Portable Test.exe"
+          $source = Join-Path $root "Previous Portable Test.exe"
+          $target = Join-Path $root "arachnidmp.exe"
           $parent = $null
           $helper = $null
           $newApp = $null
           try {
             New-Item -ItemType Directory -Force -Path $stage | Out-Null
-            Copy-Item $builtExe $target
-            Add-Content -LiteralPath $target -Value "old version marker"
+            Copy-Item $builtExe $source
+            Add-Content -LiteralPath $source -Value "old version marker"
             Copy-Item $builtExe (Join-Path $stage "helper.exe")
             Copy-Item $builtExe (Join-Path $stage "payload.exe")
             $parent = Start-Process -FilePath $env:ComSpec -ArgumentList @('/c', 'ping 127.0.0.1 -n 60 >nul') -PassThru -WindowStyle Hidden
             $transaction = [ordered]@{
+              source_name = [IO.Path]::GetFileName($source)
               target_name = [IO.Path]::GetFileName($target)
               parent_pid = $parent.Id
               payload_sha256 = (Get-FileHash (Join-Path $stage "payload.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
-              original_sha256 = (Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant()
+              source_sha256 = (Get-FileHash $source -Algorithm SHA256).Hash.ToLowerInvariant()
+              target_sha256 = $null
               log_path = Join-Path $env:TEMP "Arachnid-native-updater-smoke-$PID.log"
             }
             $transaction | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $stage "transaction.json") -Encoding utf8
@@ -229,12 +233,13 @@ jobs:
             if ($helper.ExitCode -ne 0) { throw "Native helper exited with code $($helper.ExitCode)." }
             $expectedHash = $transaction.payload_sha256
             $actualHash = (Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($actualHash -ne $expectedHash) { throw "Native helper did not atomically install the staged executable." }
+            if ($actualHash -ne $expectedHash) { throw "Native helper did not install the staged executable as arachnidmp.exe." }
+            if (Test-Path $source) { throw "Native helper left the previous executable name beside arachnidmp.exe." }
             $log = Get-Content $transaction.log_path -Raw
             if ($log -notmatch "Update succeeded") { throw "Native helper did not log successful startup validation." }
             $newApp = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $target } | Select-Object -First 1
             if (-not $newApp) { throw "Native helper did not leave the replacement app running." }
-            Write-Host "Native helper waited for the parent, replaced the portable executable, validated startup, and relaunched the app."
+            Write-Host "Native helper waited for the parent, installed arachnidmp.exe, removed the old name, validated startup, and relaunched the app."
           } finally {
             if ($parent) { Stop-Process -Id $parent.Id -Force -ErrorAction SilentlyContinue }
             if ($helper) { Stop-Process -Id $helper.Id -Force -ErrorAction SilentlyContinue }
@@ -261,8 +266,6 @@ jobs:
           New-Item -ItemType Directory -Force -Path artifacts
           if (Test-Path "src-tauri/target/release/arachnid.exe") {
             Copy-Item "src-tauri/target/release/arachnid.exe" -Destination "artifacts/arachnidmp.exe"
-            # Keep the legacy asset name so existing 0.4.x updaters can fetch the 0.5.0 executable.
-            Copy-Item "artifacts/arachnidmp.exe" -Destination "artifacts/Arachnid-Portable.exe"
             Compress-Archive -Path "artifacts/arachnidmp.exe" -DestinationPath "artifacts/Arachnid-${env:RELEASE_TAG}-Windows-Portable.zip"
             Write-Host "Created arachnidmp.exe and portable zip for $env:RELEASE_TAG!"
           } else {
