@@ -1059,7 +1059,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         htmlUrl: data.html_url || `https://github.com/sssHpion007/ArachnidMP/releases/tag/${tagName}`,
         downloadUrl: exeAsset?.browser_download_url || data.html_url,
         assetUrl: exeAsset?.browser_download_url || exeAsset?.url,
-        assetName: exeAsset?.name || 'Arachnid-Portable.exe',
+        assetName: exeAsset?.name || 'arachnidmp.exe',
       });
 
       if (isNewerVersion(cleanCurrent, cleanLatest)) {
@@ -1324,7 +1324,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           htmlUrl: data.html_url || `https://github.com/sssHpion007/ArachnidMP/releases/tag/${tagName}`,
           downloadUrl: exeAsset?.browser_download_url || data.html_url,
           assetUrl: exeAsset?.browser_download_url || exeAsset?.url,
-          assetName: exeAsset?.name || 'Arachnid-Portable.exe',
+          assetName: exeAsset?.name || 'arachnidmp.exe',
         });
         setUpdateStatus('available');
       } else if (updateStatus === 'idle' && isOpen) {

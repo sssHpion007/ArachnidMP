@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Use test-build for an artifact-only portable EXE; otherwise enter a release tag such as v0.4.97.'
+        description: 'Use test-build for an artifact-only portable EXE; otherwise enter a release tag such as v0.5.0.'
         required: true
         type: string
 
@@ -260,9 +260,11 @@ jobs:
           }
           New-Item -ItemType Directory -Force -Path artifacts
           if (Test-Path "src-tauri/target/release/arachnid.exe") {
-            Copy-Item "src-tauri/target/release/arachnid.exe" -Destination "artifacts/Arachnid-Portable.exe"
-            Compress-Archive -Path "src-tauri/target/release/arachnid.exe" -DestinationPath "artifacts/Arachnid-${env:RELEASE_TAG}-Windows-Portable.zip"
-            Write-Host "Created Arachnid-Portable.exe and zip for $env:RELEASE_TAG!"
+            Copy-Item "src-tauri/target/release/arachnid.exe" -Destination "artifacts/arachnidmp.exe"
+            # Keep the legacy asset name so existing 0.4.x updaters can fetch the 0.5.0 executable.
+            Copy-Item "artifacts/arachnidmp.exe" -Destination "artifacts/Arachnid-Portable.exe"
+            Compress-Archive -Path "artifacts/arachnidmp.exe" -DestinationPath "artifacts/Arachnid-${env:RELEASE_TAG}-Windows-Portable.zip"
+            Write-Host "Created arachnidmp.exe and portable zip for $env:RELEASE_TAG!"
           } else {
             Write-Error "arachnid.exe was not found in release target!"
           }

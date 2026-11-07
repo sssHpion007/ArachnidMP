@@ -7,7 +7,7 @@ The current plugin API is version 1. Plugins run in a Web Worker. They do not re
 ## Package layout
 
 ```text
-Arachnid-Portable.exe
+arachnidmp.exe
 plugins/
   example-plugin/
     manifest.json

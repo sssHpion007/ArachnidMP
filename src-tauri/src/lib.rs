@@ -2601,7 +2601,7 @@ async fn download_and_install_update(window: tauri::Window, tag: String) -> Resu
                 .and_then(|assets| {
                     assets.iter().find(|asset| {
                         asset.get("name").and_then(serde_json::Value::as_str)
-                            == Some("Arachnid-Portable.exe")
+                            == Some("arachnidmp.exe")
                     })
                 })
                 .ok_or_else(|| "The selected release has no Arachnid portable executable.".to_string())?;
@@ -2613,7 +2613,7 @@ async fn download_and_install_update(window: tauri::Window, tag: String) -> Resu
                 .ok_or_else(|| "GitHub did not provide a valid SHA-256 release digest.".to_string())?
                 .to_ascii_lowercase();
             let download_url = format!(
-                "https://github.com/sssHpion007/ArachnidMP/releases/download/{tag}/Arachnid-Portable.exe"
+                "https://github.com/sssHpion007/ArachnidMP/releases/download/{tag}/arachnidmp.exe"
             );
             logger::log(
                 "INFO",
