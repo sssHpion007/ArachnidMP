@@ -2,10 +2,11 @@ use rodio::cpal::traits::{DeviceTrait, HostTrait};
 use rodio::source::SeekError;
 use rodio::{Decoder, OutputStream, Sink, Source};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
@@ -84,14 +85,14 @@ pub struct SmoothAudioSource<I> {
     handle: SmoothSourceHandle,
     prev_samples: [i16; 8],
     samples_yielded: u64,
-    glitch_tx: Sender<GlitchReport>,
+    glitch_tx: SyncSender<GlitchReport>,
 }
 
 impl<I> SmoothAudioSource<I>
 where
     I: Source<Item = i16>,
 {
-    pub fn new(inner: I, glitch_tx: Sender<GlitchReport>) -> (Self, SmoothSourceHandle) {
+    pub fn new(inner: I, glitch_tx: SyncSender<GlitchReport>) -> (Self, SmoothSourceHandle) {
         let channels = inner.channels().max(1);
         let sample_rate = inner.sample_rate();
         let handle = SmoothSourceHandle::new(sample_rate);
@@ -164,7 +165,7 @@ where
 
         // In bandlimited audio (<20kHz), delta > 14000 (~43% full-scale) indicates a digital pop
         if self.samples_yielded > 512 && delta > 14000 {
-            let _ = self.glitch_tx.send(GlitchReport {
+            let _ = self.glitch_tx.try_send(GlitchReport {
                 sample_pos: self.samples_yielded,
                 channel: ch as u16,
                 prev_val: prev,
@@ -247,6 +248,9 @@ pub enum PlayerCmd {
     SetFadeConfig {
         mode: String,
         duration_secs: f64,
+    },
+    SetOutputDevice {
+        device_id: String,
     },
 }
 
@@ -396,6 +400,14 @@ impl NativePlayer {
             .map_err(|e| e.to_string())
     }
 
+    pub fn set_output_device(&self, device_id: String) -> Result<(), String> {
+        if device_id != "default" {
+            resolve_output_device(&device_id)?;
+        }
+        let sender = self.sender.lock().map_err(|e| e.to_string())?;
+        sender.send(PlayerCmd::SetOutputDevice { device_id }).map_err(|e| e.to_string())
+    }
+
     pub fn get_state(&self) -> NativePlayerState {
         let mut s = self.state.lock().unwrap();
         let ended = s.track_ended;
@@ -413,11 +425,118 @@ impl NativePlayer {
 fn append_smooth_source<S: Source<Item = i16> + Send + 'static>(
     sink: &Sink,
     src: S,
-    glitch_tx: Sender<GlitchReport>,
+    glitch_tx: SyncSender<GlitchReport>,
 ) -> SmoothSourceHandle {
     let (smooth_src, handle) = SmoothAudioSource::new(src, glitch_tx);
     sink.append(smooth_src);
     handle
+}
+
+fn restore_current_track_on_sink(
+    stream_handle: &rodio::OutputStreamHandle,
+    sink: &mut Sink,
+    current_path: Option<&str>,
+    position_secs: f64,
+    should_play: bool,
+    volume: f32,
+    glitch_tx: &SyncSender<GlitchReport>,
+) -> Result<Option<SmoothSourceHandle>, String> {
+    sink.stop();
+    *sink = Sink::try_new(stream_handle).map_err(|error| error.to_string())?;
+    let Some(path) = current_path else { return Ok(None); };
+    let file = File::open(path).map_err(|error| error.to_string())?;
+    let mut decoder = Decoder::new(BufReader::new(file)).map_err(|error| error.to_string())?;
+    let position = position_secs.max(0.0);
+    let handle = if position > 0.03 {
+        let target = Duration::from_secs_f64(position);
+        if decoder.try_seek(target).is_err() {
+            let skipped = decoder.skip_duration(target);
+            append_smooth_source(sink, skipped, glitch_tx.clone())
+        } else {
+            append_smooth_source(sink, decoder, glitch_tx.clone())
+        }
+    } else {
+        append_smooth_source(sink, decoder, glitch_tx.clone())
+    };
+
+    if should_play {
+        handle.fade_to(volume, 30);
+        sink.play();
+    } else {
+        sink.pause();
+    }
+    Ok(Some(handle))
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutputDeviceInfo {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+}
+
+fn output_device_entries() -> Result<Vec<(OutputDeviceInfo, rodio::cpal::Device)>, String> {
+    let host = rodio::cpal::default_host();
+    let default_name = host.default_output_device().and_then(|device| device.name().ok());
+    let devices = host.output_devices().map_err(|error| error.to_string())?;
+    let mut occurrences = HashMap::<String, usize>::new();
+    let mut entries = Vec::new();
+
+    for device in devices {
+        let name = device.name().unwrap_or_else(|_| "Unknown output device".to_string());
+        let occurrence = occurrences.entry(name.clone()).or_default();
+        let id = format!("device:{}:{}", name, *occurrence);
+        let is_default = *occurrence == 0 && default_name.as_deref() == Some(name.as_str());
+        *occurrence += 1;
+        entries.push((OutputDeviceInfo { id, name, is_default }, device));
+    }
+
+    Ok(entries)
+}
+
+pub fn list_output_devices() -> Result<Vec<OutputDeviceInfo>, String> {
+    Ok(output_device_entries()?
+        .into_iter()
+        .map(|(info, _)| info)
+        .collect())
+}
+
+fn system_default_device_if_selected(device_id: &str) -> Option<rodio::cpal::Device> {
+    if device_id == "default" {
+        rodio::cpal::default_host().default_output_device()
+    } else {
+        None
+    }
+}
+
+fn resolve_output_device(device_id: &str) -> Result<(rodio::cpal::Device, String), String> {
+    if device_id == "default" {
+        let device = rodio::cpal::default_host()
+            .default_output_device()
+            .ok_or_else(|| "No system default output device is available".to_string())?;
+        let name = device.name().unwrap_or_else(|_| "Default output device".to_string());
+        return Ok((device, name));
+    }
+
+    output_device_entries()?
+        .into_iter()
+        .find(|(info, _)| info.id == device_id)
+        .map(|(info, device)| (device, info.name))
+        .ok_or_else(|| "The selected output device is no longer available".to_string())
+}
+
+fn open_output_stream(device_id: &str) -> Result<(OutputStream, rodio::OutputStreamHandle, Option<String>), String> {
+    if device_id == "default" {
+        let (stream, handle) = OutputStream::try_default().map_err(|error| error.to_string())?;
+        let name = log_default_output_device("opened system default output stream");
+        return Ok((stream, handle, name));
+    }
+
+    let (device, name) = resolve_output_device(device_id)?;
+    let (stream, handle) = OutputStream::try_from_device(&device).map_err(|error| error.to_string())?;
+    logger::log("INFO", "AUDIO_DEVICE", &format!("Opened selected output device: {:?}", name));
+    Ok((stream, handle, Some(name)))
 }
 
 fn log_default_output_device(context: &str) -> Option<String> {
@@ -493,6 +612,7 @@ fn run_player_thread(
     };
 
     let mut current_device_name = log_default_output_device("initial output stream");
+    let mut selected_output_device_id = "default".to_string();
     let mut last_device_check = Instant::now();
 
     let mut sink = match Sink::try_new(&stream_handle) {
@@ -521,7 +641,8 @@ fn run_player_thread(
     let mut preloaded_next_loop = false;
     let mut active_volume_fade: Option<(Instant, f32, f32, Duration)> = None;
 
-    let (glitch_tx, glitch_rx) = channel::<GlitchReport>();
+    // Audio callbacks never block on diagnostics and cannot grow an unbounded queue.
+    let (glitch_tx, glitch_rx) = sync_channel::<GlitchReport>(1024);
     let mut glitch_window_start = Instant::now();
     let mut glitch_count = 0u64;
     let mut glitch_max_delta = 0i32;
@@ -536,7 +657,7 @@ fn run_player_thread(
     loop {
         // Fast default audio device check (75ms polling + called on Play / Resume)
         // Detects headphone connection/disconnection almost instantly and seamlessly migrates the stream
-        if last_device_check.elapsed().as_millis() >= 75 {
+        if selected_output_device_id == "default" && last_device_check.elapsed().as_millis() >= 75 {
             last_device_check = Instant::now();
             if let Some(dev) = rodio::cpal::default_host().default_output_device() {
                 if let Ok(name) = dev.name() {
@@ -643,6 +764,46 @@ fn run_player_thread(
                     fade_mode = mode;
                     fade_duration = duration_secs.max(0.1);
                 }
+                PlayerCmd::SetOutputDevice { device_id } => {
+                    if device_id == selected_output_device_id {
+                        continue;
+                    }
+                    match open_output_stream(&device_id) {
+                        Ok((new_stream, new_handle, device_name)) => {
+                            let current_pos = if is_playing && !is_paused && !is_scrub_holding {
+                                play_start_pos + play_start_instant.elapsed().as_secs_f64()
+                            } else {
+                                play_start_pos
+                            };
+                            _stream = new_stream;
+                            stream_handle = new_handle;
+                            current_device_name = device_name;
+                            selected_output_device_id = device_id.clone();
+                            preloaded_next_loop = false;
+                            preloaded_handle = None;
+                            active_volume_fade = None;
+                            match restore_current_track_on_sink(
+                                &stream_handle,
+                                &mut sink,
+                                current_path.as_deref(),
+                                current_pos,
+                                is_playing && !is_paused && !is_scrub_holding,
+                                user_target_volume,
+                                &glitch_tx,
+                            ) {
+                                Ok(handle) => current_handle = handle,
+                                Err(error) => {
+                                    current_handle = None;
+                                    logger::log("ERROR", "AUDIO_DEVICE", &format!("Selected output opened but playback could not be restored: {}", error));
+                                }
+                            }
+                            play_start_pos = current_pos;
+                            play_start_instant = Instant::now();
+                            last_device_check = Instant::now();
+                        }
+                        Err(error) => logger::log("ERROR", "AUDIO_DEVICE", &format!("Failed to switch output device {:?}: {}", device_id, error)),
+                    }
+                }
                 PlayerCmd::Play {
                     path,
                     offset_secs,
@@ -675,7 +836,7 @@ fn run_player_thread(
                     );
 
                     // Immediately ensure we are routing to the active default audio device
-                    if let Some(dev) = rodio::cpal::default_host().default_output_device() {
+                    if let Some(dev) = system_default_device_if_selected(&selected_output_device_id) {
                         if let Ok(name) = dev.name() {
                             if current_device_name.as_deref() != Some(&name) {
                                 logger::log(
@@ -827,7 +988,7 @@ fn run_player_thread(
                     is_scrub_holding = false;
                     if is_playing && is_paused {
                         // Immediately ensure we are routing to the active default audio device
-                        if let Some(dev) = rodio::cpal::default_host().default_output_device() {
+                        if let Some(dev) = system_default_device_if_selected(&selected_output_device_id) {
                             if let Ok(name) = dev.name() {
                                 if current_device_name.as_deref() != Some(&name) {
                                     logger::log(

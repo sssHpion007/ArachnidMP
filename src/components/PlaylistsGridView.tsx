@@ -1,7 +1,9 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Plus, 
   Play, 
+  Heart,
   ListMusic, 
   FolderPlus, 
   Layers, 
@@ -15,13 +17,17 @@ import {
   FolderOpen,
   Palette,
   GripVertical,
-  ShieldAlert,
+  Lock,
   FileUp
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { Playlist, PlaylistFolder, PlaylistGroup, Track, FolderCoverType } from '../types/music';
+import { coverVariantUrl } from '../utils/coverArt';
+import { shouldShowPlaylistCoverFallback } from '../utils/playlistCoverFallback';
 import { formatTime } from '../services/tagEditor';
 import { getFolderIconComponent, getFolderColorHex, getThemedPlayIconColor } from '../theme/folderIcons';
 import { AppLanguage } from '../i18n';
+import { CrossfadeImage } from './CrossfadeImage';
 import { FadeInImage } from './FadeInImage';
 
 interface PlaylistsGridViewProps {
@@ -29,6 +35,10 @@ interface PlaylistsGridViewProps {
   folders: PlaylistFolder[];
   groups: PlaylistGroup[];
   tracks: Track[];
+  playlistCovers?: Record<string, string[]>;
+  playlistCoversLoaded?: boolean;
+  playlistDurations?: Record<string, number>;
+  playlistDurationsLoaded?: boolean;
   searchQuery?: string;
   language?: AppLanguage;
   onSelectPlaylist: (id: string) => void;
@@ -69,6 +79,124 @@ interface DragState {
   currentY: number;
   isDragging: boolean;
 }
+
+interface CreationMenuOption {
+  label: string;
+  Icon: LucideIcon;
+  onSelect: () => void;
+}
+
+interface CreationActionMenuProps {
+  options: CreationMenuOption[];
+  triggerIcon: LucideIcon;
+  triggerLabel?: string;
+  triggerTitle: string;
+  triggerClassName: string;
+  triggerIconClassName?: string;
+}
+
+const CreationActionMenu: React.FC<CreationActionMenuProps> = ({
+  options,
+  triggerIcon: TriggerIcon,
+  triggerLabel,
+  triggerTitle,
+  triggerClassName,
+  triggerIconClassName,
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!isOpen || !triggerRef.current || !menuRef.current) return;
+    const anchor = triggerRef.current.getBoundingClientRect();
+    const menu = menuRef.current.getBoundingClientRect();
+    const margin = 12;
+    const gap = 8;
+    const left = Math.min(
+      Math.max(margin, anchor.right - menu.width),
+      window.innerWidth - menu.width - margin
+    );
+    const below = anchor.bottom + gap;
+    const top = below + menu.height <= window.innerHeight - margin
+      ? below
+      : Math.max(margin, anchor.top - menu.height - gap);
+    setPosition({ top, left });
+  }, [isOpen, options.length]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!triggerRef.current?.contains(target) && !menuRef.current?.contains(target)) {
+        setIsOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+    const closeOnViewportChange = () => setIsOpen(false);
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', closeOnViewportChange);
+    window.addEventListener('scroll', closeOnViewportChange, true);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', closeOnViewportChange);
+      window.removeEventListener('scroll', closeOnViewportChange, true);
+    };
+  }, [isOpen]);
+
+  const menu = isOpen && typeof document !== 'undefined' ? createPortal(
+    <div
+      ref={menuRef}
+      role="menu"
+      style={{ top: position.top, left: position.left }}
+      className="fixed z-[100] min-w-[13rem] max-w-[calc(100vw-24px)] rounded-2xl border border-md3-outline-variant/25 bg-md3-surface-container/95 p-1.5 shadow-2xl backdrop-blur-xl"
+    >
+      {options.map(({ label, Icon, onSelect }) => (
+        <button
+          key={label}
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            setIsOpen(false);
+            onSelect();
+          }}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-md3-on-surface transition-colors hover:bg-md3-surface-container-high"
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-md3-primary/10 text-md3-primary">
+            <Icon className="h-4 w-4" />
+          </span>
+          <span>{label}</span>
+        </button>
+      ))}
+    </div>,
+    document.body
+  ) : null;
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-label={triggerTitle}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        title={triggerTitle}
+        onClick={() => setIsOpen((open) => !open)}
+        className={triggerClassName}
+      >
+        <TriggerIcon className={triggerIconClassName ?? 'h-4 w-4 shrink-0'} />
+        {triggerLabel && <span>{triggerLabel}</span>}
+      </button>
+      {menu}
+    </>
+  );
+};
 
 interface GridItem {
   id: string;
@@ -271,7 +399,7 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
             </div>
           ) : coverType === 'first_playlist' || covers.length === 1 ? (
             <FadeInImage
-              src={covers[0]}
+              src={coverVariantUrl(covers[0], 256)}
               alt={folder.name}
               draggable={false}
               loading="lazy"
@@ -280,21 +408,21 @@ const FolderCardItem: React.FC<FolderCardItemProps> = ({
             />
           ) : covers.length === 2 ? (
             <div className="w-full h-full grid grid-cols-2 grid-rows-1 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
-              <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[0], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[1], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           ) : covers.length === 3 ? (
             <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
-              <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
-              <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <FadeInImage src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[0], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
+              <FadeInImage src={coverVariantUrl(covers[1], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[2], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           ) : (
             <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none">
-              <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <FadeInImage src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-              <FadeInImage src={covers[3]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[0], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[1], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[2], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+              <FadeInImage src={coverVariantUrl(covers[3], 256)} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             </div>
           )
         ) : (
@@ -370,6 +498,7 @@ interface PlaylistCardItemProps {
   playlist: Playlist;
   cover: string | null;
   covers: string[];
+  isCoverResolutionPending: boolean;
   totalDuration: number;
   isTarget: boolean;
   dropPosition?: 'before' | 'after' | null;
@@ -386,6 +515,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
   playlist,
   cover,
   covers,
+  isCoverResolutionPending,
   totalDuration,
   isTarget,
   dropPosition,
@@ -402,7 +532,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
   const coversRef = useRef(covers || []);
   coversRef.current = covers || [];
 
-  const IconComponent = getFolderIconComponent(playlist.icon);
+  const IconComponent = playlist.id === 'pl_favorites' ? Heart : getFolderIconComponent(playlist.icon);
   const baseColor = getFolderColorHex(playlist.color);
   // Play icon shade absorbs the playlist color hue and follows the theme direction
   const playIconColor = getThemedPlayIconColor(playlist.color, isDarkTheme);
@@ -412,7 +542,42 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
   };
   const coverType: FolderCoverType = (playlist.coverType as FolderCoverType) || 'first_playlist';
   const hasMultipleCovers = covers && covers.length > 1;
-  const hasImages = (cover || (covers && covers.length > 0)) && coverType !== 'icon';
+  const usesCoverSet = hasMultipleCovers && (coverType === 'cycle' || coverType === 'collage');
+  const imageSources = coverType === 'icon' ? [] : usesCoverSet ? covers : cover ? [cover] : [];
+  const hasImages = imageSources.length > 0;
+  const coverSourceKey = JSON.stringify(imageSources);
+  const [coverLoadState, setCoverLoadState] = useState<{ sourceKey: string; failed: Set<string>; loaded: Set<string> }>({
+    sourceKey: '',
+    failed: new Set(),
+    loaded: new Set(),
+  });
+  const failedCoverSources = coverLoadState.sourceKey === coverSourceKey ? coverLoadState.failed : new Set<string>();
+  const loadedCoverSources = coverLoadState.sourceKey === coverSourceKey ? coverLoadState.loaded : new Set<string>();
+  const hasLoadedCover = imageSources.some(source => loadedCoverSources.has(source));
+  const showFallbackIcon = shouldShowPlaylistCoverFallback(
+    coverType,
+    imageSources,
+    failedCoverSources,
+    isCoverResolutionPending,
+  );
+  const updateCoverLoadState = (source: string, loaded: boolean) => {
+    setCoverLoadState(current => {
+      const nextFailed = current.sourceKey === coverSourceKey ? new Set(current.failed) : new Set<string>();
+      const nextLoaded = current.sourceKey === coverSourceKey ? new Set(current.loaded) : new Set<string>();
+      if (loaded) {
+        nextFailed.delete(source);
+        nextLoaded.add(source);
+      } else {
+        nextFailed.add(source);
+        nextLoaded.delete(source);
+      }
+      return { sourceKey: coverSourceKey, failed: nextFailed, loaded: nextLoaded };
+    });
+  };
+  const coverLoadHandlers = (source: string) => ({
+    onLoad: () => updateCoverLoadState(source, true),
+    onError: () => updateCoverLoadState(source, false),
+  });
 
   // Slideshow interval for cycling playlist covers with independent stagger and period
   useEffect(() => {
@@ -510,7 +675,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
       {/* Cover Art Container */}
       <div 
         className="relative aspect-square w-full rounded-2xl overflow-hidden bg-md3-surface-container-highest mb-3 shadow-inner pointer-events-none transition-all duration-300 border border-md3-outline-variant/20"
-        style={previewBg && !hasImages ? { background: previewBg } : undefined}
+        style={previewBg && showFallbackIcon ? { background: previewBg } : undefined}
       >
         {hasImages ? (
           coverType === 'cycle' && hasMultipleCovers ? (
@@ -519,6 +684,7 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
                 <FadeInImage
                   key={c + idx}
                   src={c}
+                  {...coverLoadHandlers(c)}
                   alt=""
                   draggable={false}
                   loading="lazy"
@@ -526,51 +692,53 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
                   isVisible={idx === cycleIndex}
                   fadeDurationMs={700}
                   className={`absolute inset-0 w-full h-full object-cover pointer-events-none ${idx === cycleIndex ? 'z-10' : 'z-0'}`}
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
                 />
               ))}
             </div>
           ) : coverType === 'collage' && hasMultipleCovers ? (
             covers.length === 2 ? (
               <div className="w-full h-full grid grid-cols-2 grid-rows-1 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-                <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[0], 256)} {...coverLoadHandlers(covers[0])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[1], 256)} {...coverLoadHandlers(covers[1])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
               </div>
             ) : covers.length === 3 ? (
               <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-                <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
-                <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[0], 256)} {...coverLoadHandlers(covers[0])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover row-span-2" />
+                <FadeInImage src={coverVariantUrl(covers[1], 256)} {...coverLoadHandlers(covers[1])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[2], 256)} {...coverLoadHandlers(covers[2])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
               </div>
             ) : (
               <div className="w-full h-full grid grid-cols-2 grid-rows-2 transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]">
-                <FadeInImage src={covers[0]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={covers[1]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={covers[2]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                <FadeInImage src={covers[3]} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[0], 256)} {...coverLoadHandlers(covers[0])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[1], 256)} {...coverLoadHandlers(covers[1])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[2], 256)} {...coverLoadHandlers(covers[2])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                <FadeInImage src={coverVariantUrl(covers[3], 256)} {...coverLoadHandlers(covers[3])} alt="" draggable={false} loading="lazy" decoding="async" className="w-full h-full object-cover" />
               </div>
             )
           ) : cover ? (
-            <FadeInImage
-              src={cover}
+            <CrossfadeImage
+              src={coverVariantUrl(cover, 256)}
+              onSourceLoad={() => updateCoverLoadState(cover, true)}
+              onSourceError={() => updateCoverLoadState(cover, false)}
               alt={playlist.name}
-              draggable={false}
-              loading="lazy"
-              decoding="async"
-              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none relative z-[1]"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-              }}
+              className="absolute inset-0 z-[1] h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
             />
           ) : null
-        ) : (
-          <div className="w-full h-full flex items-center justify-center pointer-events-none transition-transform duration-300 group-hover:scale-105">
-            <IconComponent 
-              className="w-16 h-16 drop-shadow-md transition-all duration-300"
+        ) : null}
+
+        {showFallbackIcon && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center transition-transform duration-300 group-hover:scale-105">
+            <IconComponent
+              className="h-16 w-16 drop-shadow-md transition-all duration-300"
               style={{ color: baseColor || 'rgb(var(--md-sys-color-primary-rgb))' }}
             />
+          </div>
+        )}
+
+        {/* Custom playlist icon in the corner, shown only after cover art is visible. */}
+        {hasLoadedCover && playlist.icon && playlist.icon !== 'none' && playlist.icon !== 'list' && (
+          <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/60 text-white/95 backdrop-blur-xs flex items-center justify-center shadow-xs z-20 pointer-events-none">
+            <IconComponent className="w-3.5 h-3.5" />
           </div>
         )}
 
@@ -590,13 +758,6 @@ const PlaylistCardItem: React.FC<PlaylistCardItemProps> = ({
           >
             <Play className="w-5 h-5 fill-current ml-0.5" />
           </button>
-        )}
-
-        {/* Small playlist icon badge in top-left when images are shown and icon is custom */}
-        {hasImages && playlist.icon && playlist.icon !== 'none' && playlist.icon !== 'list' && (
-          <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/60 text-white/95 backdrop-blur-xs flex items-center justify-center shadow-xs z-20 pointer-events-none">
-            <IconComponent className="w-3.5 h-3.5" />
-          </div>
         )}
 
         {/* System Badge */}
@@ -629,6 +790,10 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   folders,
   groups,
   tracks,
+  playlistCovers,
+  playlistCoversLoaded = true,
+  playlistDurations,
+  playlistDurationsLoaded = true,
   searchQuery = '',
   language = 'ru',
   onSelectPlaylist,
@@ -674,6 +839,8 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   // Pointer-based Drag State (100% bypasses Windows OS DnD bugs and 🚫 cursor)
   const [dragState, setDragState] = useState<DragState | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
+  const suppressNextCardClickRef = useRef(false);
+  const suppressNextCardClickTimerRef = useRef<number | null>(null);
 
   // Hover target states for visual feedback
   const [hoveredFolderId, setHoveredFolderId] = useState<string | null>(null);
@@ -729,19 +896,30 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
 
   // Helpers to get cover art and duration
   const getPlaylistCover = (playlist: Playlist): string | null => {
+    if (playlist.coverArt) return playlist.coverArt;
+    if (!playlistCoversLoaded && playlist.trackIds.length > 0) return null;
+    if (playlistCoversLoaded && playlistCovers) return playlistCovers[playlist.id]?.[0] ?? null;
     for (const id of playlist.trackIds) {
-      const t = trackMap.get(id);
-      if (t && t.coverArt) return t.coverArt;
+      const cover = trackMap.get(id)?.coverArt;
+      if (cover) return cover;
     }
     return null;
   };
 
   const getPlaylistCovers = (playlist: Playlist): string[] => {
+    if (playlistCoversLoaded && playlistCovers) {
+      const resolvedCovers = playlistCovers[playlist.id] ?? [];
+      if (!playlist.coverArt) return resolvedCovers;
+      return [playlist.coverArt, ...resolvedCovers.filter(cover => cover !== playlist.coverArt)].slice(0, 8);
+    }
+    if (!playlistCoversLoaded && playlist.trackIds.length > 0) {
+      return playlist.coverArt ? [playlist.coverArt] : [];
+    }
     const covers: string[] = [];
     for (const id of playlist.trackIds) {
-      const t = trackMap.get(id);
-      if (t && t.coverArt && !covers.includes(t.coverArt)) {
-        covers.push(t.coverArt);
+      const cover = trackMap.get(id)?.coverArt;
+      if (cover && !covers.includes(cover)) {
+        covers.push(cover);
         if (covers.length >= 8) break;
       }
     }
@@ -749,6 +927,9 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   };
 
   const getPlaylistDuration = (playlist: Playlist): number => {
+    const resolvedDuration = playlistDurations?.[playlist.id];
+    if (resolvedDuration !== undefined) return resolvedDuration;
+    if (!playlistDurationsLoaded) return 0;
     let total = 0;
     for (const id of playlist.trackIds) {
       const t = trackMap.get(id);
@@ -805,12 +986,9 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     // 2. Secondary: supplement from tracks if fewer than 8 distinct covers
     if (covers.length < 8) {
       for (const pl of folderPlaylists) {
-        for (const tid of pl.trackIds) {
-          const t = trackMap.get(tid);
-          if (t && t.coverArt && !covers.includes(t.coverArt)) {
-            covers.push(t.coverArt);
-            if (covers.length >= 8) break;
-          }
+        for (const cover of getPlaylistCovers(pl)) {
+          if (!covers.includes(cover)) covers.push(cover);
+          if (covers.length >= 8) break;
         }
         if (covers.length >= 8) break;
       }
@@ -1064,6 +1242,17 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
       document.body.style.cursor = '';
       (window as any).__isInternalDragging = false;
 
+      if (current?.isDragging) {
+        suppressNextCardClickRef.current = true;
+        if (suppressNextCardClickTimerRef.current !== null) {
+          window.clearTimeout(suppressNextCardClickTimerRef.current);
+        }
+        suppressNextCardClickTimerRef.current = window.setTimeout(() => {
+          suppressNextCardClickRef.current = false;
+          suppressNextCardClickTimerRef.current = null;
+        }, 0);
+      }
+
       if (!current || !current.isDragging) {
         setDragState(null);
         dragStateRef.current = null;
@@ -1190,6 +1379,16 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     };
   }, [dragState, playlists, groups, folders, onMovePlaylistToFolder, onMovePlaylistToGroup, onMoveFolderToFolder, onMoveFolderToGroup, onReorderPlaylists, onReorderFolders, onReorderItems, onReorderGroups]);
 
+  const consumeSuppressedCardClick = () => {
+    if (!suppressNextCardClickRef.current) return false;
+    suppressNextCardClickRef.current = false;
+    if (suppressNextCardClickTimerRef.current !== null) {
+      window.clearTimeout(suppressNextCardClickTimerRef.current);
+      suppressNextCardClickTimerRef.current = null;
+    }
+    return true;
+  };
+
   // Render a Single Folder Card
   const renderFolderCard = (folder: PlaylistFolder) => {
     const stats = getFolderStats(folder.id);
@@ -1217,6 +1416,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
           });
         }}
         onClick={() => {
+          if (consumeSuppressedCardClick()) return;
           if (!dragState?.isDragging) {
             handleOpenFolder(folder.id);
           }
@@ -1247,6 +1447,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
         playlist={playlist}
         cover={cover}
         covers={covers}
+        isCoverResolutionPending={!playlistCoversLoaded && !playlist.coverArt && playlist.trackIds.length > 0}
         totalDuration={totalDuration}
         isTarget={isTarget}
         dropPosition={dropPosition}
@@ -1261,6 +1462,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
           });
         }}
         onClick={() => {
+          if (consumeSuppressedCardClick()) return;
           if (!dragState?.isDragging) {
             onSelectPlaylist(playlist.id);
           }
@@ -1307,7 +1509,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     const hasResults = searchFilteredFolders.length > 0 || searchFilteredPlaylists.length > 0;
 
     return (
-      <div className="flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none">
+      <div data-home-scroll="main" className="flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none">
         <div className="flex items-center justify-between mb-6 pb-4 border-b border-md3-outline-variant/15">
           <div>
             <h2 className="text-xl font-bold text-md3-on-surface">
@@ -1375,7 +1577,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
     const CurrentFolderIcon = getFolderIconComponent(currentFolder.icon);
 
     return (
-      <div key={`folder-view-${currentFolderId}`} className={`flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none ${folderNavDirection === 'forward' ? 'anim-view-slide-right' : 'anim-view-slide-left'}`}>
+      <div key={`folder-view-${currentFolderId}`} data-home-scroll="main" className={`flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none ${folderNavDirection === 'forward' ? 'anim-view-slide-right' : 'anim-view-slide-left'}`}>
         {/* Floating Drag Ghost element */}
         {dragState && dragState.isDragging && (
           <div
@@ -1464,24 +1666,17 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
             </div>
           </div>
 
-          {/* Action Buttons inside folder */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 ml-auto">
-            <button
-              onClick={() => onCreateFolder(currentFolder.id, currentFolder.groupId)}
-              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3.5 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
-              title={language === 'ru' ? "Создать подпапку" : "Create subfolder"}
-            >
-              <FolderPlus className="w-4 h-4 text-md3-primary" />
-              <span className="hidden sm:inline">{language === 'ru' ? 'Новая подпапка' : 'New Subfolder'}</span>
-            </button>
-            <button
-              onClick={() => onCreatePlaylist(currentFolder.id, currentFolder.groupId)}
-              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-4 sm:py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 shadow-md transition-all cursor-pointer"
-              title={language === 'ru' ? "Создать плейлист" : "Create playlist"}
-            >
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">{language === 'ru' ? 'Новый плейлист' : 'New Playlist'}</span>
-            </button>
+          <div className="shrink-0 ml-auto">
+            <CreationActionMenu
+              triggerIcon={Plus}
+              triggerLabel={language === 'ru' ? 'Создать' : 'Create'}
+              triggerTitle={language === 'ru' ? 'Создать в папке' : 'Create in folder'}
+              triggerClassName="flex h-9 items-center justify-center gap-2 rounded-full bg-md3-primary px-4 text-xs font-semibold text-md3-on-primary shadow-md transition-all hover:opacity-90 cursor-pointer"
+              options={[
+                { label: language === 'ru' ? 'Плейлист' : 'Playlist', Icon: ListMusic, onSelect: () => onCreatePlaylist(currentFolder.id, currentFolder.groupId) },
+                { label: language === 'ru' ? 'Подпапку' : 'Subfolder', Icon: FolderPlus, onSelect: () => onCreateFolder(currentFolder.id, currentFolder.groupId) },
+              ]}
+            />
           </div>
         </div>
 
@@ -1495,22 +1690,16 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
             <p className="text-xs text-md3-on-surface-variant max-w-sm mb-5">
               Создайте плейлист, добавьте подпапку или перетащите сюда плейлисты из других мест.
             </p>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => onCreateFolder(currentFolder.id, currentFolder.groupId)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest transition-colors"
-              >
-                <FolderPlus className="w-4 h-4 text-md3-primary" />
-                <span>Создать подпапку</span>
-              </button>
-              <button
-                onClick={() => onCreatePlaylist(currentFolder.id, currentFolder.groupId)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 transition-opacity"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Создать плейлист</span>
-              </button>
-            </div>
+            <CreationActionMenu
+              triggerIcon={Plus}
+              triggerLabel={language === 'ru' ? 'Создать' : 'Create'}
+              triggerTitle={language === 'ru' ? 'Создать в папке' : 'Create in folder'}
+              triggerClassName="flex h-9 items-center justify-center gap-2 rounded-full bg-md3-primary px-4 text-xs font-semibold text-md3-on-primary shadow-md transition-all hover:opacity-90 cursor-pointer"
+              options={[
+                { label: language === 'ru' ? 'Плейлист' : 'Playlist', Icon: ListMusic, onSelect: () => onCreatePlaylist(currentFolder.id, currentFolder.groupId) },
+                { label: language === 'ru' ? 'Подпапку' : 'Subfolder', Icon: FolderPlus, onSelect: () => onCreateFolder(currentFolder.id, currentFolder.groupId) },
+              ]}
+            />
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -1534,7 +1723,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
   const hasGroups = groups.length > 0;
 
   return (
-    <div key="playlists-root-view" className={`flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none ${folderNavDirection === 'backward' ? 'anim-view-slide-left' : ''}`}>
+    <div key="playlists-root-view" data-home-scroll="main" className={`flex-1 flex flex-col h-full min-h-0 bg-md3-surface p-6 overflow-y-auto custom-scrollbar select-none ${folderNavDirection === 'backward' ? 'anim-view-slide-left' : ''}`}>
       {/* Floating Drag Ghost element */}
       {dragState && dragState.isDragging && (
         <div
@@ -1609,35 +1798,18 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
             <div className="h-5 w-px bg-md3-outline-variant/30 hidden sm:block" />
           )}
 
-          {/* Creation Actions Group (Group, Folder, Playlist) */}
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            <button
-              onClick={onCreateGroup}
-              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3.5 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
-              title={language === 'ru' ? "Создать группу плейлистов" : "Create playlist group"}
-            >
-              <Layers className="w-4 h-4 text-md3-primary" />
-              <span className="hidden sm:inline">{language === 'ru' ? 'Новая группа' : 'New Group'}</span>
-            </button>
-
-            <button
-              onClick={() => onCreateFolder(null, null)}
-              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-3.5 sm:py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest shadow-xs transition-all cursor-pointer"
-              title={language === 'ru' ? "Создать папку" : "Create folder"}
-            >
-              <FolderPlus className="w-4 h-4 text-md3-primary" />
-              <span className="hidden sm:inline">{language === 'ru' ? 'Новая папка' : 'New Folder'}</span>
-            </button>
-
-            <button
-              onClick={() => onCreatePlaylist(null, null)}
-              className="flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-auto sm:px-4 sm:py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90 shadow-md transition-all cursor-pointer"
-              title={language === 'ru' ? "Создать плейлист" : "Create playlist"}
-            >
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">{language === 'ru' ? 'Новый плейлист' : 'New Playlist'}</span>
-            </button>
-          </div>
+          {/* Unified creation menu */}
+          <CreationActionMenu
+            triggerIcon={Plus}
+            triggerLabel={language === 'ru' ? 'Создать' : 'Create'}
+            triggerTitle={language === 'ru' ? 'Создать...' : 'Create...'}
+            triggerClassName="flex h-9 items-center justify-center gap-2 rounded-full bg-md3-primary px-4 text-xs font-semibold text-md3-on-primary shadow-md transition-all hover:opacity-90 cursor-pointer"
+            options={[
+              { label: language === 'ru' ? 'Плейлист' : 'Playlist', Icon: ListMusic, onSelect: () => onCreatePlaylist(null, null) },
+              { label: language === 'ru' ? 'Папку' : 'Folder', Icon: FolderPlus, onSelect: () => onCreateFolder(null, null) },
+              { label: language === 'ru' ? 'Группу' : 'Group', Icon: Layers, onSelect: onCreateGroup },
+            ]}
+          />
         </div>
       </div>
 
@@ -1653,6 +1825,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
             const isTargetGroup = dropTargetGroup?.id === group.id;
 
             const groupColor = group.color ? getFolderColorHex(group.color) : undefined;
+            const GroupIcon = group.icon ? getFolderIconComponent(group.icon) : Layers;
             const groupHeaderBg = group.color ? getFolderColorRgba(group.color, 0.14) : undefined;
             const groupBorderColor = group.color ? getFolderColorRgba(group.color, 0.35) : undefined;
 
@@ -1690,22 +1863,25 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                       onToggleGroupCollapse(group.id);
                     }
                   }}
-                  style={groupHeaderBg ? { backgroundColor: groupHeaderBg } : undefined}
+                  style={{
+                    ...(groupHeaderBg ? { backgroundColor: groupHeaderBg } : {}),
+                    '--group-accent': groupColor || 'var(--md-sys-color-primary)',
+                  } as React.CSSProperties}
                   className="w-full flex items-center justify-between px-4 py-3 bg-md3-surface-container/60 hover:bg-md3-surface-container cursor-pointer transition-colors touch-none"
                 >
                   <div className="flex items-center gap-2.5 min-w-0 pointer-events-none">
                     <button
                       type="button"
-                      className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-on-surface transition-transform pointer-events-auto"
+                      className="p-1 rounded-full text-[var(--group-accent)] transition-all pointer-events-auto hover:bg-[color-mix(in_srgb,var(--group-accent)_18%,transparent)]"
                     >
                       <ChevronDown
                         className={`w-4 h-4 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-                          isCollapsed ? '-rotate-90 text-md3-on-surface-variant' : 'rotate-0 text-md3-primary'
+                          isCollapsed ? '-rotate-90' : 'rotate-0'
                         }`}
                       />
                     </button>
                     <GripVertical className="w-3.5 h-3.5 text-md3-on-surface-variant/40" />
-                    <Layers
+                    <GroupIcon
                       className="w-4 h-4 flex-shrink-0"
                       style={{ color: groupColor || 'var(--md-sys-color-primary)' }}
                     />
@@ -1715,7 +1891,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                     >
                       {group.name}
                     </h3>
-                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-md3-surface-container-highest text-md3-on-surface-variant font-medium">
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--group-accent)_16%,transparent)] px-1.5 text-[11px] leading-none font-semibold tabular-nums text-[var(--group-accent)]">
                       {totalGroupItems}
                     </span>
                     {group.isIsolated && (
@@ -1723,8 +1899,7 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                         className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-500 border border-amber-500/30 font-medium flex items-center gap-1 shrink-0"
                         title={language === 'ru' ? 'Изолированный контейнер: треки скрыты из общего списка библиотеки' : 'Isolated container: tracks are hidden from global library'}
                       >
-                        <ShieldAlert className="w-3 h-3" />
-                        <span>{language === 'ru' ? 'Изолированная' : 'Isolated'}</span>
+                        <Lock className="w-3 h-3" strokeWidth={2.2} />
                       </span>
                     )}
                   </div>
@@ -1733,12 +1908,12 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                   <div className="flex items-center gap-1" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
                     {/* Up / Down Move Buttons */}
                     {onMoveGroup && (
-                      <div className="flex items-center bg-md3-surface-container-highest/60 rounded-full p-0.5 mr-1 border border-md3-outline-variant/20">
+                      <div className="flex items-center bg-[color-mix(in_srgb,var(--group-accent)_30%,var(--md-sys-color-surface-container-lowest))] rounded-full p-0.5 mr-1 border border-md3-outline-variant/20">
                         <button
                           disabled={groupIndex === 0}
                           onClick={() => onMoveGroup(group.id, 'up')}
                           title="Переместить группу выше"
-                          className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-primary disabled:opacity-25 disabled:pointer-events-none transition-colors"
+                          className="p-1 rounded-full text-[var(--group-accent)] hover:bg-[color-mix(in_srgb,var(--group-accent)_18%,transparent)] disabled:opacity-25 disabled:pointer-events-none transition-colors"
                         >
                           <ArrowUp className="w-3.5 h-3.5" />
                         </button>
@@ -1746,38 +1921,34 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
                           disabled={groupIndex === groups.length - 1}
                           onClick={() => onMoveGroup(group.id, 'down')}
                           title="Переместить группу ниже"
-                          className="p-1 rounded-full text-md3-on-surface-variant hover:text-md3-primary disabled:opacity-25 disabled:pointer-events-none transition-colors"
+                          className="p-1 rounded-full text-[var(--group-accent)] hover:bg-[color-mix(in_srgb,var(--group-accent)_18%,transparent)] disabled:opacity-25 disabled:pointer-events-none transition-colors"
                         >
                           <ArrowDown className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     )}
 
-                    <button
-                      onClick={() => onCreatePlaylist(null, group.id)}
-                      title="Добавить плейлист в эту группу"
-                      className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-primary hover:bg-md3-surface-container-highest transition-colors"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => onCreateFolder(null, group.id)}
-                      title="Добавить папку в эту группу"
-                      className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-primary hover:bg-md3-surface-container-highest transition-colors"
-                    >
-                      <FolderPlus className="w-3.5 h-3.5" />
-                    </button>
+                    <CreationActionMenu
+                      triggerIcon={Plus}
+                      triggerTitle={language === 'ru' ? 'Добавить в группу' : 'Add to group'}
+                      triggerClassName="p-1.5 rounded-full text-[var(--group-accent)] hover:bg-[color-mix(in_srgb,var(--group-accent)_18%,transparent)] transition-colors"
+                      triggerIconClassName="h-3.5 w-3.5"
+                      options={[
+                        { label: language === 'ru' ? 'Плейлист' : 'Playlist', Icon: ListMusic, onSelect: () => onCreatePlaylist(null, group.id) },
+                        { label: language === 'ru' ? 'Папку' : 'Folder', Icon: FolderPlus, onSelect: () => onCreateFolder(null, group.id) },
+                      ]}
+                    />
                     <button
                       onClick={() => onEditGroup ? onEditGroup(group) : onRenameGroup(group)}
                       title={language === 'ru' ? 'Настройки группы (цвет, изоляция, название)' : 'Group settings (color, isolation, name)'}
-                      className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-md3-primary hover:bg-md3-surface-container-highest transition-colors"
+                      className="p-1.5 rounded-full text-[var(--group-accent)] hover:bg-[color-mix(in_srgb,var(--group-accent)_18%,transparent)] transition-colors"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={() => onDeleteGroup(group.id)}
                       title="Удалить группу (элементы сохранятся)"
-                      className="p-1.5 rounded-full text-md3-on-surface-variant hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      className="p-1.5 rounded-full text-[var(--group-accent)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -1848,22 +2019,17 @@ export const PlaylistsGridView: React.FC<PlaylistsGridViewProps> = ({
               <p className="text-xs text-md3-on-surface-variant mb-4">
                 Создайте первый плейлист или папку для вашей медиатеки
               </p>
-              <div className="flex items-center justify-center gap-2">
-                <button
-                  onClick={() => onCreateFolder(null, null)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-md3-surface-container-high text-md3-on-surface text-xs font-semibold hover:bg-md3-surface-container-highest"
-                >
-                  <FolderPlus className="w-4 h-4 text-md3-primary" />
-                  <span>Папка</span>
-                </button>
-                <button
-                  onClick={() => onCreatePlaylist(null, null)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-md3-primary text-md3-on-primary text-xs font-semibold hover:opacity-90"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Плейлист</span>
-                </button>
-              </div>
+              <CreationActionMenu
+                triggerIcon={Plus}
+                triggerLabel={language === 'ru' ? 'Создать' : 'Create'}
+                triggerTitle={language === 'ru' ? 'Создать...' : 'Create...'}
+                triggerClassName="flex h-9 items-center justify-center gap-2 rounded-full bg-md3-primary px-4 text-xs font-semibold text-md3-on-primary shadow-md transition-all hover:opacity-90 cursor-pointer"
+                options={[
+                  { label: language === 'ru' ? 'Плейлист' : 'Playlist', Icon: ListMusic, onSelect: () => onCreatePlaylist(null, null) },
+                  { label: language === 'ru' ? 'Папку' : 'Folder', Icon: FolderPlus, onSelect: () => onCreateFolder(null, null) },
+                  { label: language === 'ru' ? 'Группу' : 'Group', Icon: Layers, onSelect: onCreateGroup },
+                ]}
+              />
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">

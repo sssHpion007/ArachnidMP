@@ -1,4 +1,4 @@
-import * as mm from 'music-metadata-browser';
+import * as mm from 'music-metadata';
 import { Track } from '../types/music';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 

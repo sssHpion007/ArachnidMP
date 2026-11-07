@@ -451,7 +451,7 @@ export const BatchTagEditorModal: React.FC<BatchTagEditorModalProps> = ({
   return (
     <div
       onClick={onClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 select-none cursor-pointer ${backdropClass}`}
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 select-none cursor-default ${backdropClass}`}
     >
       <div
         onClick={(e) => e.stopPropagation()}

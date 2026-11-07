@@ -536,13 +536,31 @@ mod tests {
     #[test]
     fn helper_waits_for_the_exact_parent_process() {
         let (root, stage, _) = fixture();
-        let mut parent = Command::new("cmd.exe")
-            .args(["/C", "ping -n 2 127.0.0.1 > nul"])
+        let parent = Command::new("cmd.exe")
+            // Keep the process alive until wait_for_parent has opened its exact PID
+            // and written READY_FILE. A short ping here made this test scheduler-dependent.
+            .args(["/C", "ping -n 30 127.0.0.1 > nul"])
             .spawn()
             .unwrap();
-        wait_for_parent(&stage, parent.id()).unwrap();
-        assert!(stage.join(READY_FILE).is_file());
-        assert!(parent.try_wait().unwrap().is_some());
+        let parent_pid = parent.id();
+        let ready_file = stage.join(READY_FILE);
+        let killer = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while !ready_file.is_file() && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            // Always reap the child, including when the code under test fails before
+            // signaling readiness, so a failed test cannot leak a process on the runner.
+            let mut parent = parent;
+            let _ = parent.kill();
+            parent.wait()
+        });
+
+        let wait_result = wait_for_parent(&stage, parent_pid);
+        let _child_status = killer.join().unwrap().unwrap();
+        // A successful result means READY was persisted before the wait (ready_result is
+        // propagated before return); do not re-read it after tearing down the parent process.
+        assert!(wait_result.is_ok(), "wait_for_parent failed: {wait_result:?}");
         let _ = fs::remove_dir_all(root);
     }
 }

@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#111116" />
+  <title>Превью — менеджер плагинов и настройки Discord RPC</title>
+  <style>
+    :root{color-scheme:dark;--surface:#19191f;--surface-low:#1d1d24;--surface-high:#262630;--text:#f0eff7;--muted:#aaa9b8;--line:rgba(210,206,230,.13);--violet:#9c7bff;--amber:#ffc46b;--green:#75d6aa}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;padding:28px;display:grid;place-items:center;color:var(--text);background:radial-gradient(ellipse at 15% 0%,rgba(112,82,183,.16),transparent 40%),radial-gradient(ellipse at 95% 100%,rgba(80,107,156,.1),transparent 35%),#0d0d11;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    button{color:inherit;font:inherit;cursor:pointer}
+    .preview-tag{position:fixed;top:14px;left:18px;z-index:3;color:#c6bbec;font-size:11px;letter-spacing:.1em;text-transform:uppercase;opacity:.8}
+    .app{width:min(1040px,100%);min-height:min(720px,calc(100vh - 56px));overflow:hidden;display:grid;grid-template-columns:218px 1fr;border:1px solid rgba(255,255,255,.09);border-radius:26px;background:rgba(20,20,26,.96);box-shadow:0 35px 100px rgba(0,0,0,.55)}
+    aside{padding:24px 14px;border-right:1px solid var(--line);background:rgba(17,17,22,.74)}
+    .brand{display:flex;align-items:center;gap:10px;padding:5px 10px 25px;font-weight:750;letter-spacing:-.02em}
+    .brand-icon{width:31px;height:31px;border-radius:11px;display:grid;place-items:center;background:linear-gradient(145deg,#b19aff,#7958d8);color:#211638;font-size:17px}
+    .nav-label{margin:14px 10px 8px;color:#777684;font-size:9px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}
+    .nav-item{display:flex;align-items:center;gap:11px;margin:3px 0;padding:11px 12px;border-radius:13px;color:#aeadbb;font-size:12px}
+    .nav-item.active{color:#dfd5ff;background:rgba(163,134,247,.14)}
+    .nav-icon{width:17px;text-align:center;font-size:15px;opacity:.9}
+    .side-note{margin:30px 9px 0;padding:12px;border:1px solid var(--line);border-radius:14px;color:#8d8c9b;font-size:10px;line-height:1.55}
+    main{min-width:0;padding:26px 30px 30px}
+    .title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:22px}
+    .eyebrow{color:#a994e7;font-size:9px;font-weight:800;letter-spacing:.15em;text-transform:uppercase}
+    h1{margin:6px 0 5px;font-size:23px;letter-spacing:-.035em}
+    .subtitle{margin:0;color:var(--muted);font-size:12px}
+    .hint{margin:0 0 17px;padding:11px 13px;border:1px solid rgba(180,154,255,.18);border-radius:13px;background:rgba(156,123,255,.07);color:#bcb4d0;font-size:11px}
+    .security-notice{display:flex;align-items:center;gap:11px;width:max-content;max-width:100%;margin:0 0 18px;padding:12px 14px;border:1px solid rgba(255,196,107,.2);border-radius:14px;background:rgba(255,196,107,.07);box-shadow:0 9px 26px rgba(0,0,0,.16)}
+    .security-notice[hidden],.view[hidden]{display:none}
+    .notice-icon{width:29px;height:29px;flex:0 0 auto;display:grid;place-items:center;border-radius:10px;background:rgba(255,196,107,.12);color:var(--amber);font-size:14px}
+    .notice-copy{max-width:360px;color:#d3cfd7;font-size:11px;line-height:1.5}
+    .notice-copy strong{display:block;margin-bottom:2px;color:#f0e9dd;font-size:11px}
+    .notice-ack{flex:0 0 auto;margin-left:4px;padding:6px 11px;border:0;border-radius:999px;background:#c6afff;color:#241a37;font-size:10px;font-weight:750}
+    .notice-ack:hover{background:#d4c3ff}
+    .section-title{display:flex;align-items:center;justify-content:space-between;margin:0 1px 11px;color:#aaa9b8;font-size:10px;font-weight:800;letter-spacing:.11em;text-transform:uppercase}
+    .section-title small{color:#777684;font-size:10px;font-weight:500;letter-spacing:0;text-transform:none}
+    .plugin-list{display:grid;gap:10px}
+    .plugin-card{display:grid;grid-template-columns:42px minmax(0,1fr) auto auto;align-items:center;gap:13px;padding:15px;border:1px solid var(--line);border-radius:17px;background:linear-gradient(135deg,rgba(35,35,43,.9),rgba(27,27,34,.92))}
+    .plugin-symbol{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;background:rgba(88,101,242,.16);color:#aab2ff;font-size:19px}
+    .plugin-name{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700}
+    .plugin-desc{margin-top:4px;color:#9998a6;font-size:10px;line-height:1.5}
+    .running{margin-left:4px;padding:3px 7px;border-radius:999px;background:rgba(117,214,170,.11);color:var(--green);font-size:9px;font-weight:700}
+    .switch{position:relative;width:44px;height:32px;padding:4px;border:1px solid rgba(205,194,235,.2);border-radius:10px;background:#30303a;display:flex;align-items:center;justify-content:flex-start;transition:background-color 300ms cubic-bezier(.2,0,0,1),border-color 300ms cubic-bezier(.2,0,0,1);flex:0 0 auto}
+    .switch[aria-checked="true"]{background:#b49aff;border-color:rgba(180,154,255,.3)}
+    .switch i{width:20px;height:20px;border-radius:6px;background:#aaa9b8;box-shadow:0 1px 3px rgba(0,0,0,.25);transform:translateX(0);transition:transform 300ms cubic-bezier(.2,0,0,1),background-color 300ms cubic-bezier(.2,0,0,1)}
+    .switch[aria-checked="true"] i{background:#241a37;transform:translateX(16px)}
+    .switch:focus-visible{outline:2px solid #b49aff;outline-offset:3px}
+    .gear,.back-btn{width:34px;height:34px;border:1px solid transparent;border-radius:50%;background:transparent;color:#aaa9b8;font-size:16px}
+    .gear:hover,.back-btn:hover{background:var(--surface-high);color:#fff}
+    .footer-note{margin-top:18px;color:#777684;font-size:10px}
+    .settings-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px}
+    .settings-title-wrap{display:flex;align-items:flex-start;gap:9px}
+    .settings-head h2{margin:0;font-size:19px;letter-spacing:-.025em}
+    .settings-head p{margin:5px 0 0;color:var(--muted);font-size:11px}
+    .help-area{display:flex;justify-content:flex-end;margin-bottom:18px}
+    .shortcut-help-row{position:relative;width:34px;height:34px}
+    .inline-help{position:absolute;top:calc(100% + 8px);right:0;z-index:50;width:min(384px,calc(100vw - 48px));padding:14px 16px;border:1px solid rgba(205,194,235,.12);border-radius:18px;background:#25242c;color:#d7d4df;font-size:11px;line-height:1.5;box-shadow:0 18px 48px rgba(0,0,0,.5);animation:pop .15s ease-out;pointer-events:none}
+    .inline-help[hidden]{display:none}
+    .popover-title{display:flex;align-items:center;gap:7px;margin-bottom:4px;color:#eeeaf7;font-size:11px;font-weight:750}
+    .popover-copy{margin:9px 0 0;color:#c4c1ce}
+    .popover-shortcut{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding:9px 11px;border:1px solid rgba(205,194,235,.14);border-radius:12px;background:#302e38;color:#bdbac8;font-size:10px;font-weight:600}
+    .popover-shortcut .keycap{white-space:nowrap;margin:0}
+    .discord-master-card{margin-bottom:16px;padding:15px;border:1px solid rgba(205,194,235,.18);border-radius:18px;background:#23232b;transition:background .25s,border-color .25s,box-shadow .25s}
+    .discord-master-card[data-enabled="true"]{background:rgba(88,101,242,.13);border-color:rgba(88,101,242,.44);box-shadow:0 8px 28px rgba(88,101,242,.12)}
+    .discord-master-row,.discord-identity{display:flex;align-items:center;gap:12px}
+    .discord-master-row{justify-content:space-between}
+    .discord-identity{min-width:0}
+    .discord-app-icon{width:40px;height:40px;flex:0 0 40px;display:grid;place-items:center;border-radius:14px;background:rgba(88,101,242,.18);color:#aab2ff;font-size:20px}
+    .discord-copy{min-width:0}
+    .discord-toggle-title{font-size:12px;font-weight:750;color:#eeeaf7}
+    .playback-icons{margin:18px 0 4px}
+    .icon-toggle-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
+    .icon-toggle{display:flex;min-height:54px;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:#222129;color:#e7e5ed;font-size:11px;font-weight:650;transition:border-color .18s,background .18s}
+    .icon-toggle:hover{border-color:rgba(180,154,255,.35);background:#292733}
+    .icon-toggle-label{display:flex;min-width:0;align-items:center;gap:9px}
+    .icon-toggle-symbol{display:grid;width:30px;height:30px;flex:0 0 30px;place-items:center;border-radius:10px;font-size:12px}
+    .icon-toggle-symbol.play{border:1px solid rgba(117,214,170,.2);background:rgba(117,214,170,.1);color:#75d6aa}
+    .icon-toggle-symbol.pause{border:1px solid rgba(255,190,100,.2);background:rgba(255,190,100,.1);color:#ffbe64}
+    .icon-toggle input{width:15px;height:15px;flex:0 0 auto;accent-color:#b49aff}
+    .discord-switch[aria-checked="true"]{background:#5865f2;border-color:rgba(88,101,242,.45)}
+    .discord-switch[aria-checked="true"] i{background:#fff}
+    .status-mode-heading{margin-bottom:12px}
+    .segmented{position:relative;display:flex;align-items:center;overflow:hidden;padding:4px;border:1px solid var(--line);border-radius:16px;background:#222129;user-select:none}
+    .segmented-indicator{position:absolute;inset-block:4px;left:4px;width:calc(50% - 4px);border-radius:12px;background:#b49aff;box-shadow:0 2px 8px rgba(0,0,0,.2);transition:transform .28s cubic-bezier(.2,0,0,1);pointer-events:none}
+    .segmented[data-selected="listening_app"] .segmented-indicator{transform:translateX(100%)}
+    .segmented button{position:relative;z-index:1;flex:1;min-width:0;padding:10px 8px;border:0;border-radius:12px;background:transparent;color:#aaa9b8;font-size:11px;font-weight:550;transition:color .2s;white-space:nowrap}
+    .segmented button[aria-pressed="true"]{color:#251a38;font-weight:750}
+    .segmented button:hover:not([aria-pressed="true"]){color:#fff}
+    .help-btn{width:34px;height:34px;border:1px solid var(--line);border-radius:50%;background:var(--surface-low);color:#c4b5ff;display:grid;place-items:center;font-size:16px;transition:.18s}
+    .help-btn:hover,.help-btn:focus-visible{border-color:rgba(180,154,255,.55);background:#2b2638;color:#fff;outline:none}
+    .keycap{display:inline-grid;min-width:24px;min-height:22px;margin:0 2px;padding:1px 6px;place-items:center;border:1px solid rgba(205,194,235,.25);border-bottom-width:2px;border-radius:6px;background:#302c3b;color:#e5dcff;font:700 11px ui-monospace,SFMono-Regular,Consolas,monospace;vertical-align:middle}
+    .setting-card{padding:18px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(135deg,rgba(35,35,43,.9),rgba(27,27,34,.92))}
+    .setting-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid var(--line)}
+    .setting-row:last-child{border-bottom:0;padding-bottom:0}
+    .setting-label{color:#e7e5ed;font-size:12px;font-weight:650}
+    .setting-help{margin-top:4px;color:#9998a6;font-size:10px;line-height:1.5}
+    .select{min-width:145px;padding:8px 11px;border:1px solid var(--line);border-radius:10px;background:#222129;color:#d7d4df;font-size:11px}
+    .host-picker{position:relative;min-width:min(290px,55%)}
+    .host-picker-button{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 11px;border:1px solid var(--line);border-radius:15px;background:#222129;color:#e7e5ed;text-align:left;font-size:11px;transition:border-color .18s,background .18s}
+    .host-picker-button:hover,.host-picker-button[aria-expanded="true"]{border-color:rgba(180,154,255,.48);background:#292733}
+    .host-picker-button span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .host-chevron{color:#aaa9b8;transition:transform .18s}
+    .host-picker-button[aria-expanded="true"] .host-chevron{transform:rotate(180deg)}
+    .host-menu{position:absolute;top:calc(100% + 8px);right:0;z-index:20;width:min(320px,calc(100vw - 100px));max-height:320px;overflow:auto;padding:7px;border:1px solid rgba(205,194,235,.2);border-radius:20px;background:linear-gradient(145deg,#292731,#1e1d24);box-shadow:0 18px 48px rgba(0,0,0,.5);animation:pop .16s ease-out}
+    .host-menu[hidden]{display:none}
+    .host-menu{scrollbar-width:thin;scrollbar-color:rgba(180,154,255,.62) transparent}
+    .host-menu::-webkit-scrollbar{width:8px;height:8px}
+    .host-menu::-webkit-scrollbar-track{margin:8px 3px;border-radius:999px;background:transparent}
+    .host-menu::-webkit-scrollbar-thumb{min-height:32px;border:2px solid transparent;border-radius:999px;background:rgba(164,148,199,.68);background-clip:padding-box}
+    .host-menu::-webkit-scrollbar-thumb:hover{background:#b49aff;background-clip:padding-box}
+    .host-option{width:100%;display:flex;align-items:center;gap:10px;padding:10px;border:1px solid transparent;border-radius:14px;background:transparent;color:#e7e5ed;text-align:left;transition:background .16s,border-color .16s}
+    .host-option:hover{background:#30303a}
+    .host-option[aria-selected="true"]{border-color:rgba(180,154,255,.24);background:rgba(180,154,255,.1)}
+    .host-option-name{display:block;font-size:11px;font-weight:700}
+    .host-option-check{margin-left:auto;color:#c5b4ff;font-size:14px}
+    .interaction-tip{position:fixed;left:18px;bottom:15px;z-index:3;color:#777684;font-size:10px}
+    @keyframes pop{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+    @media(max-width:700px){body{padding:0}.app{min-height:100vh;border-radius:0;grid-template-columns:66px 1fr}.app aside{padding:19px 7px}.brand{justify-content:center;padding:4px 0 22px}.brand-name,.nav-label,.nav-item span:not(.nav-icon),.side-note{display:none}.nav-item{justify-content:center;padding:12px 5px}.app main{padding:23px 16px}.plugin-card{grid-template-columns:38px minmax(0,1fr) auto;gap:9px;padding:12px}.gear{display:grid}.plugin-symbol{width:38px;height:38px}.security-notice{align-items:flex-start}.notice-copy{max-width:none}.notice-ack{align-self:center}.host-picker{min-width:150px}.host-menu{width:min(320px,calc(100vw - 92px))}.interaction-tip{display:none}}
+  </style>
+</head>
+<body>
+  <div class="preview-tag">интерактивное превью · разделение предупреждения и настроек</div>
+  <div class="app">
+    <aside>
+      <div class="brand"><div class="brand-icon">A</div><span class="brand-name">ArachnidMP</span></div>
+      <div class="nav-label">НАСТРОЙКИ</div>
+      <div class="nav-item"><span class="nav-icon">◉</span><span>Общие</span></div>
+      <div class="nav-item"><span class="nav-icon">♫</span><span>Воспроизведение</span></div>
+      <div class="nav-item"><span class="nav-icon">⌨</span><span>Горячие клавиши</span></div>
+      <div class="nav-item active"><span class="nav-icon">⧉</span><span>Менеджер плагинов</span></div>
+      <div class="side-note">Управляйте встроенными и сторонними плагинами.</div>
+    </aside>
+    <main>
+      <header class="title-row">
+        <div><div class="eyebrow">Дополнения и интеграции</div><h1>Менеджер плагинов</h1><p class="subtitle">Управляйте встроенными и сторонними плагинами.</p></div>
+      </header>
+      <section class="security-notice" id="securityNotice" aria-label="Предупреждение о безопасности" hidden>
+        <div class="notice-icon">!</div>
+        <div class="notice-copy"><strong>Безопасность плагинов</strong>Скачивайте плагины только из проверенных источников.</div>
+        <button class="notice-ack" id="noticeAck" type="button">Понятно</button>
+      </section>
+      <section class="view" id="managerView">
+        <p class="hint">Настройки плагина Discord RPC находятся отдельно — откройте их кнопкой с шестерёнкой.</p>
+        <div class="section-title"><span>Установленные плагины</span><small>2 плагина</small></div>
+        <div class="plugin-list">
+          <article class="plugin-card">
+            <div class="plugin-symbol">◉</div><div><div class="plugin-name">Discord RPC <span class="running">Включён</span></div><div class="plugin-desc">Показывает текущий трек и обложку в профиле Discord.</div></div>
+            <button class="switch" type="button" role="switch" aria-checked="true" aria-label="Discord RPC"><i></i></button><button class="gear" id="discordSettingsButton" type="button" aria-label="Настройки Discord RPC" title="Открыть настройки Discord RPC">⚙</button>
+          </article>
+          <article class="plugin-card">
+            <div class="plugin-symbol" style="background:rgba(117,214,170,.1);color:#75d6aa">⌁</div><div><div class="plugin-name">Playback Logger <span class="running">Работает</span></div><div class="plugin-desc">Записывает события воспроизведения в локальный журнал.</div></div>
+            <button class="switch" type="button" role="switch" aria-checked="true" aria-label="Playback Logger"><i></i></button><button class="gear" type="button" aria-label="Настройки Playback Logger">⚙</button>
+          </article>
+        </div>
+        <div class="footer-note">Изменения настроек плагинов применяются сразу.</div>
+      </section>
+      <section class="view" id="discordSettingsView" hidden>
+        <div class="settings-head">
+          <div class="settings-title-wrap">
+            <button class="back-btn" id="backButton" type="button" aria-label="Вернуться к менеджеру плагинов">‹</button>
+            <div><h2>Настройки Discord RPC</h2><p>Параметры встроенного плагина.</p></div>
+          </div>
+        </div>
+        <div class="help-area"><div class="shortcut-help-row" id="helpAnchor"><button class="help-btn" id="helpButton" type="button" aria-label="Подсказка о горячей клавише" title="Наведите или нажмите">?</button><div class="inline-help" id="popover" role="tooltip" hidden></div></div></div>
+        <div class="discord-master-card" id="discordMasterCard" data-enabled="true">
+          <div class="discord-master-row">
+            <div class="discord-identity"><div class="discord-app-icon" aria-hidden="true">◉</div><div class="discord-copy"><div class="discord-toggle-title">Включить отображение активности</div></div></div>
+            <button class="switch discord-switch" type="button" role="switch" aria-checked="true" aria-label="Отображение активности" id="discordStatusSwitch"><i></i></button>
+          </div>
+        </div>
+        <div class="setting-card">
+          <div class="status-mode-heading"><div class="setting-label">Формат отображения активности</div><div class="setting-help">Выберите, как активность отображается в профиле Discord.</div></div>
+          <div class="segmented" id="statusModeSwitch" data-selected="listening">
+            <div class="segmented-indicator"></div>
+            <button type="button" aria-pressed="true" data-mode="listening">Слушает</button>
+            <button type="button" aria-pressed="false" data-mode="listening_app">Слушает ArachnidMP</button>
+          </div>
+          <div class="playback-icons">
+            <div class="setting-label">Значки состояния воспроизведения</div>
+            <div class="setting-help">Отображение значка в углу обложки во время воспроизведения и паузы</div>
+            <div class="icon-toggle-grid">
+              <label class="icon-toggle"><span class="icon-toggle-label"><span class="icon-toggle-symbol play">▶</span><span>Воспроизведение</span></span><input type="checkbox" checked aria-label="Воспроизведение"></label>
+              <label class="icon-toggle"><span class="icon-toggle-label"><span class="icon-toggle-symbol pause">Ⅱ</span><span>Пауза</span></span><input type="checkbox" checked aria-label="Пауза"></label>
+            </div>
+          </div>
+          <div class="setting-row"><div class="setting-label">Хостинг обложек</div><div class="host-picker" id="hostPicker"><button type="button" class="host-picker-button" id="hostPickerButton" aria-haspopup="listbox" aria-expanded="false"><span id="hostSelectedLabel">Автоматически (рекомендуется)</span><span class="host-chevron">⌄</span></button><div class="host-menu" id="hostMenu" role="listbox" aria-label="Хостинг обложек" hidden><button class="host-option" type="button" role="option" aria-selected="true" data-label="Автоматически (рекомендуется)"><span><span class="host-option-name">Автоматически (рекомендуется)</span></span><span class="host-option-check">✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="i-mg24.ru"><span><span class="host-option-name">i-mg24.ru</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="Uguu"><span><span class="host-option-name">Uguu</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="Catbox"><span><span class="host-option-name">Catbox</span></span><span class="host-option-check" hidden>✓</span></button><button class="host-option" type="button" role="option" aria-selected="false" data-label="ImgDB.io"><span><span class="host-option-name">ImgDB.io</span></span><span class="host-option-check" hidden>✓</span></button></div></div></div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="interaction-tip" id="interactionTip">В менеджере — предупреждение один раз · в настройках Discord RPC — подсказка у ?</div>
+
+  <script>
+    const NOTICE_KEY = 'arachnid_plugin_manager_security_notice_preview_v4';
+    if (new URLSearchParams(location.search).has('reset')) localStorage.removeItem(NOTICE_KEY);
+    const managerView = document.getElementById('managerView');
+    const discordSettingsView = document.getElementById('discordSettingsView');
+    const notice = document.getElementById('securityNotice');
+    const popover = document.getElementById('popover');
+    const anchor = document.getElementById('helpAnchor');
+    const helpButton = document.getElementById('helpButton');
+    const hostPicker = document.getElementById('hostPicker');
+    const hostPickerButton = document.getElementById('hostPickerButton');
+    const hostMenu = document.getElementById('hostMenu');
+    hostPickerButton.addEventListener('click', () => {
+      const open = hostMenu.hidden;
+      hostMenu.hidden = !open;
+      hostPickerButton.setAttribute('aria-expanded', String(open));
+    });
+    hostMenu.querySelectorAll('.host-option').forEach(option => {
+      option.addEventListener('click', () => {
+        hostMenu.querySelectorAll('.host-option').forEach(item => {
+          const selected = item === option;
+          item.setAttribute('aria-selected', String(selected));
+          item.querySelector('.host-option-check').hidden = !selected;
+        });
+        document.getElementById('hostSelectedLabel').textContent = option.dataset.label;
+        hostMenu.hidden = true;
+        hostPickerButton.setAttribute('aria-expanded', 'false');
+      });
+    });
+    document.addEventListener('pointerdown', event => {
+      if (!hostPicker.contains(event.target) && !hostMenu.hidden) {
+        hostMenu.hidden = true;
+        hostPickerButton.setAttribute('aria-expanded', 'false');
+      }
+    });
+
+    document.querySelectorAll('.switch').forEach(toggle => {
+      toggle.addEventListener('click', () => {
+        const enabled = toggle.getAttribute('aria-checked') !== 'true';
+        toggle.setAttribute('aria-checked', String(enabled));
+        if (toggle.id === 'discordStatusSwitch') document.getElementById('discordMasterCard').dataset.enabled = String(enabled);
+      });
+    });
+    const statusModeSwitch = document.getElementById('statusModeSwitch');
+    statusModeSwitch.querySelectorAll('button[data-mode]').forEach(button => {
+      button.addEventListener('click', () => {
+        statusModeSwitch.dataset.selected = button.dataset.mode;
+        statusModeSwitch.querySelectorAll('button[data-mode]').forEach(option => {
+          option.setAttribute('aria-pressed', String(option === button));
+        });
+      });
+    });
+    if (localStorage.getItem(NOTICE_KEY) !== 'true') notice.hidden = false;
+    document.getElementById('noticeAck').addEventListener('click', () => {
+      localStorage.setItem(NOTICE_KEY, 'true');
+      notice.hidden = true;
+    });
+    document.getElementById('discordSettingsButton').addEventListener('click', () => {
+      managerView.hidden = true;
+      discordSettingsView.hidden = false;
+    });
+    document.getElementById('backButton').addEventListener('click', () => {
+      discordSettingsView.hidden = true;
+      managerView.hidden = false;
+      popover.hidden = true;
+    });
+    const previewShortcut = 'Ctrl + Shift + D';
+    function showShortcutInfo() {
+      popover.innerHTML = '<div class="popover-title"><span aria-hidden="true">⌨</span><span>Горячая клавиша</span></div><p class="popover-copy">Быстро включить или выключить публикацию активности:</p><div class="popover-shortcut"><span>Сочетание клавиш</span><kbd class="keycap">' + previewShortcut + '</kbd></div>';
+      popover.hidden = false;
+    }
+    function hideShortcutInfo() { popover.hidden = true; }
+    helpButton.addEventListener('pointerenter', showShortcutInfo);
+    helpButton.addEventListener('focus', showShortcutInfo);
+    helpButton.addEventListener('click', showShortcutInfo);
+    anchor.addEventListener('pointerleave', hideShortcutInfo);
+    document.addEventListener('pointerdown', event => {
+      if (!anchor.contains(event.target) && !popover.hidden) hideShortcutInfo();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        if (!popover.hidden) hideShortcutInfo();
+        if (!hostMenu.hidden) { hostMenu.hidden = true; hostPickerButton.setAttribute('aria-expanded', 'false'); }
+      }
+    });
+  </script>
+</body>
+</html>

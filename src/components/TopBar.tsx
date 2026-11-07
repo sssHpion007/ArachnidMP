@@ -11,12 +11,28 @@ import {
   Mic2,
   Heart,
   Tag,
-  ArrowLeft
+  ArrowLeft,
+  type LucideIcon,
 } from 'lucide-react';
 import { ThemeMode } from '../types/music';
 import { AppLanguage, getTranslations } from '../i18n';
 
 export type MainViewType = 'tracks' | 'playlists' | 'albums' | 'artists' | 'favorites' | 'genres';
+
+export interface NavigationTabDefinition {
+  id: MainViewType;
+  label: string;
+  icon: LucideIcon;
+}
+
+export const getMainNavigationTabs = (t: ReturnType<typeof getTranslations>): NavigationTabDefinition[] => [
+  { id: 'tracks', label: t.nav.tracks, icon: Music },
+  { id: 'playlists', label: t.nav.playlists, icon: ListMusic },
+  { id: 'albums', label: t.nav.albums, icon: Disc },
+  { id: 'artists', label: t.nav.artists, icon: Mic2 },
+  { id: 'favorites', label: t.nav.favorites, icon: Heart },
+  { id: 'genres', label: t.nav.genres, icon: Tag },
+];
 
 interface TopBarProps {
   currentView: MainViewType;
@@ -33,7 +49,7 @@ interface TopBarProps {
   discordEnabled: boolean;
   onToggleDiscord: () => void;
   showDiscordButton?: boolean;
-  visibleTabs?: Record<MainViewType, boolean>;
+  navigationTabOrder?: string[];
   language?: AppLanguage;
   hasUpdate?: boolean;
 }
@@ -53,7 +69,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   discordEnabled,
   onToggleDiscord,
   showDiscordButton = true,
-  visibleTabs,
+  navigationTabOrder,
   language = 'ru',
   hasUpdate = false,
 }) => {
@@ -116,16 +132,13 @@ export const TopBar: React.FC<TopBarProps> = ({
     }
   }, [isSearchExpanded]);
 
-  const allNavTabs = [
-    { id: 'tracks' as const, label: t.nav.tracks, icon: Music },
-    { id: 'playlists' as const, label: t.nav.playlists, icon: ListMusic },
-    { id: 'albums' as const, label: t.nav.albums, icon: Disc },
-    { id: 'artists' as const, label: t.nav.artists, icon: Mic2 },
-    { id: 'favorites' as const, label: t.nav.favorites, icon: Heart },
-    { id: 'genres' as const, label: t.nav.genres, icon: Tag },
-  ];
-
-  const navTabs = allNavTabs.filter(tab => (visibleTabs ? visibleTabs[tab.id] ?? true : true));
+  const allNavTabs = getMainNavigationTabs(t);
+  const navTabs = navigationTabOrder
+    ? navigationTabOrder
+      .map(id => allNavTabs.find(tab => tab.id === id))
+      .filter((tab): tab is NavigationTabDefinition => Boolean(tab))
+    : allNavTabs;
+  const navTabsKey = navTabs.map(tab => tab.id).join('|');
 
   // Breakpoints: narrow transformation starts at 780px to prevent crowding with side buttons
   const isNarrow = windowWidth < 780;
@@ -149,7 +162,7 @@ export const TopBar: React.FC<TopBarProps> = ({
     updateIndicator();
     const timer = setTimeout(updateIndicator, 40);
     return () => clearTimeout(timer);
-  }, [currentView, isCompact, isNarrow, navTabs.length, windowWidth]);
+  }, [currentView, isCompact, isNarrow, navTabsKey, windowWidth]);
 
   useEffect(() => {
     if (navContainerRef.current && window.ResizeObserver) {
@@ -278,13 +291,13 @@ export const TopBar: React.FC<TopBarProps> = ({
         >
           {/* Smooth sliding glow pill indicator */}
           <div
-            className="absolute rounded-full bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+            className="absolute rounded-full bg-md3-primary pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
             style={{
               left: `${indicatorStyle.left}px`,
               width: `${indicatorStyle.width}px`,
               height: `${indicatorStyle.height}px`,
               opacity: indicatorStyle.opacity,
-              boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
+              boxShadow: '0 0 12px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.28)',
             }}
           />
 
@@ -313,7 +326,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 title={tab.label}
                 className={`relative z-10 flex items-center gap-1.5 h-full ${
                   isNarrow ? 'px-2.5 py-1' : isCompact ? 'px-2.5 py-1' : 'px-3.5 py-1'
-                } rounded-full text-xs font-medium transition-colors duration-200 shrink-0 cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
+                } rounded-full bg-transparent active:bg-transparent focus:bg-transparent focus-visible:bg-transparent active:shadow-none text-xs font-medium transition-colors duration-200 shrink-0 cursor-pointer outline-none focus:outline-none focus-visible:outline-none focus:ring-0 ring-0 ${
                   isActive
                     ? 'text-md3-on-primary font-bold'
                     : 'text-md3-on-surface-variant hover:text-md3-on-surface hover:bg-md3-surface-container-high/60'

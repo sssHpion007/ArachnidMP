@@ -43,6 +43,7 @@ export interface Translations {
     title: string;
     subtitle: string;
     appearance: string;
+    audioSettings: string;
     themeMode: string;
     dark: string;
     amoled: string;
@@ -90,13 +91,24 @@ export interface Translations {
     crossfadeAlways: string;
     crossfadeAlwaysDesc: string;
     fadeDuration: string;
+    outputDevice: string;
+    outputDeviceDesc: string;
+    systemDefaultOutput: string;
+    noOutputDevices: string;
+    refreshOutputDevices: string;
     navigationTabs: string;
     navigationTabsDesc: string;
+    visibleNavigationTabs: string;
+    availableNavigationTabs: string;
+    addNavigationTab: string;
+    removeNavigationTab: string;
+    moveNavigationTabUp: string;
+    moveNavigationTabDown: string;
+    noAvailableNavigationTabs: string;
     discordRpc: string;
     discordEnabled: string;
     discordDisabled: string;
     discordToggle: string;
-    discordToggleDesc: string;
     discordSettings: string;
     discordSettingsDesc: string;
     discordStatusMode: string;
@@ -105,10 +117,17 @@ export interface Translations {
     discordStatusListeningApp: string;
     discordIcons: string;
     discordIconsDesc: string;
+    discordCoverHost: string;
+    discordCoverHostAuto: string;
+    discordCoverHostImg24: string;
+    discordCoverHostUguu: string;
+    discordCoverHostCatbox: string;
+    discordCoverHostImgdb: string;
     discordShowPlayIcon: string;
-    discordShowPlayIconDesc: string;
     discordShowPauseIcon: string;
-    discordShowPauseIconDesc: string;
+    discordFallbackIcon: string;
+    discordFallbackNote: string;
+    discordFallbackDisc: string;
     discordTimelineTitle: string;
     discordTimelineInfo: string;
     discordCoverTitle: string;
@@ -194,10 +213,15 @@ export interface Translations {
     nextTrack: string;
     prevTrack: string;
     seek: string;
+    mediaKeys: string;
     volumeAdj: string;
     trackNav: string;
+    scrollToTop: string;
+    scrollToBottom: string;
+    scrollByPage: string;
     playSelected: string;
     editTags: string;
+    saveTags: string;
     mute: string;
     shuffle: string;
     repeat: string;
@@ -208,6 +232,8 @@ export interface Translations {
     queue: string;
     clearQueue: string;
     lyrics: string;
+    lyricsWindow: string;
+    miniPlayer: string;
     discord: string;
     settings: string;
     switchTabs: string;
@@ -258,6 +284,7 @@ export const RU_TRANSLATIONS: Translations = {
     title: 'Настройки',
     subtitle: 'Внешний вид, функции, язык',
     appearance: 'Внешний вид',
+    audioSettings: 'Настройки звука',
     themeMode: 'Режим темы',
     dark: 'Тёмная',
     amoled: 'AMOLED',
@@ -305,25 +332,43 @@ export const RU_TRANSLATIONS: Translations = {
     crossfadeAlways: 'Всегда',
     crossfadeAlwaysDesc: 'Затухание при переключении, паузе и повторе трека',
     fadeDuration: 'Длительность затухания',
-    navigationTabs: 'Отображение вкладок',
-    navigationTabsDesc: 'Включите или отключите разделы в верхней навигационной панели:',
+    outputDevice: 'Устройство вывода',
+    outputDeviceDesc: 'Выберите, куда выводить звук. «По умолчанию» использует устройство, выбранное в системе.',
+    systemDefaultOutput: 'По умолчанию (системное устройство)',
+    noOutputDevices: 'Устройства вывода не найдены',
+    refreshOutputDevices: 'Обновить список устройств',
+    navigationTabs: 'Вкладки навигации',
+    navigationTabsDesc: 'Добавляйте вкладки из списка, убирайте ненужные и меняйте порядок. В панели должна остаться хотя бы одна вкладка.',
+    visibleNavigationTabs: 'Показываются в панели',
+    availableNavigationTabs: 'Можно добавить',
+    addNavigationTab: 'Добавить вкладку',
+    removeNavigationTab: 'Убрать вкладку',
+    moveNavigationTabUp: 'Переместить выше',
+    moveNavigationTabDown: 'Переместить ниже',
+    noAvailableNavigationTabs: 'Все доступные вкладки уже добавлены.',
     discordRpc: 'Интеграция с Discord',
     discordEnabled: 'Включено',
     discordDisabled: 'Выключено',
-    discordToggle: 'Включить отображение активности в Discord',
-    discordToggleDesc: 'Транслировать текущий трек, обложку и статус воспроизведения в Discord',
+    discordToggle: 'Включить отображение активности',
     discordSettings: 'Настройки Discord',
-    discordSettingsDesc: 'Статус, значки воспроизведения, обложка и предпросмотр',
-    discordStatusMode: 'Формат отображения статуса',
+    discordSettingsDesc: 'Настройки отображения активности',
+    discordStatusMode: 'Формат отображения активности',
     discordStatusModeDesc: 'Выберите, как активность отображается в вашем профиле Discord',
-    discordStatusListening: '«Слушает»',
-    discordStatusListeningApp: '«Слушает ArachnidMP»',
+    discordStatusListening: 'Слушает',
+    discordStatusListeningApp: 'Слушает ArachnidMP',
     discordIcons: 'Значки состояния воспроизведения',
-    discordIconsDesc: 'Отображение значка в углу обложки при воспроизведении и на паузе',
-    discordShowPlayIcon: 'Показывать значок воспроизведения',
-    discordShowPlayIconDesc: 'Отображать значок Play во время звучания трека',
-    discordShowPauseIcon: 'Показывать значок паузы',
-    discordShowPauseIconDesc: 'Отображать значок Pause при остановке на паузу',
+    discordIconsDesc: 'Отображение значка в углу обложки во время воспроизведения и паузы',
+    discordCoverHost: 'Хостинг обложек',
+    discordCoverHostAuto: 'Автоматически (рекомендуется)',
+    discordCoverHostImg24: 'i-mg24.ru',
+    discordCoverHostUguu: 'Uguu',
+    discordCoverHostCatbox: 'Catbox',
+    discordCoverHostImgdb: 'ImgDB.io',
+    discordShowPlayIcon: 'Воспроизведение',
+    discordShowPauseIcon: 'Пауза',
+    discordFallbackIcon: 'Значок без обложки',
+    discordFallbackNote: 'Нота',
+    discordFallbackDisc: 'Диск',
     discordTimelineTitle: 'Интерактивная шкала прогресса',
     discordTimelineInfo: 'Discord рассчитывает таймлайн (прошло / осталось) и отображает шкалу времени от начала до конца трека',
     discordCoverTitle: 'Обложка высокого разрешения (HD)',
@@ -409,10 +454,15 @@ export const RU_TRANSLATIONS: Translations = {
     nextTrack: 'Следующий трек',
     prevTrack: 'Предыдущий трек',
     seek: 'Перемотка (±5 сек)',
+    mediaKeys: 'Мультимедийные клавиши',
     volumeAdj: 'Громкость (±5%)',
     trackNav: 'Навигация по трекам',
+    scrollToTop: 'Прокрутить список в начало',
+    scrollToBottom: 'Прокрутить список в конец',
+    scrollByPage: 'Прокрутить на страницу вверх / вниз',
     playSelected: 'Воспроизвести выбранный',
     editTags: 'Редактировать теги',
+    saveTags: 'Сохранить изменения тегов',
     mute: 'Без звука (Mute)',
     shuffle: 'Случайный порядок',
     repeat: 'Режим зацикливания',
@@ -423,6 +473,8 @@ export const RU_TRANSLATIONS: Translations = {
     queue: 'Открыть / закрыть очередь',
     clearQueue: 'Очистить очередь воспроизведения',
     lyrics: 'Открыть / закрыть текст песни',
+    lyricsWindow: 'Открыть текст песни в отдельном окне',
+    miniPlayer: 'Переключить режим мини-плеера',
     discord: 'Переключить статус Discord RPC',
     settings: 'Открыть настройки',
     switchTabs: 'Переключение вкладок навигации',
@@ -473,6 +525,7 @@ export const EN_TRANSLATIONS: Translations = {
     title: 'Settings',
     subtitle: 'Appearance, features, language',
     appearance: 'Appearance',
+    audioSettings: 'Audio Settings',
     themeMode: 'Theme Mode',
     dark: 'Dark',
     amoled: 'AMOLED',
@@ -520,25 +573,43 @@ export const EN_TRANSLATIONS: Translations = {
     crossfadeAlways: 'Always',
     crossfadeAlwaysDesc: 'Fade on manual switches, pause, and repeat-one loops',
     fadeDuration: 'Fade Duration',
+    outputDevice: 'Output Device',
+    outputDeviceDesc: 'Choose where audio plays. “Default” follows the output device selected by your system.',
+    systemDefaultOutput: 'Default (system output)',
+    noOutputDevices: 'No output devices found',
+    refreshOutputDevices: 'Refresh device list',
     navigationTabs: 'Navigation Tabs',
-    navigationTabsDesc: 'Show or hide sections in the top navigation bar:',
+    navigationTabsDesc: 'Add tabs from the list, remove the ones you do not need, and reorder them. Keep at least one tab in the bar.',
+    visibleNavigationTabs: 'Shown in the navigation bar',
+    availableNavigationTabs: 'Available to add',
+    addNavigationTab: 'Add tab',
+    removeNavigationTab: 'Remove tab',
+    moveNavigationTabUp: 'Move up',
+    moveNavigationTabDown: 'Move down',
+    noAvailableNavigationTabs: 'All available tabs have been added.',
     discordRpc: 'Discord Integration',
     discordEnabled: 'Enabled',
     discordDisabled: 'Disabled',
-    discordToggle: 'Enable Discord Rich Presence',
-    discordToggleDesc: 'Broadcast current track, cover artwork, and status to Discord',
+    discordToggle: 'Enable activity sharing',
     discordSettings: 'Discord Settings',
-    discordSettingsDesc: 'Status display, playback icons, cover art, and preview',
-    discordStatusMode: 'Status Display Format',
+    discordSettingsDesc: 'Activity display settings',
+    discordStatusMode: 'Activity Display Format',
     discordStatusModeDesc: 'Choose how playback activity appears on your Discord profile',
-    discordStatusListening: '“Listening to”',
-    discordStatusListeningApp: '“Listening to ArachnidMP”',
+    discordStatusListening: 'Listening to',
+    discordStatusListeningApp: 'Listening to ArachnidMP',
     discordIcons: 'Playback State Icons',
-    discordIconsDesc: 'Show small badge on artwork during playback and pause',
-    discordShowPlayIcon: 'Show Play Icon',
-    discordShowPlayIconDesc: 'Display green Play badge when audio is playing',
-    discordShowPauseIcon: 'Show Pause Icon',
-    discordShowPauseIconDesc: 'Display orange Pause badge when playback is paused',
+    discordIconsDesc: 'Show a corner badge on artwork during playback and pause',
+    discordCoverHost: 'Cover image hosting',
+    discordCoverHostAuto: 'Automatic (recommended)',
+    discordCoverHostImg24: 'i-mg24.ru',
+    discordCoverHostUguu: 'Uguu',
+    discordCoverHostCatbox: 'Catbox',
+    discordCoverHostImgdb: 'ImgDB.io',
+    discordShowPlayIcon: 'Playback',
+    discordShowPauseIcon: 'Pause',
+    discordFallbackIcon: 'Icon when cover is missing',
+    discordFallbackNote: 'Note',
+    discordFallbackDisc: 'Disc',
     discordTimelineTitle: 'Interactive Timeline Bar',
     discordTimelineInfo: 'Discord automatically calculates and displays the live timeline bar from start to finish',
     discordCoverTitle: 'High-Resolution Cover Art',
@@ -624,10 +695,15 @@ export const EN_TRANSLATIONS: Translations = {
     nextTrack: 'Next Track',
     prevTrack: 'Previous Track',
     seek: 'Seek (±5 sec)',
+    mediaKeys: 'Media Keys',
     volumeAdj: 'Volume (±5%)',
     trackNav: 'Navigate Tracks',
+    scrollToTop: 'Scroll List to Top',
+    scrollToBottom: 'Scroll List to Bottom',
+    scrollByPage: 'Scroll Up / Down by a Page',
     playSelected: 'Play Selected Track',
     editTags: 'Edit Tags',
+    saveTags: 'Save Tag Changes',
     mute: 'Mute / Unmute',
     shuffle: 'Shuffle Mode',
     repeat: 'Repeat Mode',
@@ -638,6 +714,8 @@ export const EN_TRANSLATIONS: Translations = {
     queue: 'Open / Close Queue',
     clearQueue: 'Clear Playback Queue',
     lyrics: 'Open / Close Lyrics Panel',
+    lyricsWindow: 'Open Lyrics in Separate Window',
+    miniPlayer: 'Toggle Mini Player Mode',
     discord: 'Toggle Discord RPC Status',
     settings: 'Open Settings',
     switchTabs: 'Switch Navigation Tabs',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { 
   X, 
   Settings, 
@@ -15,12 +15,14 @@ import {
   LayoutGrid,
   Music,
   ListMusic,
-  Disc,
+  Disc3,
   Mic2,
   Heart,
   Tag,
   Keyboard,
+  CircleHelp,
   ArrowLeft,
+  Plus,
   ChevronRight,
   ChevronDown,
   Globe,
@@ -41,14 +43,20 @@ import {
   Calendar,
   FolderKanban,
   FolderPlus,
-  Search
+  GripVertical,
+  Puzzle,
+  Search,
+  RotateCcw
 } from 'lucide-react';
 import { marked } from 'marked';
-import { ThemeMode, Track, FadeMode } from '../types/music';
+import DOMPurify from 'dompurify';
+import { ThemeMode, Track, FadeMode, DiscordCoverHost, DiscordFallbackIcon } from '../types/music';
+import { coverVariantUrl } from '../utils/coverArt';
 import { CustomThemeInfo } from '../types/theme';
 import { ThemePaletteModal } from './ThemePaletteModal';
+import { HexColorInput } from './HexColorInput';
 import { ConfirmationModal } from './ConfirmationModal';
-import { MainViewType } from './TopBar';
+import { getMainNavigationTabs } from './TopBar';
 import { formatTime } from '../services/tagEditor';
 import { AppLanguage, getTranslations } from '../i18n';
 import { isTauri, invoke } from '@tauri-apps/api/core';
@@ -56,8 +64,290 @@ import { listen } from '@tauri-apps/api/event';
 
 export type ColorSchemeMode = 'dynamic' | 'system' | 'custom';
 
+type DiscordCoverHostOption = {
+  value: DiscordCoverHost;
+  label: string;
+};
+
+const DiscordCoverHostPicker: React.FC<{
+  value: DiscordCoverHost;
+  options: DiscordCoverHostOption[];
+  label: string;
+  onChange: (host: DiscordCoverHost) => void;
+}> = ({ value, options, label, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const selectedOption = options.find(option => option.value === value) ?? options[0];
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node)) setIsOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
+  return (
+    <div className="relative" ref={pickerRef}>
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-label={label}
+        onClick={() => setIsOpen(open => !open)}
+        className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-md3-primary/50 ${isOpen ? 'border-md3-primary/45 bg-md3-surface-container-high' : 'border-md3-outline-variant/25 bg-md3-surface hover:border-md3-outline-variant/45 hover:bg-md3-surface-container-high'}`}
+      >
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-md3-on-surface">{selectedOption?.label}</span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-md3-on-surface-variant transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div role="listbox" aria-label={label} className="md3-scrollbar absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[70] max-h-60 overflow-y-auto rounded-2xl border border-md3-outline-variant/30 bg-md3-surface-container-high/95 p-2.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150">
+          {options.map(option => {
+            const selected = option.value === value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                onClick={() => { onChange(option.value); setIsOpen(false); }}
+                className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition-all ${selected ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs' : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'}`}
+              >
+                <span className="min-w-0 flex-1 truncate text-xs font-semibold text-md3-on-surface">{option.label}</span>
+                {selected && <Check className="h-4 w-4 shrink-0 text-md3-primary" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+type OutputDeviceInfo = { id: string; name: string; isDefault: boolean };
+
+const OutputDevicePicker: React.FC<{
+  value: string;
+  language: AppLanguage;
+  onChange: (deviceId: string) => void;
+}> = ({ value, language, onChange }) => {
+  const t = getTranslations(language).settings;
+  const [isOpen, setIsOpen] = useState(false);
+  const [devices, setDevices] = useState<OutputDeviceInfo[]>([]);
+  const [devicesLoaded, setDevicesLoaded] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const defaultId = 'default';
+
+  const refreshDevices = useCallback(async () => {
+    if (!isTauri()) return;
+    setIsLoading(true);
+    try {
+      const result = await invoke<OutputDeviceInfo[]>('native_list_output_devices');
+      setDevices(Array.isArray(result) ? result : []);
+      setDevicesLoaded(true);
+    } catch (error) {
+      console.warn('Failed to list output devices:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void refreshDevices(); }, [refreshDevices]);
+  useEffect(() => {
+    if (devicesLoaded && value !== defaultId && !devices.some(device => device.id === value)) onChange(defaultId);
+  }, [devicesLoaded, devices, value, onChange]);
+  useEffect(() => {
+    if (!isOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node)) setIsOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [isOpen]);
+
+  const defaultLabel = t.systemDefaultOutput;
+  const selectedDevice = devices.find(device => device.id === value);
+  const selectedLabel = value === defaultId ? defaultLabel : (selectedDevice?.name ?? defaultLabel);
+  const options = [
+    { id: defaultId, label: defaultLabel },
+    ...devices.map(device => ({
+      id: device.id,
+      label: device.isDefault ? `${device.name} (${language === 'ru' ? 'системное по умолчанию' : 'system default'})` : device.name,
+    })),
+  ];
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-md3-on-surface">{t.outputDevice}</div>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-md3-on-surface-variant">{t.outputDeviceDesc}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void refreshDevices()}
+          disabled={isLoading || !isTauri()}
+          aria-label={t.refreshOutputDevices}
+          title={t.refreshOutputDevices}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-md3-on-surface-variant transition-colors hover:bg-md3-surface-container-high hover:text-md3-on-surface disabled:opacity-40"
+        >
+          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+      <div className="relative" ref={pickerRef}>
+        <button
+          type="button"
+          aria-haspopup="listbox"
+          aria-expanded={isOpen}
+          onClick={() => setIsOpen(open => !open)}
+          className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-md3-primary/50 ${isOpen ? 'border-md3-primary/45 bg-md3-surface-container-high' : 'border-md3-outline-variant/25 bg-md3-surface hover:border-md3-outline-variant/45 hover:bg-md3-surface-container-high'}`}
+        >
+          <span className="flex min-w-0 items-center gap-2.5">
+            <Volume2 className="h-4 w-4 shrink-0 text-md3-primary" />
+            <span className="truncate text-sm font-semibold text-md3-on-surface">{selectedLabel}</span>
+          </span>
+          <ChevronDown className={`h-4 w-4 shrink-0 text-md3-on-surface-variant transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        </button>
+        {isOpen && (
+          <div role="listbox" aria-label={t.outputDevice} className="md3-scrollbar absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[70] max-h-60 overflow-y-auto rounded-2xl border border-md3-outline-variant/30 bg-md3-surface-container-high/95 p-2.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150">
+            {options.map(option => {
+              const selected = option.id === value;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => { onChange(option.id); setIsOpen(false); }}
+                  className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left transition-all ${selected ? 'border-md3-primary bg-md3-primary/10 shadow-xs' : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'}`}
+                >
+                  <span className="min-w-0 flex-1 truncate text-xs font-semibold text-md3-on-surface">{option.label}</span>
+                  {selected && <Check className="h-4 w-4 shrink-0 text-md3-primary" />}
+                </button>
+              );
+            })}
+            {isTauri() && devices.length === 0 && (
+              <p className="px-3 py-2 text-[11px] text-md3-on-surface-variant">{t.noOutputDevices}</p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const DiscordShortcutHint: React.FC<{ language: AppLanguage; shortcutLabel: string }> = ({ language, shortcutLabel }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const hintRef = useRef<HTMLDivElement>(null);
+  const closeTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!hintRef.current?.contains(event.target as Node)) setIsOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+    };
+  }, [isOpen]);
+
+  const cancelClose = () => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimerRef.current = window.setTimeout(() => {
+      setIsOpen(false);
+      closeTimerRef.current = null;
+    }, 250);
+  };
+
+  return (
+      <div
+        ref={hintRef}
+        className="relative h-8 w-8 shrink-0"
+        onPointerEnter={cancelClose}
+        onPointerLeave={scheduleClose}
+        onBlur={event => {
+          const nextTarget = event.relatedTarget;
+          if (!(nextTarget instanceof Node) || !hintRef.current?.contains(nextTarget)) setIsOpen(false);
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setIsOpen(true)}
+          onMouseEnter={() => setIsOpen(true)}
+          onFocus={() => setIsOpen(true)}
+          aria-label={language === 'ru' ? 'Подсказка о горячей клавише Discord RPC' : 'Discord RPC keyboard shortcut help'}
+          aria-expanded={isOpen}
+          aria-controls="discord-shortcut-help"
+          aria-describedby={isOpen ? 'discord-shortcut-help' : undefined}
+          className="flex h-8 w-8 items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface"
+        >
+          <CircleHelp className="h-4 w-4" />
+        </button>
+        {isOpen && (
+          <section id="discord-shortcut-help" role="tooltip" aria-labelledby="discord-shortcut-title" onPointerEnter={cancelClose} onPointerLeave={scheduleClose} className="absolute right-0 top-full z-50 mt-2 w-[min(24rem,calc(100vw-3rem))] rounded-2xl border border-md3-outline-variant/30 bg-md3-surface-container p-4 text-left shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-md3-primary/10 text-md3-primary"><Keyboard className="h-4 w-4" /></div>
+              <h3 id="discord-shortcut-title" className="text-sm font-bold text-md3-on-surface">{language === 'ru' ? 'Горячая клавиша' : 'Keyboard shortcut'}</h3>
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-md3-on-surface-variant">{language === 'ru' ? 'Быстро включить или выключить публикацию активности:' : 'Quickly toggle Discord activity sharing:'}</p>
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-md3-outline-variant/20 bg-md3-surface-container-high px-3 py-2.5">
+              <span className="text-[11px] font-medium text-md3-on-surface-variant">{language === 'ru' ? 'Сочетание клавиш' : 'Shortcut'}</span>
+              <kbd className="shrink-0 whitespace-nowrap rounded-lg border border-md3-outline-variant/30 bg-md3-surface-container px-2.5 py-1.5 text-center font-mono text-[11px] font-bold text-md3-primary">{shortcutLabel}</kbd>
+            </div>
+          </section>
+        )}
+      </div>
+  );
+};
+
 import { CURRENT_APP_VERSION, isNewerVersion } from '../utils/version';
 import { useModalAnimation, useCurtainAnimation } from '../utils/useModalAnimation';
+import { PluginManagerView } from './PluginManagerView';
+import { MaterialYouSwitch } from './MaterialYouSwitch';
+import { DEFAULT_KEYBOARD_SHORTCUTS, formatShortcut, getShortcutSignature, KeyboardShortcuts, ShortcutId, SHORTCUT_IDS } from '../services/keyboardShortcuts';
+import {
+  ExternalPluginManifest,
+  PluginPreferencesFile,
+  PluginRuntimeEvent,
+  externalPluginRuntime,
+  listExternalPlugins,
+  loadPluginPreferences,
+  openPluginsFolder,
+  savePluginPreferences,
+} from '../services/pluginManager';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -74,23 +364,35 @@ interface SettingsModalProps {
   onSetSecondarySeedColor: (color: string) => void;
   language: AppLanguage;
   onSetLanguage: (lang: AppLanguage) => void;
+  keyboardShortcuts: KeyboardShortcuts;
+  onSetKeyboardShortcuts: (shortcuts: KeyboardShortcuts) => void;
   discordEnabled: boolean;
   onToggleDiscord: () => void;
+  discordPluginEnabled: boolean;
+  onToggleDiscordPlugin: () => void;
   showDiscordButton: boolean;
   onToggleShowDiscordButton: () => void;
   discordShowPlayIcon: boolean;
   onToggleDiscordPlayIcon: () => void;
   discordShowPauseIcon: boolean;
   onToggleDiscordPauseIcon: () => void;
+  discordFallbackIcon: DiscordFallbackIcon;
+  onSetDiscordFallbackIcon: (icon: DiscordFallbackIcon) => void;
   discordStatusMode: 'listening' | 'listening_app';
   onSetDiscordStatusMode: (mode: 'listening' | 'listening_app') => void;
   discordCustomClientId: string;
   onSetDiscordCustomClientId: (id: string) => void;
-  visibleTabs: Record<MainViewType, boolean>;
-  onToggleTabVisibility: (tab: MainViewType) => void;
+  discordCoverHost: DiscordCoverHost;
+  onSetDiscordCoverHost: (host: DiscordCoverHost) => void;
+  navigationTabOrder: string[];
+  onAddNavigationTab: (tabId: string) => void;
+  onRemoveNavigationTab: (tabId: string) => void;
+  onReorderNavigationTabs: (tabOrder: string[]) => void;
   currentTrack: Track | null;
   isPlaying: boolean;
   currentTime: number;
+  outputDeviceId: string;
+  onSetOutputDeviceId: (deviceId: string) => void;
   fadeMode: FadeMode;
   onSetFadeMode: (mode: FadeMode) => void;
   fadeDuration: number;
@@ -111,8 +413,10 @@ interface SettingsModalProps {
   themeToggles: Record<string, boolean>;
   onToggleThemeOption: (toggleId: string, val: boolean) => void;
   watchedFolders?: string[];
-  onAddWatchedFolder?: (folder: string) => void;
-  onRemoveWatchedFolder?: (folder: string) => void;
+  onAddWatchedFolder?: (folder: string) => Promise<number | void> | void;
+  onRemoveWatchedFolder?: (folder: string) => Promise<void> | void;
+  libraryFolderTrackCounts?: { portable: number; watched: Record<string, number> } | null;
+  onRefreshLibraryFolderTrackCounts?: () => Promise<void>;
   autoScanOnStartup?: boolean;
   onToggleAutoScanOnStartup?: () => void;
   closeBehavior?: 'exit' | 'tray';
@@ -149,23 +453,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSetSecondarySeedColor,
   language,
   onSetLanguage,
+  keyboardShortcuts,
+  onSetKeyboardShortcuts,
   discordEnabled,
   onToggleDiscord,
+  discordPluginEnabled,
+  onToggleDiscordPlugin,
   showDiscordButton,
   onToggleShowDiscordButton,
   discordShowPlayIcon,
   onToggleDiscordPlayIcon,
   discordShowPauseIcon,
   onToggleDiscordPauseIcon,
+  discordFallbackIcon,
+  onSetDiscordFallbackIcon,
   discordStatusMode,
   onSetDiscordStatusMode,
   discordCustomClientId,
   onSetDiscordCustomClientId,
-  visibleTabs,
-  onToggleTabVisibility,
+  discordCoverHost,
+  onSetDiscordCoverHost,
+  navigationTabOrder,
+  onAddNavigationTab,
+  onRemoveNavigationTab,
+  onReorderNavigationTabs,
   currentTrack,
   isPlaying,
   currentTime,
+  outputDeviceId,
+  onSetOutputDeviceId,
   fadeMode,
   onSetFadeMode,
   fadeDuration,
@@ -188,6 +504,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   watchedFolders = [],
   onAddWatchedFolder,
   onRemoveWatchedFolder,
+  libraryFolderTrackCounts = null,
+  onRefreshLibraryFolderTrackCounts,
   autoScanOnStartup = true,
   onToggleAutoScanOnStartup,
   closeBehavior = 'exit',
@@ -199,8 +517,144 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   missingTracksCount = 0,
   onOpenMissingTracksModal,
 }) => {
-  const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes' | 'discord' | 'logs' | 'library_folders'>('main');
+  const [currentView, setCurrentView] = useState<'main' | 'shortcuts' | 'release_notes' | 'discord' | 'logs' | 'library_folders' | 'plugins'>('main');
+  const [recordingShortcutId, setRecordingShortcutId] = useState<ShortcutId | null>(null);
+  const [shortcutCaptureError, setShortcutCaptureError] = useState<string | null>(null);
   const [navDirection, setNavDirection] = useState<'forward' | 'backward'>('forward');
+  const [externalPlugins, setExternalPlugins] = useState<ExternalPluginManifest[]>([]);
+  const [pluginPreferences, setPluginPreferences] = useState<PluginPreferencesFile>({ plugins: {} });
+  const [pluginRuntimeStates, setPluginRuntimeStates] = useState<Record<string, PluginRuntimeEvent>>({});
+  const [pluginManagerLoading, setPluginManagerLoading] = useState(false);
+  const [pluginManagerError, setPluginManagerError] = useState<string | null>(null);
+
+  const refreshExternalPlugins = useCallback(async () => {
+    if (!isTauri()) {
+      setExternalPlugins([]);
+      setPluginPreferences({ plugins: {} });
+      return;
+    }
+    setPluginManagerLoading(true);
+    setPluginManagerError(null);
+    try {
+      await externalPluginRuntime.stopAll();
+      const [manifests, savedPreferences] = await Promise.all([
+        listExternalPlugins(),
+        loadPluginPreferences(),
+      ]);
+      const nextPreferences: PluginPreferencesFile = { plugins: { ...savedPreferences.plugins } };
+      let preferencesChanged = false;
+      for (const manifest of manifests) {
+        const saved = nextPreferences.plugins[manifest.id] ?? {
+          enabled: false,
+          trustedFingerprint: null,
+          settings: {},
+        };
+        const savedSettings = saved.settings && typeof saved.settings === 'object' && !Array.isArray(saved.settings)
+          ? saved.settings
+          : {};
+        const settings = { ...savedSettings };
+        for (const field of manifest.settings) {
+          if (!(field.key in settings) && field.default !== null) settings[field.key] = field.default;
+        }
+        const trusted = saved.enabled && saved.trustedFingerprint === manifest.fingerprint;
+        nextPreferences.plugins[manifest.id] = {
+          enabled: trusted,
+          trustedFingerprint: saved.trustedFingerprint,
+          settings,
+        };
+        if (saved.enabled !== trusted || JSON.stringify(savedSettings) !== JSON.stringify(settings)) preferencesChanged = true;
+      }
+      if (preferencesChanged) await savePluginPreferences(nextPreferences);
+      setExternalPlugins(manifests);
+      setPluginPreferences(nextPreferences);
+      await Promise.all(manifests.map(async manifest => {
+        const preference = nextPreferences.plugins[manifest.id];
+        if (!preference?.enabled || preference.trustedFingerprint !== manifest.fingerprint) return;
+        try {
+          await externalPluginRuntime.start(manifest, preference.settings);
+        } catch {
+          // Runtime status is displayed on the plugin card; a broken plugin must not affect the player.
+        }
+      }));
+    } catch (error) {
+      setPluginManagerError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPluginManagerLoading(false);
+    }
+  }, []);
+
+  useEffect(() => externalPluginRuntime.subscribe(event => {
+    setPluginRuntimeStates(previous => ({ ...previous, [event.pluginId]: event }));
+  }), []);
+
+  useEffect(() => {
+    void refreshExternalPlugins();
+    return () => { void externalPluginRuntime.stopAll(); };
+  }, [refreshExternalPlugins]);
+
+  useEffect(() => {
+    externalPluginRuntime.updatePlayback({
+      track: currentTrack ? {
+        title: currentTrack.title || '',
+        artist: currentTrack.artist || '',
+        album: currentTrack.album || '',
+        duration: currentTrack.duration || 0,
+      } : null,
+      isPlaying,
+      currentTime,
+    });
+  }, [currentTrack?.id, currentTrack?.title, currentTrack?.artist, currentTrack?.album, currentTrack?.duration, isPlaying, currentTime]);
+
+  const handleToggleExternalPlugin = async (plugin: ExternalPluginManifest, enabled: boolean) => {
+    const current = pluginPreferences.plugins[plugin.id] ?? { enabled: false, trustedFingerprint: null, settings: {} };
+    const next: PluginPreferencesFile = {
+      plugins: {
+        ...pluginPreferences.plugins,
+        [plugin.id]: {
+          ...current,
+          enabled,
+          trustedFingerprint: enabled ? plugin.fingerprint : current.trustedFingerprint,
+        },
+      },
+    };
+    try {
+      await savePluginPreferences(next);
+    } catch (error) {
+      setPluginManagerError(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    setPluginPreferences(next);
+    setPluginManagerError(null);
+    if (enabled) {
+      try {
+        await externalPluginRuntime.start(plugin, next.plugins[plugin.id].settings);
+      } catch (error) {
+        setPluginManagerError(error instanceof Error ? error.message : String(error));
+      }
+    } else {
+      await externalPluginRuntime.stop(plugin.id);
+    }
+  };
+
+  const handleUpdatePluginSettings = (pluginId: string, settings: Record<string, unknown>) => {
+    const current = pluginPreferences.plugins[pluginId] ?? { enabled: false, trustedFingerprint: null, settings: {} };
+    const next: PluginPreferencesFile = {
+      plugins: {
+        ...pluginPreferences.plugins,
+        [pluginId]: { ...current, settings },
+      },
+    };
+    setPluginPreferences(next);
+    externalPluginRuntime.updateSettings(pluginId, settings);
+    void savePluginPreferences(next).catch(error => {
+      setPluginManagerError(error instanceof Error ? error.message : String(error));
+    });
+  };
+
+  useEffect(() => {
+    if (!isOpen || currentView !== 'library_folders' || !onRefreshLibraryFolderTrackCounts) return;
+    void onRefreshLibraryFolderTrackCounts();
+  }, [isOpen, currentView, watchedFolders, onRefreshLibraryFolderTrackCounts]);
   const [isPaletteModalOpen, setIsPaletteModalOpen] = useState<boolean>(false);
   const [themeToDelete, setThemeToDelete] = useState<CustomThemeInfo | null>(null);
   const [isScanning, setIsScanning] = useState<boolean>(false);
@@ -210,6 +664,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const releaseNotesContainerRef = useRef<HTMLDivElement>(null);
   const mainSettingsContainerRef = useRef<HTMLDivElement>(null);
   const mainScrollTopRef = useRef<number>(0);
+  const draggedNavigationTabIdRef = useRef<string | null>(null);
+  const navigationTabDragOrderRef = useRef<string[] | null>(null);
+  const [draggedNavigationTabId, setDraggedNavigationTabId] = useState<string | null>(null);
+  const [navigationTabDragOrder, setNavigationTabDragOrder] = useState<string[] | null>(null);
+  const [dragOverNavigationTabId, setDragOverNavigationTabId] = useState<string | null>(null);
+  const wasSettingsOpenRef = useRef(false);
+  const shouldResetMainScrollOnOpenRef = useRef(false);
 
   const { isRendered, backdropClass, dialogClass } = useModalAnimation(isOpen, 200);
 
@@ -225,6 +686,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Theme Mode segmented control indicator
   const themeModeContainerRef = useRef<HTMLDivElement>(null);
   const themeModeRefs = useRef<{ [key: string]: HTMLButtonElement | null }>({});
+  const [indicatorTransitionsEnabled, setIndicatorTransitionsEnabled] = useState(false);
+  const enableIndicatorTransitions = () => setIndicatorTransitionsEnabled(true);
+  const indicatorTransitionClass = indicatorTransitionsEnabled
+    ? 'transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)]'
+    : 'transition-none';
   const [themeModeIndicatorStyle, setThemeModeIndicatorStyle] = useState<{ left: number; width: number; height: number; opacity: number }>({
     left: 0,
     width: 0,
@@ -264,7 +730,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [closeBehaviorIndicatorStyle, setCloseBehaviorIndicatorStyle] = useState({ left: 0, width: 0, height: 0, opacity: 0 });
   const updateCloseBehaviorIndicator = () => {
     const el = closeBehaviorRefs.current[closeBehavior];
-    if (el) setCloseBehaviorIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, opacity: 1 });
+    if (el) {
+      setCloseBehaviorIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, opacity: 1 });
+    }
   };
 
   const startupInterfaceContainerRef = useRef<HTMLDivElement>(null);
@@ -272,7 +740,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [startupInterfaceIndicatorStyle, setStartupInterfaceIndicatorStyle] = useState({ left: 0, width: 0, height: 0, opacity: 0 });
   const updateStartupInterfaceIndicator = () => {
     const el = startupInterfaceRefs.current[startupInterface];
-    if (el) setStartupInterfaceIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, opacity: 1 });
+    if (el) {
+      setStartupInterfaceIndicatorStyle({ left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, opacity: 1 });
+    }
   };
 
   useEffect(() => {
@@ -410,6 +880,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   }, [currentView, latestRelease]);
 
+  useLayoutEffect(() => {
+    const justOpened = isOpen && !wasSettingsOpenRef.current;
+    wasSettingsOpenRef.current = isOpen;
+    if (justOpened) {
+      mainScrollTopRef.current = 0;
+      shouldResetMainScrollOnOpenRef.current = true;
+    }
+
+    if (!isOpen || !isRendered || currentView !== 'main' || !shouldResetMainScrollOnOpenRef.current) return;
+    mainSettingsContainerRef.current?.scrollTo({ top: 0, behavior: 'instant' });
+    shouldResetMainScrollOnOpenRef.current = false;
+  }, [isOpen, isRendered, currentView]);
+
   // Real-time logs subscriber and initial fetch
   useEffect(() => {
     if (currentView !== 'logs') return;
@@ -448,6 +931,91 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   }, [logs, currentView, autoScroll]);
 
   const t = getTranslations(language);
+  const discordCoverHostOptions: DiscordCoverHostOption[] = [
+    { value: 'auto', label: t.settings.discordCoverHostAuto },
+    { value: 'img24', label: t.settings.discordCoverHostImg24 },
+    { value: 'uguu', label: t.settings.discordCoverHostUguu },
+    { value: 'catbox', label: t.settings.discordCoverHostCatbox },
+    { value: 'imgdb', label: t.settings.discordCoverHostImgdb },
+  ];
+  const shortcutLabels: Record<ShortcutId, string> = {
+    playPause: t.shortcuts.space,
+    nextTrack: t.shortcuts.nextTrack,
+    previousTrack: t.shortcuts.prevTrack,
+    seekBackward: language === 'ru' ? 'Перемотать назад на 5 секунд' : 'Seek backward 5 seconds',
+    seekForward: language === 'ru' ? 'Перемотать вперёд на 5 секунд' : 'Seek forward 5 seconds',
+    volumeUp: language === 'ru' ? 'Увеличить громкость на 5%' : 'Increase volume by 5%',
+    volumeDown: language === 'ru' ? 'Уменьшить громкость на 5%' : 'Decrease volume by 5%',
+    mute: t.shortcuts.mute,
+    shuffle: t.shortcuts.shuffle,
+    repeat: t.shortcuts.repeat,
+    toggleQueue: t.shortcuts.queue,
+    clearQueue: t.shortcuts.clearQueue,
+    toggleDiscord: t.shortcuts.discord,
+    lyrics: t.shortcuts.lyrics,
+    lyricsWindow: t.shortcuts.lyricsWindow,
+    miniPlayer: t.shortcuts.miniPlayer,
+    search: t.shortcuts.search,
+    settings: t.shortcuts.settings,
+    equalizer: language === 'ru' ? 'Открыть эквалайзер' : 'Open equalizer',
+    selectAll: t.shortcuts.selectAll,
+    editTags: t.shortcuts.editTags,
+    playSelected: t.shortcuts.playSelected,
+    deleteSelected: t.shortcuts.deleteTracks,
+    deleteFromDisk: t.shortcuts.deleteTracksFromDisk,
+  };
+  type ShortcutGroupId = 'playbackAndSound' | 'libraryAndManagement' | 'navigationAndPanels';
+  const shortcutGroups: Array<{ id: ShortcutGroupId; title: string; icon: React.ElementType; ids: ShortcutId[] }> = [
+    { id: 'playbackAndSound', title: t.shortcuts.playbackAndSound, icon: Music, ids: ['playPause', 'nextTrack', 'previousTrack', 'seekBackward', 'seekForward', 'volumeUp', 'volumeDown', 'mute', 'shuffle', 'repeat'] },
+    { id: 'libraryAndManagement', title: t.shortcuts.libraryAndManagement, icon: ListMusic, ids: ['toggleQueue', 'clearQueue', 'playSelected', 'editTags', 'selectAll', 'deleteSelected', 'deleteFromDisk'] },
+    { id: 'navigationAndPanels', title: t.shortcuts.navigationAndPanels, icon: LayoutGrid, ids: ['miniPlayer', 'search', 'lyrics', 'lyricsWindow', 'toggleDiscord', 'settings', 'equalizer'] },
+  ];
+  const fixedShortcutRows: Array<{ group: ShortcutGroupId; label: string; keys: string }> = [
+    { group: 'playbackAndSound', label: t.shortcuts.mediaKeys, keys: '⏮ / ⏯ / ⏭ / ⏹' },
+    { group: 'libraryAndManagement', label: t.shortcuts.trackNav, keys: '↑ / ↓' },
+    { group: 'libraryAndManagement', label: t.shortcuts.scrollToTop, keys: 'Home' },
+    { group: 'libraryAndManagement', label: t.shortcuts.scrollToBottom, keys: 'End' },
+    { group: 'libraryAndManagement', label: t.shortcuts.scrollByPage, keys: 'Page Up / Page Down' },
+    { group: 'libraryAndManagement', label: t.shortcuts.saveTags, keys: 'Ctrl / ⌘ + Enter' },
+    { group: 'navigationAndPanels', label: t.shortcuts.switchTabs, keys: 'Tab / Shift + Tab' },
+    { group: 'navigationAndPanels', label: t.shortcuts.dismiss, keys: 'Escape' },
+  ];
+  const resetShortcut = (id: ShortcutId) => {
+    onSetKeyboardShortcuts({ ...keyboardShortcuts, [id]: { ...DEFAULT_KEYBOARD_SHORTCUTS[id] } });
+    if (recordingShortcutId === id) setRecordingShortcutId(null);
+    setShortcutCaptureError(null);
+  };
+  const captureShortcut = (event: React.KeyboardEvent<HTMLButtonElement>, id: ShortcutId) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === 'Escape') {
+      setRecordingShortcutId(null);
+      setShortcutCaptureError(null);
+      return;
+    }
+    if (['Control', 'Meta', 'Alt', 'Shift'].includes(event.key)) return;
+    const code = event.nativeEvent.code;
+    const allowedCode = /^(Key[A-Z]|Digit[0-9]|Numpad[0-9]|Arrow(Up|Down|Left|Right)|Space|Enter|Delete|Comma|Period|Slash|Semicolon|Quote|BracketLeft|BracketRight|Backslash|Minus|Equal|Backquote|Home|End|PageUp|PageDown|Insert)$/.test(code);
+    if (!allowedCode) {
+      setShortcutCaptureError(language === 'ru' ? 'Эту клавишу нельзя использовать. Попробуйте букву, цифру или клавишу навигации.' : 'That key cannot be used. Try a letter, number, or navigation key.');
+      return;
+    }
+    const next = { code, ctrl: event.ctrlKey || event.metaKey, alt: event.altKey, shift: event.shiftKey };
+    if (!next.ctrl && !next.alt && !next.shift && ['ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(code)) {
+      setShortcutCaptureError(language === 'ru' ? 'Эта клавиша уже используется для навигации по списку.' : 'This key is reserved for list navigation.');
+      return;
+    }
+    const signature = getShortcutSignature(next);
+    const conflict = SHORTCUT_IDS.find(otherId => otherId !== id && getShortcutSignature(keyboardShortcuts[otherId]) === signature);
+    if (conflict) {
+      setShortcutCaptureError(language === 'ru' ? `Это сочетание уже назначено: «${shortcutLabels[conflict]}».` : `This shortcut is already assigned to “${shortcutLabels[conflict]}”.`);
+      return;
+    }
+    onSetKeyboardShortcuts({ ...keyboardShortcuts, [id]: next });
+    setRecordingShortcutId(null);
+    setShortcutCaptureError(null);
+  };
+
 
   const blobToBase64 = (blob: Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -491,7 +1059,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         htmlUrl: data.html_url || `https://github.com/sssHpion007/ArachnidMP/releases/tag/${tagName}`,
         downloadUrl: exeAsset?.browser_download_url || data.html_url,
         assetUrl: exeAsset?.browser_download_url || exeAsset?.url,
-        assetName: exeAsset?.name || 'Arachnid-Portable.exe',
+        assetName: exeAsset?.name || 'arachnidmp.exe',
       });
 
       if (isNewerVersion(cleanCurrent, cleanLatest)) {
@@ -565,7 +1133,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleClose = () => {
-    setCurrentView('main');
     setIsThemeCurtainOpen(false);
     setIsLangCurtainOpen(false);
     setIsUpdateSettingsOpen(false);
@@ -603,8 +1170,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (!isTauri() || !onAddWatchedFolder) return;
     try {
       const folder = await invoke<string | null>('pick_folder_dialog');
-      if (folder) {
-        onAddWatchedFolder(folder);
+      if (folder && !watchedFolders.includes(folder)) {
+        setIsScanning(true);
+        setScanResult(null);
+        try {
+          const count = await onAddWatchedFolder(folder);
+          if (typeof count === 'number') {
+            setScanResult(
+              language === 'ru'
+                ? count > 0 ? `Обработано аудиотреков: ${count}` : 'Аудиотреки не найдены'
+                : count > 0 ? `Processed audio tracks: ${count}` : 'No audio tracks found'
+            );
+          }
+        } catch (error) {
+          console.warn('Failed to add and scan watched folder:', error);
+          setScanResult(language === 'ru' ? 'Ошибка при сканировании папки' : 'Folder scan failed');
+        } finally {
+          setIsScanning(false);
+        }
       }
     } catch (e) {
       console.warn('Failed to pick folder:', e);
@@ -617,6 +1200,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setScanResult(null);
     try {
       const count = await onScanLibrary();
+      await onRefreshLibraryFolderTrackCounts?.();
       setScanResult(
         language === 'ru'
           ? count > 0 ? `Обработано аудиотреков: ${count}` : 'Аудиотреки не найдены'
@@ -740,7 +1324,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           htmlUrl: data.html_url || `https://github.com/sssHpion007/ArachnidMP/releases/tag/${tagName}`,
           downloadUrl: exeAsset?.browser_download_url || data.html_url,
           assetUrl: exeAsset?.browser_download_url || exeAsset?.url,
-          assetName: exeAsset?.name || 'Arachnid-Portable.exe',
+          assetName: exeAsset?.name || 'arachnidmp.exe',
         });
         setUpdateStatus('available');
       } else if (updateStatus === 'idle' && isOpen) {
@@ -757,7 +1341,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setIsLangCurtainOpen(false);
       onRefreshCustomThemes();
     } else {
-      setCurrentView('main');
+      setIndicatorTransitionsEnabled(false);
       setIsThemeCurtainOpen(false);
       setIsLangCurtainOpen(false);
     }
@@ -791,6 +1375,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && e.target instanceof Element && e.target.closest('[data-hex-color-picker], [data-cover-color-picker]')) return;
       if (e.key === 'Escape') {
         if (isThemeCurtainOpen) {
           setIsThemeCurtainOpen(false);
@@ -825,14 +1410,75 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const navTabConfigs = [
-    { id: 'tracks' as MainViewType, label: t.nav.tracks, icon: Music },
-    { id: 'playlists' as MainViewType, label: t.nav.playlists, icon: ListMusic },
-    { id: 'albums' as MainViewType, label: t.nav.albums, icon: Disc },
-    { id: 'artists' as MainViewType, label: t.nav.artists, icon: Mic2 },
-    { id: 'favorites' as MainViewType, label: t.nav.favorites, icon: Heart },
-    { id: 'genres' as MainViewType, label: t.nav.genres, icon: Tag },
-  ];
+  const navTabConfigs = getMainNavigationTabs(t);
+  const getReorderedNavigationTabOrder = (sourceId: string, targetId: string, afterTarget: boolean, baseOrder: string[]) => {
+    if (sourceId === targetId) return null;
+    const registeredIds = new Set<string>(navTabConfigs.map(tab => tab.id));
+    const reorderedVisibleIds = baseOrder.filter(id => registeredIds.has(id));
+    const sourceIndex = reorderedVisibleIds.indexOf(sourceId);
+    const targetIndex = reorderedVisibleIds.indexOf(targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return null;
+    const [movingId] = reorderedVisibleIds.splice(sourceIndex, 1);
+    let insertIndex = targetIndex + (afterTarget ? 1 : 0);
+    if (sourceIndex < insertIndex) insertIndex -= 1;
+    reorderedVisibleIds.splice(insertIndex, 0, movingId);
+    let visibleIndex = 0;
+    const nextOrder = baseOrder.map(id => registeredIds.has(id) ? reorderedVisibleIds[visibleIndex++] : id);
+    return nextOrder.every((id, index) => id === baseOrder[index]) ? null : nextOrder;
+  };
+  const visibleNavigationTabs = (navigationTabDragOrder ?? navigationTabOrder)
+    .map(id => navTabConfigs.find(tab => tab.id === id))
+    .filter((tab): tab is (typeof navTabConfigs)[number] => Boolean(tab));
+  const availableNavigationTabs = navTabConfigs.filter(tab => !navigationTabOrder.includes(tab.id));
+
+  const startNavigationTabDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || (event.target instanceof Element && event.target.closest('button'))) return;
+    const tabElement = event.currentTarget.closest('[data-navigation-tab-id]') as HTMLElement | null;
+    const listElement = event.currentTarget.closest('[data-navigation-tab-list]') as HTMLElement | null;
+    const tabId = tabElement?.dataset.navigationTabId;
+    if (!tabId || !listElement) return;
+    event.preventDefault();
+    event.stopPropagation();
+    listElement.setPointerCapture(event.pointerId);
+    draggedNavigationTabIdRef.current = tabId;
+    navigationTabDragOrderRef.current = [...navigationTabOrder];
+    setDraggedNavigationTabId(tabId);
+    setNavigationTabDragOrder([...navigationTabOrder]);
+  };
+
+  const moveNavigationTabDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const sourceId = draggedNavigationTabIdRef.current;
+    if (!sourceId) return;
+    event.preventDefault();
+    const targetElement = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-navigation-tab-id]') as HTMLElement | null;
+    const targetId = targetElement?.dataset.navigationTabId;
+    if (!targetElement || !targetId || targetId === sourceId) {
+      setDragOverNavigationTabId(null);
+      return;
+    }
+    setDragOverNavigationTabId(targetId);
+    const bounds = targetElement.getBoundingClientRect();
+    const afterTarget = event.clientX >= bounds.left + bounds.width / 2;
+    const baseOrder = navigationTabDragOrderRef.current ?? navigationTabOrder;
+    const nextOrder = getReorderedNavigationTabOrder(sourceId, targetId, afterTarget, baseOrder);
+    if (nextOrder) {
+      navigationTabDragOrderRef.current = nextOrder;
+      setNavigationTabDragOrder(nextOrder);
+    }
+  };
+
+  const finishNavigationTabDrag = (event: React.PointerEvent<HTMLDivElement>, commit: boolean) => {
+    const pointerId = event.pointerId;
+    if (commit && draggedNavigationTabIdRef.current && navigationTabDragOrderRef.current) {
+      onReorderNavigationTabs(navigationTabDragOrderRef.current);
+    }
+    if (event.currentTarget.hasPointerCapture(pointerId)) event.currentTarget.releasePointerCapture(pointerId);
+    draggedNavigationTabIdRef.current = null;
+    navigationTabDragOrderRef.current = null;
+    setDraggedNavigationTabId(null);
+    setNavigationTabDragOrder(null);
+    setDragOverNavigationTabId(null);
+  };
 
   // Helper to get active theme object
   const activeCustomTheme = (() => {
@@ -858,13 +1504,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     return 'CSS';
   };
 
+  const discordPreviewProgressPercent = currentTrack?.duration
+    ? Math.min(100, Math.max(0, (currentTime / currentTrack.duration) * 100))
+    : isPlaying ? 45 : 0;
+
   return (
     <div 
       onClick={handleClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm select-none cursor-pointer ${backdropClass}`}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm select-none cursor-default ${backdropClass}`}
     >
       <div 
-        className={`w-full max-w-xl bg-md3-surface-container rounded-3xl border border-md3-outline-variant/30 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-md3-on-surface cursor-default ${dialogClass}`}
+        className={`w-full h-[85vh] max-w-xl min-h-0 bg-md3-surface-container rounded-3xl border border-md3-outline-variant/30 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] text-md3-on-surface cursor-default ${dialogClass}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -897,6 +1547,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ? t.settings.logs
                   : currentView === 'library_folders'
                   ? t.settings.libraryFolders
+                  : currentView === 'plugins'
+                  ? (language === 'ru' ? 'Менеджер плагинов' : 'Plugin manager')
                   : t.settings.title}
               </h3>
               <p className="text-xs text-md3-on-surface-variant">
@@ -910,6 +1562,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ? t.settings.logsDesc
                   : currentView === 'library_folders'
                   ? t.settings.libraryFoldersDesc
+                  : currentView === 'plugins'
+                  ? (language === 'ru' ? 'Управление расширениями' : 'Manage extensions')
                   : t.settings.subtitle}
               </p>
             </div>
@@ -917,6 +1571,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* Right side: Update button (if update is available) + Close button */}
           <div className="flex items-center gap-3.5 shrink-0">
+            {currentView === 'plugins' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => { void refreshExternalPlugins(); }}
+                  disabled={pluginManagerLoading}
+                  title={language === 'ru' ? 'Обновить список плагинов' : 'Refresh plugins'}
+                  aria-label={language === 'ru' ? 'Обновить список плагинов' : 'Refresh plugins'}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-4 w-4 ${pluginManagerLoading ? 'animate-spin' : ''}`} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void openPluginsFolder().catch(error => {
+                      setPluginManagerError(error instanceof Error ? error.message : String(error));
+                    });
+                  }}
+                  disabled={!isTauri()}
+                  title={language === 'ru' ? 'Открыть папку плагинов' : 'Open plugins folder'}
+                  aria-label={language === 'ru' ? 'Открыть папку плагинов' : 'Open plugins folder'}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <FolderOpen className="h-4 w-4" />
+                </button>
+              </>
+            )}
             {currentView === 'main' && (updateStatus === 'available' || hasUpdate) && (
               <button
                 tabIndex={-1}
@@ -930,6 +1612,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
             )}
 
+            {currentView === 'discord' && (
+              <DiscordShortcutHint
+                language={language}
+                shortcutLabel={formatShortcut(keyboardShortcuts.toggleDiscord, language)}
+              />
+            )}
             <button
               onClick={handleClose}
               className="p-1.5 rounded-full text-md3-on-surface-variant hover:bg-md3-surface-container hover:text-md3-on-surface cursor-pointer outline-none focus:outline-none"
@@ -941,205 +1629,115 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Content */}
         {currentView === 'shortcuts' ? (
-          /* Keyboard Shortcuts View (100% Fully Localized) */
-          <div key="view-shortcuts" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 anim-view-slide-right">
-            {/* Playback & Volume */}
-            <div className="space-y-3">
-              <div className="text-xs font-bold uppercase tracking-wider text-md3-primary flex items-center gap-2">
-                <Music className="w-4 h-4" />
-                <span>{t.shortcuts.playbackAndSound}</span>
+          <div key="view-shortcuts" className="flex-1 space-y-5 overflow-y-auto p-6 custom-scrollbar anim-view-slide-right">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-md3-outline-variant/20 bg-md3-surface-container-low p-4">
+              <div>
+                <h4 className="text-sm font-bold text-md3-on-surface">{language === 'ru' ? 'Настраиваемые сочетания' : 'Customizable shortcuts'}</h4>
+                <p className="mt-1 text-xs text-md3-on-surface-variant">{language === 'ru' ? 'Нажмите на сочетание и затем нажмите нужную клавишу или комбинацию.' : 'Select a shortcut, then press the key or combination you want to assign.'}</p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.space}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    {t.shortcuts.spaceKey}
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.nextTrack}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Ctrl + →
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.prevTrack}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Ctrl + ←
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.seek}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    ← / →
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.volumeAdj}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Ctrl + ↑ / ↓
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.mute}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    M
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.shuffle}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    E
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.repeat}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    R
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{language === 'ru' ? '10-полосный эквалайзер' : '10-Band Equalizer'}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Ctrl + E
-                  </kbd>
-                </div>
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onSetKeyboardShortcuts(DEFAULT_KEYBOARD_SHORTCUTS);
+                  setRecordingShortcutId(null);
+                  setShortcutCaptureError(null);
+                }}
+                className="flex h-9 shrink-0 items-center gap-2 rounded-full border border-md3-outline-variant/20 bg-md3-surface-container px-3 text-xs font-semibold text-md3-on-surface-variant hover:bg-md3-surface-container-high hover:text-md3-on-surface"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                {language === 'ru' ? 'Сбросить по умолчанию' : 'Reset to defaults'}
+              </button>
             </div>
 
-            {/* Library & Track Management */}
-            <div className="space-y-3">
-              <div className="text-xs font-bold uppercase tracking-wider text-md3-primary flex items-center gap-2">
-                <SlidersHorizontal className="w-4 h-4" />
-                <span>{t.shortcuts.libraryAndManagement}</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.trackNav}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    ↑ / ↓
-                  </kbd>
-                </div>
+            {shortcutCaptureError && (
+              <div role="alert" className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-500">{shortcutCaptureError}</div>
+            )}
 
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.playSelected}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Enter
-                  </kbd>
-                </div>
+            {shortcutGroups.map(group => {
+              const GroupIcon = group.icon;
+              return (
+                <section key={group.title} className="space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-md3-primary">
+                    <GroupIcon className="h-4 w-4" />
+                    <span>{group.title}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {group.ids.map(id => {
+                      const recording = recordingShortcutId === id;
+                      return (
+                        <div key={id} className="flex min-h-14 items-center gap-2 rounded-xl border border-md3-outline-variant/15 bg-md3-surface p-2.5">
+                          <span className="min-w-0 flex-1 text-xs text-md3-on-surface-variant">{shortcutLabels[id]}</span>
+                          <button
+                            type="button"
+                            data-shortcut-recorder={recording ? 'true' : undefined}
+                            aria-label={recording
+                              ? (language === 'ru' ? `Нажмите новое сочетание для действия: ${shortcutLabels[id]}` : `Press a new shortcut for: ${shortcutLabels[id]}`)
+                              : (language === 'ru' ? `Изменить сочетание: ${shortcutLabels[id]}` : `Change shortcut: ${shortcutLabels[id]}`)}
+                            onClick={event => {
+                              setRecordingShortcutId(id);
+                              setShortcutCaptureError(null);
+                              event.currentTarget.focus();
+                            }}
+                            onKeyDown={event => recording && captureShortcut(event, id)}
+                            className={`min-w-[104px] shrink-0 rounded-lg border px-2.5 py-1.5 text-center font-mono text-[11px] font-bold transition-colors ${recording ? 'border-md3-primary bg-md3-primary/10 text-md3-primary ring-2 ring-md3-primary/20' : 'border-md3-outline-variant/30 bg-md3-surface-container-high text-md3-primary hover:border-md3-primary/50'}`}
+                          >
+                            {recording ? (language === 'ru' ? 'Нажмите клавиши…' : 'Press keys…') : formatShortcut(keyboardShortcuts[id], language)}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => resetShortcut(id)}
+                            title={language === 'ru' ? `Сбросить сочетание: ${shortcutLabels[id]}` : `Reset shortcut: ${shortcutLabels[id]}`}
+                            aria-label={language === 'ru' ? `Сбросить сочетание: ${shortcutLabels[id]}` : `Reset shortcut: ${shortcutLabels[id]}`}
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-md3-on-surface-variant transition-colors hover:bg-md3-primary/10 hover:text-md3-primary"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {fixedShortcutRows.filter(row => row.group === group.id).map(row => (
+                      <div key={row.label} className="flex min-h-14 items-center justify-between gap-3 rounded-xl border border-md3-outline-variant/15 bg-md3-surface p-2.5">
+                        <span className="min-w-0 text-xs text-md3-on-surface-variant">{row.label}</span>
+                        <kbd className="shrink-0 rounded-lg border border-md3-outline-variant/30 bg-md3-surface-container-high px-2.5 py-1.5 text-center font-mono text-[11px] font-bold text-md3-on-surface-variant">{row.keys}</kbd>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
 
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.editTags}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Shift + Enter
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.selectAll}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Ctrl + A
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.deleteTracks}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Delete
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.deleteTracksFromDisk}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-red-400 shadow-xs">
-                    Shift + Delete
-                  </kbd>
-                </div>
-              </div>
-            </div>
-
-            {/* Navigation & Panels */}
-            <div className="space-y-3">
-              <div className="text-xs font-bold uppercase tracking-wider text-md3-primary flex items-center gap-2">
-                <LayoutGrid className="w-4 h-4" />
-                <span>{t.shortcuts.navigationAndPanels}</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.switchTabs}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Tab / Shift + Tab
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.search}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Ctrl + F
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.dismiss}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Escape
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.queue}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Q
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.clearQueue}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    X
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.lyrics}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    T / L
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.discord}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    D
-                  </kbd>
-                </div>
-
-                <div className="flex items-center justify-between p-2.5 rounded-xl bg-md3-surface border border-md3-outline-variant/15">
-                  <span className="text-md3-on-surface-variant">{t.shortcuts.settings}</span>
-                  <kbd className="px-2 py-0.5 rounded-lg bg-md3-surface-container-high border border-md3-outline-variant/30 font-mono text-[11px] font-bold text-md3-primary shadow-xs">
-                    Ctrl + ,
-                  </kbd>
-                </div>
-
-              </div>
+            <div className="rounded-xl border border-md3-outline-variant/15 bg-md3-surface-container-low px-3.5 py-3 text-xs leading-relaxed text-md3-on-surface-variant">
+              {language === 'ru'
+                ? 'Часть сочетаний закреплена за системной навигацией и управлением. Для сочетаний с Ctrl на macOS также принимается Cmd.'
+                : 'Some shortcuts are reserved for system navigation and control. On macOS, Cmd also works for shortcuts that use Ctrl.'}
             </div>
           </div>
+        ) : currentView === 'plugins' ? (
+          <PluginManagerView
+            language={language}
+            externalPlugins={externalPlugins}
+            preferences={pluginPreferences}
+            runtimeStates={pluginRuntimeStates}
+            loading={pluginManagerLoading}
+            error={pluginManagerError}
+            discordPluginEnabled={discordPluginEnabled}
+            onToggleDiscordPlugin={onToggleDiscordPlugin}
+            onOpenDiscordSettings={() => setCurrentView('discord')}
+            onToggleExternalPlugin={handleToggleExternalPlugin}
+            onUpdatePluginSettings={handleUpdatePluginSettings}
+          />
         ) : currentView === 'discord' ? (
           /* Dedicated Discord Integration Settings View */
           <div key="view-discord" className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 anim-view-slide-right">
             {/* 1. Master Discord Toggle Card */}
-            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 flex flex-col gap-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-[#5865F2]/15 text-[#5865F2] flex items-center justify-center">
+            <div className={`p-4 rounded-3xl border flex flex-col gap-3 transition-all duration-300 ${
+              discordEnabled
+                ? 'bg-[#5865F2]/10 border-[#5865F2]/40 shadow-[0_8px_28px_rgba(88,101,242,0.12)]'
+                : 'bg-md3-surface-container-low border-md3-outline-variant/20'
+            }`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="w-10 h-10 shrink-0 rounded-2xl bg-[#5865F2]/15 text-[#5865F2] flex items-center justify-center">
                     <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24">
                       <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.078.078 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
                     </svg>
@@ -1148,170 +1746,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div className="text-sm font-bold text-md3-on-surface">
                       {t.settings.discordToggle}
                     </div>
-                    <div className="text-xs text-md3-on-surface-variant">
-                      {t.settings.discordToggleDesc}
-                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${
-                    discordEnabled
-                      ? 'bg-[#5865F2]/15 text-[#5865F2] border border-[#5865F2]/30'
-                      : 'bg-md3-surface-container-high text-md3-on-surface-variant'
-                  }`}>
-                    {discordEnabled ? t.settings.discordEnabled : t.settings.discordDisabled}
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={discordEnabled}
-                    onChange={onToggleDiscord}
-                    className="w-5 h-5 rounded accent-md3-primary cursor-pointer"
-                  />
-                </div>
+                <MaterialYouSwitch
+                  checked={discordEnabled}
+                  label={language === 'ru'
+                    ? `Публикация активности Discord: ${discordEnabled ? 'включена' : 'выключена'}`
+                    : `Discord activity sharing: ${discordEnabled ? 'enabled' : 'disabled'}`}
+                  onClick={onToggleDiscord}
+                  accent="discord"
+                />
               </div>
             </div>
 
-            {/* 2. Status Display Format Selection ("Слушает" vs "Слушает ArachnidMP") */}
-            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
-              <div>
-                <div className="text-sm font-bold text-md3-on-surface">
-                  {t.settings.discordStatusMode}
-                </div>
-                <div className="text-xs text-md3-on-surface-variant">
-                  {t.settings.discordStatusModeDesc}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                {/* Option 1: "Слушает" */}
-                <button
-                  type="button"
-                  onClick={() => onSetDiscordStatusMode('listening')}
-                  className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col gap-1.5 ${
-                    discordStatusMode === 'listening'
-                      ? 'bg-md3-primary/10 border-md3-primary ring-1 ring-md3-primary shadow-xs'
-                      : 'bg-md3-surface border-md3-outline-variant/20 hover:border-md3-outline-variant/40'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-md3-on-surface">
-                      {t.settings.discordStatusListening}
-                    </span>
-                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                      discordStatusMode === 'listening'
-                        ? 'border-md3-primary bg-md3-primary text-md3-on-primary'
-                        : 'border-md3-outline-variant'
-                    }`}>
-                      {discordStatusMode === 'listening' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-md3-on-surface-variant leading-relaxed">
-                    {language === 'ru'
-                      ? 'Минималистичный статус без названия программы. В списке профилей отображается только слово «Слушает».'
-                      : 'Minimalist status without application name. Friends see only “Listening to” in member list.'}
-                  </p>
-                </button>
-
-                {/* Option 2: "Слушает ArachnidMP" */}
-                <button
-                  type="button"
-                  onClick={() => onSetDiscordStatusMode('listening_app')}
-                  className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col gap-1.5 ${
-                    discordStatusMode === 'listening_app'
-                      ? 'bg-md3-primary/10 border-md3-primary ring-1 ring-md3-primary shadow-xs'
-                      : 'bg-md3-surface border-md3-outline-variant/20 hover:border-md3-outline-variant/40'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-md3-on-surface">
-                      {t.settings.discordStatusListeningApp}
-                    </span>
-                    <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                      discordStatusMode === 'listening_app'
-                        ? 'border-md3-primary bg-md3-primary text-md3-on-primary'
-                        : 'border-md3-outline-variant'
-                    }`}>
-                      {discordStatusMode === 'listening_app' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-md3-on-surface-variant leading-relaxed">
-                    {language === 'ru'
-                      ? 'Фирменный статус с указанием плеера: «Слушает ArachnidMP». Подчеркивает воспроизведение в плеере.'
-                      : 'Branded status showing player name: “Listening to ArachnidMP”. Emphasizes playback in player.'}
-                  </p>
-                </button>
-              </div>
-            </div>
-
-            {/* 3. Playback State Icons (2 separate checkboxes: Play and Pause) */}
-            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
-              <div>
-                <div className="text-sm font-bold text-md3-on-surface">
-                  {t.settings.discordIcons}
-                </div>
-                <div className="text-xs text-md3-on-surface-variant">
-                  {t.settings.discordIconsDesc}
-                </div>
-              </div>
-
-              <div className="space-y-2 pt-1">
-                {/* Checkbox 1: Play Icon */}
-                <label className="flex items-center justify-between p-3 rounded-2xl bg-md3-surface border border-md3-outline-variant/15 hover:border-md3-outline-variant/30 transition-colors cursor-pointer">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
-                      <img
-                        src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png"
-                        alt="Play"
-                        className="w-4 h-4 object-contain"
-                      />
-                    </div>
-                    <div>
-                      <div className="text-xs font-semibold text-md3-on-surface">
-                        {t.settings.discordShowPlayIcon}
-                      </div>
-                      <div className="text-[11px] text-md3-on-surface-variant">
-                        {t.settings.discordShowPlayIconDesc}
-                      </div>
-                    </div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={discordShowPlayIcon}
-                    onChange={onToggleDiscordPlayIcon}
-                    className="w-4 h-4 rounded accent-md3-primary cursor-pointer ml-3 shrink-0"
-                  />
-                </label>
-
-                {/* Checkbox 2: Pause Icon */}
-                <label className="flex items-center justify-between p-3 rounded-2xl bg-md3-surface border border-md3-outline-variant/15 hover:border-md3-outline-variant/30 transition-colors cursor-pointer">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
-                      <img
-                        src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png"
-                        alt="Pause"
-                        className="w-4 h-4 object-contain"
-                      />
-                    </div>
-                    <div>
-                      <div className="text-xs font-semibold text-md3-on-surface">
-                        {t.settings.discordShowPauseIcon}
-                      </div>
-                      <div className="text-[11px] text-md3-on-surface-variant">
-                        {t.settings.discordShowPauseIconDesc}
-                      </div>
-                    </div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={discordShowPauseIcon}
-                    onChange={onToggleDiscordPauseIcon}
-                    className="w-4 h-4 rounded accent-md3-primary cursor-pointer ml-3 shrink-0"
-                  />
-                </label>
-              </div>
-            </div>
-
-            {/* 4. Live Discord Mockup Profile Card */}
+            {/* 2. Live Discord Mockup Profile Card */}
             <div className="p-4 rounded-3xl bg-[#2b2d31] border border-white/10 space-y-3 shadow-lg">
               <div className="text-[11px] font-bold text-[#949ba4] uppercase tracking-wider flex items-center justify-between">
                 <span>{t.settings.discordPreview}</span>
@@ -1329,36 +1777,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="flex items-start gap-3.5">
-                  {/* Large Album Art with Small Play/Pause Badge */}
-                  <div className="relative w-16 h-16 rounded-xl bg-[#313338] overflow-hidden shrink-0 border border-white/5 shadow-md">
-                    {currentTrack && currentTrack.coverArt ? (
-                      <img
-                        src={currentTrack.coverArt}
-                        alt="Artwork"
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#5865F2]/20 to-[#5865F2]/40 text-[#5865F2] font-black text-xl">
-                        A
-                      </div>
-                    )}
-
-                    {/* Small Play/Pause Badge */}
+                  {/* Keep real artwork first; otherwise show the white Lucide fallback on Discord's dark background. */}
+                  <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-white/5 bg-[#313338] shadow-md">
+                    <div className="absolute inset-0 overflow-hidden rounded-xl">
+                      {currentTrack?.coverArt ? (
+                        <img
+                          src={coverVariantUrl(currentTrack.coverArt, 96)}
+                          alt="Artwork"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-[#313338] text-white">
+                          {discordFallbackIcon === 'note' ? (
+                            <Music aria-label={t.settings.discordFallbackNote} className="h-8 w-8" />
+                          ) : (
+                            <Disc3 aria-label={t.settings.discordFallbackDisc} className={`h-8 w-8 ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }} />
+                          )}
+                        </div>
+                      )}
+                    </div>
                     {isPlaying && discordShowPlayIcon && (
-                      <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-[#1e1f22] border-2 border-[#1e1f22] flex items-center justify-center shadow-md">
+                      <div className="absolute -bottom-1 -right-1 z-10 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#1e1f22] bg-[#1e1f22] shadow-md">
                         <img
                           src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png"
                           alt="Playing"
-                          className="w-full h-full object-contain rounded-full"
+                          className="h-full w-full rounded-full object-contain"
                         />
                       </div>
                     )}
                     {!isPlaying && discordShowPauseIcon && (
-                      <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-[#1e1f22] border-2 border-[#1e1f22] flex items-center justify-center shadow-md">
+                      <div className="absolute -bottom-1 -right-1 z-10 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#1e1f22] bg-[#1e1f22] shadow-md">
                         <img
                           src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png"
                           alt="Paused"
-                          className="w-full h-full object-contain rounded-full"
+                          className="h-full w-full rounded-full object-contain"
                         />
                       </div>
                     )}
@@ -1367,40 +1819,161 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {/* Metadata and Real Timeline Progress Bar */}
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="font-bold text-xs text-white truncate">
-                      {currentTrack ? currentTrack.title : 'Bohemian Rhapsody'}
+                      {currentTrack ? currentTrack.title : 'The Sentinel'}
                     </div>
                     <div className="text-[11px] text-[#dbdee1] truncate font-medium">
-                      by {currentTrack ? currentTrack.artist : 'Queen'}
+                      {currentTrack ? currentTrack.artist : 'Judas Priest'}
                     </div>
                     <div className="text-[11px] text-[#949ba4] truncate">
-                      on {currentTrack ? currentTrack.album : 'A Night at the Opera'}
+                      {currentTrack ? currentTrack.album : 'Defender of the Faith'}
                     </div>
 
-                    {/* Real Timeline Progress Bar */}
-                    <div className="space-y-1 pt-1.5">
-                      <div className="w-full bg-[#4e5058] h-1.5 rounded-full overflow-hidden">
+                    {/* Thin, filled Discord-style timeline */}
+                    <div className="flex items-center gap-2 pt-1.5 text-[10px] text-[#949ba4] font-mono">
+                      <span className="shrink-0">{formatTime(currentTime)}</span>
+                      <div className="h-[2px] min-w-0 flex-1 overflow-hidden rounded-full bg-[#4e5058]">
                         <div
-                          className="bg-white h-full rounded-full transition-all duration-300"
-                          style={{
-                            width: `${
-                              currentTrack && currentTrack.duration
-                                ? Math.min(100, Math.max(0, (currentTime / currentTrack.duration) * 100))
-                                : isPlaying ? 45 : 0
-                            }%`
-                          }}
+                          className="h-full rounded-full bg-[#f2f3f5] transition-[width] duration-300"
+                          style={{ width: `${discordPreviewProgressPercent}%` }}
                         />
                       </div>
-                      <div className="flex justify-between text-[10px] text-[#949ba4] font-mono">
-                        <span>{formatTime(currentTime)}</span>
-                        <span>{currentTrack && currentTrack.duration ? formatTime(currentTrack.duration) : '5:55'}</span>
-                      </div>
+                      <span className="shrink-0">{currentTrack && currentTrack.duration ? formatTime(currentTrack.duration) : '5:04'}</span>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* 5. Additional Settings: TopBar Switch & Custom Client ID */}
+            {/* 3. Activity Display Format Selection */}
+            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
+              <div>
+                <div className="text-sm font-bold text-md3-on-surface">
+                  {t.settings.discordStatusMode}
+                </div>
+                <div className="text-xs text-md3-on-surface-variant">
+                  {t.settings.discordStatusModeDesc}
+                </div>
+              </div>
+
+              <div role="group" aria-label={t.settings.discordStatusMode} className="relative flex items-center overflow-hidden rounded-2xl border border-md3-outline-variant/20 bg-md3-surface p-1 select-none">
+                <div className={`pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-xl bg-md3-primary shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${discordStatusMode === 'listening_app' ? 'translate-x-full' : ''}`} />
+                <button
+                  type="button"
+                  aria-pressed={discordStatusMode === 'listening'}
+                  onClick={() => onSetDiscordStatusMode('listening')}
+                  className={`relative z-10 flex min-w-0 flex-1 items-center justify-center rounded-xl px-2 py-3 text-center text-xs transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-md3-primary/60 ${
+                    discordStatusMode === 'listening'
+                      ? 'font-bold text-md3-on-primary'
+                      : 'font-medium text-md3-on-surface-variant hover:text-md3-on-surface'
+                  }`}
+                >
+                  {t.settings.discordStatusListening}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={discordStatusMode === 'listening_app'}
+                  onClick={() => onSetDiscordStatusMode('listening_app')}
+                  className={`relative z-10 flex min-w-0 flex-1 items-center justify-center rounded-xl px-2 py-3 text-center text-xs transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-md3-primary/60 ${
+                    discordStatusMode === 'listening_app'
+                      ? 'font-bold text-md3-on-primary'
+                      : 'font-medium text-md3-on-surface-variant hover:text-md3-on-surface'
+                  }`}
+                >
+                  {t.settings.discordStatusListeningApp}
+                </button>
+              </div>
+            </div>
+
+            {/* 4. No-cover icon selection */}
+            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
+              <div className="text-sm font-bold text-md3-on-surface">
+                {t.settings.discordFallbackIcon}
+              </div>
+              <div role="group" aria-label={t.settings.discordFallbackIcon} className="relative flex items-center overflow-hidden rounded-2xl border border-md3-outline-variant/20 bg-md3-surface p-1 select-none">
+                <div className={`pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-xl bg-md3-primary shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.2,0,0,1)] ${discordFallbackIcon === 'disc' ? 'translate-x-full' : ''}`} />
+                <button
+                  type="button"
+                  aria-pressed={discordFallbackIcon === 'note'}
+                  onClick={() => onSetDiscordFallbackIcon('note')}
+                  className={`relative z-10 flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-2 py-3 text-center text-xs transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-md3-primary/60 ${discordFallbackIcon === 'note' ? 'font-bold text-md3-on-primary' : 'font-medium text-md3-on-surface-variant hover:text-md3-on-surface'}`}
+                >
+                  <Music className="h-4 w-4" aria-hidden="true" />
+                  {t.settings.discordFallbackNote}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={discordFallbackIcon === 'disc'}
+                  onClick={() => onSetDiscordFallbackIcon('disc')}
+                  className={`relative z-10 flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-2 py-3 text-center text-xs transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-md3-primary/60 ${discordFallbackIcon === 'disc' ? 'font-bold text-md3-on-primary' : 'font-medium text-md3-on-surface-variant hover:text-md3-on-surface'}`}
+                >
+                  <Disc3 className="h-4 w-4" aria-hidden="true" />
+                  {t.settings.discordFallbackDisc}
+                </button>
+              </div>
+            </div>
+
+            {/* 5. Playback State Icons (2 separate checkboxes: Play and Pause) */}
+            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
+              <div>
+                <div className="text-sm font-bold text-md3-on-surface">
+                  {t.settings.discordIcons}
+                </div>
+                <div className="text-xs text-md3-on-surface-variant">
+                  {t.settings.discordIconsDesc}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <label className="flex min-h-14 items-center justify-between gap-2 rounded-2xl border border-md3-outline-variant/15 bg-md3-surface p-3 transition-colors hover:border-md3-outline-variant/30 cursor-pointer">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10">
+                      <img src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png" alt="" className="h-4 w-4 object-contain" />
+                    </div>
+                    <span className="min-w-0 text-xs font-semibold text-md3-on-surface">{t.settings.discordShowPlayIcon}</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={discordShowPlayIcon}
+                    onChange={onToggleDiscordPlayIcon}
+                    aria-label={t.settings.discordShowPlayIcon}
+                    className="h-4 w-4 shrink-0 cursor-pointer rounded accent-md3-primary"
+                  />
+                </label>
+
+                <label className="flex min-h-14 items-center justify-between gap-2 rounded-2xl border border-md3-outline-variant/15 bg-md3-surface p-3 transition-colors hover:border-md3-outline-variant/30 cursor-pointer">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-amber-500/20 bg-amber-500/10">
+                      <img src="https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png" alt="" className="h-4 w-4 object-contain" />
+                    </div>
+                    <span className="min-w-0 text-xs font-semibold text-md3-on-surface">{t.settings.discordShowPauseIcon}</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={discordShowPauseIcon}
+                    onChange={onToggleDiscordPauseIcon}
+                    aria-label={t.settings.discordShowPauseIcon}
+                    className="h-4 w-4 shrink-0 cursor-pointer rounded accent-md3-primary"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* 6. Cover upload host selector */}
+            <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
+              <div>
+                <div className="text-sm font-bold text-md3-on-surface">
+                  {t.settings.discordCoverHost}
+                </div>
+              </div>
+              <DiscordCoverHostPicker
+                value={discordCoverHost}
+                options={discordCoverHostOptions}
+                label={t.settings.discordCoverHost}
+                onChange={onSetDiscordCoverHost}
+              />
+            </div>
+
+            {/* 7. Additional Settings: TopBar Switch & Custom Client ID */}
             <div className="p-4 rounded-3xl bg-md3-surface-container-low border border-md3-outline-variant/20 space-y-3">
               {/* Show Discord Quick Switch in TopBar */}
               <label className="flex items-center justify-between p-3 rounded-2xl bg-md3-surface border border-md3-outline-variant/15 hover:border-md3-outline-variant/30 transition-colors cursor-pointer">
@@ -1498,7 +2071,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className="markdown-body"
                     onClick={handleMarkdownClick}
                     dangerouslySetInnerHTML={{
-                      __html: marked.parse(latestRelease.body || '', { async: false }) as string,
+                      __html: DOMPurify.sanitize(marked.parse(latestRelease.body || '', { async: false }) as string),
                     }}
                   />
                 </div>
@@ -1637,7 +2210,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs font-bold text-md3-on-surface">music/</span>
                     <span className="text-xs text-md3-on-surface-variant font-medium">
-                      ({tracks.filter(t => t.path && (t.path.toLowerCase().includes('/music/') || t.path.toLowerCase().includes('\\music\\') || t.path.toLowerCase().startsWith('music/'))).length} {t.settings.tracksCount})
+                      ({isTauri() ? (libraryFolderTrackCounts?.portable ?? '…') : tracks.filter(t => t.path && (t.path.toLowerCase().includes('/music/') || t.path.toLowerCase().includes('\\music\\') || t.path.toLowerCase().startsWith('music/'))).length} {t.settings.tracksCount})
                     </span>
                   </div>
                   <p className="text-xs text-md3-on-surface-variant leading-relaxed">
@@ -1681,11 +2254,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <button
                     type="button"
                     tabIndex={-1}
+                    disabled={isScanning}
                     onClick={handleAddWatchedFolderClick}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-md3-primary text-md3-on-primary text-xs font-bold hover:opacity-90 shadow-sm transition-all cursor-pointer shrink-0"
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-md3-primary text-md3-on-primary text-xs font-bold hover:opacity-90 shadow-sm transition-all cursor-pointer disabled:cursor-wait disabled:opacity-60 shrink-0"
                   >
-                    <FolderPlus className="w-3.5 h-3.5" />
-                    <span>{t.settings.addFolder}</span>
+                    {isScanning ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FolderPlus className="w-3.5 h-3.5" />}
+                    <span>{isScanning ? t.settings.scanningLibrary : t.settings.addFolder}</span>
                   </button>
                 )}
               </div>
@@ -1700,7 +2274,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                 ) : (
                   watchedFolders.map((folderPath) => {
-                    const folderTracksCount = tracks.filter(t => t.path && t.path.toLowerCase().startsWith(folderPath.toLowerCase())).length;
+                    const folderRoot = folderPath.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+                    const folderTracksCount = isTauri()
+                      ? (libraryFolderTrackCounts?.watched[folderPath] ?? null)
+                      : tracks.filter(t => {
+                        if (!t.path) return false;
+                        const trackPath = t.path.trim().replace(/\\/g, '/').toLowerCase();
+                        return trackPath === folderRoot || trackPath.startsWith(`${folderRoot}/`);
+                      }).length;
                     return (
                       <div
                         key={folderPath}
@@ -1711,7 +2292,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             {folderPath}
                           </div>
                           <div className="text-[11px] text-md3-on-surface-variant">
-                            {folderTracksCount} {t.settings.tracksCount}
+                            {folderTracksCount ?? '…'} {t.settings.tracksCount}
                           </div>
                         </div>
 
@@ -1734,9 +2315,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             <button
                               type="button"
                               tabIndex={-1}
-                              onClick={() => onRemoveWatchedFolder(folderPath)}
+                              onClick={() => { void onRemoveWatchedFolder(folderPath); }}
                               className="p-2 rounded-xl text-md3-on-surface-variant hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
-                              title={t.settings.removeFolder}
+                              title={language === 'ru' ? 'Убрать папку и её треки из медиатеки (файлы останутся на диске)' : 'Remove folder and its tracks from the library (files stay on disk)'}
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -1763,20 +2344,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 {onToggleAutoScanOnStartup && (
-                  <button
-                    type="button"
-                    tabIndex={-1}
+                  <MaterialYouSwitch
+                    checked={autoScanOnStartup}
+                    label={`${t.settings.autoScanStartup}: ${autoScanOnStartup
+                      ? (language === 'ru' ? 'включено' : 'enabled')
+                      : (language === 'ru' ? 'выключено' : 'disabled')}`}
                     onClick={onToggleAutoScanOnStartup}
-                    className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer outline-none focus:outline-none shrink-0 ${
-                      autoScanOnStartup ? 'bg-md3-primary' : 'bg-md3-surface-container-highest border border-md3-outline-variant/40'
-                    }`}
-                  >
-                    <div
-                      className={`w-4 h-4 rounded-full bg-white transition-transform duration-200 absolute top-1 ${
-                        autoScanOnStartup ? 'left-7' : 'left-1'
-                      }`}
-                    />
-                  </button>
+                  />
                 )}
               </div>
 
@@ -1813,26 +2387,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div key="view-main-settings" ref={mainSettingsContainerRef} className={`p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1 ${navDirection === 'backward' ? 'anim-view-slide-left' : ''}`}>
             {/* 1. Section: Appearance (Внешний вид) */}
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
-                  <Palette className="w-4 h-4 text-md3-primary" />
-                  <span>{t.settings.appearance}</span>
-                </div>
-                <button
-                  onClick={handleOpenThemesFolder}
-                  title={t.settings.openThemesFolder}
-                  className="text-[11px] flex items-center gap-1.5 text-md3-primary hover:underline cursor-pointer"
-                >
-                  <FolderOpen className="w-3.5 h-3.5" />
-                  <span>{t.settings.openThemesFolder}</span>
-                </button>
+              <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
+                <Palette className="w-4 h-4 text-md3-primary" />
+                <span>{t.settings.appearance}</span>
               </div>
 
               {/* Theme Style Selector (ШТОРКА ТЕМЫ ОФОРМЛЕНИЯ) */}
               <div className="space-y-2">
-                <div className="text-xs font-semibold text-md3-on-surface flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5 text-md3-primary" />
-                  <span>{t.settings.themeStyle}</span>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-semibold text-md3-on-surface">{t.settings.themeStyle}</span>
+                  <button
+                    onClick={handleOpenThemesFolder}
+                    title={t.settings.openThemesFolder}
+                    className="flex shrink-0 items-center gap-1.5 text-[11px] text-md3-primary hover:underline cursor-pointer"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    <span>{t.settings.openThemesFolder}</span>
+                  </button>
                 </div>
 
                 {/* Шторка trigger card */}
@@ -2009,7 +2580,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   >
                     {/* Smooth sliding glow pill indicator */}
                     <div
-                      className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                      className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
                       style={{
                         left: `${themeModeIndicatorStyle.left}px`,
                         width: `${themeModeIndicatorStyle.width}px`,
@@ -2024,7 +2595,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       ref={(el) => { themeModeRefs.current['dark'] = el; }}
                       tabIndex={-1}
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => onSetThemeMode('dark')}
+                      onClick={() => { enableIndicatorTransitions(); onSetThemeMode('dark'); }}
                       className={`relative z-10 flex-1 py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                         themeMode === 'dark'
                           ? 'text-md3-on-primary font-bold'
@@ -2040,7 +2611,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       ref={(el) => { themeModeRefs.current['amoled'] = el; }}
                       tabIndex={-1}
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => onSetThemeMode('amoled')}
+                      onClick={() => { enableIndicatorTransitions(); onSetThemeMode('amoled'); }}
                       className={`relative z-10 flex-1 py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                         themeMode === 'amoled'
                           ? 'text-md3-on-primary font-bold'
@@ -2060,7 +2631,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       ref={(el) => { themeModeRefs.current['light'] = el; }}
                       tabIndex={-1}
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => onSetThemeMode('light')}
+                      onClick={() => { enableIndicatorTransitions(); onSetThemeMode('light'); }}
                       className={`relative z-10 flex-1 py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                         themeMode === 'light'
                           ? 'text-md3-on-primary font-bold'
@@ -2083,7 +2654,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     >
                       {/* Smooth sliding glow pill indicator */}
                       <div
-                        className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                        className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
                         style={{
                           left: `${colorSchemeIndicatorStyle.left}px`,
                           width: `${colorSchemeIndicatorStyle.width}px`,
@@ -2098,7 +2669,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         ref={(el) => { colorSchemeRefs.current['dynamic'] = el; }}
                         tabIndex={-1}
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => onSetColorSchemeMode('dynamic')}
+                        onClick={() => { enableIndicatorTransitions(); onSetColorSchemeMode('dynamic'); }}
                         className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                           colorSchemeMode === 'dynamic'
                             ? 'text-md3-on-primary font-bold'
@@ -2115,7 +2686,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         ref={(el) => { colorSchemeRefs.current['system'] = el; }}
                         tabIndex={-1}
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => onSetColorSchemeMode('system')}
+                        onClick={() => { enableIndicatorTransitions(); onSetColorSchemeMode('system'); }}
                         className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                           colorSchemeMode === 'system'
                             ? 'text-md3-on-primary font-bold'
@@ -2132,7 +2703,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         ref={(el) => { colorSchemeRefs.current['custom'] = el; }}
                         tabIndex={-1}
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => onSetColorSchemeMode('custom')}
+                        onClick={() => { enableIndicatorTransitions(); onSetColorSchemeMode('custom'); }}
                         className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                           colorSchemeMode === 'custom'
                             ? 'text-md3-on-primary font-bold'
@@ -2165,18 +2736,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               )}
                             </button>
                           ))}
-                          <label
-                            className="relative w-8 h-8 rounded-full shadow-md hover:scale-110 active:scale-95 transition-transform cursor-pointer flex items-center justify-center border-2 border-white/40 overflow-hidden"
-                            style={{ backgroundColor: seedColor }}
-                            title={t.settings.paletteCustom}
-                          >
-                            <input
-                              type="color"
-                              value={seedColor}
-                              onChange={(e) => onSetSeedColor(e.target.value)}
-                              className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
-                            />
-                          </label>
+                          <HexColorInput
+                            color={seedColor}
+                            onChange={onSetSeedColor}
+                            label={language === 'ru' ? 'Акцентный цвет темы' : 'Theme accent color'}
+                            language={language}
+                            compact
+                            showHexInput={false}
+                          />
                         </div>
                       </div>
                     )}
@@ -2338,11 +2905,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
             </div>
 
+            <div className="space-y-4 border-t border-md3-outline-variant/20 pt-4">
+              <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
+                <Volume2 className="w-4 h-4 text-md3-primary" />
+                <span>{t.settings.audioSettings}</span>
+              </div>
+              <OutputDevicePicker value={outputDeviceId} language={language} onChange={onSetOutputDeviceId} />
+            </div>
+
             {/* 2. Section: Track Fading (Затухание трека) */}
             <div className="space-y-3 pt-4 border-t border-md3-outline-variant/20">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
-                  <Volume2 className="w-4 h-4 text-md3-primary" />
+                <div className="text-xs font-semibold text-md3-on-surface">
                   <span>{t.settings.crossfade}</span>
                 </div>
                 <div className="text-xs text-md3-on-surface-variant font-mono">
@@ -2357,7 +2931,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 {/* Smooth sliding glow pill indicator */}
                 <div
-                  className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                  className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
                   style={{
                     left: `${fadeModeIndicatorStyle.left}px`,
                     width: `${fadeModeIndicatorStyle.width}px`,
@@ -2372,7 +2946,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ref={(el) => { fadeModeRefs.current['off'] = el; }}
                   tabIndex={-1}
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => onSetFadeMode('off')}
+                  onClick={() => { enableIndicatorTransitions(); onSetFadeMode('off'); }}
                   className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                     fadeMode === 'off'
                       ? 'text-md3-on-primary font-bold'
@@ -2389,7 +2963,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ref={(el) => { fadeModeRefs.current['track_change_and_pause'] = el; }}
                   tabIndex={-1}
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => onSetFadeMode('track_change_and_pause')}
+                  onClick={() => { enableIndicatorTransitions(); onSetFadeMode('track_change_and_pause'); }}
                   className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                     fadeMode === 'track_change_and_pause'
                       ? 'text-md3-on-primary font-bold'
@@ -2406,7 +2980,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ref={(el) => { fadeModeRefs.current['always'] = el; }}
                   tabIndex={-1}
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => onSetFadeMode('always')}
+                  onClick={() => { enableIndicatorTransitions(); onSetFadeMode('always'); }}
                   className={`relative z-10 flex-1 py-2.5 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${
                     fadeMode === 'always'
                       ? 'text-md3-on-primary font-bold'
@@ -2449,45 +3023,121 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             {/* 3. Section: Navigation Tabs Visibility */}
-            <div className="space-y-3 pt-4 border-t border-md3-outline-variant/20">
+            <div className="space-y-2.5 pt-3 border-t border-md3-outline-variant/20">
               <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
                 <LayoutGrid className="w-4 h-4 text-md3-primary" />
                 <span>{t.settings.navigationTabs}</span>
               </div>
-              <p className="text-xs text-md3-on-surface-variant">
+              <p className="text-[11px] leading-relaxed text-md3-on-surface-variant">
                 {t.settings.navigationTabsDesc}
               </p>
-              <div className="grid grid-cols-2 gap-2">
-                {navTabConfigs.map((tab) => {
-                  const Icon = tab.icon;
-                  const isVisible = visibleTabs[tab.id] ?? true;
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => onToggleTabVisibility(tab.id)}
-                      className={`p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer ${
-                        isVisible
-                          ? 'border-md3-primary/40 bg-md3-primary/10 text-md3-on-surface font-medium'
-                          : 'border-md3-outline-variant/20 bg-md3-surface/40 text-md3-on-surface-variant/60'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <Icon className={`w-4 h-4 ${isVisible ? 'text-md3-primary' : 'opacity-40'}`} />
-                        <span className="text-xs">{tab.label}</span>
+              <div className="space-y-2">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between px-1">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-md3-on-surface-variant">
+                      {t.settings.visibleNavigationTabs}
+                    </div>
+                    <span className="text-[10px] font-medium tabular-nums text-md3-on-surface-variant/70">{visibleNavigationTabs.length}</span>
+                  </div>
+                  <div
+                    data-navigation-tab-list
+                    onPointerMove={moveNavigationTabDrag}
+                    onPointerUp={event => finishNavigationTabDrag(event, true)}
+                    onPointerCancel={event => finishNavigationTabDrag(event, false)}
+                    className="flex flex-wrap gap-1.5 rounded-2xl border border-md3-outline-variant/20 bg-md3-surface/40 p-2"
+                  >
+                  {visibleNavigationTabs.map(tab => {
+                    const Icon = tab.icon;
+                    return (
+                      <div
+                        key={tab.id}
+                        draggable={false}
+                        data-navigation-tab-id={tab.id}
+                        onPointerDown={startNavigationTabDrag}
+                        className={`flex max-w-full items-center gap-1 rounded-full border bg-md3-surface py-1 pl-2 pr-1 transition-all ${
+                          draggedNavigationTabId === tab.id ? 'opacity-40' : ''
+                        } ${
+                          dragOverNavigationTabId === tab.id ? 'border-md3-primary/50 bg-md3-primary/5 ring-1 ring-md3-primary/20' : 'border-md3-outline-variant/15 hover:border-md3-outline-variant/30'
+                        } ${visibleNavigationTabs.length > 1 ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                      >
+                        <GripVertical className="h-3 w-3 shrink-0 select-none text-md3-on-surface-variant/60" />
+                        <Icon className="h-3.5 w-3.5 shrink-0 text-md3-primary" />
+                        <span className="min-w-0 max-w-36 truncate text-[11px] font-medium text-md3-on-surface">{tab.label}</span>
+                        <div className="flex shrink-0 items-center gap-0.5">
+                          <button
+                            type="button"
+                            title={`${t.settings.removeNavigationTab}: ${tab.label}`}
+                            aria-label={`${t.settings.removeNavigationTab}: ${tab.label}`}
+                            disabled={visibleNavigationTabs.length <= 1}
+                            onClick={() => onRemoveNavigationTab(tab.id)}
+                            className="rounded-md p-0.5 text-md3-on-surface-variant transition-colors hover:bg-red-500/10 hover:text-red-400 disabled:cursor-default disabled:opacity-30"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
                       </div>
-                      <input
-                        type="checkbox"
-                        checked={isVisible}
-                        onChange={() => {}}
-                        className="w-4 h-4 rounded accent-md3-primary pointer-events-none"
-                      />
-                    </button>
-                  );
-                })}
+                    );
+                  })}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="px-1 text-[10px] font-bold uppercase tracking-wider text-md3-on-surface-variant">
+                    {t.settings.availableNavigationTabs}
+                  </div>
+                  {availableNavigationTabs.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                    {availableNavigationTabs.map(tab => {
+                    const Icon = tab.icon;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => onAddNavigationTab(tab.id)}
+                        className="flex max-w-full items-center gap-1.5 rounded-full border border-md3-outline-variant/15 bg-md3-surface/50 px-2.5 py-1.5 text-left text-md3-on-surface-variant transition-colors hover:border-md3-primary/30 hover:bg-md3-primary/5 hover:text-md3-on-surface"
+                      >
+                        <Icon className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate text-[11px]">{tab.label}</span>
+                        <Plus className="h-3.5 w-3.5 shrink-0 text-md3-primary" />
+                      </button>
+                    );
+                  })}
+                    </div>
+                  ) : (
+                    <p className="rounded-xl bg-md3-surface/50 p-2 text-[11px] text-md3-on-surface-variant">
+                      {t.settings.noAvailableNavigationTabs}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Button to Open Discord Integration Settings */}
+
+            {/* 6a. Button to Open Library Folders Menu */}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleOpenLibraryFolders}
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-md3-surface-container-high/60 hover:bg-md3-surface-container-high border border-md3-outline-variant/20 hover:border-md3-primary/40 transition-all cursor-pointer group shadow-xs"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <FolderKanban className="w-5 h-5" />
+                  </div>
+                  <div className="text-left">
+                    <div className="text-xs font-bold text-md3-on-surface group-hover:text-md3-primary transition-colors">
+                      {t.settings.libraryFolders}
+                    </div>
+                    <div className="text-[11px] text-md3-on-surface-variant">
+                      {t.settings.libraryFoldersDesc}
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-md3-on-surface-variant group-hover:text-md3-primary group-hover:translate-x-0.5 transition-all" />
+              </button>
+            </div>
+
+            {/* Open the plugin manager */}
             <div className="pt-2">
               <button
                 tabIndex={-1}
@@ -2496,31 +3146,70 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   if (mainSettingsContainerRef.current) {
                     mainScrollTopRef.current = mainSettingsContainerRef.current.scrollTop;
                   }
-                  setCurrentView('discord');
+                  setCurrentView('plugins');
                 }}
-                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-md3-surface-container-high/60 hover:bg-md3-surface-container-high border border-md3-outline-variant/20 hover:border-[#5865F2]/40 transition-all cursor-pointer group shadow-xs outline-none focus:outline-none"
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-md3-surface-container-high/60 hover:bg-md3-surface-container-high border border-md3-outline-variant/20 hover:border-md3-primary/40 transition-all cursor-pointer group shadow-xs outline-none focus:outline-none"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-[#5865F2]/10 text-[#5865F2] flex items-center justify-center group-hover:scale-105 transition-transform">
-                    <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
-                      <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.078.078 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
-                    </svg>
+                  <div className="w-9 h-9 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <Puzzle className="h-5 w-5" />
                   </div>
                   <div className="text-left">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-md3-on-surface group-hover:text-md3-primary transition-colors">
-                        {t.settings.discordRpc}
-                      </span>
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                        discordEnabled 
-                          ? 'bg-[#5865F2]/15 text-[#5865F2] border border-[#5865F2]/30' 
-                          : 'bg-md3-surface-container-high text-md3-on-surface-variant'
-                      }`}>
-                        {discordEnabled ? t.settings.discordEnabled : t.settings.discordDisabled}
+                        {language === 'ru' ? 'Менеджер плагинов' : 'Plugin manager'}
                       </span>
                     </div>
                     <div className="text-[11px] text-md3-on-surface-variant">
-                      {t.settings.discordSettingsDesc}
+                      {language === 'ru' ? 'Управление расширениями' : 'Manage extensions'}
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-md3-on-surface-variant group-hover:text-md3-primary group-hover:translate-x-0.5 transition-all" />
+              </button>
+            </div>
+
+
+            {/* 6b. Button to Open Keyboard Shortcuts Menu */}
+            <div className="pt-2">
+              <button
+                onClick={handleOpenShortcuts}
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-md3-surface-container-high/60 hover:bg-md3-surface-container-high border border-md3-outline-variant/20 hover:border-md3-primary/40 transition-all cursor-pointer group shadow-xs"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <Keyboard className="w-5 h-5" />
+                  </div>
+                  <div className="text-left">
+                    <div className="text-xs font-bold text-md3-on-surface group-hover:text-md3-primary transition-colors">
+                      {t.settings.shortcuts}
+                    </div>
+                    <div className="text-[11px] text-md3-on-surface-variant">
+                      {t.settings.shortcutsDesc}
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-md3-on-surface-variant group-hover:text-md3-primary group-hover:translate-x-0.5 transition-all" />
+              </button>
+            </div>
+
+            {/* 6b. Button to Open Application Logs Menu */}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleOpenLogs}
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-md3-surface-container-high/60 hover:bg-md3-surface-container-high border border-md3-outline-variant/20 hover:border-md3-primary/40 transition-all cursor-pointer group shadow-xs"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div className="text-left">
+                    <div className="text-xs font-bold text-md3-on-surface group-hover:text-md3-primary transition-colors">
+                      {t.settings.logs}
+                    </div>
+                    <div className="text-[11px] text-md3-on-surface-variant">
+                      {t.settings.logsDesc}
                     </div>
                   </div>
                 </div>
@@ -2530,57 +3219,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             {/* Window close and startup mode */}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-              <section className="p-4 rounded-3xl bg-md3-surface border border-md3-outline-variant/20 space-y-3">
-                <div>
-                  <div className="text-xs font-bold text-md3-on-surface">
-                    {language === 'ru' ? 'При закрытии' : 'When closing'}
-                  </div>
-                </div>
-                <div
-                  ref={closeBehaviorContainerRef}
-                  role="radiogroup"
-                  aria-label={language === 'ru' ? 'Действие крестика' : 'Close button action'}
-                  className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
-                >
-                  <div
-                    className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
-                    style={{
-                      left: `${closeBehaviorIndicatorStyle.left}px`,
-                      width: `${closeBehaviorIndicatorStyle.width}px`,
-                      height: `${closeBehaviorIndicatorStyle.height}px`,
-                      opacity: closeBehaviorIndicatorStyle.opacity,
-                      boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
-                    }}
-                  />
-                  <button
-                    ref={el => { closeBehaviorRefs.current.exit = el; }}
-                    type="button"
-                    role="radio"
-                    aria-checked={closeBehavior === 'exit'}
-                    tabIndex={-1}
-                    onMouseDown={event => event.preventDefault()}
-                    onClick={() => onSetCloseBehavior?.('exit')}
-                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'exit' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
-                  >
-                    <X className="w-4 h-4 shrink-0" />
-                    <span className="min-w-0 truncate">{language === 'ru' ? 'Закрыть' : 'Quit'}</span>
-                  </button>
-                  <button
-                    ref={el => { closeBehaviorRefs.current.tray = el; }}
-                    type="button"
-                    role="radio"
-                    aria-checked={closeBehavior === 'tray'}
-                    tabIndex={-1}
-                    onMouseDown={event => event.preventDefault()}
-                    onClick={() => onSetCloseBehavior?.('tray')}
-                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'tray' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
-                  >
-                    <Radio className="w-4 h-4 shrink-0" />
-                    <span className="min-w-0 truncate">{language === 'ru' ? 'В трей' : 'To tray'}</span>
-                  </button>
-                </div>
-              </section>
-
               <section className="p-4 rounded-3xl bg-md3-surface border border-md3-outline-variant/20 space-y-3">
                 <div>
                   <div className="text-xs font-bold text-md3-on-surface">
@@ -2594,7 +3232,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
                 >
                   <div
-                    className="absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] z-0"
+                    className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
                     style={{
                       left: `${startupInterfaceIndicatorStyle.left}px`,
                       width: `${startupInterfaceIndicatorStyle.width}px`,
@@ -2610,7 +3248,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     aria-checked={startupInterface === 'full'}
                     tabIndex={-1}
                     onMouseDown={event => event.preventDefault()}
-                    onClick={() => onSetStartupInterface?.('full')}
+                    onClick={() => { enableIndicatorTransitions(); onSetStartupInterface?.('full'); }}
                     className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'full' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
                   >
                     <Monitor className="w-4 h-4 shrink-0" />
@@ -2623,17 +3261,68 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     aria-checked={startupInterface === 'mini'}
                     tabIndex={-1}
                     onMouseDown={event => event.preventDefault()}
-                    onClick={() => onSetStartupInterface?.('mini')}
+                    onClick={() => { enableIndicatorTransitions(); onSetStartupInterface?.('mini'); }}
                     className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${startupInterface === 'mini' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
                   >
                     <Music className="w-4 h-4 shrink-0" />
-                    <span className="min-w-0 truncate">{language === 'ru' ? 'Мини-плеер' : 'Mini player'}</span>
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'Мини' : 'Mini'}</span>
+                  </button>
+                </div>
+              </section>
+
+              <section className="p-4 rounded-3xl bg-md3-surface border border-md3-outline-variant/20 space-y-3">
+                <div>
+                  <div className="text-xs font-bold text-md3-on-surface">
+                    {language === 'ru' ? 'При закрытии' : 'When closing'}
+                  </div>
+                </div>
+                <div
+                  ref={closeBehaviorContainerRef}
+                  role="radiogroup"
+                  aria-label={language === 'ru' ? 'Действие крестика' : 'Close button action'}
+                  className="relative p-1 bg-md3-surface rounded-2xl border border-md3-outline-variant/20 shadow-xs flex items-center select-none overflow-hidden"
+                >
+                  <div
+                    className={`absolute rounded-xl bg-md3-primary shadow-sm pointer-events-none ${indicatorTransitionClass} z-0`}
+                    style={{
+                      left: `${closeBehaviorIndicatorStyle.left}px`,
+                      width: `${closeBehaviorIndicatorStyle.width}px`,
+                      height: `${closeBehaviorIndicatorStyle.height}px`,
+                      opacity: closeBehaviorIndicatorStyle.opacity,
+                      boxShadow: '0 0 16px rgba(var(--md-sys-color-primary-rgb, 168 121 255), 0.45), 0 2px 6px rgba(0,0,0,0.2)',
+                    }}
+                  />
+                  <button
+                    ref={el => { closeBehaviorRefs.current.exit = el; }}
+                    type="button"
+                    role="radio"
+                    aria-checked={closeBehavior === 'exit'}
+                    tabIndex={-1}
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => { enableIndicatorTransitions(); onSetCloseBehavior?.('exit'); }}
+                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'exit' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
+                  >
+                    <X className="w-4 h-4 shrink-0" />
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'Закрыть' : 'Quit'}</span>
+                  </button>
+                  <button
+                    ref={el => { closeBehaviorRefs.current.tray = el; }}
+                    type="button"
+                    role="radio"
+                    aria-checked={closeBehavior === 'tray'}
+                    tabIndex={-1}
+                    onMouseDown={event => event.preventDefault()}
+                    onClick={() => { enableIndicatorTransitions(); onSetCloseBehavior?.('tray'); }}
+                    className={`relative z-10 flex-1 basis-0 min-w-0 h-10 px-2 rounded-xl flex items-center justify-center gap-1.5 text-xs transition-colors duration-200 cursor-pointer outline-none focus:outline-none ${closeBehavior === 'tray' ? 'text-md3-on-primary font-bold' : 'text-md3-on-surface-variant hover:text-md3-on-surface font-medium'}`}
+                  >
+                    <Radio className="w-4 h-4 shrink-0" />
+                    <span className="min-w-0 truncate">{language === 'ru' ? 'В трей' : 'To tray'}</span>
                   </button>
                 </div>
               </section>
             </div>
 
-            {/* 5. Section: Language (ШТОРКА ЯЗЫКА ИНТЕРФЕЙСА) - Перед горячими клавишами */}
+            {/* Interface language settings */}
             <div className="space-y-3 pt-4 border-t border-md3-outline-variant/20">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm font-bold text-md3-on-surface">
@@ -2728,77 +3417,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </>
                 )}
               </div>
-            </div>
-
-            {/* 6a. Button to Open Library Folders Menu */}
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={handleOpenLibraryFolders}
-                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-md3-surface-container-high/60 hover:bg-md3-surface-container-high border border-md3-outline-variant/20 hover:border-md3-primary/40 transition-all cursor-pointer group shadow-xs"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center group-hover:scale-105 transition-transform">
-                    <FolderKanban className="w-5 h-5" />
-                  </div>
-                  <div className="text-left">
-                    <div className="text-xs font-bold text-md3-on-surface group-hover:text-md3-primary transition-colors">
-                      {t.settings.libraryFolders}
-                    </div>
-                    <div className="text-[11px] text-md3-on-surface-variant">
-                      {t.settings.libraryFoldersDesc}
-                    </div>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-md3-on-surface-variant group-hover:text-md3-primary group-hover:translate-x-0.5 transition-all" />
-              </button>
-            </div>
-
-            {/* 6b. Button to Open Keyboard Shortcuts Menu */}
-            <div className="pt-2">
-              <button
-                onClick={handleOpenShortcuts}
-                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-md3-surface-container-high/60 hover:bg-md3-surface-container-high border border-md3-outline-variant/20 hover:border-md3-primary/40 transition-all cursor-pointer group shadow-xs"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center group-hover:scale-105 transition-transform">
-                    <Keyboard className="w-5 h-5" />
-                  </div>
-                  <div className="text-left">
-                    <div className="text-xs font-bold text-md3-on-surface group-hover:text-md3-primary transition-colors">
-                      {t.settings.shortcuts}
-                    </div>
-                    <div className="text-[11px] text-md3-on-surface-variant">
-                      {t.settings.shortcutsDesc}
-                    </div>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-md3-on-surface-variant group-hover:text-md3-primary group-hover:translate-x-0.5 transition-all" />
-              </button>
-            </div>
-
-            {/* 6b. Button to Open Application Logs Menu */}
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={handleOpenLogs}
-                className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-md3-surface-container-high/60 hover:bg-md3-surface-container-high border border-md3-outline-variant/20 hover:border-md3-primary/40 transition-all cursor-pointer group shadow-xs"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-md3-primary/10 text-md3-primary flex items-center justify-center group-hover:scale-105 transition-transform">
-                    <FileText className="w-5 h-5" />
-                  </div>
-                  <div className="text-left">
-                    <div className="text-xs font-bold text-md3-on-surface group-hover:text-md3-primary transition-colors">
-                      {t.settings.logs}
-                    </div>
-                    <div className="text-[11px] text-md3-on-surface-variant">
-                      {t.settings.logsDesc}
-                    </div>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-md3-on-surface-variant group-hover:text-md3-primary group-hover:translate-x-0.5 transition-all" />
-              </button>
             </div>
 
             {/* 7. About Application & Updates Card */}

@@ -1,17 +1,32 @@
-import { DiscordPresenceInfo } from '../types/music';
+import { DiscordFallbackIcon, DiscordPresenceInfo } from '../types/music';
+import { isCachedCoverUrl } from '../utils/coverArt';
 
 const DEFAULT_LOGO_URL = 'https://raw.githubusercontent.com/sssHpion007/ArachnidMP/main/public/app-logo.png';
 const PLAYING_ICON_URL = 'https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Playing.png';
 const PAUSED_ICON_URL = 'https://raw.githubusercontent.com/FozerG/WinYandexMusicRPC/main/assets/Paused.png';
 
+const NO_COVER_ICON_PATHS: Record<DiscordFallbackIcon, string> = {
+  note: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  // Lucide Disc3, matching the no-cover artwork in NowPlayingBar.
+  disc: '<circle cx="12" cy="12" r="10"/><path d="M6 12c0-1.7.7-3.2 1.8-4.2"/><circle cx="12" cy="12" r="2"/><path d="M18 12c0 1.7-.7 3.2-1.8 4.2"/>',
+};
+
+function fallbackArtworkDataUri(icon: DiscordFallbackIcon = 'disc'): string {
+  const artwork = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" fill="#313338"/><g transform="translate(32 32) scale(2.6666667)" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">${NO_COVER_ICON_PATHS[icon]}</g></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(artwork)}`;
+}
+
 /**
- * Compresses any arbitrary base64 cover art image to a lightweight 384x384 JPEG (~25KB)
- * for lightning-fast transfer over Tauri IPC and swift upload to Discord-compatible hosts.
+ * Compresses local or embedded cover art to a lightweight JPEG before sending it
+ * through Tauri IPC for upload to a Discord-compatible image host.
  */
 function compressCoverForDiscord(imageUrl: string, maxSize = 384): Promise<string> {
   return new Promise((resolve) => {
     try {
-      if (!imageUrl || (!imageUrl.startsWith('data:') && !imageUrl.includes('asset.localhost') && !imageUrl.startsWith('asset:'))) {
+      const isAppLocalImage = imageUrl.includes('asset.localhost')
+        || imageUrl.startsWith('asset:')
+        || isCachedCoverUrl(imageUrl);
+      if (!imageUrl || (!imageUrl.startsWith('data:') && !isAppLocalImage)) {
         resolve(imageUrl);
         return;
       }
@@ -21,7 +36,7 @@ function compressCoverForDiscord(imageUrl: string, maxSize = 384): Promise<strin
         let width = img.naturalWidth || img.width;
         let height = img.naturalHeight || img.height;
         if (width <= 0 || height <= 0) {
-          resolve(imageUrl);
+          resolve(DEFAULT_LOGO_URL);
           return;
         }
         if (width > maxSize || height > maxSize) {
@@ -42,12 +57,12 @@ function compressCoverForDiscord(imageUrl: string, maxSize = 384): Promise<strin
           resolve(canvas.toDataURL('image/jpeg', 0.85));
           return;
         }
-        resolve(imageUrl);
+        resolve(DEFAULT_LOGO_URL);
       };
-      img.onerror = () => resolve(imageUrl);
+      img.onerror = () => resolve(DEFAULT_LOGO_URL);
       img.src = imageUrl;
     } catch {
-      resolve(imageUrl);
+      resolve(DEFAULT_LOGO_URL);
     }
   });
 }
@@ -56,6 +71,18 @@ class DiscordRpcService {
   private currentPresence: DiscordPresenceInfo | null = null;
   private listeners: ((info: DiscordPresenceInfo | null) => void)[] = [];
   private activeRequestId: number = 0;
+  private nativeInvocationQueue: Promise<void> = Promise.resolve();
+
+  private enqueueNativePresence(requestId: number, tauriCore: any, presence: Record<string, unknown>): Promise<void> {
+    const invocation = this.nativeInvocationQueue.catch(() => {}).then(async () => {
+      // Native commands can complete asynchronously; serialize them so an older
+      // "clear presence" cannot run after the latest enabled track update.
+      if (requestId !== this.activeRequestId) return;
+      await tauriCore.invoke('update_discord_presence', { presence });
+    });
+    this.nativeInvocationQueue = invocation.catch(() => {});
+    return invocation;
+  }
 
   public subscribe(listener: (info: DiscordPresenceInfo | null) => void) {
     this.listeners.push(listener);
@@ -83,21 +110,20 @@ class DiscordRpcService {
 
     if (!info.enabled) {
       try {
-        await tauriCore.invoke('update_discord_presence', {
-          presence: {
-            enabled: false,
-            details: '',
-            state: '',
-            large_image: null,
-            large_text: null,
-            small_image: null,
-            small_text: null,
-            start_timestamp: null,
-            end_timestamp: null,
-            status_display_type: null,
-            client_id: null,
-            status_mode: null,
-          }
+        await this.enqueueNativePresence(requestId, tauriCore, {
+          enabled: false,
+          details: '',
+          state: '',
+          large_image: null,
+          large_text: null,
+          small_image: null,
+          small_text: null,
+          start_timestamp: null,
+          end_timestamp: null,
+          status_display_type: null,
+          client_id: null,
+          status_mode: null,
+          cover_host: info.coverHost ?? 'auto',
         });
       } catch (err) {
         console.warn('Tauri Discord RPC clear error:', err);
@@ -105,19 +131,27 @@ class DiscordRpcService {
       return;
     }
 
-    // Prepare optimized cover art
-    let coverArt = DEFAULT_LOGO_URL;
-    if (info.coverArt && info.coverArt.trim().length > 0) {
-      if (info.coverArt.startsWith('http://') || info.coverArt.startsWith('https://')) {
-        if (info.coverArt.includes('asset.localhost')) {
-          coverArt = await compressCoverForDiscord(info.coverArt, 384);
+    // Use real artwork when present; otherwise render the selected no-cover icon
+    // as a bounded JPEG and pass it through the same host/cache path as album art.
+    const sourceCover = info.coverArt?.trim();
+    let coverArt = sourceCover
+      ? DEFAULT_LOGO_URL
+      : await compressCoverForDiscord(fallbackArtworkDataUri(info.fallbackIcon ?? 'disc'), 384);
+    if (sourceCover) {
+      if (isCachedCoverUrl(sourceCover)) {
+        // Keep cached artwork local: the native RPC command reads the bounded SQLite
+        // thumbnail directly, avoiding WebView CORS/custom-protocol canvas restrictions.
+        coverArt = sourceCover;
+      } else if (sourceCover.startsWith('http://') || sourceCover.startsWith('https://')) {
+        if (sourceCover.includes('asset.localhost')) {
+          coverArt = await compressCoverForDiscord(sourceCover, 384);
         } else {
-          coverArt = info.coverArt.trim();
+          coverArt = sourceCover;
         }
-      } else if (info.coverArt.startsWith('data:')) {
-        coverArt = await compressCoverForDiscord(info.coverArt, 384);
+      } else if (sourceCover.startsWith('data:')) {
+        coverArt = await compressCoverForDiscord(sourceCover, 384);
       } else {
-        coverArt = info.coverArt.trim();
+        coverArt = sourceCover;
       }
     }
 
@@ -166,21 +200,20 @@ class DiscordRpcService {
     }
 
     try {
-      await tauriCore.invoke('update_discord_presence', {
-        presence: {
-          enabled: true,
-          details: info.trackName || 'Arachnid Music Player',
-          state: info.artist || 'Неизвестный исполнитель',
-          large_image: coverArt,
-          large_text: info.album || 'Arachnid Music Player',
-          small_image: smallImage,
-          small_text: smallText,
-          start_timestamp: startTimestamp,
-          end_timestamp: endTimestamp,
-          status_display_type: statusDisplayType,
-          client_id: clientId,
-          status_mode: statusMode,
-        }
+      await this.enqueueNativePresence(requestId, tauriCore, {
+        enabled: true,
+        details: info.trackName || 'Arachnid Music Player',
+        state: info.artist || 'Неизвестный исполнитель',
+        large_image: coverArt,
+        large_text: info.album || 'Arachnid Music Player',
+        small_image: smallImage,
+        small_text: smallText,
+        start_timestamp: startTimestamp,
+        end_timestamp: endTimestamp,
+        status_display_type: statusDisplayType,
+        client_id: clientId,
+        status_mode: statusMode,
+        cover_host: info.coverHost ?? 'auto',
       });
     } catch (err) {
       console.warn('Tauri Discord RPC invoke error:', err);

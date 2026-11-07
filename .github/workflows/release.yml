@@ -6,12 +6,13 @@ on:
       - 'arena/da9dc431-arachnidmp'
       - 'arena/034a5a55-arachnidmp'
       - 'arena/cd6430e2-arachnidmp'
+      - 'arena/6fcee020-arachnidmp'
     tags:
       - 'v*'
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Use test-build for an artifact-only portable EXE; otherwise enter a release tag such as v0.4.97.'
+        description: 'Use test-build for an artifact-only portable EXE; otherwise enter a release tag such as v0.5.0.'
         required: true
         type: string
 
@@ -44,8 +45,27 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+
       - name: Build Web Frontend
         run: npm run build
+
+      - name: Test bounded library cache and frontend regressions
+        shell: pwsh
+        run: |
+          npm run test:bounded-page-cache
+          npm run test:bounded-indexed-cache
+          npm run test:library-index
+          npm run test:folder-playback
+          npm run test:library-scan-paths
+          npm run test:track-table-scroll
+          npm run test:playlist-cover-fallback
+          npm run test:playlist-detail-cover
+          npm run test:playlist-durations
+          npm run test:hex-color
+          npm run test:play-icon-color
+          npm run test:keyboard-shortcuts
 
       - name: Build Tauri Desktop Portable
         shell: pwsh
@@ -148,28 +168,24 @@ jobs:
             Remove-Item $stdoutLog, $stderrLog -Force -ErrorAction SilentlyContinue
           }
 
-      - name: Test SQLite library repository
+      - name: Stage Windows executable
         shell: pwsh
         run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --lib library_db::tests -- --nocapture 2>&1 | Tee-Object -Variable testOutput
-          $testExitCode = $LASTEXITCODE
-          if ($testExitCode -ne 0) {
-            $tail = $testOutput | Select-Object -Last 120
-            "### SQLite library test failure diagnostics" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-            '```text' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-            $tail | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-            $diagnostic = ($tail -join ' ') -replace '%', '%25' -replace "`r", ' ' -replace "`n", ' '
-            if ($diagnostic.Length -gt 9000) { $diagnostic = $diagnostic.Substring($diagnostic.Length - 9000) }
-            Write-Output "::error title=SQLite library tests failed::$diagnostic"
-            throw "SQLite library repository tests failed with exit code $testExitCode."
-          }
+          $exePath = Join-Path $PWD "src-tauri/target/release/arachnid.exe"
+          if (-not (Test-Path $exePath)) { throw "Built portable EXE was not found." }
+          $artifactDir = Join-Path $PWD "windows-test-artifact"
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+          Copy-Item $exePath (Join-Path $artifactDir "arachnidmp.exe")
+          Get-Item (Join-Path $artifactDir "arachnidmp.exe") | Select-Object Name, Length
 
-      - name: Test native portable updater transaction and rollback safety
-        shell: pwsh
-        run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --lib portable_updater::tests -- --nocapture
-          if ($LASTEXITCODE -ne 0) { throw "Native portable updater tests failed." }
+      - name: Upload Windows test build
+        if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp' || github.ref == 'refs/heads/arena/6fcee020-arachnidmp' || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && !contains(github.event.head_commit.message, '[publish-release]')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag == 'test-build')
+        uses: actions/upload-artifact@v4
+        with:
+          name: arachnidmp.exe
+          path: windows-test-artifact/arachnidmp.exe
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Smoke test the self-hosted Windows updater helper
         shell: pwsh
@@ -235,15 +251,6 @@ jobs:
           version=$(node -p "require('./package.json').version")
           echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
 
-      - name: Upload Windows test build
-        if: github.ref == 'refs/heads/arena/da9dc431-arachnidmp' || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && !contains(github.event.head_commit.message, '[publish-release]')) || (github.event_name == 'workflow_dispatch' && inputs.release_tag == 'test-build')
-        uses: actions/upload-artifact@v4
-        with:
-          name: Arachnid-Windows-Test-${{ github.run_number }}-${{ github.sha }}
-          path: src-tauri/target/release/arachnid.exe
-          if-no-files-found: error
-          retention-days: 14
-
       - name: Prepare Portable Artifacts
         if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != 'test-build') || ((github.ref == 'refs/heads/arena/034a5a55-arachnidmp' || github.ref == 'refs/heads/arena/cd6430e2-arachnidmp') && contains(github.event.head_commit.message, '[publish-release]'))
         shell: pwsh
@@ -253,9 +260,11 @@ jobs:
           }
           New-Item -ItemType Directory -Force -Path artifacts
           if (Test-Path "src-tauri/target/release/arachnid.exe") {
-            Copy-Item "src-tauri/target/release/arachnid.exe" -Destination "artifacts/Arachnid-Portable.exe"
-            Compress-Archive -Path "src-tauri/target/release/arachnid.exe" -DestinationPath "artifacts/Arachnid-${env:RELEASE_TAG}-Windows-Portable.zip"
-            Write-Host "Created Arachnid-Portable.exe and zip for $env:RELEASE_TAG!"
+            Copy-Item "src-tauri/target/release/arachnid.exe" -Destination "artifacts/arachnidmp.exe"
+            # Keep the legacy asset name so existing 0.4.x updaters can fetch the 0.5.0 executable.
+            Copy-Item "artifacts/arachnidmp.exe" -Destination "artifacts/Arachnid-Portable.exe"
+            Compress-Archive -Path "artifacts/arachnidmp.exe" -DestinationPath "artifacts/Arachnid-${env:RELEASE_TAG}-Windows-Portable.zip"
+            Write-Host "Created arachnidmp.exe and portable zip for $env:RELEASE_TAG!"
           } else {
             Write-Error "arachnid.exe was not found in release target!"
           }

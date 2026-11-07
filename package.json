@@ -1,7 +1,7 @@
 {
   "name": "arachnid",
   "private": true,
-  "version": "0.4.115",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
@@ -9,6 +9,15 @@
     "test:library-index": "node --experimental-strip-types tests/library-collection-index.test.mjs",
     "test:folder-playback": "node --experimental-strip-types tests/folder-playback.test.mjs",
     "test:library-scan-paths": "node --experimental-strip-types tests/library-scan-paths.test.mjs",
+    "test:playlist-cover-fallback": "node --experimental-strip-types tests/playlist-cover-fallback.test.mjs",
+    "test:playlist-detail-cover": "node --experimental-strip-types tests/playlist-detail-cover.test.mjs",
+    "test:playlist-durations": "node --experimental-strip-types tests/playlist-durations.test.mjs",
+    "test:hex-color": "node --experimental-strip-types tests/hex-color.test.mjs",
+    "test:play-icon-color": "node --experimental-strip-types tests/play-icon-color.test.mjs",
+    "test:track-table-scroll": "node --experimental-strip-types tests/track-table-scroll.test.mjs",
+    "test:keyboard-shortcuts": "node --experimental-strip-types tests/keyboard-shortcuts.test.mjs",
+    "test:bounded-page-cache": "node --experimental-strip-types tests/bounded-page-cache.test.mjs",
+    "test:bounded-indexed-cache": "node --experimental-strip-types tests/bounded-indexed-cache.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },
@@ -16,9 +25,10 @@
     "@tauri-apps/api": "^2.12.1",
     "clsx": "^2.1.1",
     "colord": "^2.10.0",
+    "dompurify": "^3.4.17",
     "lucide-react": "^1.16.0",
     "marked": "^18.1.0",
-    "music-metadata-browser": "^2.5.11",
+    "music-metadata": "^12.3.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^2.5.4"

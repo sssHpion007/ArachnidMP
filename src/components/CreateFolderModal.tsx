@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FolderPlus, X, Check, Folder, Image, LayoutGrid, Images, Sparkles, Pipette, Ban } from 'lucide-react';
+import { FolderPlus, X, Check, Folder, Image, LayoutGrid, Images, Sparkles, Ban } from 'lucide-react';
 import { FOLDER_ICONS, FolderIconOption } from '../theme/folderIcons';
 import { PlaylistFolder, FolderCoverType } from '../types/music';
 import { extractDominantColor } from '../theme/material3';
 import { AppLanguage } from '../i18n';
 import { useModalAnimation } from '../utils/useModalAnimation';
+import { HexColorInput } from './HexColorInput';
+import { CoverColorEyedropper } from './CoverColorEyedropper';
 
 interface CreateFolderModalProps {
   isOpen: boolean;
@@ -41,7 +43,6 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
   const [coverType, setCoverType] = useState<FolderCoverType>('icon');
   const [extractedCoverColor, setExtractedCoverColor] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const colorInputRef = useRef<HTMLInputElement>(null);
 
   // Segmented control indicator state for Folder Cover Display
   const coverTypeContainerRef = useRef<HTMLDivElement>(null);
@@ -118,6 +119,7 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
     if (!isOpen) return;
 
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && e.target instanceof Element && e.target.closest('[data-hex-color-picker], [data-cover-color-picker]')) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
@@ -148,7 +150,7 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
   return (
     <div
       onClick={onClose}
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md select-none cursor-pointer ${backdropClass}`}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md select-none cursor-default ${backdropClass}`}
     >
       <div
         className={`w-full max-w-lg bg-md3-surface-container rounded-3xl shadow-2xl border border-md3-outline-variant/20 overflow-hidden flex flex-col max-h-[90vh] cursor-default ${dialogClass}`}
@@ -348,27 +350,9 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
 
           {/* Folder Color Accent */}
           <div>
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <label className="block text-xs font-semibold text-md3-on-surface-variant">
-                {language === 'ru' ? 'Цветовой акцент' : 'Color Accent'}
-              </label>
-
-              {/* Extract from Cover Art Button */}
-              {extractedCoverColor && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedColor(extractedCoverColor)}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-md3-surface border border-md3-outline-variant/30 hover:border-md3-primary/60 text-md3-on-surface transition-all cursor-pointer shadow-xs"
-                >
-                  <span
-                    className="w-2.5 h-2.5 rounded-full ring-1 ring-black/20"
-                    style={{ backgroundColor: extractedCoverColor }}
-                  />
-                  <Sparkles className="w-3 h-3 text-md3-primary" />
-                  <span>{language === 'ru' ? 'Цвет по обложке' : 'From Cover'}</span>
-                </button>
-              )}
-            </div>
+            <label className="mb-2 block text-xs font-semibold text-md3-on-surface-variant">
+              {language === 'ru' ? 'Цветовой акцент' : 'Color Accent'}
+            </label>
 
             <div className="flex items-center gap-2.5 flex-wrap">
               {folderColors.map((col) => (
@@ -402,24 +386,16 @@ export const CreateFolderModal: React.FC<CreateFolderModalProps> = ({
                 </button>
               )}
 
-              {/* Custom Color Pipette Button */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => colorInputRef.current?.click()}
-                  title={language === 'ru' ? 'Выбрать свой цвет' : 'Custom Color'}
-                  className="w-7 h-7 rounded-full flex items-center justify-center bg-md3-surface-container-highest border border-md3-outline-variant/40 text-md3-on-surface-variant hover:text-md3-on-surface transition-transform hover:scale-110 cursor-pointer"
-                >
-                  <Pipette className="w-3.5 h-3.5" />
-                </button>
-                <input
-                  ref={colorInputRef}
-                  type="color"
-                  value={selectedColor && selectedColor.startsWith('#') ? selectedColor : '#a855f7'}
-                  onChange={(e) => setSelectedColor(e.target.value)}
-                  className="sr-only"
-                />
-              </div>
+              <CoverColorEyedropper coverArt={initialCoverArt} onPickColor={setSelectedColor} language={language} />
+
+              <HexColorInput
+                color={selectedColor || extractedCoverColor || '#a855f7'}
+                onChange={setSelectedColor}
+                label={language === 'ru' ? 'Свой цвет папки' : 'Custom folder color'}
+                language={language}
+                compact
+                showHexInput={false}
+              />
 
               {selectedColor && !folderColors.some(c => c.hex === selectedColor) && selectedColor !== extractedCoverColor && (
                 <div

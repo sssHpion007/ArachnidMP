@@ -81,6 +81,7 @@ export interface PlaylistGroup {
   id: string;
   name: string;
   color?: string; // Group accent color
+  icon?: string; // Icon identifier from the shared folder/playlist icon set
   isIsolated?: boolean; // Isolated container: tracks in this group's playlists are hidden from All Tracks, Albums, Artists
   isCollapsed?: boolean; // "группа сворачивается разворачивается"
   order: number;
@@ -115,6 +116,8 @@ export interface PlayerState {
   history: Track[];
 }
 
+export type DiscordFallbackIcon = 'note' | 'disc';
+
 export interface DiscordPresenceInfo {
   enabled: boolean;
   trackName: string;
@@ -124,10 +127,12 @@ export interface DiscordPresenceInfo {
   currentTime: number;
   isPlaying: boolean;
   coverArt?: string;
+  fallbackIcon?: DiscordFallbackIcon;
   showPlayIcon?: boolean;
   showPauseIcon?: boolean;
   statusMode?: 'listening' | 'listening_app';
   customClientId?: string;
+  coverHost?: DiscordCoverHost;
   language?: AppLanguage;
 }
 
@@ -167,4 +172,6 @@ export interface M3ThemeColors {
 export type ThemeMode = 'dark' | 'amoled' | 'light';
 
 export type FadeMode = 'off' | 'track_change_and_pause' | 'always';
+
+export type DiscordCoverHost = 'auto' | 'img24' | 'uguu' | 'catbox' | 'imgdb';
 
