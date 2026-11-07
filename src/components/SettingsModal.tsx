@@ -54,6 +54,7 @@ import { ThemeMode, Track, FadeMode, DiscordCoverHost, DiscordFallbackIcon } fro
 import { coverVariantUrl } from '../utils/coverArt';
 import { CustomThemeInfo } from '../types/theme';
 import { ThemePaletteModal } from './ThemePaletteModal';
+import { SettingsCurtain, SettingsCurtainList } from './SettingsCurtain';
 import { HexColorInput } from './HexColorInput';
 import { ConfirmationModal } from './ConfirmationModal';
 import { getMainNavigationTabs } from './TopBar';
@@ -109,8 +110,8 @@ const DiscordCoverHostPicker: React.FC<{
         <ChevronDown className={`h-4 w-4 shrink-0 text-md3-on-surface-variant transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {isOpen && (
-        <div role="listbox" aria-label={label} className="md3-scrollbar absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[70] max-h-60 overflow-y-auto rounded-2xl border border-md3-outline-variant/30 bg-md3-surface-container-high/95 p-2.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150">
+      <SettingsCurtain open={isOpen} role="listbox" ariaLabel={label}>
+        <SettingsCurtainList>
           {options.map(option => {
             const selected = option.value === value;
             return (
@@ -127,8 +128,8 @@ const DiscordCoverHostPicker: React.FC<{
               </button>
             );
           })}
-        </div>
-      )}
+        </SettingsCurtainList>
+      </SettingsCurtain>
     </div>
   );
 };
@@ -225,8 +226,8 @@ const OutputDevicePicker: React.FC<{
           </span>
           <ChevronDown className={`h-4 w-4 shrink-0 text-md3-on-surface-variant transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
         </button>
-        {isOpen && (
-          <div role="listbox" aria-label={t.outputDevice} className="md3-scrollbar absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[70] max-h-60 overflow-y-auto rounded-2xl border border-md3-outline-variant/30 bg-md3-surface-container-high/95 p-2.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150">
+        <SettingsCurtain open={isOpen} role="listbox" ariaLabel={t.outputDevice}>
+          <SettingsCurtainList>
             {options.map(option => {
               const selected = option.id === value;
               return (
@@ -246,8 +247,8 @@ const OutputDevicePicker: React.FC<{
             {isTauri() && devices.length === 0 && (
               <p className="px-3 py-2 text-[11px] text-md3-on-surface-variant">{t.noOutputDevices}</p>
             )}
-          </div>
-        )}
+          </SettingsCurtainList>
+        </SettingsCurtain>
       </div>
     </div>
   );
@@ -334,7 +335,7 @@ const DiscordShortcutHint: React.FC<{ language: AppLanguage; shortcutLabel: stri
 };
 
 import { CURRENT_APP_VERSION, isNewerVersion } from '../utils/version';
-import { useModalAnimation, useCurtainAnimation } from '../utils/useModalAnimation';
+import { useModalAnimation } from '../utils/useModalAnimation';
 import { PluginManagerView } from './PluginManagerView';
 import { MaterialYouSwitch } from './MaterialYouSwitch';
 import { DEFAULT_KEYBOARD_SHORTCUTS, formatShortcut, getShortcutSignature, KeyboardShortcuts, ShortcutId, SHORTCUT_IDS } from '../services/keyboardShortcuts';
@@ -679,9 +680,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isLangCurtainOpen, setIsLangCurtainOpen] = useState<boolean>(false);
   const [isUpdateSettingsOpen, setIsUpdateSettingsOpen] = useState<boolean>(false);
   const [updateViewDirection, setUpdateViewDirection] = useState<'forward' | 'backward'>('forward');
-
-  const { isRendered: isThemeCurtainRendered, curtainClass: themeCurtainClass } = useCurtainAnimation(isThemeCurtainOpen, 160);
-  const { isRendered: isLangCurtainRendered, curtainClass: langCurtainClass } = useCurtainAnimation(isLangCurtainOpen, 160);
 
   // Theme Mode segmented control indicator
   const themeModeContainerRef = useRef<HTMLDivElement>(null);
@@ -2443,129 +2441,126 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
 
                   {/* Раскрывающаяся шторка со списком тем: Material You первая, далее темы по алфавиту без разделения */}
-                  {isThemeCurtainRendered && (
-                    <>
-                      <div 
-                        className="fixed inset-0 z-40" 
-                        onClick={() => setIsThemeCurtainOpen(false)} 
-                      />
-                      <div className={`absolute left-0 right-0 top-full mt-2 z-50 p-2.5 rounded-2xl bg-md3-surface-container-high/95 backdrop-blur-xl border border-md3-outline-variant/30 shadow-2xl space-y-2 origin-top ${themeCurtainClass}`}>
-                        <div className="max-h-64 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
-                          {/* 1. Material You (По умолчанию) - ВСЕГДА ПЕРВАЯ, НЕУДАЛЯЕМАЯ */}
-                          <button
-                            type="button"
+                  <SettingsCurtain
+                    open={isThemeCurtainOpen}
+                    onClose={() => setIsThemeCurtainOpen(false)}
+                    showBackdrop
+                    positionClassName="absolute left-0 right-0 top-full mt-2 z-50"
+                  >
+                    <SettingsCurtainList>
+                      {/* 1. Material You (По умолчанию) - ВСЕГДА ПЕРВАЯ, НЕУДАЛЯЕМАЯ */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSetAppTheme('default');
+                          setIsThemeCurtainOpen(false);
+                        }}
+                        className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
+                          appTheme === 'default'
+                            ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                            : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-3.5 h-3.5 rounded-full bg-[#8b5cf6] shrink-0 shadow-xs" />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-semibold text-md3-on-surface truncate">
+                                {t.settings.themeStandard}
+                              </span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-md3-primary/15 text-md3-primary font-medium shrink-0">
+                                {t.settings.defaultBadge}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-md3-on-surface-variant truncate">
+                              {t.settings.themeStandardDesc}
+                            </div>
+                          </div>
+                        </div>
+                        {appTheme === 'default' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
+                      </button>
+
+                      {/* 2. Пользовательские темы из themes/ (в алфавитном порядке) */}
+                      {customThemesList.map((ct) => {
+                        const isActive = appTheme === `custom:${ct.id}` || appTheme === `custom:${ct.css_filename}`;
+                        return (
+                          <div
+                            key={ct.id}
                             onClick={() => {
-                              onSetAppTheme('default');
+                              onSetAppTheme(`custom:${ct.id}`);
                               setIsThemeCurtainOpen(false);
                             }}
                             className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
-                              appTheme === 'default'
+                              isActive
                                 ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
                                 : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
                             }`}
                           >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <div className="w-3.5 h-3.5 rounded-full bg-[#8b5cf6] shrink-0 shadow-xs" />
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
+                              {ct.is_folder ? (
+                                <Folder className="w-3.5 h-3.5 text-md3-primary shrink-0" />
+                              ) : (
+                                <FileCode className="w-3.5 h-3.5 text-md3-primary shrink-0" />
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5">
                                   <span className="text-xs font-semibold text-md3-on-surface truncate">
-                                    {t.settings.themeStandard}
+                                    {ct.name}
                                   </span>
-                                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-md3-primary/15 text-md3-primary font-medium shrink-0">
-                                    {t.settings.defaultBadge}
-                                  </span>
+                                  {ct.author && (
+                                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-md3-surface-container-high text-md3-on-surface-variant font-mono">
+                                      {ct.author}
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="text-[10px] text-md3-on-surface-variant truncate">
-                                  {t.settings.themeStandardDesc}
+                                  {ct.description}
                                 </div>
                               </div>
                             </div>
-                            {appTheme === 'default' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
-                          </button>
 
-                          {/* 2. Пользовательские темы из themes/ (в алфавитном порядке) */}
-                          {customThemesList.map((ct) => {
-                            const isActive = appTheme === `custom:${ct.id}` || appTheme === `custom:${ct.css_filename}`;
-                            return (
-                              <div
-                                key={ct.id}
-                                onClick={() => {
-                                  onSetAppTheme(`custom:${ct.id}`);
-                                  setIsThemeCurtainOpen(false);
+                            <div className="flex items-center gap-1 shrink-0">
+                              {isActive && <Check className="w-4 h-4 text-md3-primary mr-1 shrink-0" />}
+                              <button
+                                tabIndex={-1}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setThemeToDelete(ct);
                                 }}
-                                className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left ${
-                                  isActive
-                                    ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                                    : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
-                                }`}
+                                className="p-1 rounded-lg text-md3-on-surface-variant hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                title={t.settings.themeDelete}
                               >
-                                <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
-                                  {ct.is_folder ? (
-                                    <Folder className="w-3.5 h-3.5 text-md3-primary shrink-0" />
-                                  ) : (
-                                    <FileCode className="w-3.5 h-3.5 text-md3-primary shrink-0" />
-                                  )}
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="text-xs font-semibold text-md3-on-surface truncate">
-                                        {ct.name}
-                                      </span>
-                                      {ct.author && (
-                                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-md3-surface-container-high text-md3-on-surface-variant font-mono">
-                                          {ct.author}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="text-[10px] text-md3-on-surface-variant truncate">
-                                      {ct.description}
-                                    </div>
-                                  </div>
-                                </div>
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </SettingsCurtainList>
 
-                                <div className="flex items-center gap-1 shrink-0">
-                                  {isActive && <Check className="w-4 h-4 text-md3-primary mr-1 shrink-0" />}
-                                  <button
-                                    tabIndex={-1}
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setThemeToDelete(ct);
-                                    }}
-                                    className="p-1 rounded-lg text-md3-on-surface-variant hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                                    title={t.settings.themeDelete}
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
+                    {/* Нижняя панель шторки: Открыть папку + Обновить */}
+                    <div className="pt-2 border-t border-md3-outline-variant/15 flex items-center justify-between px-1">
+                      <button
+                        type="button"
+                        onClick={handleOpenThemesFolder}
+                        className="flex items-center gap-1.5 text-[11px] font-medium text-md3-primary hover:underline cursor-pointer"
+                      >
+                        <FolderOpen className="w-3 h-3" />
+                        <span>{t.settings.openThemesFolder}</span>
+                      </button>
 
-                        {/* Нижняя панель шторки: Открыть папку + Обновить */}
-                        <div className="pt-2 border-t border-md3-outline-variant/15 flex items-center justify-between px-1">
-                          <button
-                            type="button"
-                            onClick={handleOpenThemesFolder}
-                            className="flex items-center gap-1.5 text-[11px] font-medium text-md3-primary hover:underline cursor-pointer"
-                          >
-                            <FolderOpen className="w-3 h-3" />
-                            <span>{t.settings.openThemesFolder}</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={onRefreshCustomThemes}
-                            className="flex items-center gap-1 text-[11px] font-medium text-md3-on-surface-variant hover:text-md3-primary cursor-pointer p-1 rounded hover:bg-md3-surface"
-                            title={t.settings.reloadThemes}
-                          >
-                            <RefreshCw className="w-3 h-3" />
-                            <span>{t.settings.reloadThemes}</span>
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  )}
+                      <button
+                        type="button"
+                        onClick={onRefreshCustomThemes}
+                        className="flex items-center gap-1 text-[11px] font-medium text-md3-on-surface-variant hover:text-md3-primary cursor-pointer p-1 rounded hover:bg-md3-surface"
+                        title={t.settings.reloadThemes}
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>{t.settings.reloadThemes}</span>
+                      </button>
+                    </div>
+                  </SettingsCurtain>
                 </div>
               </div>
 
@@ -3368,58 +3363,57 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 {/* Раскрывающаяся шторка поверх содержимого */}
-                {isLangCurtainRendered && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setIsLangCurtainOpen(false)} />
-                    <div className={`absolute left-0 right-0 top-full mt-2 z-50 p-2.5 rounded-2xl bg-md3-surface-container-high/95 backdrop-blur-xl border border-md3-outline-variant/30 shadow-2xl space-y-2 origin-top ${langCurtainClass}`}>
-                      <div className="max-h-48 overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
-                        
-                        {/* Русский */}
-                        <button
-                          type="button"
-                          tabIndex={-1}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            onSetLanguage('ru');
-                            setIsLangCurtainOpen(false);
-                          }}
-                          className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left outline-none focus:outline-none ${
-                            language === 'ru'
-                              ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                              : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <span className="text-xs font-bold text-md3-on-surface">Русский</span>
-                          </div>
-                          {language === 'ru' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
-                        </button>
-
-                        {/* English */}
-                        <button
-                          type="button"
-                          tabIndex={-1}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            onSetLanguage('en');
-                            setIsLangCurtainOpen(false);
-                          }}
-                          className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left outline-none focus:outline-none ${
-                            language === 'en'
-                              ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
-                              : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <span className="text-xs font-bold text-md3-on-surface">English</span>
-                          </div>
-                          {language === 'en' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
-                        </button>
-
+                <SettingsCurtain
+                  open={isLangCurtainOpen}
+                  onClose={() => setIsLangCurtainOpen(false)}
+                  showBackdrop
+                  positionClassName="absolute left-0 right-0 top-full mt-2 z-50"
+                >
+                  <SettingsCurtainList>
+                    {/* Русский */}
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        onSetLanguage('ru');
+                        setIsLangCurtainOpen(false);
+                      }}
+                      className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left outline-none focus:outline-none ${
+                        language === 'ru'
+                          ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                          : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-xs font-bold text-md3-on-surface">Русский</span>
                       </div>
-                    </div>
-                  </>
-                )}
+                      {language === 'ru' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
+                    </button>
+
+                    {/* English */}
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        onSetLanguage('en');
+                        setIsLangCurtainOpen(false);
+                      }}
+                      className={`w-full p-2.5 rounded-xl border flex items-center justify-between transition-all cursor-pointer text-left outline-none focus:outline-none ${
+                        language === 'en'
+                          ? 'border-md3-primary bg-md3-primary/10 text-md3-primary font-bold shadow-xs'
+                          : 'border-md3-outline-variant/20 bg-md3-surface hover:bg-md3-surface-container-high'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-xs font-bold text-md3-on-surface">English</span>
+                      </div>
+                      {language === 'en' && <Check className="w-4 h-4 text-md3-primary shrink-0" />}
+                    </button>
+
+                  </SettingsCurtainList>
+                </SettingsCurtain>
               </div>
             </div>
 
